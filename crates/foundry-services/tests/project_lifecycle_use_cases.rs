@@ -772,7 +772,6 @@ async fn the_operator_lists_and_restores_a_deleted_project_and_refusals_change_n
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — teams::delete_preview counts live projects only"]
 async fn the_team_delete_preview_refuses_on_live_projects_only_and_names_only_them() {
     let l = labs().await;
     require_soft_delete(&l.pool).await;
@@ -831,7 +830,6 @@ async fn every_table(pool: &PgPool) -> Vec<String> {
 /// project remains) and the confirm branch (only deleted ones), changes zero
 /// rows in any table.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — teams::delete_preview changes zero rows (read-only)"]
 async fn the_team_delete_preview_changes_zero_rows_with_deleted_projects() {
     let l = labs().await;
     require_soft_delete(&l.pool).await;

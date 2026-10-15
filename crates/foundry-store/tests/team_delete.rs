@@ -647,6 +647,8 @@ async fn the_confirm_facts_count_members_default_tokens_and_projects() {
             is_default: true,
             scoped_token_count: 1,
             projects: vec![],
+            deleted_projects: vec![],
+            workspace_name: "Canzan Labs".into(),
         }
     );
     let backend = l
@@ -1179,6 +1181,16 @@ async fn seed_issue(
     author: uuid::Uuid,
 ) {
     sqlx::query(
+        "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+              SELECT gen_random_uuid(), $1, $2, 'backlog', 'Backlog', 0
+               WHERE NOT EXISTS (SELECT 1 FROM lanes WHERE project_id = $1)",
+    )
+    .bind(project_id)
+    .bind(ws)
+    .execute(pool)
+    .await
+    .expect("seed the backlog lane");
+    sqlx::query(
         "INSERT INTO issues (id, project_id, workspace_id, number, title, state, position, author_id)
               VALUES ($1, $2, $3, $4, 'kept', 'backlog', $4, $5)",
     )
@@ -1216,7 +1228,6 @@ async fn detaching_a_live_project_is_refused_by_the_check() {
 /// US-PL-05 scenario 1, INV-PL-6: a team whose only project is deleted is
 /// deleted; the project and its 12 issues survive, detached, naming the team.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — delete_team_if_empty detaches deleted projects"]
 async fn a_team_whose_projects_are_all_deleted_is_deleted_and_every_row_survives_detached() {
     let l = labs().await;
     require_detach_schema(&l.pool).await;
@@ -1265,7 +1276,6 @@ async fn a_team_whose_projects_are_all_deleted_is_deleted_and_every_row_survives
 /// US-PL-05 scenario 2: a live project still blocks, and the refusal names the
 /// live ones only; nothing changes.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — the team delete counts live projects only"]
 async fn a_team_with_a_live_and_a_deleted_project_is_refused_naming_the_live_one_only() {
     let l = labs().await;
     require_detach_schema(&l.pool).await;
@@ -1289,7 +1299,6 @@ async fn a_team_with_a_live_and_a_deleted_project_is_refused_naming_the_live_one
 
 /// DDD-21: the confirm page's "also has {k} deleted project(s)" facts, read-only.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — team_delete_facts gains deleted_projects and workspace_name"]
 async fn the_team_delete_facts_list_deleted_projects_and_the_workspace_name() {
     let l = labs().await;
     require_detach_schema(&l.pool).await;
@@ -1327,7 +1336,6 @@ async fn the_team_delete_facts_list_deleted_projects_and_the_workspace_name() {
 /// won (the restore is `TeamGone`). Never a lost project or issue, never an
 /// error outside {Restored, TeamGone, HasProjects}.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — restore (03-01) versus the detaching team delete"]
 async fn the_restore_versus_team_delete_race_never_loses_a_project_in_100_runs() {
     use foundry_store::ProjectRestoreOutcome;
     let l = labs().await;
@@ -1413,7 +1421,6 @@ async fn the_restore_versus_team_delete_race_never_loses_a_project_in_100_runs()
 
 /// US-PL-05 scenario 3: a detached project cannot be restored, and is not lost.
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — restore of a detached project is TeamGone"]
 async fn restoring_a_project_whose_team_was_deleted_is_team_gone_and_changes_nothing() {
     use foundry_store::ProjectRestoreOutcome;
     let l = labs().await;
@@ -1448,7 +1455,6 @@ async fn restoring_a_project_whose_team_was_deleted_is_team_gone_and_changes_not
 /// ADR-PROJECT-LIFECYCLE-004 Earned Trust: a workspace delete still cascades
 /// live, deleted and detached projects alike (the FK stays ON DELETE CASCADE).
 #[tokio::test]
-#[ignore = "pending: project-lifecycle 04-01 — workspace delete cascades detached projects"]
 async fn a_workspace_delete_cascades_live_deleted_and_detached_projects() {
     let l = labs().await;
     require_detach_schema(&l.pool).await;
@@ -1539,15 +1545,178 @@ async fn negative_control_a_restore_without_the_team_lock_against_a_filtered_det
 /// DDD-30: the detach backstop. If a live project row ever reaches the detach
 /// (a broken invariant), the CHECK `projects_team_or_detached` refuses it with
 /// 23514, and the store logs exactly ONE `error` event naming the team id and
-/// no names (no team, project or person name). DELIVER 04-01 asserts this with
-/// a captured `tracing` subscriber around a forced 23514 (a live row inserted
-/// with the team lock held, the `team_delete.rs` barrier idiom), and that every
-/// other refusal or race outcome logs nothing.
+/// no names (no team, project or person name). Asserted (DELIVER 04-02) with a
+/// captured `tracing` subscriber around a forced 23514 (a deleted row held by a
+/// second transaction, made live while the detach waits on it), and a refusal
+/// logging nothing.
 #[test]
-#[ignore = "pending: project-lifecycle 04-01 — the detach backstop logs one error naming the team (DDD-30)"]
 fn the_detach_backstop_logs_one_error_naming_the_team() {
-    panic!(
-        "Not yet implemented -- RED scaffold (project-lifecycle 04-01: the detach backstop's \
-         single error log, DDD-30)"
-    );
+    let captured = Captured::default();
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a runtime");
+    tracing::subscriber::with_default(captured.clone(), || {
+        runtime.block_on(async {
+            let l = labs().await;
+            require_detach_schema(&l.pool).await;
+            let ops = team(&l.pool, l.ws, "Ops", "ops").await;
+            pl_project(&l.pool, l.ws, ops, "Homelab Operations", "OPS").await;
+            let labs_team = team(&l.pool, l.ws, "Labs", "labs").await;
+            let proto = deleted_project(
+                &l.pool,
+                l.ws,
+                labs_team,
+                "Prototype Graveyard",
+                "PROTO",
+                l.priya,
+            )
+            .await;
+            captured.clear();
+            let refused = l
+                .store
+                .delete_team_if_empty(l.ws, ops, l.priya)
+                .await
+                .expect("the refusal");
+            assert!(
+                matches!(refused, TeamDeleteOutcome::HasProjects { .. }),
+                "{refused:?}"
+            );
+            assert_eq!(
+                captured.lines(),
+                Vec::<String>::new(),
+                "a refusal logs nothing"
+            );
+
+            // Force the broken invariant: hold PROTO's row, let the delete pass
+            // its live check and wait on the row in the detach, then make PROTO
+            // live underneath it. The detach re-reads the row (no deleted_at
+            // filter) and the CHECK refuses: 23514.
+            let mut holder = l.pool.begin().await.expect("begin the holder");
+            sqlx::query("SELECT 1 FROM projects WHERE id = $1 FOR UPDATE")
+                .bind(proto)
+                .execute(&mut *holder)
+                .await
+                .expect("hold PROTO's row");
+            let store = l.store.clone();
+            let (ws, priya) = (l.ws, l.priya);
+            let delete =
+                tokio::spawn(async move { store.delete_team_if_empty(ws, labs_team, priya).await });
+            wait_for_the_detach_to_block(&l.pool).await;
+            sqlx::query("UPDATE projects SET deleted_at = NULL, deleted_by = NULL WHERE id = $1")
+                .bind(proto)
+                .execute(&mut *holder)
+                .await
+                .expect("PROTO made live under the delete");
+            holder.commit().await.expect("commit the holder");
+            let backstop = delete.await.expect("delete task");
+            assert!(
+                backstop.is_err(),
+                "the CHECK refuses the detach of a live row: {backstop:?}"
+            );
+            assert!(team_exists(&l.pool, labs_team).await, "the team is kept");
+            assert_eq!(
+                count(
+                    &l.pool,
+                    "SELECT count(*) FROM projects WHERE id = $1 AND team_id IS NOT NULL",
+                    proto
+                )
+                .await,
+                1,
+                "PROTO is kept, on its team"
+            );
+            let lines = captured.lines();
+            assert_eq!(lines.len(), 1, "exactly one event: {lines:?}");
+            let line = &lines[0];
+            assert!(line.starts_with("ERROR "), "an error: {line}");
+            assert!(
+                line.contains(&labs_team.to_string()),
+                "names the team id: {line}"
+            );
+            for name in [
+                "Labs",
+                "labs",
+                "Prototype",
+                "PROTO",
+                "priya",
+                "Canzan",
+                "Ops",
+            ] {
+                assert!(!line.contains(name), "no names ({name}): {line}");
+            }
+        });
+    });
+}
+
+/// Waits until a backend is blocked on a row lock inside the detach statement.
+async fn wait_for_the_detach_to_block(pool: &PgPool) {
+    for _ in 0..200 {
+        let (waiting,): (i64,) = sqlx::query_as(
+            "SELECT count(*) FROM pg_stat_activity
+              WHERE wait_event_type = 'Lock' AND query LIKE '%detached_from_team_id%'",
+        )
+        .fetch_one(pool)
+        .await
+        .expect("read pg_stat_activity");
+        if waiting == 1 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    panic!("the detach never waited on the held row");
+}
+
+/// A `tracing` subscriber that keeps every `warn` and `error` event as one line,
+/// `LEVEL target: field=value ...` (DDD-30's log assertions).
+#[derive(Clone, Default)]
+struct Captured(Arc<std::sync::Mutex<Vec<String>>>);
+
+impl Captured {
+    fn lines(&self) -> Vec<String> {
+        self.0.lock().expect("captured lines").clone()
+    }
+
+    fn clear(&self) {
+        self.0.lock().expect("captured lines").clear();
+    }
+}
+
+struct LineVisitor(String);
+
+impl tracing::field::Visit for LineVisitor {
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        self.0.push_str(&format!(" {}={:?}", field.name(), value));
+    }
+}
+
+impl tracing::Subscriber for Captured {
+    fn register_callsite(
+        &self,
+        _: &'static tracing::Metadata<'static>,
+    ) -> tracing::subscriber::Interest {
+        tracing::subscriber::Interest::sometimes()
+    }
+
+    fn enabled(&self, metadata: &tracing::Metadata<'_>) -> bool {
+        *metadata.level() <= tracing::Level::WARN
+    }
+
+    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
+        tracing::span::Id::from_u64(1)
+    }
+
+    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
+
+    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
+
+    fn event(&self, event: &tracing::Event<'_>) {
+        let meta = event.metadata();
+        let mut visitor = LineVisitor(format!("{} {}:", meta.level(), meta.target()));
+        event.record(&mut visitor);
+        self.0.lock().expect("captured lines").push(visitor.0);
+    }
+
+    fn enter(&self, _: &tracing::span::Id) {}
+
+    fn exit(&self, _: &tracing::span::Id) {}
 }

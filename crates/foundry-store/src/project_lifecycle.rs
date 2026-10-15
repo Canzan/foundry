@@ -2,22 +2,17 @@
 //! base table once `live_projects` exists (DESIGN DDD-1, DDD-3;
 //! ADR-PROJECT-LIFECYCLE-001 to -004).
 //!
-//! SCAFFOLD: true — RED scaffold written by DISTILL (2026-10-13). The row and
-//! outcome types are real (the store gold tests in `tests/project_lifecycle.rs`,
-//! `tests/team_delete.rs` and the use-case tests in `foundry-services` match on
-//! them); every method not yet shipped panics until its DELIVER step.
+//! The store gold tests in `tests/project_lifecycle.rs`, `tests/team_delete.rs`
+//! and the use-case tests in `foundry-services` match on the row and outcome
+//! types below.
 //! Shipped (01-02): `list_team_sibling_projects` (moved in unchanged),
 //! `list_team_projects` and `rename_project_with_audit`. Moved in (02-03):
 //! the export's `projects` entry, `TEAM_PROJECTS_SQL` and
-//! `count_projects_by_name`, each unchanged and still reading every row.
-//! Shipped (02-05): `soft_delete_project`. Shipped (03-01):
-//! `list_deleted_projects` and `restore_deleted_project`.
-//! Signatures are DISTILL's working choice within what DESIGN pinned (names,
-//! arguments where the ADRs give them, and outcomes): if DELIVER changes one,
-//! it changes the gold tests with it.
-//!
-//! DELIVER folds [`TeamDeletedProjects`] into `TeamDeleteFacts`
-//! (ADR-PROJECT-LIFECYCLE-004 decision 2).
+//! `count_projects_by_name`. Shipped (02-05): `soft_delete_project`. Shipped
+//! (03-01): `list_deleted_projects` and `restore_deleted_project`. Shipped
+//! (04-02): the team delete's detach and `team_deleted_projects`, whose fields
+//! `team_delete_facts` folds into `TeamDeleteFacts` (DDD-20, DDD-21;
+//! ADR-PROJECT-LIFECYCLE-004 decision 2).
 
 use crate::{Store, StoreError};
 
@@ -29,12 +24,12 @@ pub(crate) const EXPORT_PROJECTS: (&str, &str) = (
     "SELECT to_jsonb(t.*)::text FROM projects t WHERE t.workspace_id = $1 ORDER BY 1",
 );
 
-/// A team's projects as `(name, key)`, by name then key: the team delete
-/// confirm page's list and the delete's refusal (DDD-8, DDD-10). Reads EVERY
-/// row, a deleted project included, until 04-02 detaches them: a team delete
-/// that ignored a deleted project would let the FK cascade erase it.
+/// A team's LIVE projects as `(name, key)`, by name then key: the team delete
+/// confirm page's list and the delete's refusal (DDD-8, DDD-10, DDD-21). A
+/// deleted project never blocks a team delete: the delete detaches it
+/// ([`detach_team_projects`]).
 pub(crate) const TEAM_PROJECTS_SQL: &str =
-    "SELECT name, key_prefix FROM projects WHERE team_id = $1 ORDER BY name, key_prefix";
+    "SELECT name, key_prefix FROM live_projects WHERE team_id = $1 ORDER BY name, key_prefix";
 
 /// The readiness probe's migration-0026 check (DDD-28): the soft-delete
 /// marker columns on `projects` and the `live_projects` view, scoped to the
@@ -111,12 +106,18 @@ pub struct DeletedProjectRow {
 /// `list-deleted-projects`'s read (D10, D14): every deleted project with its
 /// workspace's name, its team's slug, its issue count and the deleting user's
 /// email, oldest deletion first, `id` breaking ties.
-const DELETED_PROJECTS_SQL: &str = "SELECT p.id, w.name, t.slug, p.name, p.key_prefix,
+/// A detached project (NULL `team_id`) carries the slug of its team's
+/// `deleted` record (DIST-3).
+const DELETED_PROJECTS_SQL: &str = "SELECT p.id, w.name,
+        coalesce(t.slug, (SELECT e.team_slug FROM team_lifecycle_events e
+                           WHERE e.team_id = p.detached_from_team_id AND e.kind = 'deleted'
+                           ORDER BY e.created_at DESC LIMIT 1), ''),
+        p.name, p.key_prefix,
         (SELECT count(*) FROM issues i WHERE i.project_id = p.id),
         p.deleted_at, u.email_lower
    FROM projects p
    JOIN workspaces w ON w.id = p.workspace_id
-   JOIN teams t ON t.id = p.team_id
+   LEFT JOIN teams t ON t.id = p.team_id
    JOIN users u ON u.id = p.deleted_by
   WHERE p.deleted_at IS NOT NULL
   ORDER BY p.deleted_at, p.id";
@@ -165,8 +166,9 @@ pub enum ProjectRestoreOutcome {
 }
 
 /// The team delete page's extra facts (DDD-21): the workspace's name and the
-/// team's deleted projects as `(name, key)`, by name then key. DELIVER folds
-/// these into `TeamDeleteFacts`.
+/// team's deleted projects as `(name, key)`, by name then key. Read here
+/// because the deleted rows are only on the base table; `team_delete_facts`
+/// folds them into `TeamDeleteFacts`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TeamDeletedProjects {
     pub workspace_name: String,
@@ -190,6 +192,35 @@ pub(crate) async fn lock_live_project(
             .fetch_optional(&mut **tx)
             .await?;
     Ok(live.is_some())
+}
+
+/// The team delete's detach (DDD-20, ADR-PROJECT-LIFECYCLE-004), inside the
+/// delete's transaction, after the team `FOR UPDATE` and the live-project
+/// check, before `DELETE FROM teams`: EVERY remaining row of the team loses its
+/// team and names it in `detached_from_team_id`, so the FK cascade erases
+/// none. No `deleted_at` filter: a live row slipping through is refused by the
+/// CHECK `projects_team_or_detached` (23514, [`is_detach_backstop`]), loudly,
+/// never cascaded silently.
+pub(crate) async fn detach_team_projects(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    team_id: uuid::Uuid,
+) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "UPDATE projects SET team_id = NULL, detached_from_team_id = $1 WHERE team_id = $1",
+    )
+    .bind(team_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// The detach backstop refusing: SQLSTATE 23514 on `projects_team_or_detached`,
+/// and only that one (a live project reached the detach: a broken invariant).
+pub(crate) fn is_detach_backstop(err: &sqlx::Error) -> bool {
+    err.as_database_error().is_some_and(|db| {
+        db.code().as_deref() == Some("23514")
+            && db.constraint() == Some("projects_team_or_detached")
+    })
 }
 
 /// An issue-keyed writer's pre-read, inside its transaction and before its
@@ -395,15 +426,25 @@ impl Store {
         &self,
         project_id: uuid::Uuid,
     ) -> Result<ProjectRestoreOutcome, StoreError> {
-        let seen: Option<(uuid::Uuid, bool)> =
-            sqlx::query_as("SELECT team_id, deleted_at IS NOT NULL FROM projects WHERE id = $1")
-                .bind(project_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        type Seen = (Option<uuid::Uuid>, Option<uuid::Uuid>, bool);
+        let seen: Option<Seen> = sqlx::query_as(
+            "SELECT team_id, detached_from_team_id, deleted_at IS NOT NULL
+               FROM projects WHERE id = $1",
+        )
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
         let team_id = match seen {
             None => return Ok(ProjectRestoreOutcome::NotFound),
-            Some((_, false)) => return Ok(ProjectRestoreOutcome::NotDeleted),
-            Some((team_id, true)) => team_id,
+            Some((_, _, false)) => return Ok(ProjectRestoreOutcome::NotDeleted),
+            Some((Some(team_id), _, true)) => team_id,
+            Some((None, detached_from, true)) => {
+                return Ok(ProjectRestoreOutcome::TeamGone {
+                    team_slug: self
+                        .deleted_team_slug(detached_from.unwrap_or_default())
+                        .await?,
+                })
+            }
         };
         let mut tx = self.pool.begin().await?;
         let team: Option<(i32,)> =
@@ -417,18 +458,19 @@ impl Store {
                 team_slug: self.deleted_team_slug(team_id).await?,
             });
         }
-        let locked: Option<(uuid::Uuid, uuid::Uuid, String, String, String)> = sqlx::query_as(
-            "SELECT workspace_id, team_id, slug, key_prefix, name
+        let locked: Option<(uuid::Uuid, Option<uuid::Uuid>, String, String, String)> =
+            sqlx::query_as(
+                "SELECT workspace_id, team_id, slug, key_prefix, name
                FROM projects WHERE id = $1 AND deleted_at IS NOT NULL FOR UPDATE",
-        )
-        .bind(project_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+            )
+            .bind(project_id)
+            .fetch_optional(&mut *tx)
+            .await?;
         let Some((workspace_id, locked_team_id, slug, key_prefix, name)) = locked else {
             tx.rollback().await?;
             return Ok(ProjectRestoreOutcome::NotDeleted);
         };
-        if locked_team_id != team_id {
+        if locked_team_id != Some(team_id) {
             tx.rollback().await?;
             return Ok(ProjectRestoreOutcome::TeamGone {
                 team_slug: self.deleted_team_slug(team_id).await?,
@@ -471,13 +513,31 @@ impl Store {
         Ok(slug.unwrap_or_default())
     }
 
-    /// The team delete page's deleted-projects line (DDD-21), read with no lock.
+    /// The team delete page's deleted-projects line (DDD-21): the workspace's
+    /// name (empty for an unknown team) and the team's deleted projects, by
+    /// name then key. Read with no lock (advisory); writes nothing.
     pub async fn team_deleted_projects(
         &self,
-        _team_id: uuid::Uuid,
+        team_id: uuid::Uuid,
     ) -> Result<TeamDeletedProjects, StoreError> {
-        panic!(
-            "Not yet implemented -- RED scaffold (project-lifecycle 04-01: team_delete_facts deleted_projects)"
+        let workspace_name: Option<String> = sqlx::query_scalar(
+            "SELECT w.name FROM teams t JOIN workspaces w ON w.id = t.workspace_id
+              WHERE t.id = $1",
         )
+        .bind(team_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        let deleted_projects = sqlx::query_as(
+            "SELECT name, key_prefix FROM projects
+              WHERE team_id = $1 AND deleted_at IS NOT NULL
+              ORDER BY name, key_prefix",
+        )
+        .bind(team_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(TeamDeletedProjects {
+            workspace_name: workspace_name.unwrap_or_default(),
+            deleted_projects,
+        })
     }
 }

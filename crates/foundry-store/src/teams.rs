@@ -17,7 +17,7 @@
 //! foreign key (DDD-12, DDD-14), and the crate-private placement helper
 //! `place_on_default_team` (DDD-13), run in a savepoint by the newcomer paths.
 
-use crate::project_lifecycle::TEAM_PROJECTS_SQL;
+use crate::project_lifecycle::{detach_team_projects, is_detach_backstop, TEAM_PROJECTS_SQL};
 use crate::{Store, StoreError};
 use foundry_core::TeamRole;
 
@@ -555,8 +555,14 @@ pub struct TeamDeleteFacts {
     pub is_default: bool,
     /// Machine tokens scoped to the team.
     pub scoped_token_count: i64,
-    /// The team's projects as `(name, key)`, by name then key.
+    /// The team's live projects as `(name, key)`, by name then key: any one
+    /// refuses the delete.
     pub projects: Vec<(String, String)>,
+    /// The team's deleted projects as `(name, key)`, by name then key: the
+    /// delete detaches them (DDD-21).
+    pub deleted_projects: Vec<(String, String)>,
+    /// The name of the team's workspace (DDD-21).
+    pub workspace_name: String,
 }
 
 /// The outcome of [`Store::delete_team_if_empty`] (DDD-7, DDD-8, INV-TL-1).
@@ -565,8 +571,8 @@ pub enum TeamDeleteOutcome {
     /// The team, its memberships and its scoped tokens are gone, the default
     /// cleared if it pointed here, and one `deleted` record was written.
     Deleted { name: String, slug: String },
-    /// The team had projects at commit time, as `(name, key)` by name then key;
-    /// nothing was written.
+    /// The team had live projects at commit time, as `(name, key)` by name
+    /// then key; nothing was written.
     HasProjects { projects: Vec<(String, String)> },
     /// No such team in the workspace (or it is already gone); nothing written.
     NotFound,
@@ -711,11 +717,14 @@ impl Store {
             .bind(team_id)
             .fetch_all(&self.pool)
             .await?;
+        let deleted = self.team_deleted_projects(team_id).await?;
         Ok(TeamDeleteFacts {
             member_count,
             is_default,
             scoped_token_count,
             projects,
+            deleted_projects: deleted.deleted_projects,
+            workspace_name: deleted.workspace_name,
         })
     }
 
@@ -725,13 +734,18 @@ impl Store {
     /// 1. the team row `FOR UPDATE` — NOT `FOR NO KEY UPDATE`: only `FOR UPDATE`
     ///    conflicts with the `KEY SHARE` every project insert's foreign-key
     ///    check takes, so no project can commit on this team until we end;
-    /// 2. its projects, in a NEW statement — after a lock wait it sees the
-    ///    project the waited-on create committed (one `DELETE … WHERE NOT
-    ///    EXISTS` would keep its starting snapshot and cascade over it);
-    /// 3. `DELETE FROM teams` — the cascade takes the memberships (0021 exempts
+    /// 2. its LIVE projects, in a NEW statement — after a lock wait it sees the
+    ///    project the waited-on create or restore committed (one `DELETE …
+    ///    WHERE NOT EXISTS` would keep its starting snapshot and cascade over
+    ///    it); any one refuses, naming the live projects only;
+    /// 3. the detach of every remaining row (project-lifecycle DDD-20, amending
+    ///    this ADR): the deleted projects keep their rows, detached, and the
+    ///    cascade erases none. A live row reaching it is the CHECK's 23514: one
+    ///    `error` naming the team id (DDD-30) and the error returned;
+    /// 4. `DELETE FROM teams` — the cascade takes the memberships (0021 exempts
     ///    a team that is gone) and the scoped tokens, and 0022 clears the
     ///    default;
-    /// 4. the `deleted` record (INV-TL-9), so the delete commits with it or not
+    /// 5. the `deleted` record (INV-TL-9), so the delete commits with it or not
     ///    at all.
     pub async fn delete_team_if_empty(
         &self,
@@ -758,6 +772,12 @@ impl Store {
         if !projects.is_empty() {
             tx.rollback().await?;
             return Ok(TeamDeleteOutcome::HasProjects { projects });
+        }
+        if let Err(err) = detach_team_projects(&mut tx, team_id).await {
+            if is_detach_backstop(&err) {
+                tracing::error!(%team_id, "the detach backstop refused a live project row on a team delete");
+            }
+            return Err(err.into());
         }
         sqlx::query("DELETE FROM teams WHERE id = $1")
             .bind(team_id)
