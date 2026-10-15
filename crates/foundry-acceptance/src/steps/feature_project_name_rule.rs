@@ -104,7 +104,9 @@ const GATE_KEY: &str = "OPS";
 /// through SQL; never an internal struct).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectRecord {
-    pub team_id: uuid::Uuid,
+    /// `None` for a deleted project detached from its gone team (migration
+    /// 0027): the base table is read, so a detached row must decode too.
+    pub team_id: Option<uuid::Uuid>,
     pub name: String,
     pub slug: String,
     pub key_prefix: String,
@@ -233,7 +235,7 @@ fn input_value(html: &str, css: &str) -> Option<String> {
 
 pub(crate) async fn capture_project_universe(world: &FoundryWorld) -> ProjectUniverse {
     let pool = pool(world);
-    type Row = (uuid::Uuid, uuid::Uuid, String, String, String, i32);
+    type Row = (uuid::Uuid, Option<uuid::Uuid>, String, String, String, i32);
     let rows: Vec<Row> = sqlx::query_as(
         "SELECT id, team_id, name, slug, key_prefix, next_issue_number FROM projects",
     )
@@ -1133,7 +1135,7 @@ async fn exactly_one_named(world: &mut FoundryWorld, team: String, name: String)
     let matching = after
         .projects
         .values()
-        .filter(|p| p.team_id == team_id && p.name.to_lowercase() == lowered)
+        .filter(|p| p.team_id == Some(team_id) && p.name.to_lowercase() == lowered)
         .count();
     assert_eq!(
         matching, 1,

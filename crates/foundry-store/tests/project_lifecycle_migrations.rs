@@ -28,9 +28,10 @@ use foundry_store::{
     run_boot_migrations_from_dir, run_migrations, run_migrations_from_dir, upgrade_warnings,
     MigrationReport, Store, UPGRADE_WARNING_0023, UPGRADE_WARNING_0025, UPGRADE_WARNING_0026,
 };
-use sqlx::postgres::{PgDatabaseError, PgPoolOptions};
+use sqlx::postgres::{PgConnectOptions, PgDatabaseError, PgPoolOptions};
 use sqlx::PgPool;
 use std::path::PathBuf;
+use std::str::FromStr;
 use std::time::Duration;
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
@@ -296,6 +297,79 @@ async fn the_probe_refuses_a_schema_without_the_project_lifecycle_record() {
             .await
             .expect("a schema at 0025 is ready (slice 01 alone)");
     }
+}
+
+/// The eleven columns of `project_lifecycle_events` the probe counts (DDD-28).
+const RECORD_COLUMNS: [&str; 11] = [
+    "id",
+    "workspace_id",
+    "project_id",
+    "team_id",
+    "project_slug",
+    "key_prefix",
+    "kind",
+    "actor_id",
+    "name",
+    "new_name",
+    "created_at",
+];
+
+/// Review TG-7 (DDD-28): the probe counts all eleven record columns. For each
+/// one, a scratch schema migrated to head and then missing that column alone
+/// is refused, the probe naming "(found 10 of 11)". Each schema is first shown
+/// ready, so the refusal is the dropped column's doing.
+#[tokio::test]
+async fn the_probe_refuses_a_record_table_missing_any_one_of_its_eleven_columns() {
+    require_0025();
+    let (admin, c) = fresh().await;
+    let host = c.get_host().await.expect("container host");
+    let port = c.get_host_port_ipv4(5432).await.expect("container port");
+    let base = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+    let mut survived = Vec::new();
+    for column in RECORD_COLUMNS {
+        let schema = format!("pl_missing_{column}");
+        exec(&admin, &format!("CREATE SCHEMA {schema}")).await;
+        let pool = PgPoolOptions::new()
+            .max_connections(2)
+            .acquire_timeout(Duration::from_secs(10))
+            .connect_with(
+                PgConnectOptions::from_str(&base)
+                    .expect("parse the base url")
+                    .options([("search_path", schema.as_str())]),
+            )
+            .await
+            .expect("connect to the scratch schema");
+        run_migrations(&pool)
+            .await
+            .expect("migrate the scratch schema");
+        let store = Store::from_pool(pool.clone());
+        store
+            .probe()
+            .await
+            .unwrap_or_else(|e| panic!("precondition: {schema} at head is ready: {e}"));
+        exec(
+            &pool,
+            &format!("ALTER TABLE project_lifecycle_events DROP COLUMN {column} CASCADE"),
+        )
+        .await;
+        match store.probe().await {
+            Ok(_) => survived.push(format!("{column}: ready")),
+            Err(e) => {
+                let said = e.to_string();
+                if !said.contains(
+                    "project_lifecycle_events missing migration-0025 columns (found 10 of 11)",
+                ) {
+                    survived.push(format!("{column}: {said}"));
+                }
+            }
+        }
+        pool.close().await;
+    }
+    assert!(
+        survived.is_empty(),
+        "the probe must refuse each missing record column, naming (found 10 of 11):\n{}",
+        survived.join("\n")
+    );
 }
 
 // ---------------------------------------------------------------------------

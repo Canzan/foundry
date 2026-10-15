@@ -69,6 +69,73 @@ async fn connect(c: &ContainerAsync<Postgres>) -> PgPool {
         .expect("connect pool")
 }
 
+// ---------------------------------------------------------------------------
+// Lock waits, observed at the server (review TG-5, TG-6): a "waits" claim is
+// proven by the waiting session showing up in `pg_stat_activity` blocked by the
+// holder, never by a sleep and a still-running task.
+// ---------------------------------------------------------------------------
+
+/// How long a spawned statement may take to show up as waiting on the holder.
+const LOCK_WAIT_DEADLINE: Duration = Duration::from_secs(10);
+
+/// The server process behind `conn`: the holder a spawned task must wait on.
+async fn backend_pid(conn: &mut sqlx::PgConnection) -> i32 {
+    sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(conn)
+        .await
+        .expect("read the holder's backend pid")
+}
+
+/// Polls `pg_stat_activity` (bounded by [`LOCK_WAIT_DEADLINE`]) until a
+/// session of this database waits on a lock (`wait_event_type = 'Lock'`) that
+/// the `holder` backend holds (`holder` is among its `pg_blocking_pids`), its
+/// running statement containing `marker` when one is given, and returns that
+/// session's pid: the spawned `task`'s, the only other statement in flight.
+/// Fails with `what` if not: naming the outcome when the task already finished
+/// (it never waited), or saying it is still running but never waited there.
+async fn must_wait_behind<T: std::fmt::Debug>(
+    pool: &PgPool,
+    holder: i32,
+    marker: Option<&str>,
+    task: &mut tokio::task::JoinHandle<T>,
+    what: &str,
+) -> i32 {
+    let deadline = tokio::time::Instant::now() + LOCK_WAIT_DEADLINE;
+    loop {
+        let waiter: Option<i32> = sqlx::query_scalar(
+            "SELECT pid FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event_type = 'Lock'
+                AND $1 = ANY(pg_blocking_pids(pid))
+                AND ($2::text IS NULL OR strpos(query, $2) > 0)
+              LIMIT 1",
+        )
+        .bind(holder)
+        .bind(marker)
+        .fetch_optional(pool)
+        .await
+        .expect("read pg_stat_activity");
+        if let Some(pid) = waiter {
+            return pid;
+        }
+        if task.is_finished() {
+            let outcome = (&mut *task).await;
+            panic!(
+                "{what}: it never waited on backend {holder}: it already finished with {outcome:?}"
+            );
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "{what}: no session waited on backend {holder}'s lock{} within \
+                 {LOCK_WAIT_DEADLINE:?}, and the task is still running",
+                marker
+                    .map(|m| format!(" in a statement naming {m}"))
+                    .unwrap_or_default()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// RED gate: migration 0023 has created the lifecycle record table.
 async fn require_lifecycle_records_installed(pool: &PgPool) {
     let (present,): (bool,) =
@@ -398,9 +465,10 @@ async fn a_read_after_the_team_lock_wait_sees_a_project_committed_meanwhile() {
         .execute(&mut *create)
         .await
         .expect("the create holds KEY SHARE on Design");
+    let holder = backend_pid(&mut create).await;
     let pool = l.pool.clone();
     let design = l.design;
-    let delete = tokio::spawn(async move {
+    let mut delete = tokio::spawn(async move {
         let mut tx = pool.begin().await.expect("begin delete");
         sqlx::query("SELECT 1 FROM teams WHERE id = $1 FOR UPDATE")
             .bind(design)
@@ -415,7 +483,14 @@ async fn a_read_after_the_team_lock_wait_sees_a_project_committed_meanwhile() {
         tx.rollback().await.expect("rollback delete");
         n
     });
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    must_wait_behind(
+        &l.pool,
+        holder,
+        None,
+        &mut delete,
+        "the delete waits on the create's KEY SHARE",
+    )
+    .await;
     create.commit().await.expect("the create commits");
     assert_eq!(
         delete.await.expect("delete task"),
@@ -604,9 +679,10 @@ async fn negative_control_single_delete_where_not_exists_loses_a_project() {
         .execute(&mut *create)
         .await
         .expect("the create holds KEY SHARE on Design");
+    let holder = backend_pid(&mut create).await;
     let pool = l.pool.clone();
     let design = l.design;
-    let delete = tokio::spawn(async move {
+    let mut delete = tokio::spawn(async move {
         sqlx::query(
             "DELETE FROM teams WHERE id = $1
                 AND NOT EXISTS (SELECT 1 FROM projects WHERE team_id = $1)",
@@ -617,7 +693,14 @@ async fn negative_control_single_delete_where_not_exists_loses_a_project() {
         .expect("the single-statement delete")
         .rows_affected()
     });
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    must_wait_behind(
+        &l.pool,
+        holder,
+        None,
+        &mut delete,
+        "control (b) waits on the create's KEY SHARE",
+    )
+    .await;
     create.commit().await.expect("the create commits");
     let deleted = delete.await.expect("delete task");
     assert_eq!(deleted, 1, "the single statement deleted the team");
@@ -820,10 +903,19 @@ async fn a_delete_waiting_on_a_project_create_refuses_naming_the_new_project() {
         .execute(&mut *create)
         .await
         .expect("the create holds KEY SHARE on Design");
+    let holder = backend_pid(&mut create).await;
     let store = l.store.clone();
     let (ws, design, priya) = (l.ws, l.design, l.priya);
-    let delete = tokio::spawn(async move { store.delete_team_if_empty(ws, design, priya).await });
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    let mut delete =
+        tokio::spawn(async move { store.delete_team_if_empty(ws, design, priya).await });
+    must_wait_behind(
+        &l.pool,
+        holder,
+        None,
+        &mut delete,
+        "the delete waits on the create's KEY SHARE",
+    )
+    .await;
     create.commit().await.expect("the create commits");
     let outcome = delete.await.expect("task").expect("no error");
     assert_eq!(
@@ -856,9 +948,10 @@ async fn a_project_create_waiting_on_a_delete_answers_team_gone() {
         .execute(&mut *delete)
         .await
         .expect("delete, not yet committed");
+    let holder = backend_pid(&mut delete).await;
     let store = l.store.clone();
     let (ws, design) = (l.ws, l.design);
-    let create = tokio::spawn(async move {
+    let mut create = tokio::spawn(async move {
         store
             .insert_project(
                 uuid::Uuid::now_v7(),
@@ -870,7 +963,14 @@ async fn a_project_create_waiting_on_a_delete_answers_team_gone() {
             )
             .await
     });
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    must_wait_behind(
+        &l.pool,
+        holder,
+        None,
+        &mut create,
+        "the create waits on the delete's lock",
+    )
+    .await;
     delete.commit().await.expect("the delete commits");
     let result = create.await.expect("task");
     assert!(
@@ -903,17 +1003,25 @@ async fn an_add_and_a_default_set_waiting_on_a_delete_answer_team_gone() {
             .execute(&mut *delete)
             .await
             .expect("delete, not yet committed");
+        let holder = backend_pid(&mut delete).await;
         let store = l.store.clone();
         let (ws, priya) = (l.ws, l.priya);
         let w = writer.to_string();
-        let racing = tokio::spawn(async move {
+        let mut racing = tokio::spawn(async move {
             if w == "add" {
                 format!("{:?}", store.add_team_member(ws, doomed, priya).await)
             } else {
                 format!("{:?}", store.set_default_team(ws, Some(doomed)).await)
             }
         });
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        must_wait_behind(
+            &l.pool,
+            holder,
+            None,
+            &mut racing,
+            &format!("{writer} waits on the delete's lock"),
+        )
+        .await;
         delete.commit().await.expect("the delete commits");
         let result = racing.await.expect("task");
         assert!(
@@ -1598,11 +1706,19 @@ fn the_detach_backstop_logs_one_error_naming_the_team() {
                 .execute(&mut *holder)
                 .await
                 .expect("hold PROTO's row");
+            let holder_pid = backend_pid(&mut holder).await;
             let store = l.store.clone();
             let (ws, priya) = (l.ws, l.priya);
-            let delete =
+            let mut delete =
                 tokio::spawn(async move { store.delete_team_if_empty(ws, labs_team, priya).await });
-            wait_for_the_detach_to_block(&l.pool).await;
+            must_wait_behind(
+                &l.pool,
+                holder_pid,
+                Some("detached_from_team_id"),
+                &mut delete,
+                "the team delete's detach waits on PROTO's held row",
+            )
+            .await;
             sqlx::query("UPDATE projects SET deleted_at = NULL, deleted_by = NULL WHERE id = $1")
                 .bind(proto)
                 .execute(&mut *holder)
@@ -1646,24 +1762,6 @@ fn the_detach_backstop_logs_one_error_naming_the_team() {
             }
         });
     });
-}
-
-/// Waits until a backend is blocked on a row lock inside the detach statement.
-async fn wait_for_the_detach_to_block(pool: &PgPool) {
-    for _ in 0..200 {
-        let (waiting,): (i64,) = sqlx::query_as(
-            "SELECT count(*) FROM pg_stat_activity
-              WHERE wait_event_type = 'Lock' AND query LIKE '%detached_from_team_id%'",
-        )
-        .fetch_one(pool)
-        .await
-        .expect("read pg_stat_activity");
-        if waiting == 1 {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("the detach never waited on the held row");
 }
 
 /// A `tracing` subscriber that keeps every `warn` and `error` event as one line,

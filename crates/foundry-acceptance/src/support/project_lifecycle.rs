@@ -3199,6 +3199,27 @@ pub fn then_rows_work_without_scripts(world: &FoundryWorld) {
     }
 }
 
+/// D14 (review TG-8): the team delete page's "{team} also has {k} deleted
+/// project(s): …" line is shown only when k > 0; a team with no deleted
+/// project gets no such sentence, not even "0 deleted project(s)".
+pub fn then_delete_page_silent_on_deleted_projects(world: &FoundryWorld) {
+    let answer = tm::last(world);
+    assert_eq!(
+        answer.status,
+        StatusCode::OK,
+        "the delete page renders; {}",
+        tm::describe(answer)
+    );
+    let text = tm::page_text(&answer.body);
+    for copy in ["also has", "deleted project(s)"] {
+        assert!(
+            !text.contains(copy),
+            "the page must not mention {copy:?} for a team with no deleted project; {}",
+            tm::describe(answer)
+        );
+    }
+}
+
 pub fn then_page_works_without_scripts(world: &FoundryWorld) {
     let answer = tm::last(world);
     tl::require_status(answer, StatusCode::OK, "the delete page renders");

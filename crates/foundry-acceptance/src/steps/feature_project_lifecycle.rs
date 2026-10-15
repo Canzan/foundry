@@ -553,6 +553,11 @@ async fn page_scriptless(world: &mut FoundryWorld) {
     pl::then_page_works_without_scripts(world);
 }
 
+#[then(regex = r"^the delete page says nothing about deleted projects$")]
+async fn page_silent_on_deleted_projects(world: &mut FoundryWorld) {
+    pl::then_delete_page_silent_on_deleted_projects(world);
+}
+
 #[then(regex = r"^the same door in (.+), which is live, answers otherwise$")]
 async fn live_otherwise(world: &mut FoundryWorld, project: String) {
     pl::then_live_answers_otherwise(world, &project);

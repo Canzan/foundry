@@ -556,6 +556,78 @@ async fn count(pool: &PgPool, sql: &str, id: Id) -> i64 {
     n
 }
 
+// ---------------------------------------------------------------------------
+// Lock waits, observed at the server (review TG-5): a "waits" claim is proven
+// by the waiting session showing up in `pg_stat_activity` blocked by the
+// holder, never by a sleep and a still-running task.
+// ---------------------------------------------------------------------------
+
+/// How long a spawned statement may take to show up as waiting on the holder.
+const LOCK_WAIT_DEADLINE: Duration = Duration::from_secs(10);
+
+/// The server process behind `conn`: the holder a spawned task must wait on.
+async fn backend_pid(conn: &mut sqlx::PgConnection) -> i32 {
+    sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(conn)
+        .await
+        .expect("read the holder's backend pid")
+}
+
+/// Polls `pg_stat_activity` (bounded by [`LOCK_WAIT_DEADLINE`]) until a
+/// session of this database waits on a lock (`wait_event_type = 'Lock'`) that
+/// the `holder` backend holds (`holder` is among its `pg_blocking_pids`), and
+/// returns that session's pid: the spawned `task`'s, the only other statement
+/// in flight. `Err` says why not: the task already finished (and with what
+/// outcome; the task is then consumed and must not be awaited again), or it
+/// is still running but never waited on the holder.
+async fn waits_behind<T: std::fmt::Debug>(
+    pool: &PgPool,
+    holder: i32,
+    task: &mut tokio::task::JoinHandle<T>,
+) -> Result<i32, String> {
+    let deadline = tokio::time::Instant::now() + LOCK_WAIT_DEADLINE;
+    loop {
+        let waiter: Option<i32> = sqlx::query_scalar(
+            "SELECT pid FROM pg_stat_activity
+              WHERE datname = current_database() AND wait_event_type = 'Lock'
+                AND $1 = ANY(pg_blocking_pids(pid))
+              LIMIT 1",
+        )
+        .bind(holder)
+        .fetch_optional(pool)
+        .await
+        .expect("read pg_stat_activity");
+        if let Some(pid) = waiter {
+            return Ok(pid);
+        }
+        if task.is_finished() {
+            let outcome = (&mut *task).await;
+            return Err(format!(
+                "it never waited on backend {holder}: it already finished with {outcome:?}"
+            ));
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return Err(format!(
+                "no session waited on backend {holder}'s lock within {LOCK_WAIT_DEADLINE:?}, \
+                 and the task is still running"
+            ));
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// [`waits_behind`], failing the test with `what` on `Err`.
+async fn must_wait_behind<T: std::fmt::Debug>(
+    pool: &PgPool,
+    holder: i32,
+    task: &mut tokio::task::JoinHandle<T>,
+    what: &str,
+) {
+    if let Err(why) = waits_behind(pool, holder, task).await {
+        panic!("{what}: {why}");
+    }
+}
+
 // ===========================================================================
 // SUBSTRATE FACTS (ADR-PROJECT-LIFECYCLE-001/002 Earned Trust) — GREEN today,
 // on scratch tables shaped like `projects` / `issues` / `live_projects`
@@ -615,15 +687,16 @@ async fn a_guard_that_waited_finds_no_live_row_after_the_delete_commits_and_one_
             .execute(&mut *delete)
             .await
             .expect("mark");
+        let holder = backend_pid(&mut delete).await;
         let p = pool.clone();
-        let guard = tokio::spawn(async move {
+        let mut guard = tokio::spawn(async move {
             sqlx::query("SELECT 1 FROM s_project WHERE id = 1 AND deleted_at IS NULL FOR KEY SHARE")
                 .fetch_optional(&p)
                 .await
                 .expect("guard")
                 .is_some()
         });
-        tokio::time::sleep(Duration::from_millis(300)).await;
+        must_wait_behind(&pool, holder, &mut guard, "the guard waits on the delete").await;
         if commit {
             delete.commit().await.expect("commit");
         } else {
@@ -657,14 +730,21 @@ async fn an_update_through_the_live_view_that_waited_on_a_delete_returns_no_row(
         .execute(&mut *delete)
         .await
         .expect("mark");
+    let holder = backend_pid(&mut delete).await;
     let p = pool.clone();
-    let counter = tokio::spawn(async move {
+    let mut counter = tokio::spawn(async move {
         sqlx::query_as::<_, (i32,)>("UPDATE s_live SET n = n + 1 WHERE id = 1 RETURNING n - 1")
             .fetch_optional(&p)
             .await
             .expect("the counter never errors")
     });
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    must_wait_behind(
+        &pool,
+        holder,
+        &mut counter,
+        "the counter waits on the delete",
+    )
+    .await;
     delete.commit().await.expect("commit");
     assert_eq!(
         counter.await.expect("task"),
@@ -938,7 +1018,10 @@ const WRITERS: [Writer; 13] = [
 ];
 
 /// One fresh project per writer row: its issue SPIKE-1 with a live comment and
-/// a tombstone, and its four seeded lanes.
+/// a tombstone, and its three creation lanes (backlog, in_progress, done). The
+/// lane writers name only those slugs, so a lane writer's not-found answer can
+/// come only from the deleted project, never from a lane that never existed
+/// (review TG-1).
 struct Target {
     ws: Id,
     project: Id,
@@ -973,6 +1056,19 @@ async fn target(l: &Lab, n: usize) -> Target {
     )
     .await;
     let tombstone = comment_tombstone(l, project, &key, on).await;
+    let lanes: Vec<String> = l
+        .store
+        .list_project_lanes(project)
+        .await
+        .expect("read the lanes")
+        .into_iter()
+        .map(|lane| lane.slug)
+        .collect();
+    assert_eq!(
+        lanes,
+        ["backlog", "in_progress", "done"],
+        "precondition: the lane writers name lanes the live project has"
+    );
     Target {
         ws: l.ws,
         project,
@@ -1120,12 +1216,12 @@ async fn run_writer(store: Store, w: Writer, t: Arc<Target>) -> (bool, String) {
             )
         }
         Writer::LaneRename => {
-            let r = store.rename_lane(t.project, "todo", "To do").await;
+            let r = store.rename_lane(t.project, "backlog", "Someday").await;
             (matches!(r, Ok(false)), format!("{r:?}"))
         }
         Writer::LaneInsert => {
             let r = store
-                .insert_lane_at(t.project, "todo", LaneSide::After, "review", "Review")
+                .insert_lane_at(t.project, "backlog", LaneSide::After, "review", "Review")
                 .await;
             (
                 matches!(
@@ -1137,7 +1233,7 @@ async fn run_writer(store: Store, w: Writer, t: Arc<Target>) -> (bool, String) {
         }
         Writer::LaneMove => {
             let r = store
-                .move_lane_before(t.project, "done", Some("todo"))
+                .move_lane_before(t.project, "done", Some("backlog"))
                 .await;
             (
                 matches!(r, Ok(foundry_store::lanes::LaneMoveOutcome::MoverNotFound)),
@@ -1150,7 +1246,7 @@ async fn run_writer(store: Store, w: Writer, t: Arc<Target>) -> (bool, String) {
                     t.project,
                     "done",
                     LaneDeleteFate::MoveTo {
-                        destination_slug: "todo",
+                        destination_slug: "backlog",
                     },
                     t.actor,
                 )
@@ -1175,12 +1271,16 @@ async fn every_guarded_writer_waits_on_a_held_delete_then_answers_its_not_found_
     for (n, w) in WRITERS.into_iter().enumerate() {
         let t = Arc::new(target(&l, n).await);
         let before = under(&l.pool, t.project).await;
-        let delete = hold_delete(&l.pool, t.project, l.lena).await;
-        let task = tokio::spawn(run_writer(l.store.clone(), w, t.clone()));
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        let waited = !task.is_finished();
+        let mut delete = hold_delete(&l.pool, t.project, l.lena).await;
+        let holder = backend_pid(&mut delete).await;
+        let mut task = tokio::spawn(run_writer(l.store.clone(), w, t.clone()));
+        let waits = waits_behind(&l.pool, holder, &mut task).await;
         delete.commit().await.expect("the delete commits");
-        let (not_found, said) = task.await.expect("writer task");
+        let waited = waits.is_ok();
+        let (not_found, said) = match waits {
+            Ok(_) => task.await.expect("writer task"),
+            Err(why) => (false, why),
+        };
         let after = under(&l.pool, t.project).await;
         let outbox_moved = before.get("outbox") != after.get("outbox");
         let mut children_before = before.clone();
@@ -1211,10 +1311,16 @@ async fn a_write_waiting_on_a_delete_that_rolls_back_goes_through() {
     require_soft_delete(&l.pool).await;
     for (n, w) in [(20, Writer::IssueCreate), (21, Writer::CommentAdd)] {
         let t = Arc::new(target(&l, n).await);
-        let delete = hold_delete(&l.pool, t.project, l.lena).await;
-        let task = tokio::spawn(run_writer(l.store.clone(), w, t.clone()));
-        tokio::time::sleep(Duration::from_millis(400)).await;
-        assert!(!task.is_finished(), "{w:?} waits on the held delete");
+        let mut delete = hold_delete(&l.pool, t.project, l.lena).await;
+        let holder = backend_pid(&mut delete).await;
+        let mut task = tokio::spawn(run_writer(l.store.clone(), w, t.clone()));
+        must_wait_behind(
+            &l.pool,
+            holder,
+            &mut task,
+            &format!("{w:?} waits on the held delete"),
+        )
+        .await;
         delete.rollback().await.expect("the delete rolls back");
         let (not_found, said) = task.await.expect("writer task");
         assert!(
@@ -1248,10 +1354,45 @@ async fn restoring_a_comment_inside_a_deleted_project_changes_nothing_and_says_w
 // The reader sweep: a deleted project is "never existed" to every reader (02-02)
 // ===========================================================================
 
+/// Every store reader that resolves a project through `live_projects` by id,
+/// slug or team (review F-20): `find_project_by_slug`,
+/// `find_issue_by_team_project_number`, `list_projects_for_workspace`,
+/// `list_projects_for_instance`, `project_rename_context`,
+/// `list_project_changes` and `list_team_projects`. (The team delete's facts
+/// are `team_delete.rs`'s; the writers' guard is the writer matrix above.)
+/// Each one is first shown to see the project while it is live, so a reader
+/// that never returns it at all cannot pass.
 #[tokio::test]
 async fn every_project_reader_treats_a_deleted_project_as_one_that_never_existed() {
     let l = lab().await;
     require_soft_delete(&l.pool).await;
+    let changes_while_live = l
+        .store
+        .list_project_changes(l.spike)
+        .await
+        .expect("read")
+        .len();
+    assert!(
+        changes_while_live > 0,
+        "precondition: the live project's change report has its edit"
+    );
+    assert!(
+        l.store
+            .list_team_projects(l.backend)
+            .await
+            .expect("read")
+            .iter()
+            .any(|p| p.slug == "auth-v2-spike"),
+        "precondition: the live project is on its team's list"
+    );
+    assert!(
+        l.store
+            .project_rename_context(l.spike)
+            .await
+            .expect("read")
+            .is_some(),
+        "precondition: the live project has a rename context"
+    );
     mark_deleted_by_hand(&l.pool, l.spike, l.lena).await;
     let mut leaks = Vec::new();
     if l.store
@@ -1292,6 +1433,24 @@ async fn every_project_reader_treats_a_deleted_project_as_one_that_never_existed
         .is_some()
     {
         leaks.push("project_rename_context");
+    }
+    if !l
+        .store
+        .list_project_changes(l.spike)
+        .await
+        .expect("read")
+        .is_empty()
+    {
+        leaks.push("list_project_changes");
+    }
+    if l.store
+        .list_team_projects(l.backend)
+        .await
+        .expect("read")
+        .iter()
+        .any(|p| p.slug == "auth-v2-spike")
+    {
+        leaks.push("list_team_projects");
     }
     assert!(
         leaks.is_empty(),
@@ -1452,6 +1611,40 @@ async fn a_rename_of_an_unknown_project_is_not_found_and_writes_nothing() {
         ProjectRenameWrite::NotFound
     );
     assert_eq!(everything(&l.pool).await, before);
+}
+
+/// Review TG-3 (ADR-PROJECT-LIFECYCLE-003 section 2.1): a rename of a project
+/// whose delete has committed finds no live row: `NotFound`, the stored name
+/// is unchanged and no record is written.
+#[tokio::test]
+async fn a_rename_of_a_deleted_project_is_not_found_and_writes_nothing() {
+    let l = lab().await;
+    require_records(&l.pool).await;
+    require_soft_delete(&l.pool).await;
+    l.store
+        .soft_delete_project(l.ws, l.backend, l.spike, l.lena)
+        .await
+        .expect("delete");
+    let records_before = records(&l.pool).await;
+    let before = everything(&l.pool).await;
+    assert_eq!(
+        l.store
+            .rename_project_with_audit(l.spike, l.lena, "Auth v3 Spike")
+            .await
+            .expect("rename"),
+        ProjectRenameWrite::NotFound
+    );
+    assert_eq!(
+        name_slug_key(&l.pool, l.spike).await,
+        (
+            "Auth v2 Spike".into(),
+            "auth-v2-spike".into(),
+            "SPIKE".into()
+        ),
+        "the deleted project keeps its name"
+    );
+    assert_eq!(records(&l.pool).await, records_before, "no renamed record");
+    assert_eq!(everything(&l.pool).await, before, "nothing written");
 }
 
 /// INV-PL-7: the record commits with the rename or not at all.
@@ -1621,15 +1814,18 @@ async fn the_production_delete_waits_while_a_writer_holds_the_guard() {
         .execute(&mut *writer)
         .await
         .expect("hold the guard");
+    let holder = backend_pid(&mut writer).await;
     let store = l.store.clone();
     let (ws, team, spike, lena) = (l.ws, l.backend, l.spike, l.lena);
-    let delete =
+    let mut delete =
         tokio::spawn(async move { store.soft_delete_project(ws, team, spike, lena).await });
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(
-        !delete.is_finished(),
-        "the delete must wait while a writer holds the guard (FOR UPDATE conflicts with FOR KEY SHARE)"
-    );
+    must_wait_behind(
+        &l.pool,
+        holder,
+        &mut delete,
+        "the delete must wait while a writer holds the guard (FOR UPDATE conflicts with FOR KEY SHARE)",
+    )
+    .await;
     let (waiting,): (i64,) = sqlx::query_as(
         "SELECT count(*) FROM pg_stat_activity
           WHERE datname = current_database() AND wait_event_type = 'Lock'",
@@ -1954,14 +2150,17 @@ async fn a_restore_takes_the_team_lock_before_the_project_lock() {
         .execute(&mut *team)
         .await
         .expect("hold the team row");
+    let holder = backend_pid(&mut team).await;
     let store = l.store.clone();
     let spike = l.spike;
-    let restore = tokio::spawn(async move { store.restore_deleted_project(spike).await });
-    tokio::time::sleep(Duration::from_millis(500)).await;
-    assert!(
-        !restore.is_finished(),
-        "the restore waits on the team lock (KEY SHARE vs FOR UPDATE)"
-    );
+    let mut restore = tokio::spawn(async move { store.restore_deleted_project(spike).await });
+    must_wait_behind(
+        &l.pool,
+        holder,
+        &mut restore,
+        "the restore waits on the team lock (KEY SHARE vs FOR UPDATE)",
+    )
+    .await;
     let mut probe = l.pool.begin().await.expect("begin the probe");
     let free = sqlx::query("SELECT 1 FROM projects WHERE id = $1 FOR UPDATE NOWAIT")
         .bind(l.spike)
@@ -2042,6 +2241,81 @@ async fn two_restores_at_once_restore_once_and_record_once() {
     assert_eq!(restored, 1);
 }
 
+/// Review TG-2 (ADR-PROJECT-LIFECYCLE-002 decision 4), deterministic: a
+/// restore whose unlocked read saw the project deleted, then waited on the
+/// project row behind a session that restored it meanwhile, re-checks under
+/// its `FOR UPDATE` and answers `NotDeleted`, writing nothing: one `restored`
+/// record, the holder's.
+#[tokio::test]
+async fn a_restore_that_waited_on_a_restore_that_won_answers_not_deleted_and_records_nothing() {
+    let l = lab().await;
+    require_records(&l.pool).await;
+    require_soft_delete(&l.pool).await;
+    l.store
+        .soft_delete_project(l.ws, l.backend, l.spike, l.lena)
+        .await
+        .expect("delete");
+    let mut winner = l.pool.begin().await.expect("begin the winning restore");
+    sqlx::query("SELECT 1 FROM projects WHERE id = $1 FOR UPDATE")
+        .bind(l.spike)
+        .execute(&mut *winner)
+        .await
+        .expect("hold the deleted project's row");
+    let holder = backend_pid(&mut winner).await;
+    let store = l.store.clone();
+    let spike = l.spike;
+    let mut loser = tokio::spawn(async move { store.restore_deleted_project(spike).await });
+    must_wait_behind(
+        &l.pool,
+        holder,
+        &mut loser,
+        "the second restore waits on the project row",
+    )
+    .await;
+    sqlx::query("UPDATE projects SET deleted_at = NULL, deleted_by = NULL WHERE id = $1")
+        .bind(l.spike)
+        .execute(&mut *winner)
+        .await
+        .expect("the winner clears the marker");
+    sqlx::query(
+        "INSERT INTO project_lifecycle_events
+                (id, workspace_id, project_id, team_id, project_slug, key_prefix, kind,
+                 actor_id, name, created_at)
+         VALUES ($1, $2, $3, $4, 'auth-v2-spike', 'SPIKE', 'restored', NULL,
+                 'Auth v2 Spike', clock_timestamp())",
+    )
+    .bind(Id::now_v7())
+    .bind(l.ws)
+    .bind(l.spike)
+    .bind(l.backend)
+    .execute(&mut *winner)
+    .await
+    .expect("the winner's restored record");
+    winner.commit().await.expect("the winner commits");
+    let out = tokio::time::timeout(LOCK_WAIT_DEADLINE, loser)
+        .await
+        .expect("the second restore finishes once the row is released")
+        .expect("join the second restore")
+        .expect("never errors");
+    assert_eq!(out, ProjectRestoreOutcome::NotDeleted);
+    let restored = records(&l.pool)
+        .await
+        .into_iter()
+        .filter(|r| r.kind == "restored")
+        .count();
+    assert_eq!(restored, 1, "only the winner's restored record");
+    assert_eq!(
+        count(
+            &l.pool,
+            "SELECT count(*) FROM live_projects WHERE id = $1",
+            l.spike
+        )
+        .await,
+        1,
+        "the project is live"
+    );
+}
+
 #[tokio::test]
 async fn the_deleted_list_is_oldest_deletion_first_with_who_and_how_many_issues() {
     let l = lab().await;
@@ -2108,6 +2382,33 @@ async fn the_deleted_list_is_oldest_deletion_first_with_who_and_how_many_issues(
         ]
     );
     assert!(rows[0].deleted_at <= rows[1].deleted_at);
+}
+
+/// Review TG-4 (D10): deletions at the same instant are listed by id. The
+/// three projects are marked in descending id order and then stamped with one
+/// shared `deleted_at`, so the rows sit on disk in the reverse of id order and
+/// only the `id` tiebreak puts them back.
+#[tokio::test]
+async fn deletions_at_the_same_instant_are_listed_by_id() {
+    let l = lab().await;
+    require_soft_delete(&l.pool).await;
+    let mut ids = vec![l.spike, l.auth, l.read];
+    ids.sort();
+    for id in ids.iter().rev() {
+        mark_deleted_by_hand(&l.pool, *id, l.lena).await;
+    }
+    exec(
+        &l.pool,
+        "UPDATE projects SET deleted_at = '2026-10-01 09:00:00+00' WHERE deleted_at IS NOT NULL",
+    )
+    .await;
+    let rows = l.store.list_deleted_projects().await.expect("list");
+    assert!(
+        rows.iter().all(|r| r.deleted_at == rows[0].deleted_at),
+        "precondition: one instant for all three"
+    );
+    let listed: Vec<Id> = rows.iter().map(|r| r.project_id).collect();
+    assert_eq!(listed, ids, "same instant: by id");
 }
 
 /// OQ-4, INV-PL-5: while deleted, the project's slug (in its team) and key (in

@@ -63,6 +63,15 @@ Feature: A team whose projects are all deleted can be deleted, and its deleted p
     And the delete page works as a plain page form
     And no project, issue or record changed
 
+  @us-pl-05 @edge @contract-shape:unbounded-preservation
+  Scenario: The delete page of a team that never had a project says nothing about deleted projects
+    Given Priya has created the team "Design"
+    When Priya follows Delete team on Design's members page
+    Then the delete page asks "Delete Design?"
+    And the delete page says nothing about deleted projects
+    And the delete page offers Delete team and Cancel
+    And no project, issue or record changed
+
   @us-pl-05 @driving_port @kpi @contract-shape:bounded-change
   Scenario: A team whose only project is deleted can be deleted, and the project's work is kept
     Given Prototype Graveyard has 12 issues
