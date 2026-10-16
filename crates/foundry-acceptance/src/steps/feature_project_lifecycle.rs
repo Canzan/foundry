@@ -258,13 +258,6 @@ async fn tries_one_write(world: &mut FoundryWorld, who: String, write: String) {
 }
 
 #[when(
-    regex = r"^the script revokes [A-Z]\w*'s spare machine token under (.+)'s address, and again under a project that never existed$"
-)]
-async fn script_revokes(world: &mut FoundryWorld, project: String) {
-    pl::when_script_revokes_twice(world, &project).await;
-}
-
-#[when(
     regex = r#"^([A-Z]\w*) saves the title "([^"]+)" from the edit form (?:she|he) opened earlier$"#
 )]
 async fn saves_title(world: &mut FoundryWorld, who: String, title: String) {
@@ -476,16 +469,6 @@ async fn byte_identical(world: &mut FoundryWorld, answered: String) {
     pl::then_byte_identical(world, &answered).await;
 }
 
-#[then(regex = r"^both answers are the machine-token answer, alike for both$")]
-async fn token_routes_alike(world: &mut FoundryWorld) {
-    pl::then_token_routes_alike(world);
-}
-
-#[then(regex = r"^the same door in (.+), which is live, answers the same way$")]
-async fn live_alike(world: &mut FoundryWorld, project: String) {
-    pl::then_live_answers_alike(world, &project);
-}
-
 #[then(regex = r"^neither request changed anything$")]
 async fn neither_changed(world: &mut FoundryWorld) {
     pl::then_neither_request_changed_anything(world);
@@ -531,16 +514,6 @@ async fn same_out_of_reach(world: &mut FoundryWorld) {
 #[then(regex = r"^the same door in (.+), which is live, answers them the same way$")]
 async fn live_alike_for_them(world: &mut FoundryWorld, project: String) {
     pl::then_live_answers_them_alike(world, &project);
-}
-
-#[then(regex = r"^the first answer revoked the spare machine token, and nothing else changed$")]
-async fn first_revoke(world: &mut FoundryWorld) {
-    pl::then_first_revoke(world);
-}
-
-#[then(regex = r"^the second answer is the same as the first, and changed nothing$")]
-async fn second_revoke(world: &mut FoundryWorld) {
-    pl::then_second_revoke(world);
 }
 
 #[then(regex = r"^every project row's rename and delete controls work as plain page forms$")]

@@ -338,18 +338,6 @@ pub struct Differential {
     pub everything_after: (tl::Universe, Projects),
 }
 
-/// The two revokes of the spare token (under the deleted and a never-existed address).
-#[derive(Debug, Clone)]
-pub struct RevokePair {
-    pub first: Answer,
-    pub second: Answer,
-    pub before: (tl::Universe, Projects),
-    pub after_first: (tl::Universe, Projects),
-    pub after_second: (tl::Universe, Projects),
-    pub revoked_before: bool,
-    pub revoked_after: bool,
-}
-
 /// One run of the operator's CLI.
 #[derive(Debug, Clone)]
 pub struct CliRun {
@@ -411,8 +399,6 @@ pub struct PlState {
     /// How every page of a project answered someone, noted by a Given:
     /// `project name -> [(door, status)]`.
     pub noted: HashMap<String, Vec<(String, StatusCode)>>,
-    /// The token revoke pair: (first, second, universe before, after first, after second, spare revoked).
-    pub revoke: Option<RevokePair>,
 }
 
 // ===========================================================================
@@ -2873,57 +2859,6 @@ pub async fn then_byte_identical(world: &mut FoundryWorld, answered: &str) {
     }
 }
 
-/// The machine-token routes never read the project (re-verified at DISTILL):
-/// under the deleted and the never-existed address they answer alike, a 2xx
-/// naming the same tokens (`last_used_at` moves with every call, so the list
-/// is compared by token id).
-pub fn then_token_routes_alike(world: &FoundryWorld) {
-    let diff = world.pl.diff.as_ref().expect("a differential When ran");
-    let (a, b) = (&diff.deleted, &diff.never_existed);
-    assert!(
-        a.status.is_success() && a.status == b.status && a.content_type == b.content_type,
-        "{}: both answers are the token route's shipped success; deleted {}; never existed {}",
-        diff.door,
-        tm::describe(a),
-        tm::describe(b)
-    );
-    assert_eq!(
-        token_ids(a),
-        token_ids(b),
-        "{}: both answers name the same tokens",
-        diff.door
-    );
-}
-
-/// The live project's answer on the same door has the same status and type.
-pub fn then_live_answers_alike(world: &FoundryWorld, live_project: &str) {
-    assert_eq!(
-        live_project, "Identity Platform",
-        "the differential's live control is Identity Platform"
-    );
-    let diff = world.pl.diff.as_ref().expect("a differential When ran");
-    let (live, never) = (&diff.live, &diff.never_existed);
-    assert!(
-        live.status == never.status && live.content_type == never.content_type,
-        "{}: the token route answers a live project's address the same way; live {}; never existed {}",
-        diff.door,
-        tm::describe(live),
-        tm::describe(never)
-    );
-}
-
-fn token_ids(answer: &Answer) -> Vec<String> {
-    let mut ids: Vec<String> = serde_json::from_str::<serde_json::Value>(&answer.body)
-        .ok()
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|t| t.get("jti").and_then(|j| j.as_str()).map(str::to_string))
-        .collect();
-    ids.sort();
-    ids
-}
-
 /// The universe a differential row's two compared requests are judged against.
 async fn everything(world: &FoundryWorld) -> (tl::Universe, Projects) {
     (
@@ -3024,105 +2959,6 @@ pub fn then_live_answers_them_alike(world: &FoundryWorld, live_project: &str) {
         diff.door,
         tm::describe(live),
         tm::describe(never)
-    );
-}
-
-// ------------------------------------------------------------------ the token revoke pair (U1)
-
-async fn spare_revoked(world: &mut FoundryWorld) -> bool {
-    let spare = world.pl.script.as_ref().expect("a script token").1;
-    let p = project(world, "Identity Platform");
-    let list = api(
-        world,
-        reqwest::Method::GET,
-        &format!("/api/v1/teams/{}/projects/{}/tokens", p.team_slug, p.slug),
-        Body::None,
-    )
-    .await;
-    serde_json::from_str::<serde_json::Value>(&list.body)
-        .ok()
-        .and_then(|v| v.as_array().cloned())
-        .unwrap_or_default()
-        .iter()
-        .find(|t| t.get("jti").and_then(|j| j.as_str()) == Some(spare.to_string().as_str()))
-        .and_then(|t| t.get("revoked").and_then(serde_json::Value::as_bool))
-        .unwrap_or_else(|| {
-            panic!(
-                "the token list names the spare token; {}",
-                tm::describe(&list)
-            )
-        })
-}
-
-/// "the script revokes Priya's spare machine token under X's address, and again
-/// under a project that never existed".
-pub async fn when_script_revokes_twice(world: &mut FoundryWorld, name: &str) {
-    let p = project(world, name);
-    let spare = world.pl.script.as_ref().expect("a script token").1;
-    let revoked_before = spare_revoked(world).await;
-    let before = everything(world).await;
-    let first = api(
-        world,
-        reqwest::Method::DELETE,
-        &format!(
-            "/api/v1/teams/{}/projects/{}/tokens/{spare}",
-            p.team_slug, p.slug
-        ),
-        Body::None,
-    )
-    .await;
-    let after_first = everything(world).await;
-    let second = api(
-        world,
-        reqwest::Method::DELETE,
-        &format!(
-            "/api/v1/teams/{}/projects/{UNKNOWN_PROJECT}/tokens/{spare}",
-            p.team_slug
-        ),
-        Body::None,
-    )
-    .await;
-    let after_second = everything(world).await;
-    let revoked_after = spare_revoked(world).await;
-    world.pl.revoke = Some(RevokePair {
-        first,
-        second,
-        before,
-        after_first,
-        after_second,
-        revoked_before,
-        revoked_after,
-    });
-}
-
-pub fn then_first_revoke(world: &FoundryWorld) {
-    let r = world.pl.revoke.as_ref().expect("the revoke pair ran");
-    assert!(
-        r.first.status.is_success(),
-        "the first revoke goes through (the token route names no project, U1); {}",
-        tm::describe(&r.first)
-    );
-    assert!(
-        !r.revoked_before && r.revoked_after,
-        "the spare machine token was live before and is revoked after"
-    );
-    assert_eq!(
-        r.before, r.after_first,
-        "the revoke changes nothing else (teams, people, tokens' scope, every project and record)"
-    );
-}
-
-pub fn then_second_revoke(world: &FoundryWorld) {
-    let r = world.pl.revoke.as_ref().expect("the revoke pair ran");
-    assert_eq!(
-        (r.second.status, &r.second.content_type, &r.second.body),
-        (r.first.status, &r.first.content_type, &r.first.body),
-        "the second revoke (already revoked, under a never-existed address) answers as the first; {}",
-        tm::describe(&r.second)
-    );
-    assert_eq!(
-        r.after_first, r.after_second,
-        "the second revoke changes nothing"
     );
 }
 

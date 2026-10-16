@@ -14,6 +14,18 @@ GET    /api/v1/teams/{team_slug}/projects/{project_slug}/tokens
 DELETE /api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}
 ```
 
+**The address is resolved (amended 2026-10-15, user decision).** The `{team_slug}`/`{project_slug}`
+segments are no longer ignored. Order, all in `foundry_services::tokens` (`list_project_tokens`,
+`revoke_project_token`; authz never in the adapter, `check_api_no_adhoc_authz`):
+1. the workspace-admin gate — a non-admin is `403 forbidden` whatever the address, so the 403 is
+   decided before the address is read and says nothing about it;
+2. the team by slug in the bound principal's workspace — unknown → `404 not_found`;
+3. a team-scoped credential whose scope is another team → `404 not_found`;
+4. the live project by slug under that team — unknown or deleted → `404 not_found`.
+Those 404s are the API's one not-found envelope, byte-identical to every other `/api/v1` door. The
+list and the revoke behind a live address stay **workspace-wide** (the token registry is per
+workspace, not per project); no migration.
+
 `{jti}` is a UUID (the token id / row PK; safe to display; the revoke key). Axum path type
 `Path<(String, String, uuid::Uuid)>` — a non-UUID `{jti}` fails extraction → 400/422 by axum's
 default, BEFORE the handler; that is acceptable and does not leak existence (it is a parse failure,
@@ -93,6 +105,7 @@ none). 204 keeps the contract minimal and the read-after-write story honest (re-
 | Revoke OK / re-revoke (idempotent) | **204** | none | handler |
 | No / malformed / expired / forged / revoked / wrong-alg / `alg:none` bearer | 401 | `{"error":{"code":"unauthorized","message":"unauthorized"}}` | `MachinePrincipal` extractor (reused, non-enumerable, identical) |
 | Non-management caller (bound user not workspace-admin) | 403 | `{"error":{"code":"forbidden","message":"forbidden"}}` | `ServiceError::Forbidden` → `status_for` |
+| Unknown or deleted team or project in the path, or a team outside a scoped credential (after the admin gate) | 404 | `{"error":{"code":"not_found","message":"not found"}}` | `ServiceError::NotFound` → `status_for` (2026-10-15) |
 | Revoke unknown OR cross-workspace `jti` | 404 | `{"error":{"code":"not_found","message":"not found"}}` | `ServiceError::NotFound` (non-enumerable) → `status_for` |
 | Revoke storm beyond the guardrail | **429** | `{"error":{"code":"rate_limited","message":"…"}}` | guardrail — see `rate-guardrail.md` |
 | Internal failure | 500 | `{"error":{"code":"internal","message":"internal error"}}` | `ServiceError::Internal` → `status_for` |

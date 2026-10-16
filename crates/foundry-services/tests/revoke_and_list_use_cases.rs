@@ -20,8 +20,15 @@
 //!      active) and `minted_by` resolved from `created_by` (NOT the subject).
 //!   3. scope label: a team-scoped grant resolves `scope_team_name` to the real
 //!      team name; a workspace grant resolves to None.
+//!   4. the JSON routes' address (2026-10-15): after the admin gate, the
+//!      `{team}/{project}` address must resolve to a live team and project the
+//!      credential reaches, else the uniform NotFound; a non-admin is still
+//!      Forbidden whatever the address.
 
-use foundry_services::tokens::{list_tokens, mint_token, revoke_token, MintInput, ScopeChoice};
+use foundry_services::tokens::{
+    list_project_tokens, list_tokens, mint_token, revoke_project_token, revoke_token, MintInput,
+    ScopeChoice,
+};
 use foundry_services::{Principal, ServiceError};
 use foundry_store::Store;
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -321,4 +328,79 @@ async fn scope_team_name_resolves_to_the_real_team_for_a_team_grant_and_none_for
         Some("Backend"),
         "the list view resolves scope_team_name to the real team name too"
     );
+}
+
+/// Behaviour 4 — the JSON token routes resolve their address. The admin gate
+/// runs FIRST (a non-admin is `Forbidden` even under an address that does not
+/// exist); then an unknown team, an unknown project, and a team a scoped
+/// credential does not reach are the one `NotFound`, and nothing is revoked;
+/// a live address lists and revokes workspace-wide as before.
+#[tokio::test]
+async fn token_routes_resolve_their_address_after_the_admin_gate() {
+    let h = seeded_harness().await;
+    let jti = mint_workspace_token(&h, "Addressed bot").await;
+    let admin = admin_principal(&h);
+
+    let gate = list_project_tokens(&h.store, &foreign_workspace_principal(&h), "nope", "nope")
+        .await
+        .expect_err("a non-admin is refused");
+    assert!(
+        matches!(gate, ServiceError::Forbidden),
+        "the admin gate answers before the address is read, got {gate:?}"
+    );
+
+    let other_team = Principal::Machine {
+        user_id: h.admin_id,
+        workspace_id: h.workspace_id,
+        jti: uuid::Uuid::now_v7(),
+        scope_team_id: Some(uuid::Uuid::now_v7()),
+    };
+    for (who, team, project) in [
+        (&admin, "no-such-team", "auth-v2"),
+        (&admin, "backend", "no-such-project"),
+        (&other_team, "backend", "auth-v2"),
+    ] {
+        let listed = list_project_tokens(&h.store, who, team, project)
+            .await
+            .expect_err("an address that does not resolve is refused");
+        assert!(
+            matches!(listed, ServiceError::NotFound),
+            "list under {team}/{project}: expected NotFound, got {listed:?}"
+        );
+        let revoked = revoke_project_token(&h.store, who, team, project, jti)
+            .await
+            .expect_err("an address that does not resolve is refused");
+        assert!(
+            matches!(revoked, ServiceError::NotFound),
+            "revoke under {team}/{project}: expected NotFound, got {revoked:?}"
+        );
+    }
+    let untouched = h
+        .store
+        .find_machine_token_by_jti(jti)
+        .await
+        .expect("query")
+        .expect("row exists");
+    assert!(
+        untouched.revoked_at.is_none(),
+        "a refused revoke revokes nothing"
+    );
+
+    let views = list_project_tokens(&h.store, &admin, "backend", "auth-v2")
+        .await
+        .expect("a live address lists");
+    assert!(
+        views.iter().any(|v| v.jti == jti),
+        "the live address lists the workspace's tokens"
+    );
+    revoke_project_token(&h.store, &admin, "backend", "auth-v2", jti)
+        .await
+        .expect("a live address revokes");
+    let revoked = h
+        .store
+        .find_machine_token_by_jti(jti)
+        .await
+        .expect("query")
+        .expect("row exists");
+    assert!(revoked.revoked_at.is_some(), "the live revoke took effect");
 }

@@ -690,7 +690,7 @@ ever loses work.
 |---|-----|-----------|-------------|----------|-------------|------|
 | PL-KPI-1 | Team leads and workspace admins | Rename and retire their team's projects in the product | 0 project renames requested of an instance admin and 0 hand-written `UPDATE`/`DELETE` on `projects` from the release onward | Every project rename was the instance dashboard or psql; every removal was psql | Operator report at each dogfood | North star (leading) |
 | PL-KPI-2 | Project deletes | Erase nothing | 0 rows removed or changed under a deleted project, except comments awaiting cleanup that pass their 90-day window meanwhile (Changed Assumption 3); 100% of rows back after a restore (counts before delete = counts after restore, same carve-out) | Not applicable (no delete) | Acceptance before/after store counts; read-only counts around each dogfood | Guardrail |
-| PL-KPI-3 | Deleted projects | Answer nowhere | 100% of the web and API address inventory (30 web doors, 6 project-reading API doors) answers a deleted project byte-identically to a never-existed one (the uniform 404; the live updates their shipped 403, Changed Assumption 1), for every actor; the 2 machine-token API doors are exempt (U1) | Not applicable | Acceptance outline over the inventory | Guardrail |
+| PL-KPI-3 | Deleted projects | Answer nowhere | 100% of the web and API address inventory (30 web doors, 8 API doors) answers a deleted project byte-identically to a never-existed one (the uniform 404 on every web door, the live updates included; the API's not-found on every API door, the 2 machine-token doors included), for every actor (amended 2026-10-15: Changed Assumptions 1 and 6) | Not applicable | Acceptance outline over the inventory | Guardrail |
 | PL-KPI-4 | Callers without the right | Learn nothing and change nothing | 100% of the (actor × verb × project) matrix answers byte-identical 404s with 0 rows written | Not applicable (no routes) | Acceptance authz outline | Guardrail |
 | PL-KPI-5 | Renamed and restored projects | Keep every link | 100% of addresses under the slug answer the same status after a rename and after a delete-then-restore; issue keys identical | Not applicable | Acceptance scenarios | Guardrail |
 | PL-KPI-6 | Restore requests | Are met by the operator door | Counted only. Above 2 in the first 30 days is evidence for a web restore for workspace admins (OQ-6) | 0 | Operator report | Leading (demand signal) |
@@ -1624,6 +1624,14 @@ C4Component
    project" is recorded in DISCUSS [REF] Follow-ups. Scenarios: the listing and revoke scenarios of
    `project-lifecycle-02-deleted-project-answers-nowhere.feature`.
 
+   **Amended 2026-10-15 (user decision, follow-up 5): the exemption is withdrawn.** The two token
+   routes now resolve their address: the workspace-admin gate first (a non-admin keeps its 403),
+   then the team by the session's workspace, then a scoped credential's team narrowing, then the
+   live project; an unknown or deleted team or project answers the API's not-found, as on every
+   other API door. The list and the revoke behind a live address stay workspace-wide, and nothing
+   migrates. The listing and revoke scenarios became the "listing the machine tokens" and
+   "revoking a machine token" rows of the script outline (8 API doors).
+
 No other story's acceptance intent changes. Clarifications, with no AC edit:
 - D13's "marked as deleted" is the row's own `deleted_at` and `deleted_by` (and, after a team
   delete, `detached_from_team_id`) in `projects.jsonl`.
@@ -2000,7 +2008,7 @@ red. SSOT: `docs/product/kpi-contracts.yaml` `project-lifecycle:`.
 |---|---|---|---|---|
 | PL-KPI-1 north star | 0 rename requests to an instance admin; 0 hand-written `UPDATE`/`DELETE` on `projects` | `pl-01`/`pl-02` happy-path scenarios (the door works for a lead and an admin) | Operator report at each dogfood and at 30 days; read-only `SELECT kind, count(*) FROM project_lifecycle_events GROUP BY kind` per environment | Yes: all of it |
 | PL-KPI-2 nothing erased | 0 rows removed or changed (tombstone carve-out, Changed Assumption 3); counts equal after restore | Store: delete checksum snapshot, restore equality, both races; acceptance before/after counts | Read-only counts around the slice-02, -03 and -04 dogfoods on dev | Dogfood counts |
-| PL-KPI-3 answers nowhere | 100% of the inventory (30 web doors + 6 project-reading API doors, reconciled at DISTILL; the 2 machine-token doors exempt, U1) differential-equal | Acceptance differential outline + direct attachment assertion; check-arch rule 1 gold tests | Slice-02 dogfood: board, issue link and an API call on dev | Dogfood |
+| PL-KPI-3 answers nowhere | 100% of the inventory (30 web doors + 8 API doors; the 2 machine-token doors resolve their address since 2026-10-15, U1 amended) differential-equal | Acceptance differential outline + direct attachment assertion; check-arch rule 1 gold tests | Slice-02 dogfood: board, issue link and an API call on dev | Dogfood |
 | PL-KPI-4 refusals learn nothing | 100% byte-identical 404s, 0 rows written | Acceptance authz outline with row counts | — | No |
 | PL-KPI-5 links kept | 100% same status after rename and after delete→restore | Acceptance rename and restore scenarios | Slice-01 and -03 dogfoods: an old bookmark | Dogfood |
 | PL-KPI-6 restore demand | Counted; > 2 in 30 days is evidence for a web restore | `pl-03` CLI scenarios (door works) | Read-only `count(*) … WHERE kind = 'restored'` on prod at 30 days, plus the operator report | Yes |
@@ -2431,7 +2439,7 @@ Burn-down: `grep -cE '^\s*@.*@pending' crates/foundry-acceptance/tests/features/
 
 Recorded verbatim as decided by the user (through the orchestrator):
 
-- **U1.** Machine-token routes (`…/tokens`, `…/tokens/{jti}`): EXEMPT. Amend US-PL-03 AC 2, D5, the US-PL-03 pitch/Driving Port 4 and PL-KPI-3 to exempt the two token routes as accepted pre-existing behaviour (they read no project, answer alike for every address); add DESIGN Changed Assumption 6 (DISTILL) with the rationale; record a follow-up "scope machine-token routes by project". No behaviour change.
+- **U1.** Machine-token routes (`…/tokens`, `…/tokens/{jti}`): EXEMPT. Amend US-PL-03 AC 2, D5, the US-PL-03 pitch/Driving Port 4 and PL-KPI-3 to exempt the two token routes as accepted pre-existing behaviour (they read no project, answer alike for every address); add DESIGN Changed Assumption 6 (DISTILL) with the rationale; record a follow-up "scope machine-token routes by project". No behaviour change. **Superseded 2026-10-15 (user decision):** the token routes resolve their team and project after the admin gate, so an unknown or deleted address answers the API's not-found; list and revoke stay workspace-wide (Changed Assumption 6, amended).
 - **U2.** Base-table read-only SQL for "nothing erased"/universe/marker checks: APPROVED as an explicit exception (house precedent, OQ-D6). Record it in each feature file's header comment and in feature-delta CM-A/CM-E and the Dim 7 note; widen OQ-D6 to also name "the stored marker, to check the printed deleted-at" and the restore race's row-kept check. Hidden-ness stays asserted only through HTTP/API/CLI.
 - **U3.** Untested ACs: ADD ASSERTIONS. (a) Scripting off (US-PL-01 AC8, US-PL-02 AC7, NFR-PL-3, DoD 6): assert every new page/form (Projects section rename + delete controls, confirm page, team delete page line) is a plain HTML POST form whose submit works without script — no script-dependent control, correct method/action, hidden CSRF field present. (b) Queued notifications (US-PL-03 AC 6, D17): assert an outbox row queued before the delete is unchanged and still eligible for delivery by the notifier after the delete, and no outbox row about the project arises after the delete (store/use-case gold test if not reachable through a door; say which).
 - **U4.** DIST-1 restore-comment wording ACCEPTED: add it to D14 as a recorded addition (resolves SA low "NFR-PL-4 no new copy").

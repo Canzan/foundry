@@ -198,6 +198,30 @@ impl Services {
         tokens::revoke_token(&self.store, principal, jti).await
     }
 
+    /// US-TMA01 list the workspace's tokens through the JSON route's
+    /// `{team}/{project}` address — delegates to [`tokens::list_project_tokens`]
+    /// (admin gate, then the address must be live, else `NotFound`).
+    pub async fn list_project_tokens(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<Vec<tokens::TokenView>, ServiceError> {
+        tokens::list_project_tokens(&self.store, principal, team_slug, project_slug).await
+    }
+
+    /// US-TMA02/03 revoke a token through the JSON route's `{team}/{project}`
+    /// address — delegates to [`tokens::revoke_project_token`].
+    pub async fn revoke_project_token(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        jti: uuid::Uuid,
+    ) -> Result<(), ServiceError> {
+        tokens::revoke_project_token(&self.store, principal, team_slug, project_slug, jti).await
+    }
+
     /// team-membership `GET /teams` — delegates to [`teams::list_teams`].
     pub async fn list_teams(
         &self,

@@ -518,20 +518,23 @@ async fn edit_comment_handler(
 /// `GET /api/v1/teams/{team}/projects/{project}/tokens` (US-TMA01). The
 /// `MachinePrincipal` extractor authenticates the bearer credential (fail-
 /// closed 401 on any auth failure) BEFORE the handler body runs; it then calls
-/// the shared core seam `list_tokens` (which decides authorization — 403 when
+/// the shared core seam `list_project_tokens` (which decides authorization — 403 when
 /// the bound user is not a workspace admin) and serializes the neutral
 /// `TokenView` rows as a JSON array, newest-first (the use-case ORDERs by
-/// `created_at DESC`). An empty registry returns `[]` with 200 (never a 404).
-/// The `{team}`/`{project}` path segments mirror the issue/comment shape; the
-/// use-case is workspace-scoped via the bound principal, so the path is the
-/// addressing convention, not an authorization input. No `TokenJson` carries a
-/// token value by construction (NFR-TMA-SEC-02).
+/// `created_at DESC`). An empty registry returns `[]` with 200. The
+/// `{team}`/`{project}` path is resolved (2026-10-15): after the admin gate, an
+/// unknown or deleted team or project — or a team a scoped credential does not
+/// reach — is the API's uniform 404, as on every other `/api/v1` door; the list
+/// itself stays workspace-wide. No `TokenJson` carries a token value by
+/// construction (NFR-TMA-SEC-02).
 async fn list_tokens_handler(
     State(services): State<Services>,
     MachinePrincipal(principal): MachinePrincipal,
-    Path((_team_slug, _project_slug)): Path<(String, String)>,
+    Path((team_slug, project_slug)): Path<(String, String)>,
 ) -> Result<Json<Vec<TokenJson>>, ApiError> {
-    let views = services.list_tokens(&principal).await?;
+    let views = services
+        .list_project_tokens(&principal, &team_slug, &project_slug)
+        .await?;
     let body = views.into_iter().map(TokenJson::from).collect();
     Ok(Json(body))
 }
@@ -541,10 +544,11 @@ async fn list_tokens_handler(
 /// closed 401) BEFORE the handler body runs; the `{jti}` is extracted as a
 /// `uuid::Uuid` path param, so a malformed id fails axum extraction before the
 /// handler — leaking no existence (api-contract.md §3). It then calls the shared
-/// core seam `revoke_token`, where the SHIPPED, mutation-hardened use-case
-/// decides authorization (403 when the bound user is not a workspace admin),
-/// workspace-confined non-enumerable NotFound (404 — identical for a foreign or
-/// unknown jti), and idempotency (a re-revoke of an already-revoked credential
+/// core seam `revoke_project_token`, where the use-case decides authorization
+/// (403 when the bound user is not a workspace admin), then resolves the
+/// `{team}`/`{project}` address (an unknown or deleted one is the uniform 404,
+/// 2026-10-15), then the workspace-confined non-enumerable NotFound (404 —
+/// identical for a foreign or unknown jti), and idempotency (a re-revoke of an already-revoked credential
 /// is a harmless success). The use-case returns `()` (there is no representation
 /// of a deletion), so a success maps to `204 No Content` with no body — keeping
 /// the contract minimal and the read-after-write (US-TMA04) honest.
@@ -565,7 +569,7 @@ async fn revoke_token_handler(
     State(services): State<Services>,
     State(rate_guard): State<Arc<dyn RevokeRateGuard>>,
     MachinePrincipal(principal): MachinePrincipal,
-    Path((_team_slug, _project_slug, jti)): Path<(String, String, uuid::Uuid)>,
+    Path((team_slug, project_slug, jti)): Path<(String, String, uuid::Uuid)>,
 ) -> Result<Response, ApiError> {
     // DELIBERATE ordering (ACCEPTED design decision, not an oversight): the rate
     // guard fires AFTER authn (`MachinePrincipal` resolved a bound identity) and
@@ -585,7 +589,9 @@ async fn revoke_token_handler(
     if !rate_guard.check_revoke(principal.user_id()) {
         return Ok(rate_limited_response());
     }
-    services.revoke_token(&principal, jti).await?;
+    services
+        .revoke_project_token(&principal, &team_slug, &project_slug, jti)
+        .await?;
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 

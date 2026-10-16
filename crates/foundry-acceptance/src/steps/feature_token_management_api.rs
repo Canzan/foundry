@@ -191,14 +191,20 @@ async fn seed_token(
 }
 
 async fn team_slug_for_admin(world: &FoundryWorld) -> (String, String) {
-    // The token routes mirror the issue/comment path shape
-    // (/api/v1/teams/{team}/projects/{project}/tokens). The workspace seeds the
-    // "Backend" team; a project under it is created by the Background chain. For
-    // the RED scaffold the exact project slug is not load-bearing (the route
-    // 404s), but we use a stable, real-looking pair so the URL is well-formed and
-    // DELIVER's GREEN can resolve it.
-    let _ = world;
-    ("backend".to_string(), "tokens".to_string())
+    // The token routes resolve their address (2026-10-15): an unknown or
+    // deleted team or project is the API's not-found. So the fixture addresses
+    // the Background's real project under "Backend", read back as stored —
+    // never a made-up slug.
+    let harness = world.harness.as_ref().expect("harness");
+    let (team, project): (String, String) = sqlx::query_as(
+        "SELECT t.slug, p.slug FROM projects p JOIN teams t ON t.id = p.team_id
+          WHERE t.name = 'Backend' AND p.deleted_at IS NULL
+          ORDER BY p.created_at LIMIT 1",
+    )
+    .fetch_one(harness.app.state.store.pool())
+    .await
+    .expect("the Background seeds a live project under Backend");
+    (team, project)
 }
 
 fn auth_header(world: &FoundryWorld) -> Option<String> {

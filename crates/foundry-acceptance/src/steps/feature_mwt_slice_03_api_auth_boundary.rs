@@ -463,8 +463,8 @@ async fn acme_lists_missing(world: &mut FoundryWorld) {
 async fn get_tokens(world: &mut FoundryWorld, bearer: Option<String>) {
     ensure_harness(world).await;
     // Address the tokens route under the Acme project (the acting workspace's
-    // route); the use-case scopes by `principal.workspace_id()`, so the path's
-    // project slug is not the authority — the token binding is.
+    // route). The address must resolve (2026-10-15), but the list itself is
+    // scoped by `principal.workspace_id()` — the token binding is the authority.
     let (team_slug, project_slug) = world
         .mwt_project_route
         .get(&("Acme".to_string(), "Auth".to_string()))

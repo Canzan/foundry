@@ -50,6 +50,7 @@ Feature: A machine manages its workspace's tokens over the JSON API
   Background:
     Given a workspace "Acme" exists with admin "devansh@acme.com"
     And a member "mei@acme.com" belongs to the team "Backend"
+    And a project "Auth v2" with key prefix "AUTH" exists in the "Backend" team
 
   # ======================================================================
   # Slice 1 — Walking Skeleton: prove the authz model on the SAFEST op (LIST)

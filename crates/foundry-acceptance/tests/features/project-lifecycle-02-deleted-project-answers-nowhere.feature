@@ -23,14 +23,13 @@
 # Every door names real things: SPIKE-2 (and AUTH-1 for the live control), the
 # actor's own comment on it, its attachment, and the lane "Todo".
 #
-# The answer column pins OQ-D1 (re-verified at DISTILL): every web door's
-# never-existed answer is the uniform 404 except the live updates, whose
-# shipped refusal for an unknown project is a 403 text/plain "Not a member of
-# team …" (events.rs; Changed Assumption 1). A deleted project gets exactly
-# that refusal there. The script (API) doors answer the API's own not-found, except the
-# two machine-token routes (`…/tokens`, `…/tokens/{jti}`), which never read the
-# project: under any project address, live, deleted or never-existed, they
-# answer the same (re-verified at DISTILL; a separate outline pins it).
+# The answer column pins OQ-D1: every web door's never-existed answer is the
+# uniform 404, the live updates included (user decision 2026-10-15, Changed
+# Assumption 1 as amended: the live updates' former 403 text/plain "Not a member
+# of team …" is gone). The script (API) doors answer the API's own not-found,
+# the two machine-token routes (`…/tokens`, `…/tokens/{jti}`) included: since
+# 2026-10-15 they resolve their team and project like every other API door
+# (user decision, Changed Assumption 6 and U1 as amended).
 #
 # The 100-run delete-versus-issue-create guarantee is the store's
 # (crates/foundry-store/tests/project_lifecycle.rs); the race here runs 5 times
@@ -40,12 +39,11 @@
 # universe, "nothing erased" and the stored deleted marker are read with
 # read-only fixture SQL on the base tables; whether a project is hidden is
 # asserted only through the product's doors (pages, the API, the operator CLI).
-# The two machine-token routes are exempt from INV-PL-2's not-found answer by
-# user decision U1 (2026-10-13): they read no project and answer alike under
-# every project address (DESIGN Changed Assumption 6). The universe ignores
-# `machine_tokens.revoked_at` (it keys tokens by id, workspace and scope), so the
-# revoke scenario asserts the revocation through the product's token list, not
-# through the universe.
+# The two machine-token routes were exempt from INV-PL-2's not-found answer by
+# user decision U1 (2026-10-13); the exemption ended 2026-10-15 (user decision):
+# they now resolve the address, so a deleted project's token routes answer the
+# API's not-found like every other API door (rows of the script outline). The
+# list and the revoke themselves stay workspace-wide.
 #
 # Harness, universe and oracles as in project-lifecycle-01 (see its header).
 
@@ -345,26 +343,8 @@ Feature: A deleted project answers nowhere, for anyone, on any door
       | reading an issue's history       |
       | commenting on an issue           |
       | editing a comment                |
-
-  @us-pl-03 @edge @contract-shape:unbounded-preservation
-  Scenario: Listing machine tokens under a deleted project's address answers as under any address, because the list names no project
-    Given Auth v2 Spike has 3 issues, 2 comments and 1 attachment
-    And Identity Platform has 1 issue, 1 comment and 1 attachment
-    And Priya has commented on SPIKE-2 and on AUTH-1
-    And a script holds a machine token of Priya's for Backend, and Priya has a spare machine token
-    And Lena has deleted the project Auth v2 Spike
-    When the script tries listing the machine tokens in Auth v2 Spike, and the same in a project that never existed
-    Then both answers are the machine-token answer, alike for both
-    And neither request changed anything
-    And the same door in Identity Platform, which is live, answers the same way
-
-  @us-pl-03 @edge @contract-shape:bounded-change
-  Scenario: Revoking a machine token under a deleted project's address revokes it, as under any address, because the token names no project
-    Given a script holds a machine token of Priya's for Backend, and Priya has a spare machine token
-    And Lena has deleted the project Auth v2 Spike
-    When the script revokes Priya's spare machine token under Auth v2 Spike's address, and again under a project that never existed
-    Then the first answer revoked the spare machine token, and nothing else changed
-    And the second answer is the same as the first, and changed nothing
+      | listing the machine tokens       |
+      | revoking a machine token         |
 
   @us-pl-03 @error @kpi @contract-shape:unbounded-preservation
   Scenario: A deleted project's real attachment cannot be downloaded by anyone

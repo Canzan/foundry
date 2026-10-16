@@ -218,6 +218,54 @@ async fn resolve_team_name(
         .map_err(|_| ServiceError::Internal)
 }
 
+/// The admin-only gate the list and revoke use-cases open with (US-MT05). A
+/// non-admin is `Forbidden`; a store error fails closed.
+async fn require_workspace_admin(store: &Store, principal: &Principal) -> Result<(), ServiceError> {
+    let is_admin = store
+        .is_workspace_admin(principal.workspace_id(), principal.user_id())
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+    if is_admin {
+        Ok(())
+    } else {
+        Err(ServiceError::Forbidden)
+    }
+}
+
+/// Resolve the team and project a JSON token route is mounted under
+/// (`/api/v1/teams/{team}/projects/{project}/tokens…`, decision of 2026-10-15).
+/// An unknown team, a team a scoped credential does not reach, and an unknown
+/// or deleted project are all the one non-enumerable `NotFound` — the answer
+/// every other API door gives such an address. The address only has to be
+/// live: the list and the revoke behind it stay workspace-wide.
+async fn resolve_token_address(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+) -> Result<(), ServiceError> {
+    let team = store
+        .find_team_by_slug(principal.workspace_id(), team_slug)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .ok_or(ServiceError::NotFound)?;
+    if let Principal::Machine {
+        scope_team_id: Some(scoped_team),
+        ..
+    } = principal
+    {
+        if *scoped_team != team.id {
+            return Err(ServiceError::NotFound);
+        }
+    }
+    store
+        .find_project_by_slug(team.id, project_slug)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .ok_or(ServiceError::NotFound)?;
+    Ok(())
+}
+
 /// List the workspace's issued tokens (US-MT02, US-MT06).
 ///
 /// 1. authz `is_workspace_admin` → false ⇒ `Forbidden`.
@@ -227,16 +275,33 @@ pub async fn list_tokens(
     store: &Store,
     principal: &Principal,
 ) -> Result<Vec<TokenView>, ServiceError> {
-    // 1. Authz — the admin-only gate (US-MT05). A store error fails closed.
-    let is_admin = store
-        .is_workspace_admin(principal.workspace_id(), principal.user_id())
-        .await
-        .map_err(|_| ServiceError::Internal)?;
-    if !is_admin {
-        return Err(ServiceError::Forbidden);
-    }
+    require_workspace_admin(store, principal).await?;
+    read_workspace_tokens(store, principal).await
+}
 
-    // 2. Read — workspace-scoped, newest-first (the store ORDERs by created_at
+/// List the workspace's issued tokens through the JSON route's address
+/// (US-TMA01): the admin gate FIRST (a non-admin is `Forbidden`, whatever the
+/// address), then the address must resolve to a live team and project
+/// ([`resolve_token_address`], else `NotFound`), then the same workspace-wide
+/// list as [`list_tokens`].
+pub async fn list_project_tokens(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+) -> Result<Vec<TokenView>, ServiceError> {
+    require_workspace_admin(store, principal).await?;
+    resolve_token_address(store, principal, team_slug, project_slug).await?;
+    read_workspace_tokens(store, principal).await
+}
+
+/// The workspace's token registry as value-free views. Callers have already
+/// passed the admin gate.
+async fn read_workspace_tokens(
+    store: &Store,
+    principal: &Principal,
+) -> Result<Vec<TokenView>, ServiceError> {
+    // Read — workspace-scoped, newest-first (the store ORDERs by created_at
     //    DESC). Map each metadata row to a value-free `TokenView`, resolving the
     //    minting admin's display name from `created_by` — the ISSUER who minted
     //    the credential (NFR-MT-SEC-06), NOT `user_id` (the SUBJECT the credential
@@ -284,14 +349,32 @@ pub async fn revoke_token(
     jti: uuid::Uuid,
 ) -> Result<(), ServiceError> {
     // 1. Authz — the admin-only gate (US-MT05). A store error fails closed.
-    let is_admin = store
-        .is_workspace_admin(principal.workspace_id(), principal.user_id())
-        .await
-        .map_err(|_| ServiceError::Internal)?;
-    if !is_admin {
-        return Err(ServiceError::Forbidden);
-    }
+    require_workspace_admin(store, principal).await?;
+    revoke_in_workspace(store, principal, jti).await
+}
 
+/// Revoke a machine token through the JSON route's address (US-TMA02/03): the
+/// admin gate FIRST, then the address must resolve to a live team and project
+/// ([`resolve_token_address`], else `NotFound`), then the same workspace-wide,
+/// idempotent revoke as [`revoke_token`].
+pub async fn revoke_project_token(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    jti: uuid::Uuid,
+) -> Result<(), ServiceError> {
+    require_workspace_admin(store, principal).await?;
+    resolve_token_address(store, principal, team_slug, project_slug).await?;
+    revoke_in_workspace(store, principal, jti).await
+}
+
+/// Steps 2-3 of [`revoke_token`]. Callers have already passed the admin gate.
+async fn revoke_in_workspace(
+    store: &Store,
+    principal: &Principal,
+    jti: uuid::Uuid,
+) -> Result<(), ServiceError> {
     // 2. Workspace isolation, NON-ENUMERABLE (NFR-MT-REL-03 / NFR-MT-SEC-03): a
     //    jti that does not exist AND a jti that belongs to ANOTHER workspace
     //    yield the SAME `NotFound` — the response never confirms whether the
