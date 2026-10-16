@@ -69,6 +69,7 @@ use axum::response::{Html, IntoResponse, Response};
 use foundry_core::TeamRole;
 use foundry_services::projects::{
     ProjectDeletePreview, ProjectLifecycleError, RenameProjectError, TeamProjectRename,
+    TeamProjectRenaming,
 };
 use foundry_services::teams::{
     AddMemberResult, CreateTeamError, RemoveMemberResult, RenameTeamError, RoleChangeResult,
@@ -644,15 +645,20 @@ pub async fn submit_project_rename(
     let outcome = services
         .rename_team_project(&principal, &team_slug, &project_slug, &typed)
         .await;
-    let (notice, fields, status) = match outcome {
-        Ok(TeamProjectRename::Renamed { old_name, name }) => {
-            let notice = TeamNotice::ProjectRenamed {
-                old: old_name,
-                new: name,
+    match outcome {
+        // A committed (or no-op) rename renders the page the use-case built
+        // from the authority it read once (F-14) — no second authority read.
+        Ok(TeamProjectRenaming { outcome, page }) => {
+            let notice = match outcome {
+                TeamProjectRename::Renamed { old_name, name } => Some(TeamNotice::ProjectRenamed {
+                    old: old_name,
+                    new: name,
+                }),
+                TeamProjectRename::NoOp { .. } => None,
             };
-            (Some(notice), PageFields::default(), StatusCode::OK)
+            members_page(&state, &headers, &user, page, notice).await
         }
-        Ok(TeamProjectRename::NoOp { .. }) => (None, PageFields::default(), StatusCode::OK),
+        // No write committed: the 422 reads the page afresh.
         Err(RenameProjectError::InvalidName(reason)) => {
             let refused = ProjectRenameRefusal {
                 project_slug,
@@ -663,18 +669,18 @@ pub async fn submit_project_rename(
                 team_rename: None,
                 project_rename: Some(refused),
             };
-            (None, fields, StatusCode::UNPROCESSABLE_ENTITY)
+            match services.team_members(&principal, &team_slug).await {
+                Ok(view) => {
+                    let status = StatusCode::UNPROCESSABLE_ENTITY;
+                    members_page_rendered(&state, &headers, &user, view, None, fields, status).await
+                }
+                Err(err) => refusal(err),
+            }
         }
         Err(RenameProjectError::Forbidden | RenameProjectError::NotFound) => {
-            return resource_not_found_page();
+            resource_not_found_page()
         }
-        Err(RenameProjectError::Store(err)) => return refusal(TeamError::Store(err)),
-    };
-    match services.team_members(&principal, &team_slug).await {
-        Ok(view) => {
-            members_page_rendered(&state, &headers, &user, view, notice, fields, status).await
-        }
-        Err(err) => refusal(err),
+        Err(RenameProjectError::Store(err)) => refusal(TeamError::Store(err)),
     }
 }
 
@@ -760,10 +766,8 @@ pub async fn submit_project_delete(
     let notice = TeamNotice::ProjectDeleted {
         project: deletion.name,
     };
-    match services.team_members(&principal, &team_slug).await {
-        Ok(view) => members_page(&state, &headers, &user, view, Some(notice)).await,
-        Err(err) => refusal(err),
-    }
+    // The page the use-case built from the authority it read once (F-14).
+    members_page(&state, &headers, &user, deletion.page, Some(notice)).await
 }
 
 // ----------------------------------------------------- GET /team/{slug}/delete

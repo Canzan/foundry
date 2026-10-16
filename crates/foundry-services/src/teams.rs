@@ -347,7 +347,12 @@ async fn resolve_access(
     Ok((facts, access))
 }
 
-async fn members_view(
+/// The members page for an authority ALREADY read (`facts`, `access`): the
+/// lists are read fresh, the authority is not re-resolved. A door that renders
+/// after its committed write calls this with the facts it read before the
+/// write (F-14), so a demotion racing the write cannot turn a committed
+/// change into the uniform 404.
+pub(crate) async fn members_view(
     store: &Store,
     principal: &Principal,
     facts: TeamAccessFacts,
@@ -491,7 +496,8 @@ impl From<TeamError> for RenameTeamError {
     }
 }
 
-/// What a rename did, with the members page re-read after it (DDD-22).
+/// What a rename did, with the members page read after it (DDD-22) from the
+/// authority read before the write (F-14).
 #[derive(Debug, Clone)]
 pub enum TeamRenaming {
     /// The name changed from `old_name` (as read under the lock) to `new_name`,
@@ -539,16 +545,27 @@ pub async fn rename_team(
             name.as_str(),
         )
         .await?;
-    let page = team_members(store, principal, &facts.team_slug).await?;
-    match written {
-        TeamRenameWrite::Renamed { old_name } => Ok(TeamRenaming::Renamed {
+    let old_name = match written {
+        TeamRenameWrite::Renamed { old_name } => Some(old_name),
+        TeamRenameWrite::Unchanged => None,
+        TeamRenameWrite::NotFound => return Err(RenameTeamError::NotFound),
+    };
+    // The page renders from the authority read once above (F-14); only its
+    // name moves — to the one now stored (Renamed, or byte-equal Unchanged).
+    let new_name = name.as_str().to_string();
+    let renamed_facts = TeamAccessFacts {
+        team_name: new_name.clone(),
+        ..facts
+    };
+    let page = members_view(store, principal, renamed_facts, access).await?;
+    Ok(match old_name {
+        Some(old_name) => TeamRenaming::Renamed {
             old_name,
-            new_name: name.as_str().to_string(),
+            new_name,
             page,
-        }),
-        TeamRenameWrite::Unchanged => Ok(TeamRenaming::Unchanged { page }),
-        TeamRenameWrite::NotFound => Err(RenameTeamError::NotFound),
-    }
+        },
+        None => TeamRenaming::Unchanged { page },
+    })
 }
 
 // ===========================================================================

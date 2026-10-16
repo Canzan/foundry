@@ -18,6 +18,7 @@
 //! own id, so a case-only rename of a project onto itself is a VALID rename, and
 //! an exact-match self rename is the earlier NoOp.
 
+use crate::teams::TeamError;
 use foundry_core::{
     mint_project_slug, MintedSlug, ProjectKey, ProjectKeyError, ProjectName, ProjectNameError,
     TeamAccess,
@@ -630,12 +631,39 @@ pub enum TeamProjectRename {
     },
 }
 
+/// What the team page's rename door did, with the members page to answer it:
+/// read after the write from the authority read once before it (F-14,
+/// INV-PL-8), so a demotion racing the write cannot 404 a committed rename.
+#[derive(Debug, Clone)]
+pub struct TeamProjectRenaming {
+    pub outcome: TeamProjectRename,
+    pub page: crate::teams::TeamMembersView,
+}
+
 /// Why a project lifecycle use-case did not run: everything before the verb
 /// is the uniform 404 (DDD-18).
 #[derive(Debug)]
 pub enum ProjectLifecycleError {
     NotFound,
     Store(foundry_store::StoreError),
+}
+
+impl From<TeamError> for ProjectLifecycleError {
+    fn from(err: TeamError) -> Self {
+        match err {
+            TeamError::NotFound => ProjectLifecycleError::NotFound,
+            TeamError::Store(err) => ProjectLifecycleError::Store(err),
+        }
+    }
+}
+
+impl From<TeamError> for RenameProjectError {
+    fn from(err: TeamError) -> Self {
+        match err {
+            TeamError::NotFound => RenameProjectError::NotFound,
+            TeamError::Store(err) => RenameProjectError::Store(err),
+        }
+    }
 }
 
 /// The delete confirm page (D7, DDD-12): read with no lock, so the count is
@@ -649,24 +677,28 @@ pub struct ProjectDeletePreview {
     pub issue_count: i64,
 }
 
-/// What a delete did: the project's name for "Deleted {project}." (D14).
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// What a delete did: the project's name for "Deleted {project}." (D14), and
+/// the members page read after the write from the authority read once before
+/// it (F-14, INV-PL-8).
+#[derive(Debug, Clone)]
 pub struct ProjectDeletion {
     pub name: String,
     pub key_prefix: String,
+    pub page: crate::teams::TeamMembersView,
 }
 
 /// `POST /team/{t}/project/{p}/rename`: session → team facts by (session
 /// workspace, team slug) → `can_manage` → the project by (team, slug) → the
-/// shared rename core. The authority is read once (INV-PL-8); every refusal
-/// before the verb is `NotFound`; name refusals are `InvalidName`.
+/// shared rename core. The authority is read once (INV-PL-8) and the members
+/// page renders from it (F-14); every refusal before the verb is `NotFound`;
+/// name refusals are `InvalidName`.
 pub async fn rename_team_project(
     store: &Store,
     principal: &crate::Principal,
     team_slug: &str,
     project_slug: &str,
     raw_name: &str,
-) -> Result<TeamProjectRename, RenameProjectError> {
+) -> Result<TeamProjectRenaming, RenameProjectError> {
     let ManagedProject { facts, project } =
         ManagedProject::resolve(store, principal, team_slug, project_slug)
             .await
@@ -677,9 +709,11 @@ pub async fn rename_team_project(
         team_id: facts.team_id,
         current_name: project.name,
     };
-    target
+    let outcome = target
         .apply_rename(store, principal.user_id(), raw_name)
-        .await
+        .await?;
+    let page = ManagedProject::page(store, principal, facts).await?;
+    Ok(TeamProjectRenaming { outcome, page })
 }
 
 /// The live project a team-page door resolved behind `can_manage` (DDD-18):
@@ -725,6 +759,17 @@ impl ManagedProject {
             .await
             .map_err(ProjectLifecycleError::Store)?
             .ok_or(ProjectLifecycleError::NotFound)
+    }
+
+    /// The team's members page after a committed write, from the `facts` read
+    /// before it: lists read fresh, the authority reused (F-14).
+    async fn page(
+        store: &Store,
+        principal: &crate::Principal,
+        facts: foundry_store::teams::TeamAccessFacts,
+    ) -> Result<crate::teams::TeamMembersView, TeamError> {
+        let access = TeamAccess::of(facts.is_workspace_admin, facts.role);
+        crate::teams::members_view(store, principal, facts, access).await
     }
 }
 
@@ -772,7 +817,12 @@ pub async fn delete_project(
         .map_err(ProjectLifecycleError::Store)?
     {
         ProjectDeleteOutcome::Deleted { name, key_prefix } => {
-            Ok(ProjectDeletion { name, key_prefix })
+            let page = ManagedProject::page(store, principal, facts).await?;
+            Ok(ProjectDeletion {
+                name,
+                key_prefix,
+                page,
+            })
         }
         // Lost a race with another delete — the same non-enumerable refusal.
         ProjectDeleteOutcome::NotFound => Err(ProjectLifecycleError::NotFound),

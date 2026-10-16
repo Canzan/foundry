@@ -308,7 +308,7 @@ impl Services {
         team_slug: &str,
         project_slug: &str,
         raw_name: &str,
-    ) -> Result<projects::TeamProjectRename, projects::RenameProjectError> {
+    ) -> Result<projects::TeamProjectRenaming, projects::RenameProjectError> {
         projects::rename_team_project(&self.store, principal, team_slug, project_slug, raw_name)
             .await
     }

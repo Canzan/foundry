@@ -24,8 +24,12 @@ use foundry_services::projects::{
     create_project, delete_preview, delete_project, list_deleted_projects, rename_team_project,
     restore_project, CreateProjectError, CreateProjectRequest, ProjectLifecycleError,
     RenameOutcome, RenameProjectError, RenameProjectRequest, TeamProjectRename,
+    TeamProjectRenaming,
 };
-use foundry_services::teams::{delete_preview as team_delete_preview, TeamDeletePreview};
+use foundry_services::teams::{
+    delete_preview as team_delete_preview, rename_team, team_members, TeamDeletePreview, TeamError,
+    TeamMembersView, TeamRenaming,
+};
 use foundry_services::{Principal, Services};
 use foundry_store::{ProjectRestoreOutcome, Store};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -310,9 +314,9 @@ async fn name_of(pool: &PgPool, project: Id) -> (String, String, String) {
 }
 
 /// Describe a team-door rename outcome (the error type has no `Debug`).
-fn said(r: &Result<TeamProjectRename, RenameProjectError>) -> String {
+fn said(r: &Result<TeamProjectRenaming, RenameProjectError>) -> String {
     match r {
-        Ok(outcome) => format!("{outcome:?}"),
+        Ok(renaming) => format!("{:?}", renaming.outcome),
         Err(RenameProjectError::Forbidden) => "Forbidden".into(),
         Err(RenameProjectError::NotFound) => "NotFound".into(),
         Err(RenameProjectError::InvalidName(e)) => format!("InvalidName({e:?})"),
@@ -704,6 +708,120 @@ async fn anyone_without_manage_gets_not_found_on_the_confirm_and_the_delete_and_
         );
     }
     assert_eq!(everything(&l.pool).await, before, "zero writes");
+}
+
+// ---------------------------------------------------------------------------
+// F-14: a committed rename or delete answers from the authority read once
+// ---------------------------------------------------------------------------
+
+/// Demote `who` from workspace admin to member INSIDE the transaction of any
+/// write to a `table` row: the demotion commits with the rename or delete, so
+/// it lands deterministically between the door's authority read and its page.
+async fn demote_on_write_to(pool: &PgPool, table: &str, who: Id) {
+    q(
+        pool,
+        &format!(
+            "CREATE FUNCTION f14_demote() RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN
+               UPDATE workspace_memberships SET role = 'member' WHERE user_id = '{who}';
+               RETURN NULL;
+             END $$"
+        ),
+        &[],
+    )
+    .await;
+    q(
+        pool,
+        &format!(
+            "CREATE TRIGGER f14_demote AFTER UPDATE ON {table}
+               FOR EACH ROW EXECUTE FUNCTION f14_demote()"
+        ),
+        &[],
+    )
+    .await;
+}
+
+/// The page a door built after its write: Priya's manage controls, Ops's live
+/// projects — and a re-read of the authority now refuses her (she is on no
+/// team and no longer a workspace admin), so the page cannot have come from
+/// a second authority read.
+async fn assert_page_from_the_authority_read_once(
+    l: &Labs,
+    page: &TeamMembersView,
+    projects: &[&str],
+) {
+    assert!(
+        page.access.can_manage(),
+        "the page keeps the authority read before the write"
+    );
+    let slugs: Vec<&str> = page.projects.iter().map(|p| p.slug.as_str()).collect();
+    assert_eq!(slugs, projects, "the lists are read after the write");
+    let reread = team_members(&l.store, &human(l.priya, l.ws), "ops").await;
+    assert!(
+        matches!(reread, Err(TeamError::NotFound)),
+        "precondition: the demotion committed, so a re-read would 404"
+    );
+}
+
+#[tokio::test]
+async fn a_delete_demoted_right_after_its_write_still_answers_with_the_page() {
+    let l = labs().await;
+    require_soft_delete(&l.pool).await;
+    demote_on_write_to(&l.pool, "projects", l.priya).await;
+    let deleted = delete_project(&l.store, &human(l.priya, l.ws), "ops", "reading-list")
+        .await
+        .map_err(|e| format!("{e:?}"))
+        .expect("the delete commits");
+    assert_eq!(deleted.name, "Reading List");
+    assert_page_from_the_authority_read_once(&l, &deleted.page, &["homelab-ops"]).await;
+}
+
+#[tokio::test]
+async fn a_rename_demoted_right_after_its_write_still_answers_with_the_page() {
+    let l = labs().await;
+    require_records(&l.pool).await;
+    demote_on_write_to(&l.pool, "projects", l.priya).await;
+    let r = rename_team_project(
+        &l.store,
+        &human(l.priya, l.ws),
+        "ops",
+        "reading-list",
+        "Reading Queue",
+    )
+    .await;
+    assert!(said(&r).starts_with("Renamed"), "{}", said(&r));
+    let Ok(renaming) = r else { unreachable!() };
+    assert_page_from_the_authority_read_once(&l, &renaming.page, &["homelab-ops", "reading-list"])
+        .await;
+}
+
+/// The team rename door renders the same way (F-14): its page carries the
+/// stored new name, from the authority read before the write.
+#[tokio::test]
+async fn a_team_rename_demoted_right_after_its_write_still_answers_with_the_page() {
+    let l = labs().await;
+    demote_on_write_to(&l.pool, "teams", l.priya).await;
+    let renamed = rename_team(&l.store, &human(l.priya, l.ws), "ops", "Operations")
+        .await
+        .map_err(|e| format!("{e:?}"))
+        .expect("the rename commits");
+    let TeamRenaming::Renamed {
+        old_name,
+        new_name,
+        page,
+    } = renamed
+    else {
+        panic!("a rename: {renamed:?}");
+    };
+    assert_eq!(
+        (old_name.as_str(), new_name.as_str()),
+        ("Ops", "Operations")
+    );
+    assert_eq!(
+        page.team_name, "Operations",
+        "the page shows the stored name"
+    );
+    assert_page_from_the_authority_read_once(&l, &page, &["homelab-ops", "reading-list"]).await;
 }
 
 // ---------------------------------------------------------------------------
