@@ -334,7 +334,7 @@ async fn rita_subscribes(world: &mut FoundryWorld, project_name: String) {
     let project_slug = slugify(&project_name);
     let team_slug = team_slug_for(&project_name);
     let sub = open_sse_subscription(&base, &project_slug, team_slug, &cookie).await;
-    // For the 403 path, body wasn't captured by open_sse_subscription
+    // For the refused (404) path, body wasn't captured by open_sse_subscription
     // (it discards the body on non-2xx). Re-issue a vanilla GET to
     // capture body content if a later step needs it.
     world.us_09_last_open_status = Some(sub.open_status);

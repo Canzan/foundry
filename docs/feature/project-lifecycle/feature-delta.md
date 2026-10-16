@@ -1564,6 +1564,13 @@ C4Component
    for every refusal is a separate, small follow-up if wanted. DISTILL edits the two ACs and the
    scenario wording.
 
+   **Amended 2026-10-15 (user decision, follow-up 3).** The events route now answers every refusal
+   after sign-in (unknown team, a team the caller is not on, an unknown or deleted project) with
+   the uniform 404, `resource_not_found_page()` byte for byte; the 403 text/plain is gone.
+   Signed-out stays the 401 sign-in page. So a deleted project's live updates answer the uniform
+   404, as the original AC said, and still byte-identically to a never-existed project. A reconnect
+   after the delete answers the uniform 404.
+
    **An already-open stream.** The events handler resolves the project once, at connect
    (`events.rs:96`), and the stream is not closed by a delete. Mechanism: after the delete commits,
    the guard makes sure no new outbox row about the project arises. An outbox row committed

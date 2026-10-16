@@ -6,6 +6,12 @@
 //!   request → auth (session) → authz (team membership) → project lookup
 //!   → subscribe to broadcast → filter by project_id → emit SSE lines.
 //!
+//! Every refusal after sign-in — an unknown team, a team the caller is not
+//! on, an unknown or deleted project — is the web's uniform 404, byte-for-byte
+//! the page every other surface answers, so the live control never confirms
+//! that the address it refuses exists (2026-10-15). Signed-out stays the 401
+//! sign-in page.
+//!
 //! Wire format follows the SSE spec subset our minimal harness parses:
 //!   - `event: <name>\ndata: <json>\n\n` for real events
 //!   - `:keepalive\n\n` for heartbeats
@@ -17,7 +23,7 @@
 //! At ~80 lines of streaming code the hand-roll is cheaper than the
 //! mismatch.
 
-use crate::bootstrap::SessionUser;
+use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
@@ -69,7 +75,7 @@ pub async fn sse_stream(
         Ok(Some(t)) => t,
         Ok(None) => {
             drop(rx);
-            return forbidden_response(&team_slug);
+            return resource_not_found_page();
         }
         Err(err) => {
             drop(rx);
@@ -87,7 +93,7 @@ pub async fn sse_stream(
     };
     if !is_member {
         drop(rx);
-        return forbidden_response(&team_slug);
+        return resource_not_found_page();
     }
 
     // (3) Project lookup so we know which project_id to filter on.
@@ -99,7 +105,7 @@ pub async fn sse_stream(
         Ok(Some(p)) => p,
         Ok(None) => {
             drop(rx);
-            return forbidden_response(&team_slug);
+            return resource_not_found_page();
         }
         Err(err) => {
             drop(rx);
@@ -149,15 +155,6 @@ fn unauthorized_response() -> Response {
         StatusCode::UNAUTHORIZED,
         [(CONTENT_TYPE, "text/html; charset=utf-8")],
         body,
-    )
-        .into_response()
-}
-
-fn forbidden_response(team_slug: &str) -> Response {
-    (
-        StatusCode::FORBIDDEN,
-        [(CONTENT_TYPE, "text/plain; charset=utf-8")],
-        format!("Not a member of team {team_slug:?}."),
     )
         .into_response()
 }

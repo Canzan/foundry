@@ -296,10 +296,9 @@ impl ApiDoor {
 /// What the differential outline's answer column names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Answered {
-    /// `resource_not_found_page()`, byte for byte.
+    /// `resource_not_found_page()`, byte for byte — the live updates included
+    /// (Changed Assumption 1, amended 2026-10-15).
     UniformNotFound,
-    /// The live updates' shipped 403 text/plain refusal (Changed Assumption 1).
-    LiveUpdatesRefusal,
     /// The API's shipped not-found answer.
     ApiNotFound,
 }
@@ -308,7 +307,6 @@ impl Answered {
     pub fn parse(words: &str) -> Self {
         match words.trim() {
             "the uniform not-found page" => Self::UniformNotFound,
-            "the live updates' shipped refusal" => Self::LiveUpdatesRefusal,
             "the scripts' not-found answer" => Self::ApiNotFound,
             other => panic!("{other:?} is not a known answer"),
         }
@@ -2864,15 +2862,6 @@ pub async fn then_byte_identical(world: &mut FoundryWorld, answered: &str) {
                 tm::describe(b)
             );
         }
-        Answered::LiveUpdatesRefusal => assert!(
-            b.status == StatusCode::FORBIDDEN
-                && b.content_type
-                    .as_deref()
-                    .is_some_and(|c| c.starts_with("text/plain"))
-                && b.body.starts_with("Not a member of team"),
-            "Changed Assumption 1: the live updates' shipped refusal is a 403 text/plain; {}",
-            tm::describe(b)
-        ),
         Answered::ApiNotFound => assert!(
             b.status == StatusCode::NOT_FOUND
                 && b.content_type

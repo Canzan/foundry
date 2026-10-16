@@ -59,7 +59,7 @@ Feature: A team member sees teammates' issue changes appear on the project board
     Given a member "rita@partners.acme.com" belongs to the team "Partners"
     And Rita is signed in
     When Rita attempts to subscribe to events on "Auth v2"
-    Then the subscription is refused with status 403
+    Then the subscription is refused with status 404
     And Rita receives no events on a closed stream
 
   @real-io @error

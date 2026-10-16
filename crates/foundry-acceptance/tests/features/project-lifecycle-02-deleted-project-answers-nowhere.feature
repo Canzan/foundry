@@ -107,7 +107,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
       | Lena  | deleting a comment               | the uniform not-found page        |
       | Lena  | attaching a file to an issue     | the uniform not-found page        |
       | Lena  | downloading an attachment        | the uniform not-found page        |
-      | Lena  | the live updates                 | the live updates' shipped refusal |
+      | Lena  | the live updates                 | the uniform not-found page        |
       | Lena  | a lane's delete dialog           | the uniform not-found page        |
       | Lena  | deleting a lane                  | the uniform not-found page        |
       | Lena  | a lane's edit dialog             | the uniform not-found page        |
@@ -140,7 +140,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
       | Sam   | deleting a comment               | the uniform not-found page        |
       | Sam   | attaching a file to an issue     | the uniform not-found page        |
       | Sam   | downloading an attachment        | the uniform not-found page        |
-      | Sam   | the live updates                 | the live updates' shipped refusal |
+      | Sam   | the live updates                 | the uniform not-found page        |
       | Sam   | a lane's delete dialog           | the uniform not-found page        |
       | Sam   | deleting a lane                  | the uniform not-found page        |
       | Sam   | a lane's edit dialog             | the uniform not-found page        |
@@ -170,7 +170,7 @@ Feature: A deleted project answers nowhere, for anyone, on any door
       | Priya | deleting a comment               | the uniform not-found page        |
       | Priya | attaching a file to an issue     | the uniform not-found page        |
       | Priya | downloading an attachment        | the uniform not-found page        |
-      | Priya | the live updates                 | the live updates' shipped refusal |
+      | Priya | the live updates                 | the uniform not-found page        |
       | Priya | a lane's delete dialog           | the uniform not-found page        |
       | Priya | deleting a lane                  | the uniform not-found page        |
       | Priya | a lane's edit dialog             | the uniform not-found page        |
