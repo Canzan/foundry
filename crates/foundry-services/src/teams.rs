@@ -127,9 +127,19 @@ pub enum RemoveMemberResult {
 
 /// The outcome of a removal, with the page re-read after it (DDD-9).
 #[derive(Debug, Clone)]
-pub struct MemberRemoval {
-    pub result: RemoveMemberResult,
-    pub page: TeamMembersView,
+pub enum MemberRemoval {
+    /// The members page, re-read after the write.
+    Members {
+        result: RemoveMemberResult,
+        page: TeamMembersView,
+    },
+    /// The caller removed THEMSELVES and the re-read found they can no longer
+    /// view the team (a lead who is not a workspace admin): their teams list,
+    /// read after the write (DDD-9 amendment, 2026-10-15).
+    Left {
+        team_name: String,
+        index: TeamsIndex,
+    },
 }
 
 /// `GET /teams`: every team for a workspace admin, else the caller's own teams.
@@ -301,9 +311,18 @@ pub async fn remove_member(
         RemoveTeamMemberOutcome::NotOnTeam => RemoveMemberResult::NotOnTeam,
         RemoveTeamMemberOutcome::LastLead => RemoveMemberResult::LastLead,
     };
-    // Access is recomputed after the write (DDD-9).
-    let page = team_members(store, principal, &facts.team_slug).await?;
-    Ok(MemberRemoval { result, page })
+    // Access is recomputed after the write (DDD-9). Someone who just removed
+    // themselves and can no longer view the team lands on their teams list
+    // rather than the uniform 404 (DDD-9 amendment, 2026-10-15).
+    let left = user_id == principal.user_id() && matches!(result, RemoveMemberResult::Removed(_));
+    match team_members(store, principal, &facts.team_slug).await {
+        Ok(page) => Ok(MemberRemoval::Members { result, page }),
+        Err(TeamError::NotFound) if left => Ok(MemberRemoval::Left {
+            team_name: facts.team_name,
+            index: list_teams(store, principal).await?,
+        }),
+        Err(err) => Err(err),
+    }
 }
 
 impl TeamMembersView {

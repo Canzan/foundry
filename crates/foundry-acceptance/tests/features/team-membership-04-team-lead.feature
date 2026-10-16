@@ -50,6 +50,18 @@ Feature: A team lead manages her own team, and only her own team
     Then she sees "Removed Sam Okafor (sam.okafor@canzan.dev) from Backend."
     And Sam Okafor is no longer on Backend, and nothing else changed
 
+  # 2026-10-15 (user decision, DDD-9 amendment): a lead who removes herself while
+  # another lead remains can no longer see the team, so she lands on her teams
+  # list with a notice rather than the page that never existed.
+  @us-tm-05 @edge @contract-shape:bounded-change
+  Scenario: A team lead who shares the lead removes herself and lands on her teams list
+    Given Lena has made Sam Okafor a lead of Backend
+    When Lena removes herself from Backend
+    Then she sees "You left Backend."
+    And the teams page lists exactly:
+      | Ops · 3 members |
+    And Lena Park is no longer on Backend, and nothing else changed
+
   @us-tm-05 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A team's only lead cannot step down or leave it
     Given Lena Park is Backend's only lead

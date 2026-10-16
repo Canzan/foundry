@@ -25,7 +25,10 @@
 //!   POST /team/{slug}/members/{user_id}/role — needs Manage; `role` is lead|member.
 //!                                  A last lead is a 409 with the members page (DDD-8).
 //!   POST /team/{slug}/members/{user_id}/remove — needs Manage; a last lead is the
-//!                                  same 409; a stale target re-renders with no copy.
+//!                                  same 409; a stale target re-renders with no copy;
+//!                                  someone who removed themselves and can no longer
+//!                                  view the team gets their 200 teams page with
+//!                                  "You left {team}." (DDD-9 amendment, 2026-10-15).
 //!   POST /team/{slug}/rename     — needs Manage (team-lifecycle DDD-17/22): Renamed
 //!                                  → 200 members page with "Renamed {old} to
 //!                                  {new}."; a byte-equal name → 200, no notice;
@@ -72,8 +75,9 @@ use foundry_services::projects::{
     TeamProjectRenaming,
 };
 use foundry_services::teams::{
-    AddMemberResult, CreateTeamError, RemoveMemberResult, RenameTeamError, RoleChangeResult,
-    TeamDeletePreview, TeamDeletion, TeamError, TeamMembersView, TeamRenaming, TeamsIndex,
+    AddMemberResult, CreateTeamError, MemberRemoval, RemoveMemberResult, RenameTeamError,
+    RoleChangeResult, TeamDeletePreview, TeamDeletion, TeamError, TeamMembersView, TeamRenaming,
+    TeamsIndex,
 };
 use foundry_services::{Principal, Services};
 use foundry_store::TeamProjectRow;
@@ -113,6 +117,9 @@ pub enum TeamNotice {
         email: String,
         team: String,
     },
+    /// "You left {team}." — a lead who removed themselves and can no longer
+    /// view the team, on their teams list (DDD-9 amendment, 2026-10-15).
+    Left { team: String },
     /// OQ-9: "{name} ({email}) is the last lead of {team}. Make someone else a
     /// lead first." (`POST /workspace/members/remove`'s 409).
     LastLeadOf {
@@ -221,6 +228,7 @@ impl fmt::Display for TeamNotice {
             Self::Removed { name, email, team } => {
                 write!(f, "Removed {name} ({email}) from {team}.")
             }
+            Self::Left { team } => write!(f, "You left {team}."),
             Self::LastLeadOf { name, email, team } => {
                 write!(
                     f,
@@ -539,15 +547,19 @@ pub async fn submit_remove(
         return resource_not_found_page();
     };
     let services = Services::new(state.store.clone());
-    let removal = match services
+    let (result, page) = match services
         .remove_member_from_team(&principal_of(&user), &team_slug, &raw_user_id)
         .await
     {
-        Ok(removal) => removal,
+        Ok(MemberRemoval::Members { result, page }) => (result, page),
+        Ok(MemberRemoval::Left { team_name, index }) => {
+            let notice = TeamNotice::Left { team: team_name };
+            return teams_page(&state, &headers, &user, index, Some(notice)).await;
+        }
         Err(err) => return refusal(err),
     };
-    let team = removal.page.team_name.clone();
-    let (status, notice) = match removal.result {
+    let team = page.team_name.clone();
+    let (status, notice) = match result {
         RemoveMemberResult::Removed(person) => (
             StatusCode::OK,
             Some(TeamNotice::Removed {
@@ -561,7 +573,7 @@ pub async fn submit_remove(
             (StatusCode::CONFLICT, Some(TeamNotice::NeedsALead { team }))
         }
     };
-    members_page_with_status(&state, &headers, &user, removal.page, notice, status).await
+    members_page_with_status(&state, &headers, &user, page, notice, status).await
 }
 
 // ---------------------------------------------------- POST /team/{slug}/rename
@@ -1318,6 +1330,14 @@ mod team_notice_copy {
             notice.to_string(),
             "Removed Tomás Rivera (tomas.rivera@canzan.dev) from Backend."
         );
+    }
+
+    #[test]
+    fn left() {
+        let notice = TeamNotice::Left {
+            team: "Backend".into(),
+        };
+        assert_eq!(notice.to_string(), "You left Backend.");
     }
 
     #[test]
