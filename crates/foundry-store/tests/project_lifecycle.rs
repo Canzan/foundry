@@ -1358,7 +1358,8 @@ async fn restoring_a_comment_inside_a_deleted_project_changes_nothing_and_says_w
 /// slug or team (review F-20): `find_project_by_slug`,
 /// `find_issue_by_team_project_number`, `list_projects_for_workspace`,
 /// `list_projects_for_instance`, `project_rename_context`,
-/// `list_project_changes` and `list_team_projects`. (The team delete's facts
+/// `list_project_changes`, `list_team_projects` and `list_project_lanes`
+/// (whose empty answer every caller maps to not-found). (The team delete's facts
 /// are `team_delete.rs`'s; the writers' guard is the writer matrix above.)
 /// Each one is first shown to see the project while it is live, so a reader
 /// that never returns it at all cannot pass.
@@ -1392,6 +1393,14 @@ async fn every_project_reader_treats_a_deleted_project_as_one_that_never_existed
             .expect("read")
             .is_some(),
         "precondition: the live project has a rename context"
+    );
+    assert!(
+        !l.store
+            .list_project_lanes(l.spike)
+            .await
+            .expect("read")
+            .is_empty(),
+        "precondition: the live project has its lanes"
     );
     mark_deleted_by_hand(&l.pool, l.spike, l.lena).await;
     let mut leaks = Vec::new();
@@ -1451,6 +1460,15 @@ async fn every_project_reader_treats_a_deleted_project_as_one_that_never_existed
         .any(|p| p.slug == "auth-v2-spike")
     {
         leaks.push("list_team_projects");
+    }
+    if !l
+        .store
+        .list_project_lanes(l.spike)
+        .await
+        .expect("read")
+        .is_empty()
+    {
+        leaks.push("list_project_lanes");
     }
     assert!(
         leaks.is_empty(),

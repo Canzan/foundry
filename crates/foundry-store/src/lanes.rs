@@ -107,15 +107,19 @@ pub enum LaneDeleteOutcome {
 }
 
 impl Store {
-    /// Project's lanes, board order (`ORDER BY position ASC`). Never empty for
-    /// a live project (creation seeds three; delete refuses the last).
+    /// Project's lanes, board order (`ORDER BY position ASC`), read through
+    /// `live_projects`. Never empty for a live project (creation seeds three;
+    /// delete refuses the last), so EMPTY means "project not live" — every
+    /// caller maps it to its not-found answer (INV-PL-3: a resolve-then-delete
+    /// race answers the route's not-found, never a 422/500).
     pub async fn list_project_lanes(
         &self,
         project_id: uuid::Uuid,
     ) -> Result<Vec<LaneRow>, StoreError> {
         let rows: Vec<(uuid::Uuid, uuid::Uuid, String, String, i32)> = sqlx::query_as(
-            "SELECT id, project_id, slug, label, position
-               FROM lanes WHERE project_id = $1 ORDER BY position ASC",
+            "SELECT l.id, l.project_id, l.slug, l.label, l.position
+               FROM lanes l JOIN live_projects p ON p.id = l.project_id
+              WHERE l.project_id = $1 ORDER BY l.position ASC",
         )
         .bind(project_id)
         .fetch_all(self.pool())

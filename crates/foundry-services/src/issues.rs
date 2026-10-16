@@ -69,13 +69,16 @@ pub async fn validate_project_lane(
     project_id: uuid::Uuid,
     input: &str,
 ) -> Result<String, ServiceError> {
-    let lane_slugs: Vec<String> = store
+    let lanes = store
         .list_project_lanes(project_id)
         .await
-        .map_err(|_| ServiceError::Internal)?
-        .into_iter()
-        .map(|lane| lane.slug)
-        .collect();
+        .map_err(|_| ServiceError::Internal)?;
+    // Empty = the project is no longer live (resolve-then-delete race) — the
+    // route's uniform not-found, never `invalid_state` (INV-PL-3).
+    if lanes.is_empty() {
+        return Err(ServiceError::NotFound);
+    }
+    let lane_slugs: Vec<String> = lanes.into_iter().map(|lane| lane.slug).collect();
     resolve_lane(input, &lane_slugs).ok_or_else(|| ServiceError::Validation {
         code: "invalid_state".to_string(),
         message: "Invalid issue state".to_string(),
@@ -362,13 +365,15 @@ pub async fn edit_issue_form(
         .ok_or(ServiceError::NotFound)?;
 
     // The project's lane rows, board order — the dialog's Status options (D8).
+    // Empty = project no longer live → the uniform NotFound (INV-PL-3).
     let lanes = store
         .list_project_lanes(project.id)
         .await
-        .map_err(|_| ServiceError::Internal)?
-        .into_iter()
-        .map(crate::BoardLane::from)
-        .collect();
+        .map_err(|_| ServiceError::Internal)?;
+    if lanes.is_empty() {
+        return Err(ServiceError::NotFound);
+    }
+    let lanes = lanes.into_iter().map(crate::BoardLane::from).collect();
 
     let key = foundry_core::IssueKey::try_new(&key_prefix, number as u32)
         .map(|k| k.to_string())

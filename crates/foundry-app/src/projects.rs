@@ -402,7 +402,10 @@ pub async fn show_report(
     // resolve to `lanes.label`, with `humanize_state` as the fallback for
     // dead/historical slugs (architecture-design.md §6.5). CSV above stays
     // raw slugs (column contract unchanged).
+    // Empty = the project is no longer live (resolve-then-delete race) — the
+    // uniform not-found page, never a report with no lanes (INV-PL-3).
     let lanes = match state.store.list_project_lanes(project.id).await {
+        Ok(rows) if rows.is_empty() => return resource_not_found_page(),
         Ok(rows) => rows,
         Err(err) => return internal_error("list_project_lanes", err),
     };

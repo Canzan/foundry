@@ -643,13 +643,15 @@ pub mod board {
         let (project, key_prefix) =
             resolve_board_project(store, principal, team_slug, project_slug).await?;
 
+        // Empty = project no longer live → the uniform NotFound (INV-PL-3).
         let lanes = store
             .list_project_lanes(project.id)
             .await
-            .map_err(|_| ServiceError::Internal)?
-            .into_iter()
-            .map(BoardLane::from)
-            .collect();
+            .map_err(|_| ServiceError::Internal)?;
+        if lanes.is_empty() {
+            return Err(ServiceError::NotFound);
+        }
+        let lanes = lanes.into_iter().map(BoardLane::from).collect();
 
         let issues = fetch_board_issues(store, project.id, &key_prefix).await?;
 

@@ -177,17 +177,20 @@ async fn resolve_lane_project(
         .ok_or(DeleteLaneError::NotFound)
 }
 
+/// The project's lanes, board order. Empty = the project is no longer live
+/// (resolve-then-delete race) → `NotFound`, the uniform 404 (INV-PL-3).
 async fn list_lanes(
     store: &Store,
     project_id: uuid::Uuid,
 ) -> Result<Vec<BoardLane>, DeleteLaneError> {
-    Ok(store
+    let lanes = store
         .list_project_lanes(project_id)
         .await
-        .map_err(|_| DeleteLaneError::Internal)?
-        .into_iter()
-        .map(BoardLane::from)
-        .collect())
+        .map_err(|_| DeleteLaneError::Internal)?;
+    if lanes.is_empty() {
+        return Err(DeleteLaneError::NotFound);
+    }
+    Ok(lanes.into_iter().map(BoardLane::from).collect())
 }
 
 fn survivors_of(lanes: &[BoardLane], dying_slug: &str) -> Vec<BoardLane> {
