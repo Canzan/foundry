@@ -282,6 +282,9 @@ migrating.
 - **`list_project_lanes`** (`lanes.rs:112`) reads lanes by `project_id`, not through
   `live_projects`. Unreachable from the doors today, which resolve the project through the live
   view first (02-08's differential is green).
+- **Fixed (follow-up):** `list_project_lanes` now reads through `live_projects`, and every caller
+  maps its empty answer to its not-found (c2a7acf); F-14, a committed project rename or delete
+  and a team rename render the members page from the authority read once (a91d982).
 - **API 403 vs 404** on team-addressed routes still reveals whether a team exists (carried from
   fix-issue-attachment-scoping).
 - **The SSE refusal echoes the team slug** (`events.rs` 403 text). A deleted project matches it,
