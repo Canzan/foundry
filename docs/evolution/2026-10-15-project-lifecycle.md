@@ -290,6 +290,14 @@ migrating.
 - **The SSE refusal echoes the team slug** (`events.rs` 403 text). A deleted project matches it,
   by design (Changed Assumption 1).
 - **Scope machine-token routes by project** (U1).
+- **Fixed (follow-ups, user decisions of 2026-10-15):** the API answers a membership or scope
+  refusal with the uniform 404, byte-identical to an unknown team (a non-author comment edit
+  stays 403); the live updates answer every refusal after sign-in with the uniform 404 page
+  (Changed Assumption 1 amended); the token routes resolve their team and project after the
+  admin gate, so a deleted project's token routes answer the API's not-found (U1 superseded,
+  Changed Assumption 6 amended; PL-KPI-3 is now 30 web + 8 API doors); a lead who removes
+  themselves while another lead remains lands on their teams list with "You left {team}."
+  (team-membership DDD-9 amended).
 - **A `Store` capability split** (OQ-U2).
 - **A shared app test harness** (`tests/common/mod.rs`).
 - **`foundry doctor set-role`** for workspace roles, today SQL only.

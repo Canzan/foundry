@@ -28,9 +28,9 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ### Changed
 
-- **A deleted project answers like one that never existed.** Its board, issues, report and every
-  other web and API address answer the same "not found" as a project that was never created
-  (the events route keeps its shipped 403 for unknown projects), and no write to it is accepted.
+- **A deleted project answers like one that never existed.** Its board, issues, report, live
+  updates and every other web and API address answer the same "not found" as a project that was
+  never created, and no write to it is accepted.
 - **`foundry doctor restore-comment`** on a deleted comment inside a deleted project changes
   nothing and exits 4: `foundry doctor restore-comment: comment {uuid} is in deleted project
   {project uuid} — status: not restorable`. Restore the project first.
@@ -48,6 +48,21 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   `foundry doctor restore-project` on it changes nothing and exits 4: `foundry doctor
   restore-project: project {uuid}: its team {team_slug} was deleted — status: not restorable`.
   Its key stays taken in the workspace.
+- **The API no longer tells a script whether a team exists.** A request to a team the
+  credential's user is not on, or outside the team a credential is scoped to, now answers the
+  same `404 not_found` as a team that does not exist, byte for byte (it was `403 forbidden`).
+  Editing someone else's comment is still `403 forbidden`.
+- **Live updates refuse with "not found".** Opening a board's live updates for a team you are not
+  on, or for a project that does not exist or was deleted, now answers the same "not found" page
+  as every other page (it was a `403` naming the team). Signed out is still the sign-in page.
+- **The API's token routes check their address.** `GET` and `DELETE`
+  `/api/v1/teams/{team}/projects/{project}/tokens…` now answer `404 not_found` when the team or
+  project does not exist, was deleted, or is outside a scoped credential's team; a caller who is
+  not a workspace admin still gets `403 forbidden` first. The list and the revoke still cover the
+  whole workspace.
+- **A lead who removes themselves lands on their teams list.** Removing yourself from a team you
+  lead, while another lead remains, now shows your teams page with "You left {team}." instead of
+  a "not found" page. A workspace admin who removes themselves still sees the members page.
 
 ### Upgrading
 
