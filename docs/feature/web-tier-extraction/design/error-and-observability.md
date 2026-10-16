@@ -17,7 +17,7 @@ and UI surface the *same* error from the *same* variant (NFR-WEB-API-CON-02).
 // crates/foundry-services/src/error.rs (illustrative)
 enum ServiceError {
     NotFound,                         // 404 / not_found
-    Forbidden,                        // 403 / forbidden        (authz: not member / not author / out of scope)
+    Forbidden,                        // 403 / forbidden        (authz: not author / not a workspace admin)
     Unauthorized,                     // 401 / unauthorized     (no valid principal — see auth errors below)
     Validation { code, message },     // 422 / <code>           (e.g. title_required, "Title is required")
     Gone,                             // 410 / gone             (soft-deleted comment)
@@ -31,7 +31,9 @@ BEFORE any service is called** (the extractor is the authentication boundary; th
 an already-authenticated `Principal`). They all map to `401 unauthorized` with the generic envelope
 (no detail that distinguishes *why* a credential failed — non-enumerable, mirroring the sign-in
 posture), while the *reason* is logged + counted (see Metrics). Scope/membership failures, by
-contrast, are decided in the service and surface as `403 forbidden`:
+contrast, are decided in the service and surface as the same `404 not_found` an unknown team
+gets (amended 2026-10-15, user decision; previously `403 forbidden`, which confirmed the team
+exists):
 
 | Auth-tier condition | Decided in | HTTP | envelope `code` |
 |---|---|---|---|
@@ -41,7 +43,8 @@ contrast, are decided in the service and surface as `403 forbidden`:
 | Expired (`exp`) | extractor | 401 | `unauthorized` |
 | `jti` absent from registry (forged/withdrawn) | extractor | 401 | `unauthorized` |
 | `jti` present but `revoked_at IS NOT NULL` (revoked) | extractor | 401 | `unauthorized` |
-| Valid token, out-of-scope team / not a member | service (`Forbidden`) | 403 | `forbidden` |
+| Valid token, out-of-scope team / not a member | service (`NotFound`) | 404 | `not_found` (byte-identical to an unknown team) |
+| Valid token, not the comment's author (edit) | service (`Forbidden`) | 403 | `forbidden` |
 
 ### API mapping (api-contract.md restated for the adapter)
 

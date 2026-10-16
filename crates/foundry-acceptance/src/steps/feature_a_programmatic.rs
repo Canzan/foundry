@@ -780,9 +780,30 @@ async fn refused_unauthenticated(world: &mut FoundryWorld) {
     );
 }
 
-#[then(regex = r#"^the request is refused as not-allowed$"#)]
-async fn refused_not_allowed(world: &mut FoundryWorld) {
-    assert_authorization_forbidden(world);
+#[then(regex = r#"^the request is answered exactly as a team that does not exist$"#)]
+async fn answered_as_unknown_team(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("status captured");
+    let body = world.last_body.clone().unwrap_or_default();
+    let project_slug = world
+        .fa_last_board_project_slug
+        .clone()
+        .expect("a board read was made before this assertion");
+    // The same credential, the same project address, under a team slug that
+    // was never created: the refusal must be the very same answer, so it
+    // confirms nothing about the team the caller was refused.
+    request_board_json_at(world, "no-such-team", &project_slug).await;
+    let unknown_status = world.last_status.expect("status captured");
+    let unknown_body = world.last_body.clone().unwrap_or_default();
+    assert_eq!(
+        unknown_status.as_u16(),
+        404,
+        "an unknown team must answer the API's not-found, got {unknown_status} body {unknown_body:?}"
+    );
+    assert_eq!(
+        (status.as_u16(), body.as_str()),
+        (unknown_status.as_u16(), unknown_body.as_str()),
+        "the refusal must be byte-identical to a team that does not exist"
+    );
 }
 
 #[then(regex = r#"^she receives a session cookie as before$"#)]
@@ -1226,6 +1247,13 @@ async fn request_board_json(world: &mut FoundryWorld, project_name: &str) {
     ensure_bearer_for_signed_in_persona(world).await;
     let team = team_slug_for_project(world, project_name).await;
     let project_slug = slugify(project_name);
+    request_board_json_at(world, &team, &project_slug).await;
+}
+
+/// GET the JSON board read at an explicit team/project address with the
+/// scenario's credential, recording the project slug for a later comparison.
+async fn request_board_json_at(world: &mut FoundryWorld, team: &str, project_slug: &str) {
+    world.fa_last_board_project_slug = Some(project_slug.to_string());
     let harness = world.harness.as_ref().expect("harness");
     let http = world.http.as_ref().expect("http");
     let url = format!(

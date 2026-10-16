@@ -561,8 +561,10 @@ async fn resolve_member_issue(
 
 /// Resolve `(team, project, key_prefix)` after the SAME membership authz the
 /// browser handlers run: team-by-slug → is_team_member → project-by-slug.
-/// A machine credential scoped to another team is refused (Forbidden), exactly
-/// as the board read use-case does (NFR-WEB-API-SEC-02).
+/// A machine credential scoped to another team, and a caller who is not on the
+/// team, are refused `NotFound` — the same answer as a team that never existed,
+/// so the refusal confirms nothing (uniform 404, 2026-10-15), exactly as the
+/// board read use-case does (NFR-WEB-API-SEC-02).
 async fn resolve_member_project(
     store: &Store,
     principal: &Principal,
@@ -588,7 +590,7 @@ async fn resolve_member_project(
     } = principal
     {
         if *scoped_team != team.id {
-            return Err(ServiceError::Forbidden);
+            return Err(ServiceError::NotFound);
         }
     }
 
@@ -597,7 +599,7 @@ async fn resolve_member_project(
         .await
         .map_err(|_| ServiceError::Internal)?;
     if !is_member {
-        return Err(ServiceError::Forbidden);
+        return Err(ServiceError::NotFound);
     }
 
     let project = store

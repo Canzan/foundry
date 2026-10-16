@@ -5,7 +5,7 @@
 # Driving adapter: the JSON API, authenticated by a machine token presented
 # as a bearer credential — see design/auth.md (JWT/Ed25519, jti denylist,
 # alg pinned to EdDSA, fail-closed verification) and design/api-contract.md
-# (Authorization: Bearer header; 401/403 status conventions).
+# (Authorization: Bearer header; 401/404 status conventions).
 # Driven adapters exercised: real Postgres (machine_tokens registry/denylist,
 # teams, projects, issues, memberships), the Ed25519 verifier in core.
 #
@@ -25,7 +25,8 @@ Feature: A machine authenticates to the API with its own credential
   that machine and may read what its bound principal may read. A request whose
   credential is missing, malformed, forged, expired, or revoked is refused as
   unauthenticated; a request whose credential is valid but reaches beyond its
-  granted scope is refused as not-allowed. The browser sign-in path is
+  granted scope, or into a team its bound principal is not on, gets exactly
+  the answer a team that does not exist gets. The browser sign-in path is
   unaffected by the new credential surface.
 
   Background:
@@ -93,7 +94,17 @@ Feature: A machine authenticates to the API with its own credential
     Given the team "Platform" owns a project "Billing" with key prefix "BILL"
     And the admin has granted a machine credential bound to Mei scoped to the "Backend" team
     When the machine requests the "Billing" board's issues with that credential
-    Then the request is refused as not-allowed
+    Then the request is answered exactly as a team that does not exist
+    And no issue data is returned
+
+  # 2026-10-15 (user decision): a membership refusal on the API is the same
+  # 404 an unknown team gets, so the answer never confirms the team exists.
+  @error @real-io @nfr-web-api-sec-02
+  Scenario: A credential cannot reach a team its bound member is not on
+    Given the team "Platform" owns a project "Billing" with key prefix "BILL"
+    And the admin has granted a machine credential for "Devansh's dashboard" bound to Mei
+    When the machine requests the "Billing" board's issues with that credential
+    Then the request is answered exactly as a team that does not exist
     And no issue data is returned
 
   @real-io @nfr-web-api-sec-01

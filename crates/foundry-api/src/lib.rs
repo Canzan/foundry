@@ -353,8 +353,9 @@ async fn api_not_found_handler() -> ApiError {
 /// `GET /api/v1/teams/{team}/projects/{project}/issues` (US-W05a/b). The
 /// `MachinePrincipal` extractor authenticates the bearer credential (fail-
 /// closed 401 on any auth failure) BEFORE the handler body runs; it then calls
-/// the shared core seam `list_board_issues` (which decides authorization —
-/// 403 on scope/membership) and serializes the neutral result as a JSON array
+/// the shared core seam `list_board_issues` (which decides authorization — a
+/// scope or membership refusal is the uniform 404, identical to an unknown
+/// team) and serializes the neutral result as a JSON array
 /// (empty project -> `[]`, 200).
 async fn list_issues_handler(
     State(services): State<Services>,
@@ -456,9 +457,9 @@ async fn change_issue_state_handler(
 /// The `MachinePrincipal` extractor authenticates the bearer credential (fail-
 /// closed 401) BEFORE the handler body runs; it then calls the shared core seam
 /// `list_issue_change_history` (which decides authorization via the SAME
-/// `resolve_member_project` gate the comments/PATCH routes use — 403 on scope/
-/// membership, and a foreign/absent issue → the uniform non-enumerable 404 JSON,
-/// never a 500). Serializes the neutral entries as a JSON array ordered
+/// `resolve_member_project` gate the comments/PATCH routes use — a scope or
+/// membership refusal and a foreign/absent issue are all the uniform
+/// non-enumerable 404 JSON, never a 500). Serializes the neutral entries as a JSON array ordered
 /// oldest→newest (stable audit order); an issue with no recorded changes returns
 /// `[]` (200). The events are the SAME stored rows the human timeline renders
 /// (one source of truth, AC-03.4).
@@ -598,7 +599,7 @@ async fn revoke_token_handler(
 /// reject as `ServiceError::Unauthorized` -> 401 with an IDENTICAL,
 /// non-enumerable JSON envelope (the caller is never told WHICH check failed,
 /// error-and-observability.md). Scope/membership is decided later by the
-/// service as 403.
+/// service, refused with the same 404 an unknown team gets.
 pub struct MachinePrincipal(pub Principal);
 
 impl<S> FromRequestParts<S> for MachinePrincipal
@@ -623,7 +624,7 @@ where
 
 /// The machine-token verification surface (auth.md §"Per-request verification").
 /// Fail-closed: every failure path is `Unauthorized` (401) except scope/
-/// membership which the service decides as `Forbidden` (403). The reason is
+/// membership which the service decides as the uniform `NotFound` (404). The reason is
 /// logged/counted, never returned (non-enumerable).
 pub mod token_auth {
     use super::*;
@@ -817,7 +818,7 @@ mod token_auth_tests {
     //! Port-to-port unit tests for the PURE-CRYPTO half of bearer
     //! authentication (`token_auth::verify_bearer`). The function signature IS
     //! the driving port. The DB-touching half (denylist: forged-jti / revoked /
-    //! expired-registry) and the 403 scope branch require real Postgres and are
+    //! expired-registry) and the 404 scope branch require real Postgres and are
     //! covered by the `@real-io` us-w05b acceptance scenarios — testing them
     //! here would require mocking inside the hexagon (forbidden).
     //!

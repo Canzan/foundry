@@ -48,6 +48,18 @@ reads, token revoke) asserting foreign-id ≡ missing-id with no status/body/tim
 - **Boundary**: this ADR governs *cross-tenant resource* refusals. It does NOT change the shipped
   non-enumerable sign-in error or the bearer 401 — those are unchanged invariants.
 
+## Amendment 2026-10-15 (user decision): intra-workspace refusals on the API and live updates
+The "intra-workspace authz failures retain their normal 403" consequence above no longer holds for
+two surfaces. On the JSON `/api/v1`, a team the caller is not on and a team a scoped credential
+does not reach now answer the same `404 not_found` envelope as an unknown team, byte for byte
+(`resolve_member_project`, `board::resolve_board_project`, `comments::resolve_member_team` return
+`NotFound`). The live-updates stream (`/team/{t}/project/{p}/events`) answers every refusal after
+sign-in with the web's uniform `resource_not_found_page()` instead of its 403 text/plain "Not a
+member of team …". The web pages had already converged on the uniform 404 (step 04-01). Kept: the
+non-author comment edit stays 403 (ADR-006: the caller is on the team and can see the comment);
+the workspace-admin gates (token routes, `/admin/tokens`) keep their shipped shape; signed-out
+stays 401.
+
 ## Slice alignment
 Generalized incrementally with each surface (Slice 2 web, Slice 3 API), then proven uniform across
 all surfaces in Slice 4 (the explicit non-enumerability hardening slice).

@@ -383,15 +383,15 @@ async fn change_state_accepts_only_the_projects_own_lanes_and_echoes_the_canonic
 // (budget = 2 × 4 = 8; 3 written — the two refusal behaviours share one test
 // because they assert the same observable outcome shape: a refusal AND an
 // intact issue row):
-//   5. delete_issue refuses a non-member with Forbidden, and an absent issue
-//      with the uniform non-enumerable NotFound — neither deletes anything.
+//   5. delete_issue refuses a non-member and an absent issue alike with the
+//      uniform non-enumerable NotFound — neither deletes anything.
 //   6. delete_issue by a member who is NOT the author succeeds (D2:
 //      membership, not authorship, is the gate).
 //   7. delete_issue_dialog returns the issue key/number plus the LIVE
 //      advisory comment + attachment counts (D13), behind the same authz gate.
 
 /// Seed a workspace user who is deliberately NOT a member of the Backend
-/// team — the `resolve_member_project` Forbidden case.
+/// team — the `resolve_member_project` non-member case.
 async fn seed_outsider(store: &Store, workspace_id: uuid::Uuid) -> uuid::Uuid {
     let outsider_id = uuid::Uuid::now_v7();
     sqlx::query(
@@ -418,11 +418,11 @@ async fn seed_outsider(store: &Store, workspace_id: uuid::Uuid) -> uuid::Uuid {
 }
 
 /// Behaviour 5 — delete_issue refuses. A workspace user who is not a member of
-/// the owning team is refused `Forbidden`; a member asking for an issue number
-/// that does not exist is refused the uniform non-enumerable `NotFound`
-/// (DDD-10). Neither refusal removes a row: the issue survives both.
+/// the owning team is refused `NotFound`, exactly as a member asking for an
+/// issue number that does not exist is (the uniform non-enumerable answer,
+/// DDD-10). Neither refusal removes a row: the issue survives both.
 #[tokio::test]
-async fn delete_issue_refuses_non_member_forbidden_and_absent_issue_not_found() {
+async fn delete_issue_refuses_non_member_and_absent_issue_not_found() {
     let h = seeded_harness().await;
     let mei = Principal::Human {
         user_id: h.member_id,
@@ -437,13 +437,13 @@ async fn delete_issue_refuses_non_member_forbidden_and_absent_issue_not_found() 
         user_id: seed_outsider(&h.store, h.workspace_id).await,
         workspace_id: h.workspace_id,
     };
-    let forbidden =
+    let refused =
         foundry_services::issues::delete_issue(&h.store, &outsider, "backend", "auth-v2", number)
             .await
             .expect_err("a non-member must not be able to delete a team's issue");
     assert!(
-        matches!(forbidden, ServiceError::Forbidden),
-        "a non-member delete must be Forbidden, got {forbidden:?}"
+        matches!(refused, ServiceError::NotFound),
+        "a non-member delete must be the uniform NotFound, got {refused:?}"
     );
 
     let missing = foundry_services::issues::delete_issue(

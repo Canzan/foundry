@@ -867,6 +867,9 @@ pub struct FoundryWorld {
     /// Name of the project the most recent Feature-A When step targeted,
     /// used to reconstruct the `/api/v1/...` URL and resolve the team slug.
     pub fa_last_project_name: Option<String>,
+    /// Project slug of the most recent Feature-A board read, so a refusal can
+    /// be compared with the same read addressed to a team that does not exist.
+    pub fa_last_board_project_slug: Option<String>,
     /// Title of the last issue a Feature-A write step attempted to file.
     pub fa_last_title: Option<String>,
     /// The bearer credential string the client presents on the next API

@@ -295,7 +295,9 @@ pub async fn show_board(
     .await
     {
         Ok(view) => view,
-        Err(foundry_services::ServiceError::Forbidden) => return resource_not_found_page(),
+        Err(
+            foundry_services::ServiceError::Forbidden | foundry_services::ServiceError::NotFound,
+        ) => return resource_not_found_page(),
         Err(err) => return internal_error("board_view", err),
     };
     // Render-failure → clean 500 seam (US-B01 @error,

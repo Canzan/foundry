@@ -179,7 +179,9 @@ pub async fn edit_comment(
 
 /// Resolve the team after the SAME membership authz the browser comment
 /// handlers run: team-by-slug → is_team_member. A scoped machine credential
-/// targeting another team is refused (Forbidden).
+/// targeting another team, and a caller who is not on the team, are refused
+/// `NotFound` — byte-identical to a team that never existed (uniform 404,
+/// 2026-10-15). Author-only edit stays `Forbidden` (ADR-006).
 async fn resolve_member_team(
     store: &Store,
     principal: &Principal,
@@ -197,7 +199,7 @@ async fn resolve_member_team(
     } = principal
     {
         if *scoped_team != team.id {
-            return Err(ServiceError::Forbidden);
+            return Err(ServiceError::NotFound);
         }
     }
 
@@ -206,7 +208,7 @@ async fn resolve_member_team(
         .await
         .map_err(|_| ServiceError::Internal)?;
     if !is_member {
-        return Err(ServiceError::Forbidden);
+        return Err(ServiceError::NotFound);
     }
     Ok(team)
 }

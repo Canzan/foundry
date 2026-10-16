@@ -9,7 +9,8 @@
 //! Two distinct behaviours (budget = 2 × 2 = 4 unit tests; 2 written):
 //!   1. A team member reads the board and gets the project's issues as neutral
 //!      rows carrying key/number/title/state (most-recent-first, no markup).
-//!   2. A non-member is refused with `ServiceError::Forbidden` and gets NO rows.
+//!   2. A non-member is refused with `ServiceError::NotFound` (the same answer
+//!      as a team that never existed) and gets NO rows.
 
 use foundry_services::board::list_board_issues;
 use foundry_services::{BoardIssue, Principal, ServiceError};
@@ -192,10 +193,11 @@ async fn member_reads_board_issues_as_neutral_rows() {
 }
 
 /// Behaviour 2 — a workspace member who is NOT a member of the team is refused
-/// with `ServiceError::Forbidden`, and NO issue rows are returned (authz runs
+/// with `ServiceError::NotFound` — the answer an unknown team gets, so the
+/// refusal confirms nothing — and NO issue rows are returned (authz runs
 /// BEFORE the fetch).
 #[tokio::test]
-async fn non_member_is_refused_forbidden() {
+async fn non_member_is_refused_not_found() {
     let h = seeded_harness().await;
     let principal = Principal::Human {
         user_id: h.outsider_id,
@@ -207,7 +209,7 @@ async fn non_member_is_refused_forbidden() {
         .expect_err("a non-member must be refused, never handed the board's issues");
 
     assert!(
-        matches!(err, ServiceError::Forbidden),
-        "non-member must get Forbidden, got {err:?}"
+        matches!(err, ServiceError::NotFound),
+        "non-member must get NotFound, got {err:?}"
     );
 }

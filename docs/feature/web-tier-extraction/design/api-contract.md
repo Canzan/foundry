@@ -131,14 +131,21 @@ that happens to contain markup — see `boundary-guard.md` for the precise rule.
 | Validation failure (e.g. empty title) | `422` | error envelope (`title_required`) — same rule as UI's "Title is required" |
 | Malformed JSON body | `400` | error envelope (`invalid_json`) |
 | Missing/invalid/bad-signature/wrong-alg/expired/revoked JWT | `401` | error envelope (`unauthorized`) |
-| Token lacks scope / not a member / not author | `403` | error envelope (`forbidden`) |
-| Team/project/issue/comment not found | `404` | error envelope (`not_found`) |
+| Not the comment's author (edit) | `403` | error envelope (`forbidden`) |
+| Team/project/issue/comment not found, token lacks scope for the team, or not a member of the team | `404` | error envelope (`not_found`) — byte-identical whichever it is |
 | Comment soft-deleted (gone) | `410` | error envelope (`gone`) — parity with UI's 410 |
 
 Mapping is centralized in `api`'s error type (`error-and-observability.md`) so every service
 `ServiceError` variant maps to exactly one status + envelope code. US-W05c scenario 5 (empty
 title) and scenario 6 (non-author edit → 403) are direct consequences of reusing the service's
 authz/validation.
+
+**Amendment 2026-10-15 (user decision).** A membership or scope refusal was a `403 forbidden`,
+which told the caller the team exists. It is now the same `404 not_found` an unknown team gets,
+byte for byte (the three resolvers `resolve_member_project`, `board::resolve_board_project` and
+`comments::resolve_member_team` return `ServiceError::NotFound`). The `403` stays for a
+non-author comment edit (ADR-006: the caller is on the team and can see the comment) and for the
+token routes' non-admin gate (token-management-api contract).
 
 ## Error envelope
 

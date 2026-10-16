@@ -697,25 +697,28 @@ pub mod board {
         // a specific team can NEVER reach beyond it, even where the bound
         // principal is a member of other teams. The scope lives in the SIGNED
         // claim, so it cannot be tampered with in transit. A scoped token
-        // requesting a different team is refused as not-allowed (403).
+        // requesting a different team is refused `NotFound` — the same answer
+        // as a team that never existed, so the refusal confirms nothing
+        // (uniform 404, 2026-10-15).
         if let Principal::Machine {
             scope_team_id: Some(scoped_team),
             ..
         } = principal
         {
             if *scoped_team != team.id {
-                return Err(ServiceError::Forbidden);
+                return Err(ServiceError::NotFound);
             }
         }
 
         // Membership authz BEFORE any fetch — a non-member never sees the
-        // board's issues (NFR: refuse without leaking data).
+        // board's issues (NFR: refuse without leaking data), and is answered
+        // exactly as an unknown team is.
         let is_member = store
             .is_team_member(team.id, principal.user_id())
             .await
             .map_err(|_| ServiceError::Internal)?;
         if !is_member {
-            return Err(ServiceError::Forbidden);
+            return Err(ServiceError::NotFound);
         }
 
         let project = store

@@ -203,7 +203,7 @@ sequenceDiagram
             Ex->>SV: hand Principal to the use-case
             SV->>ST: is_team_member / is_workspace_admin (SAME authz as a human)
             alt scope or membership fails
-                SV-->>Ag: 403 forbidden (no change persisted)
+                SV-->>Ag: 404 not_found, as for an unknown team (no change persisted)
             else authorized
                 SV->>PG: read/write via existing repository + outbox
                 SV-->>Ag: 200/201 JSON
@@ -215,7 +215,8 @@ sequenceDiagram
 Key properties:
 - **Fail-closed**: missing → 401; malformed → 401; bad signature → 401; **wrong `alg`/`alg:none` →
   401**; expired → 401; unknown/withdrawn `jti` → 401; revoked → 401; valid-but-out-of-scope/
-  not-a-member → 403. No path reaches a use-case unauthenticated (US-W05b scenarios 2-5). This is
+  not-a-member → 404, byte-identical to an unknown team (2026-10-15, user decision; it was 403,
+  which confirmed the team exists). A non-author comment edit stays 403. No path reaches a use-case unauthenticated (US-W05b scenarios 2-5). This is
   the behavioral gold-test catalogued in `boundary-guard.md`.
 - **Alg-confusion is closed by design**: the verifier's `Validation` allow-lists exactly `[EdDSA]`,
   so a token presenting `HS256` (the classic public-key-as-HMAC-secret attack) or `none` is rejected
@@ -224,8 +225,8 @@ Key properties:
   computes authorization from `is_team_member(team, user_id)` / `is_workspace_admin(workspace,
   user_id)` exactly as for a human. A token therefore can NEVER do more than its bound principal can
   do in the UI. The `scope` claim / `scope_team_id` is an *additional narrowing*: if set, the
-  extractor rejects (403) any request outside that team even when the bound user is a member of
-  others. Scope is in the SIGNED claim, so it cannot be tampered with in transit.
+  service refuses any request outside that team (as the uniform 404, since 2026-10-15) even when
+  the bound user is a member of others. Scope is in the SIGNED claim, so it cannot be tampered with in transit.
 - **Authorization stays in core/services, not the API tier** (NFR-WEB-API-SEC-02): the extractor
   only authenticates (who) + applies scope narrowing; the service decides authorization (may they)
   using the same store calls the UI uses. The boundary guard asserts zero

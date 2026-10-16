@@ -41,6 +41,8 @@ The per-surface slices (1-3) were green by inheritance from the shipped `workspa
 
 Each of the four was a slug-echoing "Team not found" body distinguishable from a never-existed reach. All collapsed to the single uniform `resource_not_found_page()`; the now-dead slug-echoing helpers were removed. The 04-05 cross-surface **oracle-hunt capstone** confirmed **no cross-tenant 403 anywhere** (a cross-tenant reach 404s at the team layer above the membership 403 branch and never reaches it — the ADR-003 boundary clause). The intra-workspace membership 403 (`non_member_page`) is retained, correctly, as a non-cross-tenant concern.
 
+> **Later change (2026-10-15, user decision):** intra-workspace membership and scope refusals are now uniform 404 too — on the JSON `/api/v1` (the not-found envelope, byte-identical to an unknown team) and on the live-updates stream (the uniform `resource_not_found_page()`). A non-author comment edit keeps its 403. See the ADR-003 amendment.
+
 ## How it was built (DELIVER)
 
 **18 DES-monitored TDD steps across 4 phases** (90 PREPARE/RED/GREEN/COMMIT phase events), each driven by `@real-io` cucumber scenarios over the real surfaces (real HTTP, real EdDSA bearer, real testcontainers PG16), delivered slice-by-slice with a user checkpoint between slices.
