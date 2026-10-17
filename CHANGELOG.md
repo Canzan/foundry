@@ -68,6 +68,10 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 - **Do not delete or rename projects while this release rolls out**, while the old pod is still
   serving.
+- **OQ-D4:** At release, dev had 3 projects in 1 workspace and prod 1 in 1. None is deleted when
+  the upgrade runs, so every project stays live.
+- **Rollback:** An older release runs on the new schema. Deleted projects become visible again
+  until you upgrade back. Nothing is lost.
 
 ### Migration notes
 
