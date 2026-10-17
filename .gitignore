@@ -22,3 +22,6 @@ Cargo.lock.bak
 # SBOM dropped by the release workflow when run locally with act.
 /sbom.spdx.json
 .dual-graph/
+# nWave activation marker (keep .nwave/local-config.json trackable)
+.nwave/*
+!.nwave/local-config.json
