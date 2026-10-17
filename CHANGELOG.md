@@ -7,6 +7,14 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.15.1] - 2026-10-17
+
+### Changed
+
+- **One check for team-scoped machine tokens.** The check that keeps a token scoped to one team
+  out of every other team now lives in one place instead of five. Behaviour is unchanged: such a
+  request still gets the same 404 as a team that does not exist. No migration.
+
 ## [v0.15.0] - 2026-10-16
 
 ### Added
@@ -1130,7 +1138,8 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.15.0...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.15.1...HEAD
+[v0.15.1]: https://github.com/Canzan/foundry/compare/v0.15.0...v0.15.1
 [v0.15.0]: https://github.com/Canzan/foundry/compare/v0.14.2...v0.15.0
 [v0.14.2]: https://github.com/Canzan/foundry/compare/v0.14.1...v0.14.2
 [v0.14.1]: https://github.com/Canzan/foundry/compare/v0.14.0...v0.14.1
