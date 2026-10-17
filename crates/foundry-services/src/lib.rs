@@ -517,6 +517,20 @@ impl Principal {
             }
         }
     }
+
+    /// Whether the credential's scope admits `team_id`. A human and a
+    /// workspace-wide machine token admit every team (membership is checked
+    /// separately); a team-scoped token admits only its own team. Callers
+    /// answer a refusal `NotFound`, the same as a team that never existed.
+    pub fn reaches_team(&self, team_id: uuid::Uuid) -> bool {
+        match self {
+            Principal::Machine {
+                scope_team_id: Some(scoped_team),
+                ..
+            } => *scoped_team == team_id,
+            _ => true,
+        }
+    }
 }
 
 /// The single source of truth for use-case failures (DESIGN
@@ -724,14 +738,8 @@ pub mod board {
         // requesting a different team is refused `NotFound` — the same answer
         // as a team that never existed, so the refusal confirms nothing
         // (uniform 404, 2026-10-15).
-        if let Principal::Machine {
-            scope_team_id: Some(scoped_team),
-            ..
-        } = principal
-        {
-            if *scoped_team != team.id {
-                return Err(ServiceError::NotFound);
-            }
+        if !principal.reaches_team(team.id) {
+            return Err(ServiceError::NotFound);
         }
 
         // Membership authz BEFORE any fetch — a non-member never sees the
@@ -802,3 +810,36 @@ pub mod projects;
 pub mod teams;
 pub mod tokens;
 pub mod workspaces;
+
+#[cfg(test)]
+mod principal_reaches_team {
+    use super::Principal;
+    use uuid::Uuid;
+
+    fn machine(scope_team_id: Option<Uuid>) -> Principal {
+        Principal::Machine {
+            user_id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+            jti: Uuid::new_v4(),
+            scope_team_id,
+        }
+    }
+
+    #[test]
+    fn a_team_scoped_token_reaches_only_its_own_team() {
+        let own = Uuid::new_v4();
+        let principal = machine(Some(own));
+        assert!(principal.reaches_team(own));
+        assert!(!principal.reaches_team(Uuid::new_v4()));
+    }
+
+    #[test]
+    fn a_workspace_wide_token_and_a_human_reach_every_team() {
+        let human = Principal::Human {
+            user_id: Uuid::new_v4(),
+            workspace_id: Uuid::new_v4(),
+        };
+        assert!(machine(None).reaches_team(Uuid::new_v4()));
+        assert!(human.reaches_team(Uuid::new_v4()));
+    }
+}

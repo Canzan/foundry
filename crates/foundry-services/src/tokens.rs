@@ -249,14 +249,8 @@ async fn resolve_token_address(
         .await
         .map_err(|_| ServiceError::Internal)?
         .ok_or(ServiceError::NotFound)?;
-    if let Principal::Machine {
-        scope_team_id: Some(scoped_team),
-        ..
-    } = principal
-    {
-        if *scoped_team != team.id {
-            return Err(ServiceError::NotFound);
-        }
+    if !principal.reaches_team(team.id) {
+        return Err(ServiceError::NotFound);
     }
     store
         .find_project_by_slug(team.id, project_slug)

@@ -154,14 +154,8 @@ async fn resolve_lane_project(
         .await
         .map_err(|_| DeleteLaneError::Internal)?
         .ok_or(DeleteLaneError::NotFound)?;
-    if let Principal::Machine {
-        scope_team_id: Some(scoped_team),
-        ..
-    } = principal
-    {
-        if *scoped_team != team.id {
-            return Err(DeleteLaneError::NotFound);
-        }
+    if !principal.reaches_team(team.id) {
+        return Err(DeleteLaneError::NotFound);
     }
     let is_member = store
         .is_team_member(team.id, principal.user_id())

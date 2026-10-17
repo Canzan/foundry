@@ -584,14 +584,8 @@ async fn resolve_member_project(
         .map_err(|_| ServiceError::Internal)?
         .ok_or(ServiceError::NotFound)?;
 
-    if let Principal::Machine {
-        scope_team_id: Some(scoped_team),
-        ..
-    } = principal
-    {
-        if *scoped_team != team.id {
-            return Err(ServiceError::NotFound);
-        }
+    if !principal.reaches_team(team.id) {
+        return Err(ServiceError::NotFound);
     }
 
     let is_member = store
