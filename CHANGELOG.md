@@ -7,6 +7,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.15.0] - 2026-10-16
+
 ### Added
 
 - **Rename a project from its team's members page.** A team's lead or a workspace admin renames
@@ -1128,7 +1130,9 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.14.1...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.15.0...HEAD
+[v0.15.0]: https://github.com/Canzan/foundry/compare/v0.14.2...v0.15.0
+[v0.14.2]: https://github.com/Canzan/foundry/compare/v0.14.1...v0.14.2
 [v0.14.1]: https://github.com/Canzan/foundry/compare/v0.14.0...v0.14.1
 [v0.14.0]: https://github.com/Canzan/foundry/compare/v0.13.0...v0.14.0
 [v0.13.0]: https://github.com/Canzan/foundry/compare/v0.12.0...v0.13.0
