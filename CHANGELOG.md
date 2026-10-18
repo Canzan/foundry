@@ -7,6 +7,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.16.0] - 2026-10-17
+
 ### Added
 
 - **`foundry doctor set-role`.** An operator makes an existing workspace member an admin or a
