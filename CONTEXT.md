@@ -12,6 +12,5 @@
 
 ## Next Steps
 
-- Worktree `../foundry-v0142` (`fix-dependency-advisories`, `bd70538`) is probably superseded by v0.16.0: check its rustls fix, then drop it.
 - Still open from `finalize-owed.md`: rerun `cargo mutants`.
 - Optional: move the scoped-token check (copied in 5 service modules) onto `Principal`.
