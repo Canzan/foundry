@@ -117,3 +117,13 @@ Feature: A workspace admin takes someone off a team without leaving it leaderles
     Then she is told "Lena Park (lena.park@canzan.dev) is the last lead of Backend. Make someone else a lead first."
     And no one's membership changed
     And Lena Park is sent no notice that she was removed
+
+  # Jeff is also the last lead of General and Ops: the only-admin refusal comes
+  # first, since no team change could make his removal go through.
+  @us-tm-04 @error @kpi @contract-shape:unbounded-preservation
+  Scenario: The workspace's only admin cannot be removed from it
+    Given Priya Raman has since left Canzan Labs
+    When Jeff removes Jeff Bailey from Canzan Labs
+    Then he is told "Jeff Bailey (jeffabailey@gmail.com) is the only admin of Canzan Labs. Make someone else an admin first."
+    And no one's membership changed
+    And Jeff Bailey is sent no notice that he was removed

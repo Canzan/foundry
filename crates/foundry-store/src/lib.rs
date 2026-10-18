@@ -3096,9 +3096,14 @@ impl Store {
     /// providers US-06 — the `member_removed` trigger; team-membership OQ-9,
     /// DDD-11, ADR-TEAM-MEMBERSHIP-001). One transaction, in exactly this order:
     ///
+    /// 0. the workspace row `FOR NO KEY UPDATE`, the lock
+    ///    [`Store::set_workspace_role`] takes, so removals and demotions in one
+    ///    workspace are ordered and cannot each count the other as the admin who
+    ///    stays;
     /// 1. their workspace membership `FOR UPDATE` (none: `NotMember`) — first, so
     ///    a concurrent add (`FOR KEY SHARE`, DDD-10) has either committed before
-    ///    step 4's fresh snapshot or waits and then finds no membership;
+    ///    step 4's fresh snapshot or waits and then finds no membership; an admin
+    ///    with no other admin beside them is `LastAdmin`, nothing written;
     /// 2. their teams in this workspace `FOR NO KEY UPDATE`, in team-id order;
     /// 3. the exact read of the teams they are the only lead of, by team name
     ///    (any: `LastLead`, nothing written);
@@ -3112,18 +3117,45 @@ impl Store {
     ) -> Result<teams::RemoveWorkspaceMemberOutcome, StoreError> {
         use teams::RemoveWorkspaceMemberOutcome as Outcome;
         let mut tx = self.pool.begin().await?;
-        let member: Option<(i32,)> = sqlx::query_as(
-            "SELECT 1 FROM workspace_memberships
-              WHERE workspace_id = $1 AND user_id = $2
-                FOR UPDATE",
+        sqlx::query("SELECT 1 FROM workspaces WHERE id = $1 FOR NO KEY UPDATE")
+            .bind(workspace_id)
+            .execute(&mut *tx)
+            .await?;
+        let member: Option<(String, String, String)> = sqlx::query_as(
+            "SELECT m.role, u.display_name, u.email_display
+               FROM workspace_memberships m
+               JOIN users u ON u.id = m.user_id
+              WHERE m.workspace_id = $1 AND m.user_id = $2
+                FOR UPDATE OF m",
         )
         .bind(workspace_id)
         .bind(user_id)
         .fetch_optional(&mut *tx)
         .await?;
-        if member.is_none() {
+        let Some((role, display_name, email)) = member else {
             tx.rollback().await?;
             return Ok(Outcome::NotMember);
+        };
+        if role == ROLE_ADMIN {
+            let (another_admin,): (bool,) = sqlx::query_as(
+                "SELECT EXISTS (SELECT 1 FROM workspace_memberships
+                                 WHERE workspace_id = $1 AND user_id <> $2 AND role = $3)",
+            )
+            .bind(workspace_id)
+            .bind(user_id)
+            .bind(ROLE_ADMIN)
+            .fetch_one(&mut *tx)
+            .await?;
+            if !another_admin {
+                tx.rollback().await?;
+                return Ok(Outcome::LastAdmin {
+                    person: teams::TeamPerson {
+                        user_id,
+                        display_name,
+                        email,
+                    },
+                });
+            }
         }
         sqlx::query(
             "SELECT t.id FROM teams t

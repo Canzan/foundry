@@ -278,6 +278,7 @@ async fn backend() -> Backend {
 enum WorkspaceRemoval {
     Removed,
     NotMember,
+    LastAdmin,
     LastLead(String),
 }
 
@@ -290,6 +291,7 @@ async fn remove_from_workspace(
     Ok(match store.remove_workspace_member(ws, user).await? {
         RemoveWorkspaceMemberOutcome::Removed => WorkspaceRemoval::Removed,
         RemoveWorkspaceMemberOutcome::NotMember => WorkspaceRemoval::NotMember,
+        RemoveWorkspaceMemberOutcome::LastAdmin { .. } => WorkspaceRemoval::LastAdmin,
         RemoveWorkspaceMemberOutcome::LastLead { team_name, .. } => {
             WorkspaceRemoval::LastLead(team_name)
         }

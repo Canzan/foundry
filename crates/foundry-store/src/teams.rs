@@ -119,6 +119,9 @@ pub enum RemoveWorkspaceMemberOutcome {
     Removed,
     /// They are not a member of the workspace; nothing was written.
     NotMember,
+    /// They are the workspace's only admin; nothing was written. Checked
+    /// before `LastLead`. `person` is them, as the refusal copy names them.
+    LastAdmin { person: TeamPerson },
     /// They are the last lead of `team_name` (the first such team by name);
     /// nothing was written. `person` is them, as the refusal copy names them.
     LastLead {

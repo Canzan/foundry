@@ -254,7 +254,7 @@ pub async fn submit_remove_member(
     session: Session,
     Form(form): Form<RemoveMemberForm>,
 ) -> Response {
-    let Some((admin, _workspace_name)) = require_workspace_admin(&state, &session).await else {
+    let Some((admin, workspace_name)) = require_workspace_admin(&state, &session).await else {
         return resource_not_found_page();
     };
 
@@ -292,6 +292,12 @@ pub async fn submit_remove_member(
         // to a non-member. Refuse with the SHIPPED non-enumerable 404 (consistent
         // with this surface's other refusals) and do NOT notify.
         RemoveWorkspaceMemberOutcome::NotMember => return resource_not_found_page(),
+        // They are the workspace's only admin: removing them would leave no one
+        // to administer it. Nothing changed: a 409, and no notification.
+        RemoveWorkspaceMemberOutcome::LastAdmin { person } => {
+            let notice = last_admin_notice(&person.display_name, &person.email, &workspace_name);
+            return (StatusCode::CONFLICT, notice).into_response();
+        }
         // OQ-9 (DDD-8, DDD-11): they are a team's last lead. Nothing changed: a
         // 409 in this route's plain-text family, and no notification.
         RemoveWorkspaceMemberOutcome::LastLead { team_name, person } => {
@@ -321,6 +327,12 @@ pub async fn submit_remove_member(
 }
 
 // ----------------------------------------------------------------- internals
+
+/// The refusal for removing a workspace's only admin, in the shape of the
+/// last-lead refusal (`TeamNotice::LastLeadOf`).
+fn last_admin_notice(name: &str, email: &str, workspace: &str) -> String {
+    format!("{name} ({email}) is the only admin of {workspace}. Make someone else an admin first.")
+}
 
 /// Resolve the signed-in WORKSPACE ADMIN from the session (the issuance authz gate).
 /// Returns `Some((user, workspace_name))` only when there IS a session AND the user

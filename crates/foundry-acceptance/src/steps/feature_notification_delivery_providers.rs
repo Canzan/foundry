@@ -70,6 +70,11 @@ const NDP_SMTP_PASSWORD_SENTINEL: &str = "ndp-smtp-password-must-never-leak-9f3a
 /// `notify()`. Mirrors the seed in [`seed_workspace_and_member`].
 const NDP_MEMBER_PASSWORD: &str = "ndp-correct-horse-battery-staple";
 
+/// A second admin of the seeded workspace, who removes the seeded member in the
+/// `member_removed` scenarios: a workspace's only admin cannot be removed, so the
+/// member is not removed by herself. Signs in with [`NDP_MEMBER_PASSWORD`].
+const NDP_CO_ADMIN_EMAIL: &str = "ndp.co-admin@acme.example";
+
 /// Distinctive webhook signing secret used by the US-04 security scenario: it must
 /// never surface in any recorded field, error, metric label, or debug output, and
 /// the delivery's signature header must be the HMAC-SHA256 DIGEST derived from it.
@@ -158,6 +163,25 @@ async fn seed_workspace_and_member(harness: &InProcHarness, workspace: &str, mem
     .execute(pool)
     .await
     .expect("insert workspace membership");
+    let co_admin_id = uuid::Uuid::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, $2, $2, 'Co Admin', $3)",
+    )
+    .bind(co_admin_id)
+    .bind(NDP_CO_ADMIN_EMAIL)
+    .bind(&hash)
+    .execute(pool)
+    .await
+    .expect("insert co-admin user");
+    sqlx::query(
+        "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'admin')",
+    )
+    .bind(workspace_id)
+    .bind(co_admin_id)
+    .execute(pool)
+    .await
+    .expect("insert co-admin membership");
 }
 
 /// D1 regression seed: insert a user who EXISTS globally but is NOT a member of
@@ -601,14 +625,11 @@ async fn member_invite_issued_for(world: &mut FoundryWorld, email: String) {
 #[when(regex = r#"^an admin removes member "([^"]+)" from "([^"]+)"$"#)]
 async fn admin_removes_member_from(world: &mut FoundryWorld, email: String, _workspace: String) {
     // Drive the REAL shipped admin-gated removal (member_invites::submit_remove_member,
-    // POST /workspace/members/remove): sign the seeded workspace admin in and POST the
+    // POST /workspace/members/remove): sign the seeded co-admin in and POST the
     // target member's email. The handler deletes the membership + emits ONE
     // `member_removed` notification to the removed person through `notify()`, which
     // fans out best-effort to every active provider (log + smtp here).
-    let admin = world
-        .ndp_member
-        .clone()
-        .expect("Background seeded an admin member");
+    let admin = NDP_CO_ADMIN_EMAIL.to_string();
     let outcome = {
         let harness = world.harness.as_ref().expect("harness");
         let http = world.http.as_ref().expect("http");

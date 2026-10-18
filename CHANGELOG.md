@@ -15,6 +15,14 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   `status: last-admin`), even when two admins demote themselves at the same moment. Until now
   this took hand-written SQL. No migration.
 
+### Fixed
+
+- **A workspace can no longer lose its last admin by removal.** `POST /workspace/members/remove`
+  refuses to remove a workspace's only admin with a 409: "{name} ({email}) is the only admin of
+  {workspace}. Make someone else an admin first." Nothing changes and no removal notice is sent.
+  This is checked before the last-lead refusal, and a removal racing `set-role` or another
+  removal still leaves one admin. No migration.
+
 ## [v0.15.1] - 2026-10-17
 
 ### Changed
