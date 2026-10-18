@@ -1280,6 +1280,165 @@ pub fn run_list_users(workspace: Option<&str>) -> i32 {
     })
 }
 
+/// Entry point invoked from `main.rs` when the CLI sees
+/// `foundry doctor set-role --workspace <id|name> --email <addr> --role admin|member`.
+///
+/// Changes an existing member's role in one workspace, the operator door for
+/// what used to take hand-written SQL (team-lifecycle dogfood follow-up). It
+/// never adds a membership, and it refuses to demote the workspace's last
+/// admin. The selector resolves like `list-users --workspace` (id, or exact
+/// case-insensitive name). Mirrors `grant-super-admin`: LIVE DB via
+/// `DATABASE_URL`, thread-isolated tokio runtime, structured `key: value` +
+/// `status:` stdout.
+///
+/// Output shape: `workspace-id:` / `workspace-name:` / `user:` /
+/// `workspace-role:` lines, then `status: role-changed` or
+/// `status: role-unchanged`.
+///
+/// Exit codes:
+///
+/// - `0` the member now holds the role (`role-changed`, or `role-unchanged`
+///   when they already held it).
+/// - `2` invalid args: a role other than `admin` / `member`, no workspace
+///   matches the selector, or no user matches the email.
+/// - `3` DB unreachable / DB-side failure.
+/// - `4` refused, nothing written: the user is not a member of the workspace
+///   (`status: not-a-member`), or the demotion would leave it with no admin
+///   (`status: last-admin`).
+pub fn run_set_role(selector: &str, email: &str, role: &str) -> i32 {
+    let Some(role) = foundry_core::WorkspaceRole::parse(role) else {
+        eprintln!(
+            "foundry doctor set-role: --role must be admin or member, not {role:?}. \
+             Usage: foundry doctor set-role --workspace <id|name> --email <addr> \
+             --role admin|member"
+        );
+        return 2;
+    };
+
+    let database_url = match std::env::var("DATABASE_URL") {
+        Ok(v) if !v.is_empty() => v,
+        _ => {
+            eprintln!(
+                "foundry doctor set-role: DATABASE_URL is required \
+                 to reach the live database. Set it to the same value the \
+                 foundry server uses."
+            );
+            return 3;
+        }
+    };
+
+    let selector = selector.to_string();
+    let email = email.to_string();
+
+    // Thread-isolated runtime (see `run_restore_comment`): dispatched from inside
+    // the outer `#[tokio::main]` runtime, so a nested `block_on` would panic.
+    std::thread::spawn(move || {
+        let runtime = match tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+        {
+            Ok(rt) => rt,
+            Err(err) => {
+                eprintln!("foundry doctor set-role: could not build tokio runtime: {err}");
+                return 3;
+            }
+        };
+
+        runtime.block_on(async move {
+            let store = match foundry_store::Store::connect(&database_url).await {
+                Ok(s) => s,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor set-role: could not connect to \
+                         DATABASE_URL: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            let workspaces = match store.list_workspaces().await {
+                Ok(w) => w,
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor set-role: failed to list workspaces \
+                         against live DB: {err}"
+                    );
+                    return 3;
+                }
+            };
+            let Some((workspace_id, workspace_name)) =
+                resolve_workspace_selector(&workspaces, &selector)
+            else {
+                eprintln!(
+                    "foundry doctor set-role: no workspace matches {selector:?}; \
+                     run `foundry doctor list-workspaces` to see each workspace's id and name."
+                );
+                return 2;
+            };
+
+            let user_id = match store.user_id_by_email(&email.to_ascii_lowercase()).await {
+                Ok(Some(id)) => id,
+                Ok(None) => {
+                    eprintln!(
+                        "foundry doctor set-role: no user matches {email:?}; \
+                         run `foundry doctor list-users` to see every user."
+                    );
+                    return 2;
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor set-role: failed to resolve user \
+                         against live DB: {err}"
+                    );
+                    return 3;
+                }
+            };
+
+            let status = match store.set_workspace_role(*workspace_id, user_id, role).await {
+                Ok(foundry_store::SetWorkspaceRoleOutcome::Changed) => "role-changed",
+                Ok(foundry_store::SetWorkspaceRoleOutcome::Unchanged) => "role-unchanged",
+                Ok(foundry_store::SetWorkspaceRoleOutcome::NotMember) => {
+                    eprintln!(
+                        "foundry doctor set-role: {email} is not a member of \
+                         {workspace_name:?}; set-role changes a role, it does not add \
+                         a member — status: not-a-member"
+                    );
+                    return 4;
+                }
+                Ok(foundry_store::SetWorkspaceRoleOutcome::LastAdmin) => {
+                    eprintln!(
+                        "foundry doctor set-role: {email} is the only admin of \
+                         {workspace_name:?}; make another member an admin first — \
+                         status: last-admin"
+                    );
+                    return 4;
+                }
+                Err(err) => {
+                    eprintln!(
+                        "foundry doctor set-role: role change against live DB \
+                         failed: {err}"
+                    );
+                    return 3;
+                }
+            };
+            println!("workspace-id: {workspace_id}");
+            println!("workspace-name: {workspace_name}");
+            println!("user: {email}");
+            println!("workspace-role: {}", role.as_str());
+            println!("status: {status}");
+            0
+        })
+    })
+    .join()
+    .unwrap_or_else(|_| {
+        eprintln!(
+            "foundry doctor set-role: worker thread panicked; \
+             see stderr above"
+        );
+        3
+    })
+}
+
 /// per-workspace-backup (US-PWB-01, ADR-002/003/005) — entry point invoked from
 /// `main.rs` when the CLI sees `foundry doctor export-workspace <id|name> <out>`.
 ///

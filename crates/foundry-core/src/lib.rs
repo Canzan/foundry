@@ -21,6 +21,9 @@ mod name_chars;
 pub mod team_membership;
 pub use team_membership::{TeamAccess, TeamRole};
 
+pub mod workspace_membership;
+pub use workspace_membership::WorkspaceRole;
+
 pub mod team_name;
 pub use team_name::{mint_team_slug, MintedTeamSlug, TeamName, TeamNameError, TEAM_NAME_MAX_CHARS};
 

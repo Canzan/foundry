@@ -7,6 +7,14 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Added
+
+- **`foundry doctor set-role`.** An operator makes an existing workspace member an admin or a
+  member: `foundry doctor set-role --workspace <id|name> --email <addr> --role admin|member`.
+  It never adds a membership, and it refuses to demote a workspace's last admin (exit 4,
+  `status: last-admin`), even when two admins demote themselves at the same moment. Until now
+  this took hand-written SQL. No migration.
+
 ## [v0.15.1] - 2026-10-17
 
 ### Changed

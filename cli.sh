@@ -10,6 +10,7 @@
 #   ./cli.sh doctor list-workspaces
 #   ./cli.sh doctor list-users                              # every user on the instance
 #   ./cli.sh doctor list-users --workspace "Dev Workspace"   # one workspace's members + role (id or name)
+#   ./cli.sh doctor set-role --workspace "Dev Workspace" --email you@example.com --role admin
 #   ./cli.sh doctor grant-super-admin --email you@example.com
 #   ./cli.sh doctor provision-workspace --name "Acme" --admin-email a@acme.io --as you@example.com
 #   ./cli.sh doctor export-workspace "Dev Workspace" /tmp/dev.tar

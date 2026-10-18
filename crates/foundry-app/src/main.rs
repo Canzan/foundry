@@ -929,6 +929,30 @@ fn dispatch_subcommand() -> Option<i32> {
                     let code = foundry_app::admin_cli::run_list_users(workspace);
                     Some(code)
                 }
+                // Operator door for a workspace role: make an existing member an
+                // admin or a member, refusing to demote the last admin. Reads
+                // DATABASE_URL. Never adds a membership.
+                "set-role" => {
+                    let opt = |flag: &str| -> Option<String> {
+                        args.iter()
+                            .position(|a| a == flag)
+                            .and_then(|i| args.get(i + 1))
+                            .filter(|v| !v.is_empty())
+                            .cloned()
+                    };
+                    let (Some(workspace), Some(email), Some(role)) =
+                        (opt("--workspace"), opt("--email"), opt("--role"))
+                    else {
+                        eprintln!(
+                            "foundry doctor set-role: missing required flags. \
+                             Usage: foundry doctor set-role --workspace <id|name> \
+                             --email <addr> --role admin|member"
+                        );
+                        return Some(2);
+                    };
+                    let code = foundry_app::admin_cli::run_set_role(&workspace, &email, &role);
+                    Some(code)
+                }
                 "export-workspace" => {
                     let Some(selector) = args.get(3) else {
                         eprintln!(
@@ -1014,6 +1038,7 @@ fn dispatch_subcommand() -> Option<i32> {
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
                          list-workspaces, list-users, \
+                         set-role --workspace <id|name> --email <addr> --role admin|member, \
                          export-workspace <id|name> <out-path>, \
                          verify-export <archive-path>, \
                          reset-password --email <addr> [--password <new>], \
@@ -1029,6 +1054,7 @@ fn dispatch_subcommand() -> Option<i32> {
                          provision-workspace --name <name> --admin-email <addr> --as <addr>, \
                          grant-super-admin --email <addr>, \
                          list-workspaces, list-users, \
+                         set-role --workspace <id|name> --email <addr> --role admin|member, \
                          export-workspace <id|name> <out-path>, \
                          verify-export <archive-path>, \
                          reset-password --email <addr> [--password <new>], \

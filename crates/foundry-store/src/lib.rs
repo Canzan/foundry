@@ -16,6 +16,7 @@ pub mod project_lifecycle;
 pub mod teams;
 pub mod upgrade_warnings;
 pub mod verify_export;
+pub mod workspace_roles;
 
 pub use attachments::{AttachmentInsertError, AttachmentRow, AttachmentSummary};
 pub use lanes::{InsertedIssue, LaneDeleteFate, LaneDeleteOutcome, LaneRow};
@@ -34,6 +35,7 @@ pub use upgrade_warnings::{
     upgrade_warnings, UPGRADE_WARNING_0023, UPGRADE_WARNING_0025, UPGRADE_WARNING_0026,
 };
 pub use verify_export::{verify_workspace_export, ArchiveContents, ArchivedTable, VerifyReport};
+pub use workspace_roles::SetWorkspaceRoleOutcome;
 
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
