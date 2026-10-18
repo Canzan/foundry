@@ -23,6 +23,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   This is checked before the last-lead refusal, and a removal racing `set-role` or another
   removal still leaves one admin. No migration.
 
+### Security
+
+- **ammonia 4.1.8** (RUSTSEC-2026-0373): the comment-markdown sanitizer now matches the CSS
+  `url(` function regardless of case.
+
 ## [v0.15.1] - 2026-10-17
 
 ### Changed
