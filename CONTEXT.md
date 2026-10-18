@@ -2,16 +2,16 @@
 
 ## Current Task
 
-**project-lifecycle** (rename, soft-delete, operator restore, detaching team delete) finished DELIVER plus all follow-ups on `main` (through `7286bb4`; pushed through `4cc3000`, 13 later commits local). Not tagged. v0.14.1 is on dev and prod; **v0.14.2** (ammonia/rustls advisories) is ready on branch `fix-dependency-advisories` (`bd70538`, worktree `../foundry-v0142`) but not pushed or tagged. Evolution doc: `docs/evolution/2026-10-15-project-lifecycle.md`.
+**v0.16.0** shipped 2026-10-17/18 (`doctor set-role`, last-admin removal guard, ammonia 4.1.8 for RUSTSEC-2026-0373). Tag on `c2999cd`; dev and prod both show v0.16.0 · c2999cd. `main` is clean and matches origin.
 
 ## Key Decisions
 
-- The whole feature is ONE release (migrations 0025/0026/0027 together); 0025 and 0026 warn once on upgrade; pre-0026 dumps restore only into a fresh database.
-- 2026-10-15: API, live-updates and token-route refusals answer the uniform 404 (non-admin token gate and non-author comment edit stay 403); a lead who removes themselves lands on their teams list.
-- Watch disk: `target/` grew to 334 GB and ENOSPC wedged Docker Desktop; clear `target/debug` when idle.
+- The workspace row `FOR NO KEY UPDATE` lock serializes role changes and member removals, so two admins can't each demote or remove the other.
+- Removing a workspace's only admin is refused (409, "Make someone else an admin first"), checked before the last-lead logic.
+- Tags are annotated, not signed (no GPG key); the local gate needs `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false`.
 
 ## Next Steps
 
-- Push the local commits to `main` only on the user's "push"; push/tag v0.14.2 from `../foundry-v0142` on the user's go.
-- Release on the user's go: R4 read-only OQ-D4 project counts on dev/prod + the CHANGELOG OQ-D4/Rollback lines; R5 `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`; then tag.
-- Optional cleanup: the scoped-token check is copied in 5 service modules; move it onto `Principal`.
+- Worktree `../foundry-v0142` (`fix-dependency-advisories`, `bd70538`) is probably superseded by v0.16.0: check its rustls fix, then drop it.
+- Still open from `finalize-owed.md`: rerun `cargo mutants`.
+- Optional: move the scoped-token check (copied in 5 service modules) onto `Principal`.
