@@ -71,13 +71,13 @@ Feature: The maintainer cannot merge a change that makes the API description lie
     Then the drift check fails
     And it names listing a project's issues and the undocumented 409
 
-  @pending @aod-01 @us-aod-02 @error @kpi @contract-shape:pure-function
+  @aod-01 @us-aod-02 @error @kpi @contract-shape:pure-function
   Scenario: An operation missing from the description fails the build
     When the maintainer adds an operation that lists a team's projects and runs the drift check
     Then the drift check fails
     And it names "GET /api/v1/teams/{team_slug}/projects" as undocumented
 
-  @pending @aod-01 @us-aod-02 @error @contract-shape:pure-function
+  @aod-01 @us-aod-02 @error @contract-shape:pure-function
   Scenario: A described operation the code no longer offers fails the build
     When the maintainer removes listing a project's issues from the code and runs the drift check
     Then the drift check fails

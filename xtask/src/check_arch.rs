@@ -25,6 +25,12 @@
 //!                          `algorithms = [EdDSA]` and never disables signature
 //!                          validation (closes the alg-confusion / `alg:none`
 //!                          footgun structurally).
+//!       * api-openapi-operations — the /api/v1 routes in foundry-api, their
+//!                          path parameters, request bodies and success answers
+//!                          equal the operations `crates/foundry-api/openapi.json`
+//!                          describes, failing closed on a route it cannot read;
+//!                          only `PENDING_OPERATIONS` may be undescribed
+//!                          (api-openapi-document ADR-API-OPENAPI-001, DDD-14).
 //!     On a violation it NAMES the offending file + line and exits non-zero.
 //!
 //!   LAYER 2 — `cargo-deny` crate-graph dependency-direction (delegated). Runs
@@ -108,6 +114,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_project_lifecycle_write_guard(root));
     violations.extend(check_project_lifecycle_live_reads(root));
     violations.extend(check_store_natural_key_scoped(root));
+    violations.extend(check_api_openapi_operations(root));
     violations
 }
 
@@ -146,7 +153,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with only the operations on PENDING_OPERATIONS undescribed (api-openapi-operations), dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -320,6 +327,30 @@ fn check_api_no_mint_route(root: &Path) -> Vec<String> {
 /// block plus a GET-only tokens block do NOT false-positive.
 fn post_on_tokens_collection_blocks(stripped: &[String]) -> Vec<(usize, String)> {
     let mut hits = Vec::new();
+    for (block_start, end) in route_blocks(stripped) {
+        // Two independent passes over the block's lines.
+        let mut post_line: Option<(usize, String)> = None;
+        let mut has_tokens_collection = false;
+        for (line_no, line) in stripped[block_start..=end].iter().enumerate() {
+            if post_line.is_none() && line.contains("post(") {
+                post_line = Some((block_start + line_no, line.clone()));
+            }
+            if line_contains_tokens_collection_literal(line) {
+                has_tokens_collection = true;
+            }
+        }
+        if let (true, Some(hit)) = (has_tokens_collection, post_line) {
+            hits.push(hit);
+        }
+    }
+    hits
+}
+
+/// The `.route(..)` blocks of a comment-stripped source, as `(first, last)`
+/// 0-based line indices. Shared by `api≠mint` and `api-openapi-operations`
+/// (DESIGN OQ-D4: one block parser, not two).
+fn route_blocks(stripped: &[String]) -> Vec<(usize, usize)> {
+    let mut blocks = Vec::new();
     let mut idx = 0;
     while idx < stripped.len() {
         if !stripped[idx].contains(".route(") {
@@ -356,25 +387,10 @@ fn post_on_tokens_collection_blocks(stripped: &[String]) -> Vec<(usize, String)>
             }
             end = block_start + offset;
         }
-
-        // Two independent passes over the block's lines.
-        let mut post_line: Option<(usize, String)> = None;
-        let mut has_tokens_collection = false;
-        for (line_no, line) in stripped[block_start..=end].iter().enumerate() {
-            if post_line.is_none() && line.contains("post(") {
-                post_line = Some((block_start + line_no, line.clone()));
-            }
-            if line_contains_tokens_collection_literal(line) {
-                has_tokens_collection = true;
-            }
-        }
-        if let (true, Some(hit)) = (has_tokens_collection, post_line) {
-            hits.push(hit);
-        }
-
+        blocks.push((block_start, end));
         idx = end + 1;
     }
-    hits
+    blocks
 }
 
 /// True iff `code` carries a `.../tokens"` COLLECTION route literal (path segment
@@ -4015,6 +4031,9 @@ mod tests {
             (PUBLISH_WORKFLOWS[0], STAMPING_WORKFLOW),
             (PUBLISH_WORKFLOWS[1], STAMPING_WORKFLOW),
             ("Dockerfile", STAMPING_DOCKERFILE),
+            // `check_api_openapi_operations` fails closed on a missing
+            // description, so the clean tree carries one describing nothing.
+            ("crates/foundry-api/openapi.json", "{\"paths\": {}}\n"),
         ]);
         let clean_args = vec!["--root".to_string(), clean.path().display().to_string()];
         let planted = every_layer_1_rule_violated_tree();
@@ -9735,6 +9754,796 @@ pub async fn reader(&self) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// api-openapi-operations (api-openapi-document slice 01, ADR-API-OPENAPI-001)
+// ---------------------------------------------------------------------------
+
+/// DDD-14 / D13: the `/api/v1` operations the description does not describe
+/// yet, as `(METHOD, path template)`. Exactly the seven D13 names. Slice 02
+/// deletes this list in the same commit as the last operation's entry, and
+/// release gate R4 keeps any tree that still holds it from being tagged.
+const PENDING_OPERATIONS: &[(&str, &str)] = &[
+    (
+        "POST",
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues",
+    ),
+    (
+        "PATCH",
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}",
+    ),
+    (
+        "GET",
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/history",
+    ),
+    (
+        "POST",
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments",
+    ),
+    (
+        "PATCH",
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments/{comment_id}",
+    ),
+    (
+        "GET",
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens",
+    ),
+    (
+        "DELETE",
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}",
+    ),
+];
+
+/// The uniform-404 catch-all: not an operation (D4), so it is never compared.
+const API_CATCH_ALL: &str = "/api/v1/{*rest}";
+/// The description's own route, the one route allowed to chain its `get` on an
+/// `any(api_not_found_handler)` (DDD-4, DELIVER UI-1).
+const API_DESCRIPTION_ROUTE: &str = "/api/v1/openapi.json";
+const API_DESCRIPTION_FILE: &str = "crates/foundry-api/openapi.json";
+const API_METHODS: [&str; 5] = ["get", "post", "patch", "put", "delete"];
+const OPENAPI_METHODS: [&str; 8] = [
+    "get", "put", "post", "delete", "options", "head", "patch", "trace",
+];
+
+/// Rule `api-openapi-operations` (DESIGN [REF] check-arch Rules, rule 1).
+fn check_api_openapi_operations(root: &Path) -> Vec<String> {
+    api_openapi_operations(root, PENDING_OPERATIONS)
+}
+
+/// The rule with its pending list as an INPUT, so a gold test can prove that
+/// only a listed operation is tolerated without depending on the list's
+/// contents (and survives the list's deletion in slice 02).
+fn api_openapi_operations(root: &Path, pending: &[(&str, &str)]) -> Vec<String> {
+    let mut violations = api_routes_outside_foundry_api(root);
+    let code = ApiCode::read(root);
+    violations.extend(code.violations.iter().cloned());
+    match ApiDescription::read(root) {
+        Ok(description) => violations.extend(code.compare(&description, pending)),
+        Err(unreadable) => violations.push(operations_violation(&unreadable)),
+    }
+    violations
+}
+
+fn operations_violation(text: &str) -> String {
+    format!("api-openapi-operations: {text}")
+}
+
+/// One `.route(..)` call: the line it opens on, its path when that is a string
+/// literal, and the code of its method router.
+struct RouteCall {
+    line: usize,
+    path: Option<String>,
+    methods: String,
+}
+
+/// Every `.route(..)` call in a Rust source. The blocks come from
+/// [`route_blocks`], the parser `api≠mint` uses; each one is then read from
+/// [`RustSource`], so a `.route(` inside a string literal is not a call.
+fn route_calls(contents: &str) -> Vec<RouteCall> {
+    let source = RustSource::scan(contents);
+    let code = source.code.as_bytes();
+    let stripped: Vec<String> = contents.lines().map(strip_comment).collect();
+    let starts = line_starts(&source.code);
+    let mut calls = Vec::new();
+    for (first, _) in route_blocks(&stripped) {
+        let line = &stripped[first];
+        let column = line[..line.find(".route(").unwrap_or(0)].chars().count();
+        let at = starts[first] + column;
+        if !source.code[at..].starts_with(".route(") {
+            continue;
+        }
+        let open = at + ".route".len();
+        let close = matching_brace(code, open).unwrap_or(code.len());
+        let first_arg = skip_whitespace(code, open + 1);
+        let literal = source.literals.iter().find(|l| l.start == first_arg);
+        let (path, methods) = match literal {
+            Some(literal) => {
+                let comma = skip_whitespace(code, literal.end);
+                let methods = match code.get(comma) {
+                    Some(b',') => source.code[comma + 1..close]
+                        .trim()
+                        .trim_end_matches(',')
+                        .trim_end()
+                        .to_string(),
+                    _ => String::new(),
+                };
+                (Some(literal.text.clone()), methods)
+            }
+            None => (None, String::new()),
+        };
+        calls.push(RouteCall {
+            line: first + 1,
+            path,
+            methods,
+        });
+    }
+    calls
+}
+
+fn skip_whitespace(bytes: &[u8], mut at: usize) -> usize {
+    while bytes.get(at).is_some_and(u8::is_ascii_whitespace) {
+        at += 1;
+    }
+    at
+}
+
+/// One `name(handler)` link of a method-router chain.
+struct MethodLink {
+    name: String,
+    handler: String,
+}
+
+/// `get(a).post(b)` as links, or `None` when the expression is anything but a
+/// chain of single-handler calls (a variable, a closure, a builder) — which
+/// the rule cannot read, so it fails closed.
+fn method_chain(expression: &str) -> Option<Vec<MethodLink>> {
+    let bytes = expression.as_bytes();
+    let is_path_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_' || b == b':';
+    let last_segment = |path: &str| path.rsplit("::").next().unwrap_or(path).to_string();
+    let mut links = Vec::new();
+    let mut at = 0;
+    loop {
+        let start = at;
+        while bytes.get(at).is_some_and(|&b| is_path_byte(b)) {
+            at += 1;
+        }
+        let name = last_segment(&expression[start..at]);
+        if bytes.get(at) != Some(&b'(') {
+            return None;
+        }
+        let close = matching_brace(bytes, at)?;
+        let handler = expression[at + 1..close].trim();
+        if handler.is_empty() || !handler.bytes().all(is_path_byte) {
+            return None;
+        }
+        links.push(MethodLink {
+            name,
+            handler: last_segment(handler),
+        });
+        at = skip_whitespace(bytes, close + 1);
+        if at == bytes.len() {
+            return Some(links);
+        }
+        if bytes[at] != b'.' {
+            return None;
+        }
+        at = skip_whitespace(bytes, at + 1);
+    }
+}
+
+/// Clause (vi): no route literal outside `crates/foundry-api/src` starts with
+/// `/api`, so an `/api/v1` route cannot be mounted where the rule does not look.
+fn api_routes_outside_foundry_api(root: &Path) -> Vec<String> {
+    let crates = root.join("crates");
+    let api_src = crates.join("foundry-api").join("src");
+    let mut violations = Vec::new();
+    for file in rust_sources(&crates) {
+        let in_a_crate_src = file.strip_prefix(&crates).is_ok_and(|inside| {
+            inside
+                .components()
+                .nth(1)
+                .is_some_and(|c| c.as_os_str() == "src")
+        });
+        if file.starts_with(&api_src) || !in_a_crate_src {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        for call in route_calls(&contents) {
+            if let Some(path) = call.path.filter(|path| path.starts_with("/api")) {
+                violations.push(operations_violation(&format!(
+                    "{}:{} mounts the route `{path}` outside crates/foundry-api/src; every /api route belongs in foundry_api::routes(), where it is held to the description",
+                    rel(root, &file),
+                    call.line,
+                )));
+            }
+        }
+    }
+    violations
+}
+
+/// One `/api/v1` operation the code offers.
+struct CodeOperation {
+    method: String,
+    template: String,
+    handler: String,
+    location: String,
+}
+
+impl CodeOperation {
+    fn label(&self) -> String {
+        format!("{} {}", self.method.to_ascii_uppercase(), self.template)
+    }
+}
+
+/// A handler `fn` of foundry-api: its parameter list, return type and body,
+/// as comment- and literal-blanked code.
+struct Handler {
+    params: String,
+    returns: String,
+    body: String,
+}
+
+/// What the code says about foundry-api's operations.
+struct ApiCode {
+    operations: Vec<CodeOperation>,
+    handlers: Vec<(String, Handler)>,
+    violations: Vec<String>,
+}
+
+impl ApiCode {
+    fn read(root: &Path) -> Self {
+        let api_src = root.join("crates").join("foundry-api").join("src");
+        let mut code = ApiCode {
+            operations: Vec::new(),
+            handlers: Vec::new(),
+            violations: Vec::new(),
+        };
+        for file in rust_sources(&api_src) {
+            let Ok(contents) = std::fs::read_to_string(&file) else {
+                continue;
+            };
+            let source = RustSource::scan(&contents);
+            for span in fn_spans(&source.code) {
+                let signature = &source.code[span.params.0..span.body.0];
+                let (params, returns) = signature.split_once("->").unwrap_or((signature, ""));
+                code.handlers.push((
+                    span.name.clone(),
+                    Handler {
+                        params: params.to_string(),
+                        returns: returns.trim().to_string(),
+                        body: source.code[span.body.0..span.body.1].to_string(),
+                    },
+                ));
+            }
+            let file_rel = rel(root, &file);
+            for call in route_calls(&contents) {
+                code.add_route(&format!("{file_rel}:{}", call.line), call);
+            }
+        }
+        code
+    }
+
+    /// Clauses (v) and (vii): a readable `/api/v1/` literal path and a chain of
+    /// `get`/`post`/`patch`/`put`/`delete`, with `any(` only on the catch-all
+    /// and under the description's own `get`, and no `.fallback(` anywhere.
+    fn add_route(&mut self, location: &str, call: RouteCall) {
+        let Some(path) = call.path else {
+            self.violations.push(operations_violation(&format!(
+                "the `.route(` at {location} has a path that is not a string literal, so it cannot be compared with the description"
+            )));
+            return;
+        };
+        if !path.starts_with("/api/v1/") {
+            self.violations.push(operations_violation(&format!(
+                "the route `{path}` at {location} does not start with /api/v1/"
+            )));
+        }
+        let Some(chain) = method_chain(&call.methods) else {
+            self.violations.push(operations_violation(&format!(
+                "the route `{path}` at {location} has a method router that is not a chain of get/post/patch/put/delete calls, so it cannot be compared with the description"
+            )));
+            return;
+        };
+        let names: Vec<&str> = chain.iter().map(|link| link.name.as_str()).collect();
+        let reviewed_any = match (path.as_str(), names.as_slice()) {
+            (API_CATCH_ALL, ["any"]) | (API_DESCRIPTION_ROUTE, ["any", "get"]) => {
+                chain[0].handler == "api_not_found_handler"
+            }
+            _ => false,
+        };
+        if reviewed_any {
+            for link in &chain[1..] {
+                self.add_operation(location, &path, link);
+            }
+            return;
+        }
+        for link in &chain {
+            if API_METHODS.contains(&link.name.as_str()) {
+                self.add_operation(location, &path, link);
+            } else {
+                self.violations.push(operations_violation(&format!(
+                    "the route `{path}` at {location} chains `{}({})`; only get/post/patch/put/delete are compared with the description (an `any(` belongs only to {API_CATCH_ALL} and, under its `get`, to {API_DESCRIPTION_ROUTE}; a `.fallback(` to none)",
+                    link.name, link.handler
+                )));
+            }
+        }
+    }
+
+    fn add_operation(&mut self, location: &str, path: &str, link: &MethodLink) {
+        self.operations.push(CodeOperation {
+            method: link.name.clone(),
+            template: path.to_string(),
+            handler: link.handler.clone(),
+            location: location.to_string(),
+        });
+    }
+
+    fn handler(&self, name: &str) -> Result<&Handler, String> {
+        let mut found = self.handlers.iter().filter(|(n, _)| n == name);
+        match (found.next(), found.next()) {
+            (Some((_, handler)), None) => Ok(handler),
+            (None, _) => Err(format!(
+                "its handler `{name}` is not found in crates/foundry-api/src"
+            )),
+            (Some(_), Some(_)) => Err(format!(
+                "its handler `{name}` is defined more than once in crates/foundry-api/src"
+            )),
+        }
+    }
+
+    /// Clause (i), then (ii)-(iv) for each operation both sides have.
+    fn compare(&self, description: &ApiDescription, pending: &[(&str, &str)]) -> Vec<String> {
+        let mut violations = Vec::new();
+        let is_pending = |op: &CodeOperation| {
+            pending.iter().any(|(method, path)| {
+                method.eq_ignore_ascii_case(&op.method) && *path == op.template
+            })
+        };
+        for op in &self.operations {
+            let described = description.operation(&op.method, &op.template);
+            let difference = match (is_pending(op), described) {
+                (true, None) => continue,
+                (true, Some(_)) => vec![
+                    "is described but still on PENDING_OPERATIONS; take it off the list"
+                        .to_string(),
+                ],
+                (false, None) => vec![format!(
+                    "is offered by the code but undocumented in {API_DESCRIPTION_FILE}"
+                )],
+                (false, Some(described)) => self.differences(op, described),
+            };
+            violations.extend(difference.into_iter().map(|difference| {
+                operations_violation(&format!("{} ({}) {difference}", op.label(), op.location))
+            }));
+        }
+        for (method, template) in description.operations() {
+            if !self.operations.iter().any(|op| {
+                op.method == method && template_shape(&op.template) == template_shape(template)
+            }) {
+                violations.push(operations_violation(&format!(
+                    "{} {template} is described in {API_DESCRIPTION_FILE} but not offered by the code",
+                    method.to_ascii_uppercase()
+                )));
+            }
+        }
+        violations
+    }
+
+    fn differences(&self, op: &CodeOperation, described: Described<'_>) -> Vec<String> {
+        let handler = match self.handler(&op.handler) {
+            Ok(handler) => handler,
+            Err(missing) => return vec![missing],
+        };
+        let mut differences = Vec::new();
+        if op.template != described.template {
+            differences.push(format!(
+                "has the path parameters {:?} in the code but {:?} in the description ({})",
+                template_parameters(&op.template),
+                template_parameters(described.template),
+                described.template
+            ));
+        }
+        match handler.path_parameters(&op.template) {
+            Ok(parameters) => differences.extend(described.path_parameter_differences(&parameters)),
+            Err(unreadable) => differences.push(unreadable),
+        }
+        differences.extend(described.request_body_difference(handler.request_body()));
+        let status = handler.success_status();
+        let documented = described.success_statuses();
+        if documented != [status.to_string()] {
+            differences.push(format!(
+                "answers {status} on success in the code but {documented:?} in the description"
+            ));
+        }
+        let body = if op.template == API_DESCRIPTION_ROUTE && op.method == "get" {
+            Ok(SuccessBody::Description)
+        } else {
+            handler.success_body(status)
+        };
+        match body {
+            Ok(body) => differences.extend(described.success_body_difference(status, &body)),
+            Err(unreadable) => differences.push(unreadable),
+        }
+        differences
+    }
+}
+
+/// The schema type a Rust path-parameter type is documented with (clause ii).
+fn path_parameter_schema(rust: &str) -> Option<(&'static str, Option<&'static str>)> {
+    match rust {
+        "String" => Some(("string", None)),
+        "i32" => Some(("integer", Some("int32"))),
+        "Uuid" | "uuid::Uuid" => Some(("string", Some("uuid"))),
+        _ => None,
+    }
+}
+
+/// A path parameter as the code types it: its template name and Rust type.
+struct PathParameter {
+    name: String,
+    rust: String,
+}
+
+/// The success answer's body as the code types it (clause iv).
+enum SuccessBody {
+    None,
+    One(String),
+    ArrayOf(String),
+    /// The description's own route answers the description itself.
+    Description,
+}
+
+impl Handler {
+    fn path_parameters(&self, template: &str) -> Result<Vec<PathParameter>, String> {
+        let names = template_parameters(template);
+        let types: Vec<String> = match generic_argument(&self.params, "Path") {
+            None => Vec::new(),
+            Some(inner) if inner.starts_with('(') => split_top_level(&inner[1..inner.len() - 1]),
+            Some(inner) => vec![inner],
+        };
+        if types.len() != names.len() {
+            return Err(format!(
+                "has {} path parameter(s) in its template but the handler's Path<…> extracts {}",
+                names.len(),
+                types.len()
+            ));
+        }
+        Ok(names
+            .into_iter()
+            .zip(types)
+            .map(|(name, rust)| PathParameter { name, rust })
+            .collect())
+    }
+
+    fn request_body(&self) -> Option<String> {
+        generic_argument(&self.params, "Json")
+    }
+
+    fn success_status(&self) -> u16 {
+        if self.body.contains("StatusCode::CREATED") {
+            201
+        } else if self.body.contains("StatusCode::NO_CONTENT") {
+            204
+        } else {
+            200
+        }
+    }
+
+    fn success_body(&self, status: u16) -> Result<SuccessBody, String> {
+        if status == 204 {
+            return Ok(SuccessBody::None);
+        }
+        let returns = match generic_argument(&self.returns, "Result") {
+            Some(ok_and_err) => split_top_level(&ok_and_err).remove(0),
+            None => self.returns.split_whitespace().collect(),
+        };
+        if let Some(json) = generic_argument(&returns, "Json") {
+            return Ok(match generic_argument(&json, "Vec") {
+                Some(item) => SuccessBody::ArrayOf(item),
+                None => SuccessBody::One(json),
+            });
+        }
+        match self.json_wrapped_type() {
+            Some(single) if returns == "Response" => Ok(SuccessBody::One(single)),
+            _ => Err(format!(
+                "returns `{returns}` and no single success body type can be read from it (clause iv: name the type, or wrap one struct literal in Json(…))"
+            )),
+        }
+    }
+
+    /// The one struct type the body's `Json(…)` calls wrap: a literal
+    /// `Json(T { … })`, or a `Json(x)` whose `let x = T {` is in the body.
+    /// `None` when a call wraps anything else, or the calls disagree.
+    fn json_wrapped_type(&self) -> Option<String> {
+        let bytes = self.body.as_bytes();
+        let mut types = BTreeSet::new();
+        let mut from = 0;
+        while let Some(at) = find_sql_word(&self.body, "Json", from) {
+            from = at + "Json".len();
+            if bytes.get(from) != Some(&b'(') {
+                continue;
+            }
+            let close = matching_brace(bytes, from).unwrap_or(bytes.len());
+            let argument = self.body[from + 1..close].trim();
+            let binding = format!("let {argument} = ");
+            let literal = match self.body.find(&binding) {
+                Some(at) => self.body[at + binding.len()..].trim_start(),
+                None => argument,
+            };
+            let name: String = literal
+                .chars()
+                .take_while(|&c| c.is_ascii_alphanumeric() || c == '_')
+                .collect();
+            if name.is_empty() || !literal[name.len()..].trim_start().starts_with('{') {
+                return None;
+            }
+            types.insert(name);
+        }
+        let mut types = types.into_iter();
+        match (types.next(), types.next()) {
+            (Some(single), None) => Some(single),
+            _ => None,
+        }
+    }
+}
+
+/// The whitespace-free generic argument of the first `name<…>` in `text`.
+fn generic_argument(text: &str, name: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut from = 0;
+    while let Some(at) = find_sql_word(text, name, from) {
+        from = at + name.len();
+        if bytes.get(from) != Some(&b'<') {
+            continue;
+        }
+        let mut depth = 0usize;
+        for (offset, &b) in bytes[from..].iter().enumerate() {
+            match b {
+                b'<' => depth += 1,
+                b'>' if depth == 1 => {
+                    return Some(text[from + 1..from + offset].split_whitespace().collect());
+                }
+                b'>' => depth -= 1,
+                _ => {}
+            }
+        }
+    }
+    None
+}
+
+/// Split on the commas outside any `<…>` or `(…)`, dropping a trailing empty.
+fn split_top_level(text: &str) -> Vec<String> {
+    let mut parts = vec![String::new()];
+    let mut depth = 0i32;
+    for c in text.chars() {
+        match c {
+            '<' | '(' => depth += 1,
+            '>' | ')' => depth -= 1,
+            ',' if depth == 0 => {
+                parts.push(String::new());
+                continue;
+            }
+            _ => {}
+        }
+        if let Some(part) = parts.last_mut() {
+            part.push(c);
+        }
+    }
+    parts.retain(|part| !part.trim().is_empty());
+    parts.iter().map(|part| part.trim().to_string()).collect()
+}
+
+/// The `{names}` of a path template, in order.
+fn template_parameters(template: &str) -> Vec<String> {
+    template
+        .split('{')
+        .skip(1)
+        .filter_map(|rest| rest.split_once('}'))
+        .map(|(name, _)| name.to_string())
+        .collect()
+}
+
+/// A template with every parameter name dropped: `/a/{x}` → `/a/{}`, so a
+/// renamed parameter is a parameter difference, not a missing operation.
+fn template_shape(template: &str) -> String {
+    let mut shape = String::new();
+    let mut inside = false;
+    for c in template.chars() {
+        match c {
+            '{' => inside = true,
+            '}' => inside = false,
+            _ if inside => continue,
+            _ => {}
+        }
+        shape.push(c);
+    }
+    shape
+}
+
+/// DDD-6: the component a Rust wire type is described as.
+fn component_ref(rust: &str) -> String {
+    let name = rust.rsplit("::").next().unwrap_or(rust);
+    let component = match name {
+        "ErrorBody" => "Error",
+        "IssueHistoryJson" => "IssueHistoryEntry",
+        other => other.strip_suffix("Json").unwrap_or(other),
+    };
+    format!("#/components/schemas/{component}")
+}
+
+/// The committed description, parsed. Fails closed when it cannot be read.
+struct ApiDescription {
+    document: serde_json::Value,
+}
+
+/// One described operation: the template it sits under and its object.
+#[derive(Clone, Copy)]
+struct Described<'a> {
+    template: &'a str,
+    operation: &'a serde_json::Value,
+}
+
+impl ApiDescription {
+    fn read(root: &Path) -> Result<Self, String> {
+        let path = root.join(API_DESCRIPTION_FILE);
+        let bytes = std::fs::read(&path).map_err(|e| {
+            format!("{API_DESCRIPTION_FILE} cannot be read ({e}); the rule fails closed")
+        })?;
+        let document: serde_json::Value = serde_json::from_slice(&bytes).map_err(|e| {
+            format!("{API_DESCRIPTION_FILE} is not JSON ({e}); the rule fails closed")
+        })?;
+        if !document["paths"].is_object() {
+            return Err(format!(
+                "{API_DESCRIPTION_FILE} has no `paths` object; the rule fails closed"
+            ));
+        }
+        Ok(ApiDescription { document })
+    }
+
+    fn operations(&self) -> Vec<(&str, &str)> {
+        let mut operations = Vec::new();
+        for (template, item) in self.document["paths"].as_object().into_iter().flatten() {
+            for method in item.as_object().into_iter().flatten().map(|(k, _)| k) {
+                if OPENAPI_METHODS.contains(&method.as_str()) {
+                    operations.push((method.as_str(), template.as_str()));
+                }
+            }
+        }
+        operations
+    }
+
+    fn operation(&self, method: &str, template: &str) -> Option<Described<'_>> {
+        let shape = template_shape(template);
+        self.document["paths"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .find(|(described, _)| template_shape(described) == shape)
+            .and_then(|(described, item)| {
+                item.get(method).map(|operation| Described {
+                    template: described.as_str(),
+                    operation,
+                })
+            })
+    }
+}
+
+impl Described<'_> {
+    /// Clause (ii): every template parameter is a required `in: path`
+    /// parameter typed from the handler, and no other `in: path` is described.
+    fn path_parameter_differences(&self, code: &[PathParameter]) -> Vec<String> {
+        let described: Vec<&serde_json::Value> = self.operation["parameters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|p| p["in"] == "path")
+            .collect();
+        let mut differences = Vec::new();
+        for parameter in code {
+            let name = &parameter.name;
+            let Some(schema) = path_parameter_schema(&parameter.rust) else {
+                differences.push(format!(
+                    "types the path parameter `{name}` as `{}`, which has no documented schema (String, i32 or uuid::Uuid)",
+                    parameter.rust
+                ));
+                continue;
+            };
+            let Some(doc) = described.iter().find(|p| p["name"] == name.as_str()) else {
+                differences.push(format!(
+                    "has the path parameter `{name}`, which the description does not describe"
+                ));
+                continue;
+            };
+            if doc["required"] != true {
+                differences.push(format!(
+                    "describes the path parameter `{name}` without `required: true`"
+                ));
+            }
+            let found = (
+                doc["schema"]["type"].as_str(),
+                doc["schema"]["format"].as_str(),
+            );
+            if found != (Some(schema.0), schema.1) {
+                differences.push(format!(
+                    "types the path parameter `{name}` as `{}` (type {}, format {}) in the code but as type {}, format {} in the description",
+                    parameter.rust,
+                    schema.0,
+                    schema.1.unwrap_or("none"),
+                    found.0.unwrap_or("none"),
+                    found.1.unwrap_or("none"),
+                ));
+            }
+        }
+        for doc in described {
+            let name = doc["name"].as_str().unwrap_or_default();
+            if !code.iter().any(|p| p.name == name) {
+                differences.push(format!(
+                    "describes the path parameter `{name}`, which the path does not have"
+                ));
+            }
+        }
+        differences
+    }
+
+    /// Clause (iii): a `Json<T>` argument is a required application/json body
+    /// referring to T's component; no `Json<…>` argument, no request body.
+    fn request_body_difference(&self, code: Option<String>) -> Option<String> {
+        let body = &self.operation["requestBody"];
+        match code {
+            None if body.is_null() => None,
+            None => Some(
+                "has a request body in the description but the handler takes no Json<…>"
+                    .to_string(),
+            ),
+            Some(rust) => {
+                let expected = component_ref(&rust);
+                let schema = &body["content"]["application/json"]["schema"];
+                (body["required"] != true || schema["$ref"] != expected.as_str()).then(|| {
+                    format!(
+                        "takes a Json<{rust}> request body in the code, so the description needs a required application/json request body referring to {expected}"
+                    )
+                })
+            }
+        }
+    }
+
+    fn success_statuses(&self) -> Vec<String> {
+        self.operation["responses"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .map(|(status, _)| status.clone())
+            .filter(|status| status.starts_with('2'))
+            .collect()
+    }
+
+    /// Clause (iv): the success answer's body.
+    fn success_body_difference(&self, status: u16, code: &SuccessBody) -> Option<String> {
+        let answer = &self.operation["responses"][status.to_string()];
+        let schema = &answer["content"]["application/json"]["schema"];
+        let exact = |expected: serde_json::Value| (*schema == expected, expected.to_string());
+        let (matches, expected) = match code {
+            SuccessBody::None => (answer["content"].is_null(), "no body".to_string()),
+            SuccessBody::One(rust) => exact(serde_json::json!({"$ref": component_ref(rust)})),
+            SuccessBody::ArrayOf(rust) => exact(serde_json::json!({
+                "type": "array",
+                "items": {"$ref": component_ref(rust)},
+            })),
+            SuccessBody::Description => (
+                schema["type"] == "object",
+                "an object schema (the description itself)".to_string(),
+            ),
+        };
+        (!matches).then(|| {
+            format!(
+                "answers {status} with the body {expected} in the code, but the description's {status} answer has the content {}",
+                answer["content"]
+            )
+        })
+    }
+}
+
 #[cfg(test)]
 mod api_openapi_check_arch_tests {
     //! Injected-violation gold tests for the three api-openapi-document rules
@@ -9767,62 +10576,444 @@ mod api_openapi_check_arch_tests {
     }
 
     // Rule 1: api-openapi-operations (slice 01, step 01-02).
-    pending_gold!(operations_clean_tree_passes, "01-02", "a clean tree passes");
-    pending_gold!(
-        operations_names_an_undocumented_route,
-        "01-02",
-        "an undocumented GET …/projects route is named"
-    );
-    pending_gold!(
-        operations_names_a_documented_operation_the_code_lacks,
-        "01-02",
-        "a documented operation removed from the code is named"
-    );
-    pending_gold!(
-        operations_names_a_mistyped_path_parameter,
-        "01-02",
-        "the number parameter documented as a string is named"
-    );
-    pending_gold!(
-        operations_names_a_renamed_path_parameter,
-        "01-02",
-        "a renamed path parameter is named"
-    );
-    pending_gold!(
-        operations_names_a_new_request_body,
-        "01-02",
-        "a new Json<…> on history is named"
-    );
-    pending_gold!(
-        operations_names_a_changed_success_status,
-        "01-02",
-        "NO_CONTENT changed to OK on revoke is named"
-    );
-    pending_gold!(
-        operations_tolerates_only_pending_operations,
-        "01-02",
-        "a pending operation passes and a non-pending one fails"
-    );
-    pending_gold!(
-        operations_names_an_api_route_outside_foundry_api,
-        "01-02",
-        "an /api route literal outside foundry-api is named (clause vi)"
-    );
-    pending_gold!(
-        operations_fails_closed_on_a_non_literal_route,
-        "01-02",
-        "a non-literal .route( path is named (clause vii)"
-    );
-    pending_gold!(
-        operations_fails_closed_on_a_stray_fallback,
-        "01-02",
-        "a .fallback( on any route but the description's is named (clause vii)"
-    );
-    pending_gold!(
-        operations_fails_closed_on_an_untyped_success_body,
-        "01-02",
-        "an untyped Response with no readable body type is named (clause iv)"
-    );
+    //
+    // Each test stages a small foundry-api (routes + handlers shaped like the
+    // shipped ones) and a description of it, plants one drift, and asserts the
+    // rule names it. The pending list is passed in, so these tests do not
+    // depend on `PENDING_OPERATIONS` and survive its deletion in slice 02.
+
+    use super::api_openapi_operations;
+    use serde_json::{json, Value};
+
+    const ISSUES: &str = "/api/v1/teams/{team_slug}/projects/{project_slug}/issues";
+    const HISTORY: &str =
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/history";
+    const REVOKE: &str = "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}";
+
+    const API_LIB: &str = r#"
+pub fn routes<S>() -> Router<S> {
+    Router::new()
+        .route("/api/v1/{*rest}", any(api_not_found_handler))
+        .route(
+            "/api/v1/openapi.json",
+            any(api_not_found_handler).get(openapi::openapi_document),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues",
+            get(list_issues_handler).post(create_issue_handler),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/history",
+            get(list_issue_history_handler),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}",
+            delete(revoke_token_handler),
+        )
+}
+
+async fn api_not_found_handler() -> ApiError {
+    ApiError(ServiceError::NotFound)
+}
+
+async fn list_issues_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+) -> Result<Json<Vec<IssueJson>>, ApiError> {
+    let rows = services.list_board_issues(&principal, &team_slug, &project_slug).await?;
+    Ok(Json(rows.into_iter().map(IssueJson::from).collect()))
+}
+
+async fn create_issue_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+    Json(request): Json<CreateIssueRequest>,
+) -> Result<Response, ApiError> {
+    let created = services.create_issue(&principal, &team_slug, &project_slug, &request.title).await?;
+    let body = IssueJson {
+        key: created.key,
+        number: created.number,
+    };
+    let location = format!("/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{}", body.number);
+    let mut response = (StatusCode::CREATED, Json(body)).into_response();
+    response.headers_mut().insert(header::LOCATION, location.parse().unwrap());
+    Ok(response)
+}
+
+async fn list_issue_history_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug, number)): Path<(String, String, i32)>,
+) -> Result<Json<Vec<IssueHistoryJson>>, ApiError> {
+    let entries = services.list_issue_change_history(&principal, &team_slug, &project_slug, number).await?;
+    Ok(Json(entries.into_iter().map(IssueHistoryJson::from).collect()))
+}
+
+async fn revoke_token_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug, jti)): Path<(String, String, uuid::Uuid)>,
+) -> Result<Response, ApiError> {
+    services.revoke_project_token(&principal, &team_slug, &project_slug, jti).await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+"#;
+
+    const API_OPENAPI_RS: &str = "pub(crate) async fn openapi_document() -> Response {\n    ([(header::CONTENT_TYPE, \"application/json\")], DOCUMENT).into_response()\n}\n";
+
+    fn path_parameter(name: &str, schema: Value) -> Value {
+        json!({"name": name, "in": "path", "required": true, "schema": schema})
+    }
+
+    fn slugs() -> Vec<Value> {
+        vec![
+            path_parameter("team_slug", json!({"type": "string"})),
+            path_parameter("project_slug", json!({"type": "string"})),
+        ]
+    }
+
+    fn with(mut parameters: Vec<Value>, more: Value) -> Value {
+        parameters.push(more);
+        Value::Array(parameters)
+    }
+
+    fn answer(schema: Value) -> Value {
+        json!({"description": "ok", "content": {"application/json": {"schema": schema}}})
+    }
+
+    /// The description of [`API_LIB`], with an error answer on each operation
+    /// (non-2xx answers are rule 2's, so they never count as a success).
+    fn description() -> Value {
+        let issue = json!({"$ref": "#/components/schemas/Issue"});
+        let not_found = json!({"$ref": "#/components/responses/NotFound"});
+        json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/api/v1/openapi.json": {
+                    "get": {"security": [], "responses": {
+                        "200": answer(json!({"type": "object"})),
+                        "404": not_found,
+                    }}
+                },
+                ISSUES: {
+                    "get": {"parameters": slugs(), "responses": {
+                        "200": answer(json!({"type": "array", "items": issue})),
+                        "404": not_found,
+                    }},
+                    "post": {
+                        "parameters": slugs(),
+                        "requestBody": {"required": true, "content": {"application/json": {
+                            "schema": {"$ref": "#/components/schemas/CreateIssueRequest"}
+                        }}},
+                        "responses": {"201": answer(issue), "404": not_found}
+                    }
+                },
+                HISTORY: {
+                    "get": {
+                        "parameters": with(slugs(), path_parameter("number", json!({"type": "integer", "format": "int32"}))),
+                        "responses": {
+                            "200": answer(json!({"type": "array", "items": {"$ref": "#/components/schemas/IssueHistoryEntry"}})),
+                            "404": not_found,
+                        }
+                    }
+                },
+                REVOKE: {
+                    "delete": {
+                        "parameters": with(slugs(), path_parameter("jti", json!({"type": "string", "format": "uuid"}))),
+                        "responses": {"204": {"description": "revoked"}, "404": not_found}
+                    }
+                }
+            }
+        })
+    }
+
+    struct ApiTree {
+        lib: String,
+        description: Value,
+        elsewhere: Vec<(&'static str, String)>,
+    }
+
+    impl ApiTree {
+        fn clean() -> Self {
+            ApiTree {
+                lib: API_LIB.to_string(),
+                description: description(),
+                elsewhere: Vec::new(),
+            }
+        }
+
+        /// Plant one drift in the code: `from` must occur in it.
+        fn code(mut self, from: &str, to: &str) -> Self {
+            assert!(self.lib.contains(from), "the fixture has no {from:?}");
+            self.lib = self.lib.replacen(from, to, 1);
+            self
+        }
+
+        fn describe(mut self, edit: impl FnOnce(&mut Value)) -> Self {
+            edit(&mut self.description);
+            self
+        }
+
+        fn violations(&self, pending: &[(&str, &str)]) -> Vec<String> {
+            let description = serde_json::to_string_pretty(&self.description).expect("encode");
+            let mut files: Vec<(&str, &str)> = vec![
+                ("crates/foundry-api/src/lib.rs", self.lib.as_str()),
+                ("crates/foundry-api/src/openapi.rs", API_OPENAPI_RS),
+                ("crates/foundry-api/openapi.json", description.as_str()),
+            ];
+            files.extend(self.elsewhere.iter().map(|(p, b)| (*p, b.as_str())));
+            let tree = stage(&files);
+            api_openapi_operations(tree.path(), pending)
+        }
+    }
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().expect("parent")).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    /// One violation names every needle.
+    fn assert_named(violations: &[String], needles: &[&str]) {
+        assert!(
+            violations
+                .iter()
+                .any(|v| needles.iter().all(|needle| v.contains(needle))),
+            "no violation names all of {needles:?}: {violations:#?}"
+        );
+    }
+
+    /// Kills the "always fail" mutant: the staged tree is the shipped shape.
+    #[test]
+    fn operations_clean_tree_passes() {
+        let violations = ApiTree::clean().violations(&[]);
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    /// Clause (i), code → description. Kills the "always pass" mutant.
+    #[test]
+    fn operations_names_an_undocumented_route() {
+        let violations = ApiTree::clean()
+            .code(
+                "    Router::new()\n",
+                "    Router::new()\n        .route(\"/api/v1/teams/{team_slug}/projects\", get(list_projects_handler))\n",
+            )
+            .code(
+                "async fn api_not_found_handler",
+                "async fn list_projects_handler(Path(team_slug): Path<String>) -> Json<Vec<ProjectJson>> {\n    Json(Vec::new())\n}\n\nasync fn api_not_found_handler",
+            )
+            .violations(&[]);
+        assert_named(
+            &violations,
+            &["GET /api/v1/teams/{team_slug}/projects ", "undocumented"],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// Clause (i), description → code.
+    #[test]
+    fn operations_names_a_documented_operation_the_code_lacks() {
+        let violations = ApiTree::clean()
+            .code(
+                "get(list_issues_handler).post(create_issue_handler)",
+                "get(list_issues_handler)",
+            )
+            .violations(&[]);
+        assert_named(
+            &violations,
+            &[&format!("POST {ISSUES} "), "not offered by the code"],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// Clause (ii): `{number}` is an `i32`, so `type: string` is a lie.
+    #[test]
+    fn operations_names_a_mistyped_path_parameter() {
+        let violations = ApiTree::clean()
+            .describe(|d| {
+                d["paths"][HISTORY]["get"]["parameters"][2]["schema"] = json!({"type": "string"})
+            })
+            .violations(&[]);
+        assert_named(
+            &violations,
+            &[
+                &format!("GET {HISTORY} "),
+                "`number`",
+                "integer",
+                "int32",
+                "type string",
+            ],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// Clause (ii): a renamed template parameter is named on both sides.
+    #[test]
+    fn operations_names_a_renamed_path_parameter() {
+        let violations = ApiTree::clean()
+            .code("issues/{number}/history", "issues/{issue_number}/history")
+            .violations(&[]);
+        assert_named(
+            &violations,
+            &["GET ", "/history", "\"issue_number\"", "\"number\""],
+        );
+        assert_named(&violations, &["`issue_number`", "does not describe"]);
+        assert_named(&violations, &["`number`", "the path does not have"]);
+    }
+
+    /// Clause (iii): a handler that starts taking a body must describe one.
+    #[test]
+    fn operations_names_a_new_request_body() {
+        let violations = ApiTree::clean()
+            .code(
+                "Path((team_slug, project_slug, number)): Path<(String, String, i32)>,\n) -> Result<Json<Vec<IssueHistoryJson>>",
+                "Path((team_slug, project_slug, number)): Path<(String, String, i32)>,\n    Json(request): Json<CommentBodyRequest>,\n) -> Result<Json<Vec<IssueHistoryJson>>",
+            )
+            .violations(&[]);
+        assert_named(
+            &violations,
+            &[
+                &format!("GET {HISTORY} "),
+                "Json<CommentBodyRequest>",
+                "#/components/schemas/CommentBodyRequest",
+            ],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// Clause (iv): the success status is read from the handler body.
+    #[test]
+    fn operations_names_a_changed_success_status() {
+        let violations = ApiTree::clean()
+            .code("StatusCode::NO_CONTENT", "StatusCode::OK")
+            .violations(&[]);
+        assert_named(
+            &violations,
+            &[
+                &format!("DELETE {REVOKE} "),
+                "answers 200 on success",
+                "[\"204\"]",
+            ],
+        );
+    }
+
+    /// DDD-14: a pending operation may be undescribed; nothing else may.
+    #[test]
+    fn operations_tolerates_only_pending_operations() {
+        let undescribed = ApiTree::clean().describe(|d| {
+            d["paths"][ISSUES]
+                .as_object_mut()
+                .expect("issues")
+                .remove("post");
+        });
+        let tolerated = undescribed.violations(&[("POST", ISSUES)]);
+        assert!(tolerated.is_empty(), "{tolerated:#?}");
+
+        let other = undescribed.violations(&[("PATCH", HISTORY)]);
+        assert_named(&other, &[&format!("POST {ISSUES} "), "undocumented"]);
+    }
+
+    /// Clause (vi): an `/api` route mounted outside foundry-api is named.
+    #[test]
+    fn operations_names_an_api_route_outside_foundry_api() {
+        let mut tree = ApiTree::clean();
+        tree.elsewhere.push((
+            "crates/foundry-app/src/lib.rs",
+            "pub fn app() -> Router {\n    Router::new()\n        .route(\"/api/v1/teams\", get(list_teams))\n        .route(\"/teams\", get(teams_page))\n}\n".to_string(),
+        ));
+        let violations = tree.violations(&[]);
+        assert_named(
+            &violations,
+            &[
+                "crates/foundry-app/src/lib.rs:3",
+                "`/api/v1/teams`",
+                "outside crates/foundry-api/src",
+            ],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// Clause (vii): a path the rule cannot read is named, never skipped.
+    #[test]
+    fn operations_fails_closed_on_a_non_literal_route() {
+        let violations = ApiTree::clean()
+            .code(
+                "        .route(\n            \"/api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}\",",
+                "        .route(\n            REVOKE_PATH,",
+            )
+            .violations(&[]);
+        assert_named(
+            &violations,
+            &["crates/foundry-api/src/lib.rs:", "not a string literal"],
+        );
+    }
+
+    /// Clause (vii) as DELIVER UI-1 reads it: `any(api_not_found_handler)
+    /// .get(..)` belongs to the description's route only, and a chained
+    /// `.fallback(` to no route at all.
+    #[test]
+    fn operations_fails_closed_on_a_stray_fallback() {
+        let stray_any = ApiTree::clean()
+            .code(
+                "get(list_issue_history_handler)",
+                "any(api_not_found_handler).get(list_issue_history_handler)",
+            )
+            .violations(&[]);
+        assert_named(
+            &stray_any,
+            &["`/api/v1/", "/history`", "any(api_not_found_handler)"],
+        );
+        assert_eq!(stray_any.len(), 1, "{stray_any:#?}");
+
+        let stray_fallback = ApiTree::clean()
+            .code(
+                "get(list_issue_history_handler)",
+                "get(list_issue_history_handler).fallback(api_not_found_handler)",
+            )
+            .violations(&[]);
+        assert_named(
+            &stray_fallback,
+            &["/history`", "fallback(api_not_found_handler)"],
+        );
+        assert_eq!(stray_fallback.len(), 1, "{stray_fallback:#?}");
+
+        let description_fallback = ApiTree::clean()
+            .code(
+                "any(api_not_found_handler).get(openapi::openapi_document)",
+                "get(openapi::openapi_document).fallback(api_not_found_handler)",
+            )
+            .violations(&[]);
+        assert_named(
+            &description_fallback,
+            &["`/api/v1/openapi.json`", "fallback(api_not_found_handler)"],
+        );
+    }
+
+    /// Clause (iv): an untyped `Response` whose body type cannot be read fails.
+    #[test]
+    fn operations_fails_closed_on_an_untyped_success_body() {
+        let violations = ApiTree::clean()
+            .code(
+                "Json(body)).into_response()",
+                "Json(body.into_view())).into_response()",
+            )
+            .violations(&[]);
+        assert_named(
+            &violations,
+            &[
+                &format!("POST {ISSUES} "),
+                "returns `Response`",
+                "no single success body type",
+            ],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
 
     // Rule 2: api-openapi-statuses (slice 01, step 01-03; ADR-API-OPENAPI-002 gold list).
     pending_gold!(

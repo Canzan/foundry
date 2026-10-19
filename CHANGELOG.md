@@ -12,6 +12,9 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 - **`GET /api/v1/openapi.json`**, an OpenAPI 3.1 description of every `/api/v1` operation and
   answer. No token needed; the same bytes for every caller. It is committed at
   `crates/foundry-api/openapi.json`, and CI fails when it stops matching the code.
+- **check-arch rule `api-openapi-operations`**: `cargo xtask check-arch` fails, naming the method,
+  path and difference, when an `/api/v1` route, path parameter, request body or success answer
+  disagrees with `crates/foundry-api/openapi.json`, or when a route cannot be read.
 
 ### Unchanged
 

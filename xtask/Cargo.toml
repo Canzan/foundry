@@ -20,6 +20,10 @@ anyhow = { workspace = true }
 # crate: `cargo deny check bans` is unaffected. Shelling out to
 # `shasum`/`sha256sum` was rejected as platform-dependent.
 sha2 = { workspace = true }
+# check-arch `api-openapi-operations` parses crates/foundry-api/openapi.json
+# (api-openapi-document DDD-21). `serde_json` is already a workspace crate, so
+# this is a new edge, not a new crate.
+serde_json = { workspace = true }
 
 [dev-dependencies]
 # check-arch's AST detectors are unit-tested against staged fixture trees.
