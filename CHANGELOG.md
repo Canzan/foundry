@@ -7,6 +7,20 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Added
+
+- **`GET /api/v1/openapi.json`**, an OpenAPI 3.1 description of every `/api/v1` operation and
+  answer. No token needed; the same bytes for every caller. It is committed at
+  `crates/foundry-api/openapi.json`, and CI fails when it stops matching the code.
+
+### Unchanged
+
+- Any method other than GET or HEAD on `/api/v1/openapi.json` answers the uniform 404 envelope,
+  as before the route existed. The mechanism is a method fallback to the catch-all's handler on
+  that one route (`any(api_not_found_handler).get(openapi_document)`). **This is an
+  exception:** every other routed `/api/v1` path still answers a wrong method with axum's 405 and
+  an `Allow` header. Every existing `/api/v1` answer is byte-identical.
+
 ## [v0.16.0] - 2026-10-17
 
 ### Added

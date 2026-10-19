@@ -39,3 +39,13 @@ jsonwebtoken = { workspace = true }
 time = { workspace = true }
 secrecy = { workspace = true }
 base64 = { workspace = true }
+# api-openapi-document 01-01 (DDD-11, DDD-12, DDD-12a): the description's
+# type-derived shape test and its validity test, dev-only, so the production
+# binary gains no crate. `schemars` derives `JsonSchema` on the wire structs
+# under `cfg_attr(test, ...)` only; `jsonschema` validates openapi.json against
+# the vendored OAS 3.1 schema with default features off (no HTTP resolver: an
+# unresolvable reference fails rather than reaching the network); `sha2` pins
+# the vendored schema's bytes. All three are already in the lockfile.
+schemars = { version = "1", features = ["derive"] }
+jsonschema = { version = "0.59", default-features = false }
+sha2 = { workspace = true }

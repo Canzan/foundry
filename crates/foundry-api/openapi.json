@@ -1,0 +1,326 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Foundry API v1",
+    "version": "0.16.0",
+    "description": "The JSON API of a Foundry instance, under /api/v1. Every operation except reading this description needs a machine token (the `machineToken` scheme). Every JSON error answer is the `Error` envelope.\n\nAn address under /api/v1 that is not one of the operations listed here answers 404 with the uniform not-found envelope, `{\"error\":{\"code\":\"not_found\",\"message\":\"not found\"}}`, and checks no credential.\n\nThe order in which refusals are given:\n\n1. An address under /api/v1 that is not an operation answers 404, with no authentication.\n2. On an operation's path, a method the path does not offer answers 405 with an empty body and an `Allow` header, with no authentication. The exception is this description's own path, which answers the 404 envelope.\n3. On an operation's path, a missing or bad token answers 401 before any 400, 413, 415 or 422.\n4. When revoking a token, 429 can come before 403. No order is promised between them."
+  },
+  "servers": [
+    {
+      "url": "/"
+    }
+  ],
+  "security": [
+    {
+      "machineToken": []
+    }
+  ],
+  "paths": {
+    "/api/v1/openapi.json": {
+      "get": {
+        "operationId": "readApiDescription",
+        "summary": "Read this API description",
+        "description": "Answers this document, the same bytes for every caller of one release: the copy committed in the repository at crates/foundry-api/openapi.json. It needs no credential and checks none, so a missing, bad or revoked token gets the same answer. HEAD answers the same headers with no body. Any other method answers the uniform 404 envelope.",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "This OpenAPI 3.1 document.",
+            "headers": {
+              "Cache-Control": {
+                "description": "Always `no-cache`: a client revalidates, so it sees a new release's description.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "description": "An OpenAPI 3.1 document."
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_slug}/projects/{project_slug}/issues": {
+      "get": {
+        "operationId": "listIssues",
+        "summary": "List a project's issues",
+        "description": "Answers every issue of the project. A project with no issues answers an empty array.",
+        "parameters": [
+          {
+            "name": "team_slug",
+            "in": "path",
+            "required": true,
+            "description": "The team's slug.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "backend"
+          },
+          {
+            "name": "project_slug",
+            "in": "path",
+            "required": true,
+            "description": "The project's slug, within the team.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "auth"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The project's issues.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Issue"
+                  }
+                },
+                "example": [
+                  {
+                    "key": "AUTH-2",
+                    "number": 2,
+                    "title": "Sign-in times out behind the proxy",
+                    "state": "todo"
+                  }
+                ]
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "machineToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "description": "A machine token: an EdDSA-signed JWT sent as `Authorization: Bearer <token>`. A workspace admin mints one, signed in to Foundry, at /admin/tokens; the value is shown once. This API lists and revokes tokens but cannot create one."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "description": "Every JSON error answer has this shape. `code` is stable and machine-readable; `message` is for people.",
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        }
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "description": "The detail of an error answer.",
+        "required": [
+          "code",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "description": "A stable, machine-readable code, such as `not_found` or `title_required`."
+          },
+          "message": {
+            "type": "string",
+            "description": "A short text for people. It may change between releases."
+          }
+        }
+      },
+      "Issue": {
+        "type": "object",
+        "description": "An issue of a project.",
+        "required": [
+          "key",
+          "number",
+          "title",
+          "state"
+        ],
+        "properties": {
+          "key": {
+            "type": "string",
+            "description": "The issue's key: the project's key prefix, a hyphen and the number.",
+            "examples": [
+              "AUTH-2"
+            ]
+          },
+          "number": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The issue's number within its project.",
+            "examples": [
+              2
+            ]
+          },
+          "title": {
+            "type": "string",
+            "description": "The issue's title.",
+            "examples": [
+              "Sign-in times out behind the proxy"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "description": "The lane the issue is in, by its slug. Each project has its own lanes; the defaults are backlog, todo, in_progress, done and cancelled. `in-progress` and `canceled` are accepted as aliases.",
+            "examples": [
+              "backlog",
+              "todo",
+              "in_progress",
+              "done",
+              "cancelled"
+            ]
+          }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Unauthorized. The machine token is missing, malformed, expired, revoked, unknown or not signed by this instance's key; the answer does not say which. Also answered when the token cannot be checked.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "unauthorized": {
+                "value": {
+                  "error": {
+                    "code": "unauthorized",
+                    "message": "unauthorized"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "NotFound": {
+        "description": "Not found. The same answer, byte for byte, for a team, project, issue or comment that does not exist, one your token cannot reach, and a path that is not part of the API.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "not_found": {
+                "value": {
+                  "error": {
+                    "code": "not_found",
+                    "message": "not found"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "MethodNotAllowed": {
+        "description": "Method not allowed. The path exists but does not offer this method. The body is empty, and no credential is checked.",
+        "headers": {
+          "Allow": {
+            "description": "The methods the path offers, such as `GET,HEAD`.",
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Internal": {
+        "description": "Internal error. Something failed inside the server; the answer carries no detail.",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/Error"
+            },
+            "examples": {
+              "internal": {
+                "value": {
+                  "error": {
+                    "code": "internal",
+                    "message": "internal error"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "BadPath": {
+        "description": "Bad request. A path segment does not parse: an issue number that is not an integer, or a comment or token id that is not a UUID. The body is plain text from the server framework, not the `Error` envelope, and its wording is not part of the contract.",
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "BadBody": {
+        "description": "Bad request. The body is not valid JSON. The body of this answer is plain text from the server framework, not the `Error` envelope, and its wording is not part of the contract.",
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Payload too large. The body is larger than 2 MB, and is refused before it is read. The answer is plain text from the server framework, not the `Error` envelope, and its wording is not part of the contract.",
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UnsupportedMediaType": {
+        "description": "Unsupported media type. The request does not carry `Content-Type: application/json`. The answer is plain text from the server framework, not the `Error` envelope, and its wording is not part of the contract.",
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "UnprocessableBody": {
+        "description": "Unprocessable body. The JSON body lacks a required field or has a field of the wrong type. The answer is plain text from the server framework, not the `Error` envelope, and its wording is not part of the contract.",
+        "content": {
+          "text/plain": {
+            "schema": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  }
+}

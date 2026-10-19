@@ -37,6 +37,8 @@ use axum::Router;
 use foundry_auth::MachineTokenVerifier;
 use foundry_services::{Principal, ServiceError, Services};
 
+pub mod openapi;
+
 /// US-TMA05 (NFR-TMA-SEC-07) — the per-principal revoke-storm guardrail PORT.
 ///
 /// A driven-port abstraction the DELETE token handler consults AFTER auth and
@@ -60,11 +62,13 @@ pub trait RevokeRateGuard: Send + Sync {
 /// machine token, the `message` carries the same copy the UI shows where one
 /// exists. Never contains HTML, SQL, a stack trace, or any credential material.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct ErrorBody {
     pub error: ErrorDetail,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct ErrorDetail {
     pub code: String,
     pub message: String,
@@ -73,6 +77,7 @@ pub struct ErrorDetail {
 /// The wire shape of an issue (api-contract.md §"Issue"). Serialized by this
 /// adapter from the neutral `foundry_services::BoardIssue`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct IssueJson {
     pub key: String,
     pub number: i32,
@@ -82,6 +87,7 @@ pub struct IssueJson {
 
 /// `POST .../issues` request body (api-contract.md §"Create-issue request").
 #[derive(Debug, Clone, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct CreateIssueRequest {
     pub title: String,
     /// The optional issue description (new-issue-dialog-description US-02,
@@ -97,6 +103,7 @@ pub struct CreateIssueRequest {
 /// `PATCH .../issues/{number}` request body — a partial state mutation
 /// (api-contract.md §"PATCH vs PUT").
 #[derive(Debug, Clone, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct PatchIssueRequest {
     pub state: String,
 }
@@ -104,6 +111,7 @@ pub struct PatchIssueRequest {
 /// `POST .../issues/{number}/comments` request body
 /// (api-contract.md §"Create-comment request").
 #[derive(Debug, Clone, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct CommentBodyRequest {
     pub body: String,
 }
@@ -115,6 +123,7 @@ pub struct CommentBodyRequest {
 /// string that happens to contain markup — boundary-guard.md). Serialized from
 /// the neutral `foundry_services::comments::CommentView`.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct CommentJson {
     pub id: String,
     pub author_email: String,
@@ -142,6 +151,7 @@ impl From<foundry_services::comments::CommentView> for CommentJson {
 /// array is ordered oldest→newest (stable audit order for programs — the human
 /// timeline is newest-first; ADR-002 watch-item R7).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct IssueHistoryJson {
     pub actor: String,
     pub field: String,
@@ -176,6 +186,7 @@ impl From<foundry_services::issues::IssueChangeHistoryEntry> for IssueHistoryJso
 /// / `minted_by` serialize as JSON `null` when absent; timestamps are RFC3339
 /// strings (the conventional JSON timestamp encoding).
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(test, derive(schemars::JsonSchema))]
 pub struct TokenJson {
     pub jti: String,
     pub label: String,
@@ -310,6 +321,18 @@ where
         // The HTML base fallback stays CSRF-wrapped (preserving the web POST
         // non-enumerability oracle steps 02-02/02-03 close).
         .route("/api/v1/{*rest}", any(api_not_found_handler))
+        // api-openapi-document DDD-4: the API's own description, public. GET and
+        // HEAD answer the committed bytes; any other method falls back to the
+        // catch-all's handler, so it answers the same uniform 404 as before the
+        // route existed, with no `Allow` header (DESIGN Changed Assumption 1).
+        // The fallback is written `any(..).get(..)`, not `get(..).fallback(..)`:
+        // axum 0.8 adds `Allow: GET,HEAD` to a `get` router's fallback answer,
+        // and only `any` opts out of it. Every other `/api/v1` path keeps
+        // axum's 405.
+        .route(
+            "/api/v1/openapi.json",
+            any(api_not_found_handler).get(openapi::openapi_document),
+        )
         .route(
             "/api/v1/teams/{team_slug}/projects/{project_slug}/issues",
             get(list_issues_handler).post(create_issue_handler),

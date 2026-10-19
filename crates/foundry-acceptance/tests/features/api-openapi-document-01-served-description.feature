@@ -41,7 +41,7 @@ Feature: An integrator downloads the API's description from the instance they sc
     And Sven holds the machine token "ci-issue-filer" that Priya minted
     And team Ops exists, and Sven also holds a machine token that reaches only Ops
 
-  @pending @aod-01 @us-aod-01 @walking_skeleton @driving_port @kpi @contract-shape:pure-function
+  @aod-01 @us-aod-01 @walking_skeleton @driving_port @kpi @contract-shape:pure-function
   Scenario: An integrator downloads the API description from the instance without a token
     When Sven fetches /api/v1/openapi.json with no credential
     Then Sven gets the API description as an OpenAPI 3.1 JSON document titled "Foundry API v1"
@@ -49,12 +49,12 @@ Feature: An integrator downloads the API's description from the instance they sc
     And its version is the running release, the same one the page footer shows
     And it names "/" as its only server, so every address resolves on the instance it came from
 
-  @pending @aod-01 @us-aod-01 @kpi @contract-shape:pure-function
+  @aod-01 @us-aod-01 @kpi @contract-shape:pure-function
   Scenario: The description an instance serves is the one committed in the repository
     When Sven fetches /api/v1/openapi.json with no credential
     Then the bytes he receives equal the committed API description exactly
 
-  @pending @aod-01 @us-aod-01 @error @kpi @contract-shape:unbounded-preservation
+  @aod-01 @us-aod-01 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A bad or stale credential does not change the answer
     Given Sven has fetched /api/v1/openapi.json with no credential
     When Sven fetches /api/v1/openapi.json with <credential>
@@ -68,19 +68,19 @@ Feature: An integrator downloads the API's description from the instance they sc
       | a malformed bearer value          |
       | Priya's signed-in browser session |
 
-  @pending @aod-01 @us-aod-01 @edge @kpi @contract-shape:unbounded-preservation
+  @aod-01 @us-aod-01 @edge @kpi @contract-shape:unbounded-preservation
   Scenario: The description names nothing about the instance serving it
     Given the instance also holds the team "Platform Ops" and its project "Identity Platform"
     When Sven fetches /api/v1/openapi.json with no credential
     Then the description names no workspace, team, project, person, address or token of the instance
 
-  @pending @aod-01 @us-aod-01 @edge @kpi @contract-shape:unbounded-preservation
+  @aod-01 @us-aod-01 @edge @kpi @contract-shape:unbounded-preservation
   Scenario: Two instances running the same release serve the same description
     Given a second Foundry of the same release runs for the workspace "Globex" with its own teams
     When Sven fetches /api/v1/openapi.json from both instances
     Then the two descriptions are the same bytes
 
-  @pending @aod-01 @us-aod-01 @error @contract-shape:unbounded-preservation
+  @aod-01 @us-aod-01 @error @contract-shape:unbounded-preservation
   Scenario Outline: An address next to the description still answers the API's not-found
     When Sven requests <address> with no credential
     Then he gets the API's not-found answer, the same as for an address that was never part of the API
@@ -93,7 +93,7 @@ Feature: An integrator downloads the API's description from the instance they sc
       | /api/v1/openapi.json/    |
       | /api/v1/OPENAPI.JSON     |
 
-  @pending @aod-01 @us-aod-01 @error @contract-shape:unbounded-preservation
+  @aod-01 @us-aod-01 @error @contract-shape:unbounded-preservation
   Scenario Outline: Anything but reading the description's address answers the API's not-found
     When Sven sends <write> to /api/v1/openapi.json
     Then he gets the API's not-found answer, the same as for an address that was never part of the API, and no list of allowed methods
@@ -106,19 +106,19 @@ Feature: An integrator downloads the API's description from the instance they sc
       | a PATCH  |
       | a DELETE |
 
-  @pending @aod-01 @us-aod-01 @edge @contract-shape:pure-function
+  @aod-01 @us-aod-01 @edge @contract-shape:pure-function
   Scenario: Reading the description needs no credential, and every API operation asks for the machine token
     When Sven fetches /api/v1/openapi.json with no credential
     Then the description says reading it needs no credential
     And every other operation it lists asks for the machine token
 
-  @pending @aod-01 @us-aod-01 @contract-shape:unbounded-preservation
+  @aod-01 @us-aod-01 @contract-shape:unbounded-preservation
   Scenario: Listing a project's issues answers the way the description says
     When Sven tries to list a project's issues with his token
     Then he gets 200, exactly as the description documents it for that operation
     And nothing in Canzan Labs changed
 
-  @pending @aod-01 @us-aod-01 @error @contract-shape:unbounded-preservation
+  @aod-01 @us-aod-01 @error @contract-shape:unbounded-preservation
   Scenario Outline: A refused list of a project's issues answers the way the description says
     When Sven tries to list a project's issues <situation>
     Then he gets <status>, exactly as the description documents it for that operation
