@@ -29,7 +29,7 @@
 //!                          path parameters, request bodies and success answers
 //!                          equal the operations `crates/foundry-api/openapi.json`
 //!                          describes, failing closed on a route it cannot read;
-//!                          only `PENDING_OPERATIONS` may be undescribed
+//!                          every operation is described, none pending
 //!                          (api-openapi-document ADR-API-OPENAPI-001, DDD-14).
 //!       * api-openapi-statuses — each described operation's statuses, body
 //!                          kinds and error codes, derived from the code by
@@ -160,7 +160,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with only the operations on PENDING_OPERATIONS undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -9765,22 +9765,6 @@ pub async fn reader(&self) {
 // api-openapi-operations (api-openapi-document slice 01, ADR-API-OPENAPI-001)
 // ---------------------------------------------------------------------------
 
-/// DDD-14 / D13: the `/api/v1` operations the description does not describe
-/// yet, as `(METHOD, path template)`. Of the seven D13 names, step 02-01
-/// described the five issue and comment operations; the two token operations
-/// remain. Slice 02 deletes this list in the same commit as the last operation's entry, and
-/// release gate R4 keeps any tree that still holds it from being tagged.
-const PENDING_OPERATIONS: &[(&str, &str)] = &[
-    (
-        "GET",
-        "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens",
-    ),
-    (
-        "DELETE",
-        "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}",
-    ),
-];
-
 /// The uniform-404 catch-all: not an operation (D4), so it is never compared.
 const API_CATCH_ALL: &str = "/api/v1/{*rest}";
 /// The description's own route, the one route allowed to chain its `get` on an
@@ -9793,13 +9777,14 @@ const OPENAPI_METHODS: [&str; 8] = [
 ];
 
 /// Rule `api-openapi-operations` (DESIGN [REF] check-arch Rules, rule 1).
+/// Every operation is described (D13): the shipped rule tolerates none pending.
 fn check_api_openapi_operations(root: &Path) -> Vec<String> {
-    api_openapi_operations(root, PENDING_OPERATIONS)
+    api_openapi_operations(root, &[])
 }
 
-/// The rule with its pending list as an INPUT, so a gold test can prove that
-/// only a listed operation is tolerated without depending on the list's
-/// contents (and survives the list's deletion in slice 02).
+/// The rule with a pending list as an INPUT, so a gold test can prove that
+/// only a listed operation is tolerated. The shipped rule passes an empty list:
+/// slice 02 described every operation and deleted the list (D13, release gate R4).
 fn api_openapi_operations(root: &Path, pending: &[(&str, &str)]) -> Vec<String> {
     let mut violations = api_routes_outside_foundry_api(root);
     let code = ApiCode::read(root);
@@ -10099,8 +10084,7 @@ impl ApiCode {
             let difference = match (op.is_pending(pending), described) {
                 (true, None) => continue,
                 (true, Some(_)) => vec![
-                    "is described but still on PENDING_OPERATIONS; take it off the list"
-                        .to_string(),
+                    "is described but still on the pending list; take it off the list".to_string(),
                 ],
                 (false, None) => vec![format!(
                     "is offered by the code but undocumented in {API_DESCRIPTION_FILE}"
@@ -10573,7 +10557,7 @@ const SHARED_RESPONSES: &str = "#/components/responses/";
 
 /// Rule `api-openapi-statuses` (DESIGN [REF] check-arch Rules, rule 2).
 fn check_api_openapi_statuses(root: &Path) -> Vec<String> {
-    api_openapi_statuses(root, PENDING_OPERATIONS)
+    api_openapi_statuses(root, &[])
 }
 
 /// The rule with its pending list as an input (DDD-14), as rule 1 takes it.
@@ -11499,8 +11483,8 @@ mod api_openapi_check_arch_tests {
     //
     // Each test stages a small foundry-api (routes + handlers shaped like the
     // shipped ones) and a description of it, plants one drift, and asserts the
-    // rule names it. The pending list is passed in, so these tests do not
-    // depend on `PENDING_OPERATIONS` and survive its deletion in slice 02.
+    // rule names it. The pending list is passed in, so these tests plant their
+    // own (the shipped rule's list was emptied and deleted in slice 02).
 
     use super::api_openapi_operations;
     use serde_json::{json, Value};

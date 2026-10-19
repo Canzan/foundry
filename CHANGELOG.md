@@ -10,8 +10,12 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 ### Added
 
 - **`GET /api/v1/openapi.json`**, an OpenAPI 3.1 description of every `/api/v1` operation and
-  answer. No token needed; the same bytes for every caller. It is committed at
-  `crates/foundry-api/openapi.json`, and CI fails when it stops matching the code.
+  answer: the issue, comment and history operations and listing and revoking machine tokens,
+  each with every status and error code it can give. No token needed; the same bytes for every
+  caller. It shows no token value, offers no way to create a token, and says where one is
+  minted (`/admin/tokens`, by a signed-in workspace admin). It is committed at
+  `crates/foundry-api/openapi.json`, and CI fails when it stops matching the code, including
+  when any operation is left undescribed.
 - **check-arch rule `api-openapi-operations`**: `cargo xtask check-arch` fails, naming the method,
   path and difference, when an `/api/v1` route, path parameter, request body or success answer
   disagrees with `crates/foundry-api/openapi.json`, or when a route cannot be read.
@@ -23,7 +27,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 ### Documented
 
 - Existing behaviour now written down: a JSON body over 2 MB answers 413 `text/plain`; a token
-  that cannot be checked answers 401.
+  that cannot be checked answers 401; listing tokens answers the whole workspace's tokens
+  whatever team and project the address names; revoking a token can answer 429 before 403.
 
 ### Releasing
 

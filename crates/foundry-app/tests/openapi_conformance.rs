@@ -556,10 +556,173 @@ async fn every_documented_path_answers_405_with_the_documented_methods() {
 /// `{comment_id}` is 400 text/plain; no Content-Type 415; bad JSON 400; a
 /// missing field 422 text/plain; a 2 MB + 1 byte body 413 (C4, C12); each
 /// status and media type equals the document's entry for that operation.
-#[test]
-#[ignore = "pending: api-openapi-document 01-04 — the text/plain extractor refusals match the document"]
-fn the_extractor_refusals_answer_as_documented() {
-    panic!("Not yet implemented -- RED scaffold (api-openapi-document 01-04: 400/413/415/422 text/plain)");
+#[tokio::test]
+async fn the_extractor_refusals_answer_as_documented() {
+    let w = world().await;
+    let doc = document();
+    let (_, token) = mint(&w, "refused", time::Duration::hours(1)).await;
+    let bearer = (header::AUTHORIZATION, format!("Bearer {token}"));
+    let json = (header::CONTENT_TYPE, "application/json".to_string());
+    let mut refusals = Vec::new();
+
+    // A path segment that does not parse: 400 text/plain.
+    for (method, tail, param, body) in [
+        (
+            Method::PATCH,
+            "/issues/{number}",
+            "{number}",
+            r#"{"state":"todo"}"#,
+        ),
+        (Method::GET, "/issues/{number}/history", "{number}", ""),
+        (
+            Method::POST,
+            "/issues/{number}/comments",
+            "{number}",
+            r#"{"body":"hi"}"#,
+        ),
+        (
+            Method::PATCH,
+            "/issues/{number}/comments/{comment_id}",
+            "{number}",
+            r#"{"body":"hi"}"#,
+        ),
+        (
+            Method::PATCH,
+            "/issues/{number}/comments/{comment_id}",
+            "{comment_id}",
+            r#"{"body":"hi"}"#,
+        ),
+        (Method::DELETE, "/tokens/{jti}", "{jti}", ""),
+    ] {
+        let template = format!("{PROJECT}{tail}");
+        let headers = if body.is_empty() {
+            vec![bearer.clone()]
+        } else {
+            vec![bearer.clone(), json.clone()]
+        };
+        refusals.push(Refusal {
+            uri: concrete(&template.replace(param, NOT_AN_ID)),
+            method,
+            template,
+            headers,
+            body: body.as_bytes().to_vec(),
+            status: StatusCode::BAD_REQUEST,
+            what: "a path segment that does not parse",
+        });
+    }
+
+    // The four body-taking operations, each with every body refusal.
+    let too_large = format!(r#"{{"title":"{}"}}"#, "x".repeat(2 * 1024 * 1024 + 1));
+    for (method, tail) in [
+        (Method::POST, "/issues"),
+        (Method::PATCH, "/issues/{number}"),
+        (Method::POST, "/issues/{number}/comments"),
+        (Method::PATCH, "/issues/{number}/comments/{comment_id}"),
+    ] {
+        let template = format!("{PROJECT}{tail}");
+        let uri = concrete(&template);
+        let with_json = vec![bearer.clone(), json.clone()];
+        for (headers, body, status, what) in [
+            (
+                vec![bearer.clone()],
+                b"{}".to_vec(),
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "no Content-Type",
+            ),
+            (
+                with_json.clone(),
+                b"{".to_vec(),
+                StatusCode::BAD_REQUEST,
+                "a body that is not JSON",
+            ),
+            (
+                with_json.clone(),
+                b"{}".to_vec(),
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "a body missing its required field",
+            ),
+            (
+                with_json.clone(),
+                too_large.clone().into_bytes(),
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "a body over 2 MB",
+            ),
+        ] {
+            refusals.push(Refusal {
+                method: method.clone(),
+                template: template.clone(),
+                uri: uri.clone(),
+                headers,
+                body,
+                status,
+                what,
+            });
+        }
+    }
+
+    for refusal in refusals {
+        refusal.answers_as_documented(&w.router, &doc).await;
+    }
+}
+
+const PROJECT: &str = "/api/v1/teams/{team_slug}/projects/{project_slug}";
+const NOT_AN_ID: &str = "not-an-id";
+
+/// One request the framework refuses before the handler runs, and the
+/// status it must answer with a plain-text body.
+struct Refusal {
+    method: Method,
+    template: String,
+    uri: String,
+    headers: Vec<(header::HeaderName, String)>,
+    body: Vec<u8>,
+    status: StatusCode,
+    what: &'static str,
+}
+
+impl Refusal {
+    async fn answers_as_documented(self, router: &Router, doc: &Value) {
+        let Refusal {
+            method,
+            template,
+            uri,
+            headers,
+            body,
+            status,
+            what,
+        } = self;
+        let op = method.as_str().to_ascii_lowercase();
+        let documented = resolve(
+            doc,
+            &doc["paths"][&template][&op]["responses"][status.as_str()],
+        );
+        assert!(
+            documented["content"].get("text/plain").is_some(),
+            "{method} {template} documents no text/plain {status} for {what}"
+        );
+        let mut req = Request::builder().method(method.clone()).uri(&uri);
+        for (name, value) in &headers {
+            req = req.header(name, value);
+        }
+        let resp = router
+            .clone()
+            .oneshot(req.body(Body::from(body)).expect("request"))
+            .await
+            .expect("response");
+        assert_eq!(resp.status(), status, "{method} {uri} with {what}");
+        let media = resp
+            .headers()
+            .get(header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.split(';').next())
+            .map(str::trim)
+            .map(str::to_string);
+        assert_eq!(
+            media.as_deref(),
+            Some("text/plain"),
+            "{method} {uri} with {what} answers plain text, as documented"
+        );
+    }
 }
 
 /// A valid create answers 201 with a `Location` of the documented form.

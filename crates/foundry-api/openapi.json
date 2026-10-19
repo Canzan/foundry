@@ -754,6 +754,194 @@
           }
         }
       }
+    },
+    "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens": {
+      "get": {
+        "operationId": "listTokens",
+        "summary": "List the workspace's machine tokens",
+        "description": "Answers every machine token of the workspace, newest first, revoked and expired ones included. The list is the whole workspace's; the team and project in the address must exist and be reachable by your token, but do not narrow it. An entry never carries a token's value. Only a workspace admin's token may list tokens. This API has no way to create a token: a workspace admin mints one, signed in to Foundry, at /admin/tokens.",
+        "parameters": [
+          {
+            "name": "team_slug",
+            "in": "path",
+            "required": true,
+            "description": "The team's slug.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "backend"
+          },
+          {
+            "name": "project_slug",
+            "in": "path",
+            "required": true,
+            "description": "The project's slug, within the team.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "auth"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The workspace's machine tokens, newest first. No tokens answers an empty array.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Token"
+                  }
+                },
+                "example": [
+                  {
+                    "jti": "0190a5c1-2b3d-7e4f-8a9b-1c2d3e4f5a6b",
+                    "label": "ci-issue-filer",
+                    "scope_team_id": null,
+                    "scope_team_name": null,
+                    "expires_at": "2027-01-17T09:30:00Z",
+                    "revoked": false,
+                    "last_used_at": "2026-10-19T09:30:00Z",
+                    "minted_by": "mei@acme.com"
+                  }
+                ]
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden. The token's person is not a workspace admin. This is decided before the team and project are looked up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "error": {
+                        "code": "forbidden",
+                        "message": "forbidden"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}": {
+      "delete": {
+        "operationId": "revokeToken",
+        "summary": "Revoke a machine token",
+        "description": "Revokes one machine token of the workspace. From then on that token is refused with 401; no other token changes. Revoking a token that is already revoked answers 204 again. Only a workspace admin's token may revoke, and a person may revoke only so many tokens in a short time; past that, the answer is 429 until the limit allows more, and it can come before 403.",
+        "parameters": [
+          {
+            "name": "team_slug",
+            "in": "path",
+            "required": true,
+            "description": "The team's slug.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "backend"
+          },
+          {
+            "name": "project_slug",
+            "in": "path",
+            "required": true,
+            "description": "The project's slug, within the team.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "auth"
+          },
+          {
+            "name": "jti",
+            "in": "path",
+            "required": true,
+            "description": "The token's id, its `jti`, as listed. Anything but a UUID answers 400.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "0190a5c1-2b3d-7e4f-8a9b-1c2d3e4f5a6b"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Revoked, or already revoked. The answer has no body."
+          },
+          "400": {
+            "$ref": "#/components/responses/BadPath"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden. The token's person is not a workspace admin. This is decided before the team and project are looked up.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "error": {
+                        "code": "forbidden",
+                        "message": "forbidden"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "429": {
+            "description": "Too many requests. The token's person has revoked too many tokens in a short time; try again later. Nothing was revoked.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "rate_limited": {
+                    "value": {
+                      "error": {
+                        "code": "rate_limited",
+                        "message": "too many token revocations; slow down"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -983,6 +1171,90 @@
             "description": "When the change was made, as an RFC 3339 UTC timestamp.",
             "examples": [
               "2026-10-19T09:30:00Z"
+            ]
+          }
+        }
+      },
+      "Token": {
+        "type": "object",
+        "description": "One machine token of the workspace, as listed. It never carries the token's value.",
+        "required": [
+          "jti",
+          "label",
+          "scope_team_id",
+          "scope_team_name",
+          "expires_at",
+          "revoked",
+          "last_used_at",
+          "minted_by"
+        ],
+        "properties": {
+          "jti": {
+            "type": "string",
+            "description": "The token's id, a UUID. Revoke the token by it.",
+            "examples": [
+              "0190a5c1-2b3d-7e4f-8a9b-1c2d3e4f5a6b"
+            ]
+          },
+          "label": {
+            "type": "string",
+            "description": "The name the admin gave the token when minting it.",
+            "examples": [
+              "ci-issue-filer"
+            ]
+          },
+          "scope_team_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The id of the one team the token reaches, or null when it reaches the whole workspace.",
+            "examples": [
+              null
+            ]
+          },
+          "scope_team_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The name of that team, or null when the token reaches the whole workspace or the team no longer exists.",
+            "examples": [
+              null
+            ]
+          },
+          "expires_at": {
+            "type": "string",
+            "description": "When the token stops working, as an RFC 3339 UTC timestamp.",
+            "examples": [
+              "2027-01-17T09:30:00Z"
+            ]
+          },
+          "revoked": {
+            "type": "boolean",
+            "description": "Whether the token has been revoked.",
+            "examples": [
+              false
+            ]
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "When the token was last used, as an RFC 3339 UTC timestamp, or null if it never was.",
+            "examples": [
+              "2026-10-19T09:30:00Z"
+            ]
+          },
+          "minted_by": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The email of the admin who minted the token, or null when that is no longer known.",
+            "examples": [
+              "mei@acme.com"
             ]
           }
         }

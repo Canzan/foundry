@@ -116,7 +116,7 @@ Feature: The maintainer cannot merge a change that makes the API description lie
     And it names the description's version and the running release, and says to run "cargo xtask openapi"
     And the committed description is byte for byte what it was
 
-  @pending @aod-02 @us-aod-04 @error @kpi @contract-shape:pure-function
+  @aod-02 @us-aod-04 @error @kpi @contract-shape:pure-function
   Scenario: Once every operation is described, leaving one out fails the build
     When the maintainer removes revoking a token from the description and runs the drift check
     Then the drift check fails

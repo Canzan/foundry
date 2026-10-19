@@ -46,10 +46,6 @@ mod tests {
     const OAS_SCHEMA_SHA256: &str =
         "1b8ccc6e34234b17536f2dd0eb3597142a32bd108438cd42471a5fca4c1a07ef";
 
-    /// The wire components no described operation carries yet: the token
-    /// operations are still pending (step 02-02 describes them and empties this).
-    const NOT_YET_DESCRIBED: &[&str] = &["Token"];
-
     const COMPONENTS: &str = "#/components/schemas/";
     const DEFS: &str = "#/$defs/";
 
@@ -277,11 +273,9 @@ mod tests {
         let mut failures = Vec::new();
         for (name, schema) in &wire {
             let Some(component) = documented.get(name) else {
-                if !NOT_YET_DESCRIBED.contains(&name.as_str()) {
-                    failures.push(format!(
-                        "wire struct component `{name}` is not described in openapi.json"
-                    ));
-                }
+                failures.push(format!(
+                    "wire struct component `{name}` is not described in openapi.json"
+                ));
                 continue;
             };
             let (code, described) = (normalise(schema), normalise(component));

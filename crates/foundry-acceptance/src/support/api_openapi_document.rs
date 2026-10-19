@@ -2201,6 +2201,13 @@ pub async fn when_tries(world: &mut FoundryWorld, operation: Operation, situatio
             (Operation::RevokeToken, S::HisToken) => {
                 Expected::Changes("token:scratch-rotation".to_string())
             }
+            // Re-revoking is an idempotent re-stamp, not a no-op: the store
+            // runs `UPDATE machine_tokens SET revoked_at = now()` again, so the
+            // already-revoked token's revocation time moves. That one token
+            // changes; nothing else in the universe may (UI-7).
+            (Operation::RevokeToken, S::AlreadyRevoked) => {
+                Expected::Changes("token:old-ci-issue-filer".to_string())
+            }
             _ => Expected::Nothing,
         };
     }

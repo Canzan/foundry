@@ -48,7 +48,7 @@ Feature: The description tells an integrator every operation's real answers
   # Reading the description
   # ---------------------------------------------------------------------------------------------
 
-  @pending @aod-02 @us-aod-03 @us-aod-04 @driving_port @kpi @contract-shape:pure-function
+  @aod-02 @us-aod-03 @us-aod-04 @driving_port @kpi @contract-shape:pure-function
   Scenario Outline: Every operation is described with every answer it can give
     When Sven reads how the description says he can <operation>
     Then it lists exactly the answers <answers>
@@ -65,7 +65,7 @@ Feature: The description tells an integrator every operation's real answers
       | list the workspace's tokens  | 200, 401, 403, 404, 405, 500                          |
       | revoke a token               | 204, 400, 401, 403, 404, 405, 429, 500                |
 
-  @pending @aod-02 @us-aod-03 @us-aod-04 @edge @contract-shape:pure-function
+  @aod-02 @us-aod-03 @us-aod-04 @edge @contract-shape:pure-function
   Scenario Outline: Each refusal lists the error codes it can carry
     When Sven reads how the description says he can <operation>
     Then its <status> answer carries only the error codes <codes>
@@ -91,7 +91,7 @@ Feature: The description tells an integrator every operation's real answers
     When Sven reads the API description
     Then no operation lists a 409 answer, and no answer carries the code "invalid_json"
 
-  @pending @aod-02 @us-aod-03 @us-aod-04 @contract-shape:pure-function
+  @aod-02 @us-aod-03 @us-aod-04 @contract-shape:pure-function
   Scenario Outline: The shapes the description gives are the ones the server sends
     When Sven reads the shape of <thing> in the API description
     Then it has exactly the fields <fields>
@@ -109,7 +109,7 @@ Feature: The description tells an integrator every operation's real answers
       | a state change request    | state                                                                                       | state                                                                                       | none                                                         |
       | a comment request         | body                                                                                        | body                                                                                        | none                                                         |
 
-  @pending @aod-02 @us-aod-04 @error @kpi @contract-shape:pure-function
+  @aod-02 @us-aod-04 @error @kpi @contract-shape:pure-function
   Scenario: The description never shows a token's value
     When Sven reads the shape of a token in the API description
     Then nothing in it could hold a token's value
@@ -139,13 +139,13 @@ Feature: The description tells an integrator every operation's real answers
     Then it offers only changing the issue's state there
     And it says any other way of asking answers 405, naming the ways that are offered
 
-  @pending @aod-02 @us-aod-04 @error @contract-shape:pure-function
+  @aod-02 @us-aod-04 @error @contract-shape:pure-function
   Scenario: The description offers no way to create a token, and says where one comes from
     When Sven looks for a way to get a machine token in the API description
     Then no operation creates a machine token, and asking to create one at the tokens address is described as answering 405
     And the machine token is described as "A machine token: an EdDSA-signed JWT sent as `Authorization: Bearer <token>`. A workspace admin mints one, signed in to Foundry, at /admin/tokens; the value is shown once. This API lists and revokes tokens but cannot create one."
 
-  @pending @aod-02 @us-aod-04 @driving_port @contract-shape:unbounded-preservation
+  @aod-02 @us-aod-04 @driving_port @contract-shape:unbounded-preservation
   Scenario: The place the description sends people to mint a token exists
     Given Priya is signed in to Canzan Labs as its workspace admin
     When Priya opens the address where the description says machine tokens are minted
@@ -233,7 +233,7 @@ Feature: The description tells an integrator every operation's real answers
       | Canzan Labs is as the Background left it | read the API description                      | in a way the address does not offer      | 404    |
       | Canzan Labs is as the Background left it | reach an address outside the API's operations | with his token                           | 404    |
 
-  @pending @aod-02 @us-aod-04 @kpi @contract-shape:bounded-change
+  @aod-02 @us-aod-04 @kpi @contract-shape:bounded-change
   Scenario Outline: A token call that succeeds answers the way the description says
     Given Canzan Labs also has the machine tokens "scratch-rotation" and the revoked "old-ci-issue-filer"
     And <precondition>
@@ -247,7 +247,7 @@ Feature: The description tells an integrator every operation's real answers
       | Canzan Labs is as the Background left it | revoke a token              | with his token          | 204    |
       | Canzan Labs is as the Background left it | revoke a token              | that is already revoked | 204    |
 
-  @pending @aod-02 @us-aod-04 @error @kpi @contract-shape:unbounded-preservation
+  @aod-02 @us-aod-04 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A refused token call answers the way the description says
     Given Canzan Labs also has the machine tokens "scratch-rotation" and the revoked "old-ci-issue-filer"
     And <precondition>
