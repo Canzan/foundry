@@ -377,6 +377,9 @@ pub struct FoundryWorld {
     // ---- project-lifecycle (US-PL-01..05) ----
     pub pl: crate::support::project_lifecycle::PlState,
 
+    // ---- api-openapi-document (US-AOD-01..06) ----
+    pub aod: crate::support::api_openapi_document::AodState,
+
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,
     pub http: Option<reqwest::Client>,

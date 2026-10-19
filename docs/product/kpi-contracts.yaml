@@ -17,6 +17,13 @@
 #   measured  - evidence recorded under `measured:` (the lane, fault and dogfood results)
 #   owed      - no measurement yet; `measurement: owed` names the owner and where it lands
 # `measured.owed` lists the parts of an otherwise measured KPI that a person must still do.
+#
+# Changelog (entries added from 2026-10-19; earlier additions are recorded in each
+# feature's DEVOPS section):
+#   2026-10-19  api-openapi-document appended by its DEVOPS wave (AOD-KPI-1..7, status: designed).
+#               Adds instrument kind `check-arch` (a structural rule's verdict in the
+#               `xtask check-arch` step, read from the log line, not the run's colour) and
+#               `curl` (a post-deploy HTTP check against dev and prod).
 
 schema_version: 1
 
@@ -649,3 +656,136 @@ features:
         status: owed
         measurement: owed
         owner: "DELIVER (acceptance); the user (dogfood and report after release)"
+  api-openapi-document:
+    job: job-api-machine-readable-contract
+    source: docs/feature/api-openapi-document/feature-delta.md   # "## Wave: DISCUSS / [REF] Outcome KPIs"
+    devops: docs/feature/api-openapi-document/feature-delta.md   # "## Wave: DEVOPS / [REF] Monitoring contracts"
+    runtime_telemetry: none   # DISCUSS Out of Scope, DDD-23. The existing http_requests_total{path} series counts both routes; optional context only, not an instrument
+    lane: "ci-local: FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci (acceptance step must appear in the log). Slices: FOUNDRY_ACCEPTANCE_TAGS=aod-01 | aod-02 | aod-03 cargo test -p foundry-acceptance --release --test acceptance (aod-03 is the @needs-browser lane; DISTILL pins the strings); api-unit: cargo test -p foundry-api --release; app: cargo test -p foundry-app --release --test openapi_conformance --test api_docs_page (Docker); check-arch: cargo xtask check-arch and cargo test -p xtask"
+    ci_github: "baseline 2026-10-19: runs 39159501263, 39153875798, 39096457752 cancelled at the 45-minute limit while compiling the workspace tests; fmt, clippy and check-arch passed. Only check-arch (AOD-KPI-3) gets a GitHub verdict"
+    # DEVOPS (2026-10-19). Nothing built, deployed or pushed. DISTILL links each
+    # acceptance instrument to its scenarios; DELIVER records `measured:`.
+    status: designed
+    kpis:
+      - id: AOD-KPI-1
+        name: An integrator writes a working /api/v1 call from the document alone
+        type: north-star
+        target: "the first script after release is written with 0 lookups in the Rust source or api-contract.md"
+        baseline: "every integration so far read crates/foundry-api/src/lib.rs (api-contract.md is wrong in 11 places)"
+        instruments:
+          - {kind: acceptance, ref: "api-openapi-document-01-served-description.feature @aod-01 'An integrator downloads the API description from the instance without a token'", oracle: "200 application/json, no credential, the committed bytes"}
+          - {kind: dogfood, ref: "the user's report at the DoD 5 dogfood"}
+        gate: soft
+        status: owed
+        scenarios: []   # dogfood only; no acceptance instrument
+        measurement: owed
+        owner: "the user (single-operator instance)"
+      - id: AOD-KPI-2
+        name: The document describes every operation and every status truthfully
+        type: guardrail
+        target: "9 of 9 documented operations (D15) plus the catch-all; 100% of acceptance-produced statuses documented for their operation; 0 on D13's list after slice 02"
+        baseline: "0 (no document)"
+        instruments:
+          - {kind: check-arch, ref: "api-openapi-operations and api-openapi-statuses, with their injected-violation gold tests (cargo test -p xtask)", oracle: "every planted drift (field, status, operation, envelope, committed copy) fails and is named"}
+          - {kind: acceptance, ref: "foundry-api src/openapi.rs: wire_shapes_match_document, document_is_valid_openapi_3_1; foundry-app tests/openapi_conformance.rs", oracle: "schemars shapes equal the components; the vendored OAS 3.1 schema (sha256-pinned) accepts the document; real-router 400/401/404/405/413/415/422 match the document"}
+          - {kind: acceptance, ref: "api-openapi-document-02-every-answer.feature @aod-02 outlines", oracle: "each produced status and body validated with jsonschema 0.59 (default features off, no network resolver) against the documented schema; envelopes equal examples[code]"}
+          - {kind: fault, ref: "hand table: drop or add a status, rename a field, change a $ref in openapi.json"}
+        gate: hard
+        status: owed
+        scenarios:   # DISTILL scenario list numbers (feature-delta ## Wave: DISTILL)
+          - "21: Once every operation is described, leaving one out fails the build"
+          - "22: Every operation is described with every answer it can give"
+          - "26: The description never shows a token's value"
+          - "33: An issue or comment call that succeeds answers the way the description says"
+          - "34: A refused issue or comment call answers the way the description says"
+          - "35: A token call that succeeds answers the way the description says"
+          - "36: A refused token call answers the way the description says"
+        measurement: owed
+        owner: "DELIVER"
+      - id: AOD-KPI-3
+        name: Changes to crates/foundry-api reach main only with a matching document
+        type: guardrail
+        target: "0 commits on main where the drift check fails"
+        baseline: "api-contract.md drifted 11 times unnoticed"
+        instruments:
+          - {kind: check-arch, ref: "the '=== xtask ci :: xtask check-arch' step of each GitHub ci.yml run on main: gh run view <id> --log | grep -A2 '=== xtask ci :: xtask check-arch'", oracle: "the step passes; read from the log line, because the run as a whole is cancelled or red for unrelated reasons"}
+          - {kind: check-arch, ref: "cargo xtask check-arch in smoke (pre-commit) and ci-local (pre-push)", oracle: "green before every commit and push"}
+        gate: hard
+        status: owed
+        scenarios:   # DISTILL scenario list numbers (feature-delta ## Wave: DISTILL)
+          - "12: A field the description lacks fails the build"
+          - "13: An answer the description does not list fails the build"
+          - "14: An operation missing from the description fails the build"
+          - "16: A committed description left behind by a release bump fails the build"
+          - "20: Checking a description left behind by a release bump refuses it, and changes nothing"
+          - "21: Once every operation is described, leaving one out fails the build"
+        measurement: owed
+        owner: "DELIVER; then each push to main"
+      - id: AOD-KPI-4
+        name: Served documents equal the committed file
+        type: guardrail
+        target: "100% byte-identical in every CI run; dev and prod on the same release give equal shasum -a 256"
+        baseline: "not applicable"
+        instruments:
+          - {kind: acceptance, ref: "openapi_conformance.rs served-bytes test; api-openapi-document-01-served-description.feature 'The description an instance serves is the one committed in the repository' and 'Two instances running the same release serve the same description'", oracle: "bytes equal DOCUMENT, across credentials and seeds"}
+          - {kind: curl, ref: "DEVOPS Post-deploy verification step 1 on dev and prod (machine-checked, exits non-zero on mismatch): shasum -a 256 | cut -d' ' -f1 of the served document equals that of git show $TAG:crates/foundry-api/openapi.json; info.version equals the tag; the printed AOD-KPI-4 sha256 line is equal on both hosts", oracle: "equal hashes on both hosts; cf-cache-status DYNAMIC or absent"}
+        gate: hard
+        status: owed
+        scenarios:   # DISTILL scenario list numbers (feature-delta ## Wave: DISTILL)
+          - "1: An integrator downloads the API description from the instance without a token"
+          - "2: The description an instance serves is the one committed in the repository"
+          - "3: A bad or stale credential does not change the answer"
+          - "4: The description names nothing about the instance serving it"
+          - "5: Two instances running the same release serve the same description"
+        measurement: owed
+        owner: "DELIVER (CI); the user (dev and prod hashes after the release)"
+      - id: AOD-KPI-5
+        name: The API page leaks nothing
+        type: guardrail
+        target: "0 cross-origin requests and 0 persisted token traces across all US-AOD-05/06 scenarios"
+        baseline: "not applicable"
+        instruments:
+          - {kind: acceptance, ref: "api-openapi-document-03-api-page.feature @aod-03 @needs-browser: 'The API page loads nothing from another site', 'A pasted token is forgotten on reload and never stored', 'A pasted token is never sent to another site', 'A link cannot make the API page show someone else's description'", oracle: "zero cross-origin resource entries and CSP violations; the token string absent from localStorage, sessionStorage, document.cookie and location.href. Counts only from a recorded FOUNDRY_XTASK_INCLUDE_DOCKER=1 run"}
+          - {kind: acceptance, ref: "foundry-app tests/api_docs_page.rs; check-arch api-docs-page", oracle: "exact CSP and companion headers, no Set-Cookie, three same-origin subresources; initializer options and URL ban; CSS has no remote url()"}
+          - {kind: curl, ref: "DEVOPS Post-deploy verification step 2 on dev and prod", oracle: "CSP equals API_DOCS_CSP through Cloudflare; no set-cookie; 0 'cdn-cgi' in the body"}
+          - {kind: dogfood, ref: "DoD 5 on dev: DevTools network shows only the instance's origin; console shows 0 CSP violations"}
+        gate: hard
+        status: owed
+        scenarios:   # DISTILL scenario list numbers (feature-delta ## Wave: DISTILL)
+          - "38: The API page loads nothing from another site"
+          - "51: A pasted token is forgotten on reload and never stored"
+          - "52: A pasted token is never sent to another site"
+          - "53: A link cannot make the API page show someone else's description"
+        measurement: owed
+        owner: "DELIVER (recorded Docker run); the user (dogfood)"
+      - id: AOD-KPI-6
+        name: A Try-it-out call from the page returns a real answer
+        type: leading
+        target: "a Try-it-out call with a real dev token returns live data at the dogfood"
+        baseline: "not applicable"
+        instruments:
+          - {kind: acceptance, ref: "api-openapi-document-03-api-page.feature 'An integrator lists a project's issues from the API page with a pasted token'", oracle: "the page shows the 200 list from the real server"}
+          - {kind: dogfood, ref: "DoD 5 on dev: mint a scratch token at /admin/tokens, list issues from the page, revoke it from the page, reload"}
+        gate: soft
+        status: owed
+        scenarios:   # DISTILL scenario list numbers (feature-delta ## Wave: DISTILL)
+          - "37: An integrator reads every API operation in a page on their own instance"
+          - "46: An integrator lists a project's issues from the API page with a pasted token"
+        measurement: owed
+        owner: "the user (dogfood)"
+      - id: AOD-KPI-7
+        name: Existing API clients notice nothing
+        type: guardrail
+        target: "0 changed bytes in any existing /api/v1 answer; every existing API acceptance scenario green, unchanged"
+        baseline: "all green"
+        instruments:
+          - {kind: acceptance, ref: "ci-local acceptance all, plus DoD 1's neighbour lanes: us-w05a/b/c, us-tma, issue-change-history, us-mwt 03-06, new-issue-dialog-description, project-lifecycle 02, us-b02", oracle: "green with no step or feature file of those lanes changed"}
+        gate: hard
+        status: owed
+        scenarios:   # DISTILL scenario list numbers (feature-delta ## Wave: DISTILL)
+          - "10: A refused list of a project's issues answers the way the description says"
+          - "34: A refused issue or comment call answers the way the description says"
+          - "36: A refused token call answers the way the description says"
+        scenarios_note: "plus the unchanged existing API acceptance lanes"
+        measurement: owed
+        owner: "DELIVER"

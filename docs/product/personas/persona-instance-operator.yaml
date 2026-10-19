@@ -33,6 +33,7 @@ personas:
       - docs/feature/team-membership/feature-delta.md
       - docs/feature/team-lifecycle/feature-delta.md
       - docs/feature/project-lifecycle/feature-delta.md
+      - docs/feature/api-openapi-document/feature-delta.md
 
     situation: >
       Runs foundry on her own cluster alongside Grafana, Portainer, ArgoCD and
@@ -100,6 +101,7 @@ personas:
       - job-team-membership
       - job-team-lifecycle
       - job-project-lifecycle
+      - job-api-machine-readable-contract
 
   - id: persona-team-member-foil
     name: Marco
@@ -118,3 +120,33 @@ personas:
       devices or a workflow for him would be fabrication. Features needing a
       constrained-browser actor should use persona-instance-operator's
       env-hardened-profile rather than dressing Marco up as one.
+
+  - id: persona-api-integrator
+    name: Sven Aarø
+    role: Integrator who scripts against /api/v1 with a bearer machine token
+    established_by: docs/feature/token-management-api/discuss/jobs.yaml
+    # Back-declared by api-openapi-document DISCUSS (2026-10-18). Sven was a
+    # feature-local persona (`personas.integrator`) in token-management-api's
+    # discuss/jobs.yaml (2026-06), itself grounded in web-tier-extraction's
+    # jtbd-web-4 (`primary_persona: integrator`). Only what those two files
+    # state is carried here; both were Luna-derived, not interview-sourced.
+    also_referenced_by:
+      - docs/feature/web-tier-extraction/discuss/jobs.yaml
+      - docs/feature/api-openapi-document/feature-delta.md
+    situation: >
+      A platform or DevOps engineer who wires integrations and CI pipelines to
+      Foundry's /api/v1 with a bearer machine token. Provisions credentials in
+      automation, not by clicking a UI. Gets his token from a workspace admin,
+      who mints it at /admin/tokens.
+    characteristics:
+      - Works JSON in, JSON out, and branches on stable error codes.
+      - Wants to list and rotate the credentials his pipelines own without a
+        human in the loop (token-management-api).
+      - Prior waves establish nothing about his tools, languages, client
+        generators, devices or employer. Do not add them without a source.
+    pains_addressed_to_date:
+      - job-api-machine-readable-contract
+    note: >
+      Deliberately thin. On this single-operator instance the integrator is
+      often persona-instance-operator (Priya) scripting; measurements follow
+      her rule (a store query, an acceptance assertion, or her own report).

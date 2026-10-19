@@ -986,3 +986,65 @@ jobs:
         relation: >
           Reuses that job's rule and copy unchanged on the new rename door,
           and holds a deleted project's name, slug and key (OQ-4).
+
+  - id: job-api-machine-readable-contract
+    title: Get the exact API contract of the instance I script against, and trust that it is true
+    job_story: >
+      When I am about to script against a Foundry instance, I want to get that
+      instance's exact API contract (every route, every field, every status,
+      every error code) in a form my tools read, and try a call before I write
+      code, so I can build an integration without reading Foundry's Rust
+      source, and know the contract I read is the one the server enforces.
+    dimensions:
+      functional: >
+        Fetch an OpenAPI document for all of /api/v1 from the instance itself
+        at /api/v1/openapi.json with no token; the same bytes are committed in
+        the repository, and CI fails when the document stops matching the code.
+        Read it, and try a call with a pasted machine token, on a self-hosted
+        Swagger UI page that sends the token nowhere but its own origin.
+      emotional: >
+        Integrating stops being archaeology through lib.rs and two prose
+        contracts that disagree with it, and becomes reading a contract the
+        build guarantees.
+      social: >
+        "Works with Foundry" can be claimed against a published, checkable
+        contract.
+    forces:
+      push: >
+        The contract is spread over two prose documents and the source, and
+        the prose is wrong in eleven places: an issue `priority` and a comment
+        `created_at` that do not exist, a closed state enum where lanes are
+        per project, a `400 invalid_json` envelope that never arrives, three
+        routes missing.
+      pull: >
+        One OpenAPI document at a known URL that tools import, and a page with
+        "Try it out".
+      anxiety: >
+        That the document drifts from the code like the prose did. That a
+        public description helps an attacker. That pasting a token into a web
+        page leaks it. That the page phones home to a CDN or a validator.
+      habit: >
+        Reading crates/foundry-api/src/lib.rs and trial and error with curl.
+        The document must be more trustworthy than the source, not just more
+        convenient, and the drift check is what makes it so.
+    opportunity:
+      importance: medium
+      satisfaction: low
+      note: >
+        Single-job feature; no comparative scoring table. Importance medium:
+        the API works without a document, but every integration pays the
+        source-reading cost and the prose misleads. Satisfaction low: no
+        machine-readable contract exists, and the human-readable one is wrong.
+        Builds on web-tier-extraction's jtbd-web-4 (drive Foundry
+        programmatically), whose deferred "OpenAPI / API documentation"
+        item this closes (SDK generation stays deferred). Grounded in the
+        user's locked decisions (served plus committed, self-hosted Swagger
+        UI, CI drift check, all of /api/v1) and code reading, not interviews
+        (no DISCOVER or DIVERGE), the same recorded risk as its siblings.
+    validated_by: docs/feature/api-openapi-document/feature-delta.md
+    relates_to:
+      - job: job-project-lifecycle
+        relation: >
+          The document describes a deleted project's API answer (the uniform
+          404) and notes that project-lifecycle's "reads SPIKE-2" assumes a
+          single-issue GET the API does not have.

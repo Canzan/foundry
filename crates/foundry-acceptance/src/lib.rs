@@ -11,6 +11,7 @@ pub mod world;
 
 pub mod steps {
     pub mod feature_a_programmatic;
+    pub mod feature_api_openapi_document;
     pub mod feature_b_web_tier;
     pub mod feature_board_lane_management;
     pub mod feature_board_lane_overflow_menu;

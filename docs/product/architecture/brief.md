@@ -723,6 +723,91 @@ DELIVER finalize.
 | Seam rules | check-arch `project-lifecycle-live-reads`, `project-lifecycle-write-guard`, `project-lifecycle-one-seam` | `xtask/src/check_arch.rs` | 22 | 01-03 |
 | Readiness | `Store::probe` requires the 0025, 0026 and 0027 objects | store `lib.rs` | 28 | 01, 02, 04 |
 
+### The JSON API describes itself, and CI holds it to the code
+
+**Designed (api-openapi-document DESIGN, 2026-10-18; not yet delivered).** ADR-API-OPENAPI-001
+to -004 were accepted by the user on 2026-10-18. Any method other than GET or HEAD on
+`/api/v1/openapi.json` answers the uniform 404 envelope, through a method fallback scoped to that
+route. Every other `/api/v1` path keeps axum's 405.
+
+**The contract.**
+- The contract of record for `/api/v1` is one hand-written OpenAPI 3.1.0 file,
+  `crates/foundry-api/openapi.json`.
+- Every instance serves it at `GET /api/v1/openapi.json` with no credential evaluated. The bytes are
+  compiled in with `include_bytes!`, so the served bytes equal the committed file by construction.
+- It describes the code as it is, including:
+  - axum's text/plain 400/413/415/422 refusals;
+  - the empty 405;
+  - the uniform 404 and the `/api/v1/{*rest}` catch-all;
+  - `state` as an open lane slug;
+  - 401 when the token cannot be checked.
+- The two prose api-contract.md files keep their rationale and point here (amended 2026-10-18).
+
+**The checks.** The code is held to the file in three layers.
+- The structural and type-derived layers (check-arch and the foundry-api unit tests) need no
+  Docker and run in every `cargo xtask smoke` and `cargo xtask ci`.
+- The behavioural layer (the foundry-app conformance test and acceptance) needs Docker
+  (testcontainers). Without it, the conformance test fails loudly rather than skipping, and the
+  acceptance step is skipped unless `FOUNDRY_XTASK_INCLUDE_DOCKER=1` is set.
+- The authoritative gate is a local `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`.
+- GitHub CI gives a check-arch verdict only.
+
+The three layers:
+- **Structural (check-arch):**
+  - `api-openapi-operations` compares the routes, path parameters, bodies and success answers in
+    `routes()` with the file;
+  - `api-openapi-statuses` derives each operation's statuses and error codes from the handler's
+    shape and from a conservative walk of `ServiceError` reachability through `status_for`. Its
+    soundness clause forbids `From` conversions into `ServiceError`.
+- **Type-derived:** a foundry-api unit test compares `schemars`-derived schemas of the wire structs
+  with the file's components. `schemars` is a dev-dependency only. The same tests validate the file
+  against the vendored OAS 3.1 JSON Schema and check that `info.version` equals `CARGO_PKG_VERSION`.
+- **Behavioural:** `foundry-app/tests/openapi_conformance.rs` drives the real router on real
+  Postgres. The acceptance suite produces each deterministic domain status.
+
+**Release.** The command is `cargo xtask openapi [--check] [--root <dir>]`.
+- Without `--check`, it refreshes `info.version` and nothing else.
+- `--check` is its read-only mode: it compares the version, writes nothing, and exits non-zero on
+  a mismatch.
+- `--root` is optional and, like `check-arch --root`, defaults to the workspace root inferred from
+  xtask's `CARGO_MANIFEST_DIR`.
+
+The release flow:
+- RELEASING step 1 runs `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`.
+- Step 3 runs `cargo xtask openapi`, then `smoke`.
+- The Dockerfile builder stage runs `--check` before building `foundry` (DEVOPS gate R2), because
+  neither publish workflow runs tests and a tag alone deploys to dev.
+- The guard is local discipline (the release-commit `smoke`) until R2 lands.
+
+**The API page.** `GET /docs/api` is a public, standalone foundry-app page outside `/api`. It is
+mounted after the session layer, beside the `/api/v1` merge, so neither the session layer nor
+`csrf_middleware` wraps it. (`/static` and `/healthz` are inside both layers; only the
+`/api/v1` merge was outside them until now.) In short:
+- it renders the document with vendored swagger-ui 5.33.3;
+- the authored initializer `static/js/api-docs.js` pins the spec URL and turns off query config,
+  the validator and persisted authorization;
+- the page sets Foundry's **first Content-Security-Policy**, on that route only, through a
+  `from_fn` layer that is the seed of a site-wide policy:
+  `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;
+  connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'`.
+
+| Design element | Designed as | Where | DDD | Slice |
+|---|---|---|---|---|
+| Document | hand-written OpenAPI 3.1.0, shared responses, envelope `examples` keyed by `error.code` | `crates/foundry-api/openapi.json` | 1, 2, 5-8 | 01, 02 |
+| Document route | `GET /api/v1/openapi.json`, no extractor, `include_bytes!`, `application/json`, `no-cache` | `crates/foundry-api/src/openapi.rs`, `lib.rs` | 3, 4 | 01 |
+| Shape, validity and version tests | `schemars` (dev-dep, `cfg_attr(test)` derives), `jsonschema` + OAS 3.1 schema 2025-11-23 fixture | foundry-api `src/openapi.rs`, `tests/fixtures/` | 11, 12, 13 | 01 |
+| Router conformance | real router, testcontainers Postgres, D8 bytes, 401/405/404, text/plain answers | `crates/foundry-app/tests/openapi_conformance.rs` | 9 | 01 |
+| Seam rules | check-arch `api-openapi-operations` (with the slice-01 `PENDING_OPERATIONS`), `api-openapi-statuses`, `api-docs-page` | `xtask/src/check_arch.rs` | 14, 21 | 01, 03 |
+| Version refresh | `cargo xtask openapi`; RELEASING.md step 3 | `xtask/src/main.rs`, `RELEASING.md` | 13 | 01 |
+| API page | `api_docs::show`, `api_docs.html` (standalone), `api_docs_headers` + `API_DOCS_CSP` | `crates/foundry-app/src/api_docs.rs`, `lib.rs`, `templates/` | 15, 16, 19 | 03 |
+| Vendored viewer | `vendor/swagger-ui-5.33.3/{swagger-ui-bundle.js, swagger-ui.css, LICENSE.txt, NOTICE.txt}`; `js/api-docs.js` (authored), with `VENDOR.md` rows | `crates/foundry-app/static/` | 17, 18, 20 | 03 |
+
+See `adr-api-openapi-001-hand-written-document-checked-against-the-code.md`,
+`adr-api-openapi-002-status-set-derived-from-the-code.md`,
+`adr-api-openapi-003-vendored-swagger-ui-page-in-the-web-tier.md` and
+`adr-api-openapi-004-api-page-content-security-policy.md`, plus
+`docs/feature/api-openapi-document/feature-delta.md` (DESIGN DDD-1..23).
+
 ### Crate graph
 
 ```mermaid

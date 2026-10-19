@@ -1,5 +1,33 @@
 # Token-Management API — JSON Contract (DESIGN)
 
+> **Amendment, 2026-10-18 (api-openapi-document DESIGN, OQ-11): the OpenAPI document is now the
+> contract of record.** It is committed at `crates/foundry-api/openapi.json` and served at
+> `GET /api/v1/openapi.json` with no token. `cargo xtask ci` fails when it drifts from the code.
+>
+> **What the document records for these two routes:**
+>
+> | Route | Answers |
+> |---|---|
+> | List tokens | 200, a `Token` array, newest first |
+> | Revoke a token | 204, no body; also 400 `text/plain` for a `{jti}` that is not a UUID, and 429 `rate_limited` |
+> | Both | 401, 403 `forbidden` (decided before the address), 404 `not_found`, 500 `internal` |
+>
+> The `Token` schema has exactly the 8 `TokenJson` keys and no value-bearing key. No create-token
+> operation exists; a `POST` on the tokens path answers 405. The `machineToken` scheme says a token
+> is minted by a signed-in workspace admin at `/admin/tokens`.
+>
+> **What this file still holds.** The design rationale below stays authoritative: placement, the
+> address resolution order (2026-10-15), the guardrail and the no-mint boundary. Where this file and
+> the document disagree, the document is right.
+>
+> **Findings across the whole API (C1-C13).** They are listed in the web-tier-extraction
+> api-contract.md amendment and in `docs/feature/api-openapi-document/feature-delta.md`. The ones
+> touching this file:
+> - **C6** — 204, 405, 429 and 500 are part of the status set.
+> - **C9** — the envelope messages are the code's own (`forbidden`, `not found`).
+> - **C13** — 401 is also answered when the token registry cannot be read.
+> - **"400/422 by axum"** below — for a bad `{jti}` the answer is 400 `text/plain`.
+
 > Two routes under the EXISTING `/api/v1`, bearer-authenticated by the SHIPPED `MachinePrincipal`
 > extractor, using the SHIPPED `status_for` / `ErrorBody` envelope. No new error shape. No mint.
 

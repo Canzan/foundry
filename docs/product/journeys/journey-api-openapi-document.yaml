@@ -1,0 +1,246 @@
+# Product SSOT — journeys.
+#
+# Created by the api-openapi-document DISCUSS wave (2026-10-18). Shape follows
+# journey-project-lifecycle.yaml. An API journey: most steps are a shell or an
+# HTTP client; one is a browser page. Copy is the feature-delta's (D14 locks
+# it there; this file quotes it). Paths other than /api/v1/openapi.json are
+# proposals (OQ-3).
+
+schema_version: "0.1"
+
+journeys:
+  - id: journey-api-openapi-document
+    title: Get the instance's API contract, read it, try a call, and trust it stays true
+    persona: persona-api-integrator   # Sven; Priya mints the token; the maintainer is a role
+    job: job-api-machine-readable-contract
+    platform: http + web + ci
+    validated_by: docs/feature/api-openapi-document/feature-delta.md
+
+    goal: >
+      Build an integration against a Foundry instance from its published
+      contract alone, with every route, field, status and error code
+      described, and know the contract is the one the server enforces.
+
+    emotional_arc:
+      pattern: Confidence Building
+      start: >
+        Unsure. Two prose contracts and a Rust source file disagree; curl
+        trial and error is the only way to learn an answer.
+      middle: >
+        Oriented, then confident. One document, fetched from the instance
+        itself, lists every operation; the page renders it and a real call
+        with a real token returns real data.
+      end: >
+        Trusting. The maintainer's CI refuses a document that lies, so the
+        integrator can rely on it the way they rely on the server.
+      transition_rules:
+        - The only credential moment (step 4, pasting a token) is buffered by
+          the hint "Kept in this tab only and sent only to this Foundry.
+          Reloading forgets it." before anything is sent.
+        - Every refusal the integrator meets is one the document already
+          described (401, the uniform 404, a 422 code), so a failure confirms
+          the contract instead of breaking trust in it.
+
+    steps:
+      - id: 1
+        name: Fetch the document
+        action: >
+          Sven runs curl https://foundry.unintelligent-design.us/api/v1/openapi.json
+          with no token.
+        mockup: |
+          $ curl -s https://foundry.unintelligent-design.us/api/v1/openapi.json | jq '.openapi, .info'
+          "3.1.0"
+          { "title": "Foundry API v1", "version": "${version}" }
+          $ ... | jq '.paths | keys'
+          [ "/api/v1/openapi.json", "/api/v1/teams/{team_slug}/projects/{project_slug}/issues", ... ]
+        emotional_state:
+          entry: Unsure
+          exit: Oriented
+        shared_artifacts: [version, document-bytes, route-table]
+        integration_checkpoint: >
+          The bytes equal the committed file; info.version equals the footer;
+          no credential is evaluated; nothing about the instance appears.
+        failure_modes:
+          - An invalid token in the client's Authorization header turns the answer into a 401 (D8).
+          - The document names a workspace, team, project, user or host of the instance (D7).
+          - Dev and prod on the same release serve different bytes.
+          - A release bumps the version and the committed copy is stale.
+        gherkin: |
+          Scenario: An integrator fetches the API description without a token
+            Given Foundry 0.17.0 runs at foundry.unintelligent-design.us
+            When Sven requests /api/v1/openapi.json with no credential
+            Then Sven gets 200 with a JSON OpenAPI 3.1 document that a standard validator accepts
+            And its version reads 0.17.0, the same as the page footer
+
+      - id: 2
+        name: Read an operation's answers
+        action: >
+          Sven imports the file into his HTTP client and reads list issues,
+          create issue and edit comment.
+        mockup: |
+          POST /api/v1/teams/{team_slug}/projects/{project_slug}/issues   [machineToken]
+            201  Issue  + Location
+            400  text/plain   415 text/plain   422 text/plain (malformed body)
+            401  Error unauthorized
+            404  {"error":{"code":"not_found","message":"not found"}}
+                 description: "Not found. The same answer, byte for byte, ..."
+            422  Error title_required | description_too_long
+            500  Error internal
+        emotional_state:
+          entry: Oriented
+          exit: Informed
+        shared_artifacts: [route-table, wire-shapes, statuses]
+        integration_checkpoint: >
+          Every status listed is one the code can answer, and every answer the
+          code can give is listed (INV-AOD-1, INV-AOD-2).
+        failure_modes:
+          - The document lists a 400 invalid_json envelope the code never sends (C4).
+          - The issue shape carries priority, or the comment created_at (C1, C2).
+          - state is a closed enum and a custom lane is refused by the client (C3).
+          - A create-token operation appears (D9).
+
+      - id: 3
+        name: Get a token (shipped)
+        action: >
+          Priya, signed in as a workspace admin, mints "ci-issue-filer" at
+          /admin/tokens and hands Sven the value.
+        mockup: |
+          /admin/tokens  ->  the value, shown once (unchanged by this feature)
+        emotional_state:
+          entry: Informed
+          exit: Ready
+        shared_artifacts: [mint-location]
+        integration_checkpoint: >
+          The document's scheme names /admin/tokens, and that page answers a
+          signed-in workspace admin.
+        failure_modes:
+          - The mint page moves and the scheme's description goes stale.
+
+      - id: 4
+        name: Open the page and paste the token
+        action: >
+          Sven opens /docs/api, clicks Authorize and pastes the token into
+          "Machine token".
+        mockup: |
+          +-- /docs/api ------------------------------------------------------+
+          | Foundry API                                                        |
+          | Foundry API v${version}. The OpenAPI document is at                |
+          | /api/v1/openapi.json.                                              |
+          |  [Authorize]                                                       |
+          |   Machine token [______________________]                           |
+          |   Kept in this tab only and sent only to this Foundry.             |
+          |   Reloading forgets it.                                            |
+          |  GET  /api/v1/teams/{team_slug}/projects/{project_slug}/issues     |
+          |  POST /api/v1/teams/{team_slug}/projects/{project_slug}/issues     |
+          |  ...                                                               |
+          +--------------------------------------------------------------------+
+        emotional_state:
+          entry: Ready, wary of pasting a credential
+          exit: Reassured
+        shared_artifacts: [version, doc-path]
+        integration_checkpoint: >
+          The page loaded only same-origin resources and the instance's own
+          document, whatever its query string says.
+        failure_modes:
+          - The page fetches swagger-ui or a font from a CDN, or the document from validator.swagger.io (D10).
+          - A ?url= or ?configUrl= parameter makes the page load someone else's description (D10).
+          - Another Foundry page starts loading swagger-ui (D12).
+
+      - id: 5
+        name: Try a call
+        action: >
+          Sven opens list issues, enters backend and auth, and clicks Try it
+          out, then Execute.
+        mockup: |
+          curl -X GET '/api/v1/teams/backend/projects/auth/issues' -H 'Authorization: Bearer ...'
+          200  [ { "key": "AUTH-7", "number": 7, "title": "...", "state": "in_progress" } ]
+        emotional_state:
+          entry: Reassured
+          exit: Confident
+        shared_artifacts: [route-table]
+        integration_checkpoint: >
+          The request went to the page's own origin only; the answer matches
+          the document.
+        failure_modes:
+          - The token is sent to another origin.
+          - Without a token the page shows anything but the documented 401 envelope.
+        gherkin: |
+          Scenario: An integrator lists a project's issues from the API page with a pasted token
+            Given Priya minted the machine token "ci-issue-filer" for Canzan Labs and Backend has AUTH-7
+            When Sven pastes it into the API page and tries listing Backend's "auth" project issues
+            Then he sees a 200 answer listing AUTH-7, and the call went to the instance's own origin
+
+      - id: 6
+        name: Reload
+        action: Sven reloads /docs/api.
+        mockup: |
+          [Authorize]   Machine token [                      ]   (empty)
+        emotional_state:
+          entry: Confident
+          exit: Reassured — nothing was kept
+        shared_artifacts: []
+        integration_checkpoint: >
+          No token in local storage, session storage, cookies or the address.
+        failure_modes:
+          - The pasted token survives a reload in browser storage, a cookie or the address.
+
+      - id: 7
+        name: The contract stays true (maintainer)
+        action: >
+          The maintainer adds a field to the issue answer without touching the
+          document and runs cargo xtask ci.
+        mockup: |
+          $ cargo xtask ci
+          ... API description drift: GET /api/v1/teams/{team_slug}/projects/{project_slug}/issues
+              200: field "priority" is in the code and not in the document
+          error: ci failed
+        emotional_state:
+          entry: Busy
+          exit: Trusting — the build will not let the contract lie
+        shared_artifacts: [route-table, wire-shapes, statuses, document-bytes]
+        integration_checkpoint: >
+          The check names the operation, status and field; a wording-only edit
+          passes.
+        failure_modes:
+          - A status drift (a new 409) goes unnoticed because only shapes are checked.
+          - The check runs only in a lane the default CI run skips.
+        gherkin: |
+          Scenario: A response field the description lacks fails the build
+            Given the API description documents listing a project's issues
+            When the maintainer adds a field "priority" to the issue answer and runs the CI check
+            Then the check fails and names the list-issues operation, its 200 answer and the field "priority"
+
+    shared_artifacts:
+      version:
+        source_of_truth: views::RELEASE_VERSION (CARGO_PKG_VERSION)
+        consumers: [footer, info.version, the page heading]
+        integration_risk: MEDIUM - must equal the footer exactly
+      document-bytes:
+        source_of_truth: the committed document file (OQ-6)
+        consumers: [GET /api/v1/openapi.json, the page]
+        integration_risk: HIGH - served must equal committed
+      route-table:
+        source_of_truth: foundry_api::routes() (crates/foundry-api/src/lib.rs)
+        consumers: [document paths, drift check, the page]
+        integration_risk: HIGH
+      wire-shapes:
+        source_of_truth: the serde structs in crates/foundry-api/src/lib.rs
+        consumers: [document schemas, drift check]
+        integration_risk: HIGH
+      statuses:
+        source_of_truth: status_for, rate_limited_response, the use-cases' ServiceError variants, axum's extractor refusals and 405
+        consumers: [document responses, drift check]
+        integration_risk: HIGH - not visible in any struct
+      doc-path:
+        source_of_truth: D1 (/api/v1/openapi.json)
+        consumers: [page initializer, page heading, noscript copy, integrators' scripts]
+        integration_risk: MEDIUM
+      mint-location:
+        source_of_truth: foundry-app route /admin/tokens
+        consumers: [the machineToken scheme description]
+        integration_risk: MEDIUM - outside the drift check; asserted in acceptance
+
+    changelog:
+      - date: "2026-10-18"
+        feature: api-openapi-document
+        change: Journey created (DISCUSS).

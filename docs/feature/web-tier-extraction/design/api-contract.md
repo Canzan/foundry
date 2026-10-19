@@ -1,5 +1,45 @@
 # Programmatic Foundry (Feature A) — JSON API Contract
 
+> **Amendment, 2026-10-18 (api-openapi-document DESIGN, OQ-11): this file is no longer the contract
+> of record for wire shapes and statuses.**
+>
+> **The contract of record.** It is the OpenAPI 3.1.0 document committed at
+> `crates/foundry-api/openapi.json`. Every instance serves the same bytes at
+> `GET /api/v1/openapi.json` with no token. `cargo xtask ci` fails when the document and the code
+> disagree. See `docs/product/architecture/adr-api-openapi-001-hand-written-document-checked-against-the-code.md`.
+>
+> **What this file still holds.** The design rationale below stays authoritative: the `/api/v1`
+> path-prefix choice (Open Question 2), PATCH versus PUT, the versioning policy, and the api≠HTML
+> boundary.
+>
+> **Where this file is wrong.** Where it disagrees with the document, the document is right. It was
+> found to disagree with the code in these places (feature-delta [REF] Contract Findings):
+> - **C1** — an issue has no `priority`. `Issue` is `key`, `number`, `title`, `state`.
+> - **C2** — a comment has no `created_at`. `Comment` is `id`, `author_email`, `body_html`,
+>   `edited`.
+> - **C3** — `state` is not a closed enum. It is a lane slug of the issue's project; lanes are per
+>   project. `in-progress` and `canceled` are accepted aliases, and anything else is 422
+>   `invalid_state`.
+> - **C4** — there is no `400 invalid_json` envelope. A malformed body or path is answered by axum
+>   with a `text/plain` 400 (syntax or path), 415 (no `Content-Type: application/json`) or 422 (a
+>   missing or mistyped field).
+> - **C5** — the API has 8 operations, not 5: the history read, the token list and the token revoke
+>   are added. There is also the `/api/v1/{*rest}` 404 catch-all and the document's own route.
+> - **C6** — the status table omits 204 (revoke), 405 (empty body, `Allow` header), 429
+>   `rate_limited` (revoke) and 500 `internal`.
+> - **C7** — an empty title **and** a title over 256 characters both answer 422 `title_required`.
+> - **C8** — create issue also takes an optional `description`. Over 262,144 characters it answers
+>   422 `description_too_long`.
+> - **C9** — the envelope messages are the code's own: `forbidden`, `not found`, `unauthorized`,
+>   `gone`, `internal error`. They are not UI copy.
+> - **C10** — every operation except the document's route requires the bearer token. No route
+>   accepts the browser session.
+> - **C11** — no recorded v1 snapshot exists. The OpenAPI drift check is the net.
+> - **C12** — a body over 2 MB answers 413 `text/plain`.
+> - **C13** — 401 is also answered when the token cannot be checked.
+>
+> Since 2026-10-15, a membership or scope refusal is the uniform 404 (the amendment below).
+
 Owner: solution-architect (Morgan). Scope: the JSON contract surface for US-W05a (read) and
 US-W05c (writes). Propose mode: the contract-surface question (Open Question 2) is presented with
 options + a recommendation; the recommendation is also listed in `wave-decisions.md` for user

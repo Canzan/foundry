@@ -36,6 +36,8 @@ use foundry_acceptance::world::FoundryWorld;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_a_programmatic as _feature_a;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_api_openapi_document as _feature_aod;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_b_web_tier as _feature_b;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_board_lane_management as _feature_blm;

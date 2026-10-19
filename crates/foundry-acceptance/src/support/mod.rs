@@ -12,6 +12,7 @@
 /// `chromedriver` this container replaced having served any number of sessions.
 pub const MAX_CONCURRENT_SCENARIOS: usize = 6;
 
+pub mod api_openapi_document;
 pub mod browser_harness;
 pub mod compose_harness;
 pub mod file_upload_env;

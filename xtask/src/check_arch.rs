@@ -9734,3 +9734,232 @@ pub async fn reader(&self) {
         assert!(violations.is_empty(), "{violations:?}");
     }
 }
+
+#[cfg(test)]
+mod api_openapi_check_arch_tests {
+    //! Injected-violation gold tests for the three api-openapi-document rules
+    //! (DESIGN [REF] check-arch Rules, DDD-21; ADR-API-OPENAPI-001/002/003).
+    //!
+    //! Authored RED in DISTILL 2026-10-19 as pending panic stubs (the
+    //! project-lifecycle `project_lifecycle_copy.rs` idiom): the rule functions
+    //! (`check_api_openapi_operations`, `check_api_openapi_statuses`,
+    //! `check_api_docs_page`, each `fn(&Path) -> Vec<String>`) and the committed
+    //! description they parse do not exist yet. DELIVER writes each rule WITH its
+    //! gold tests in one commit (DESIGN For Software Crafter), replacing each stub
+    //! with a staged tree (the `project_lifecycle_check_arch_tests` `stage`
+    //! helper), the rule run against it and the offender named, and removes the
+    //! `#[ignore]`. Each stub names the "always pass" mutant it must kill.
+
+    macro_rules! pending_gold {
+        ($name:ident, $step:literal, $what:literal) => {
+            #[test]
+            #[ignore = concat!("pending: api-openapi-document ", $step, " — ", $what)]
+            fn $name() {
+                panic!(concat!(
+                    "Not yet implemented -- RED scaffold (api-openapi-document ",
+                    $step,
+                    ": ",
+                    $what,
+                    ")"
+                ));
+            }
+        };
+    }
+
+    // Rule 1: api-openapi-operations (slice 01, step 01-02).
+    pending_gold!(operations_clean_tree_passes, "01-02", "a clean tree passes");
+    pending_gold!(
+        operations_names_an_undocumented_route,
+        "01-02",
+        "an undocumented GET …/projects route is named"
+    );
+    pending_gold!(
+        operations_names_a_documented_operation_the_code_lacks,
+        "01-02",
+        "a documented operation removed from the code is named"
+    );
+    pending_gold!(
+        operations_names_a_mistyped_path_parameter,
+        "01-02",
+        "the number parameter documented as a string is named"
+    );
+    pending_gold!(
+        operations_names_a_renamed_path_parameter,
+        "01-02",
+        "a renamed path parameter is named"
+    );
+    pending_gold!(
+        operations_names_a_new_request_body,
+        "01-02",
+        "a new Json<…> on history is named"
+    );
+    pending_gold!(
+        operations_names_a_changed_success_status,
+        "01-02",
+        "NO_CONTENT changed to OK on revoke is named"
+    );
+    pending_gold!(
+        operations_tolerates_only_pending_operations,
+        "01-02",
+        "a pending operation passes and a non-pending one fails"
+    );
+    pending_gold!(
+        operations_names_an_api_route_outside_foundry_api,
+        "01-02",
+        "an /api route literal outside foundry-api is named (clause vi)"
+    );
+    pending_gold!(
+        operations_fails_closed_on_a_non_literal_route,
+        "01-02",
+        "a non-literal .route( path is named (clause vii)"
+    );
+    pending_gold!(
+        operations_fails_closed_on_a_stray_fallback,
+        "01-02",
+        "a .fallback( on any route but the description's is named (clause vii)"
+    );
+    pending_gold!(
+        operations_fails_closed_on_an_untyped_success_body,
+        "01-02",
+        "an untyped Response with no readable body type is named (clause iv)"
+    );
+
+    // Rule 2: api-openapi-statuses (slice 01, step 01-03; ADR-API-OPENAPI-002 gold list).
+    pending_gold!(
+        statuses_clean_tree_and_wording_edit_pass,
+        "01-03",
+        "a clean tree and a wording-only description edit pass"
+    );
+    pending_gold!(
+        statuses_names_a_conflict_in_a_use_case,
+        "01-03",
+        "Conflict in resolve_board_project names list issues and 409"
+    );
+    pending_gold!(
+        statuses_names_a_conflict_in_a_handler_body,
+        "01-03",
+        "Conflict in list_issues_handler names list issues and 409"
+    );
+    pending_gold!(
+        statuses_names_a_status_removed_from_the_document,
+        "01-03",
+        "401 removed from one operation is named"
+    );
+    pending_gold!(
+        statuses_names_a_new_validation_code,
+        "01-03",
+        "title_too_long in create_issue names create issue, 422 and the code"
+    );
+    pending_gold!(
+        statuses_names_a_remapped_variant,
+        "01-03",
+        "Gone remapped to 404 in status_for names edit comment and 410"
+    );
+    pending_gold!(
+        statuses_soundness_names_a_from_conversion,
+        "01-03",
+        "impl From<StoreError> for ServiceError names the soundness clause"
+    );
+    pending_gold!(
+        statuses_names_new_text_plain_answers,
+        "01-03",
+        "a Json<…> on history names history and the four text/plain statuses"
+    );
+    pending_gold!(
+        statuses_fails_closed_on_a_non_literal_code,
+        "01-03",
+        "a non-literal Validation code is named"
+    );
+    pending_gold!(
+        statuses_fails_closed_on_a_glob_import,
+        "01-03",
+        "use ServiceError::* is named"
+    );
+    pending_gold!(
+        statuses_fails_closed_on_a_guarded_arm,
+        "01-03",
+        "a guarded status_for arm is named"
+    );
+    pending_gold!(
+        statuses_fails_closed_on_an_unknown_services_method,
+        "01-03",
+        "a handler calling a Services method that does not exist is named"
+    );
+    pending_gold!(
+        statuses_unions_same_named_definitions,
+        "01-03",
+        "a second fn resolve_board_project returning Conflict names list issues and 409"
+    );
+    pending_gold!(
+        statuses_walks_the_extractor_start_set,
+        "01-03",
+        "Forbidden in token_auth / resolve_active_token names every bearer operation without a 403"
+    );
+    pending_gold!(
+        ci_and_smoke_run_the_drift_check,
+        "01-03",
+        "the ci and smoke step lists run check-arch and the foundry-api openapi tests (US-AOD-02 AC 8)"
+    );
+
+    // `cargo xtask openapi` (DDD-13) and its read-only `--check` (DEVOPS R2), step 01-05.
+    pending_gold!(
+        openapi_refresh_changes_only_the_version,
+        "01-05",
+        "the refresh rewrites info.version and no other byte"
+    );
+    pending_gold!(
+        openapi_refresh_is_idempotent,
+        "01-05",
+        "a second refresh changes nothing"
+    );
+    pending_gold!(
+        openapi_check_refuses_a_stale_description,
+        "01-05",
+        "--check fails on a stale info.version, naming both versions and cargo xtask openapi"
+    );
+    pending_gold!(
+        openapi_check_leaves_the_file_unchanged,
+        "01-05",
+        "a failing --check leaves the file byte for byte"
+    );
+    pending_gold!(
+        openapi_check_accepts_a_current_description,
+        "01-05",
+        "--check passes on a current description"
+    );
+
+    // Rule 3: api-docs-page (slice 03, step 03-03).
+    pending_gold!(docs_page_clean_tree_passes, "03-03", "a clean tree passes");
+    pending_gold!(
+        docs_page_names_a_moved_route,
+        "03-03",
+        "a docs route other than /docs/api is named (clause i)"
+    );
+    pending_gold!(
+        docs_page_names_another_template_loading_swagger_ui,
+        "03-03",
+        "a second template referencing /static/vendor/swagger-ui- is named (clause ii)"
+    );
+    pending_gold!(
+        docs_page_names_a_remote_url_in_the_initializer,
+        "03-03",
+        "an http(s): or //host literal in api-docs.js is named (clause iii)"
+    );
+    pending_gold!(docs_page_names_a_missing_pinned_option, "03-03", "api-docs.js without validatorUrl \"none\", persistAuthorization or queryConfigEnabled false is named (clause iii)");
+    pending_gold!(docs_page_names_a_forbidden_initializer_name, "03-03", "urls:, configUrl, spec:, localStorage, sessionStorage or document.cookie in api-docs.js is named (clause iii)");
+    pending_gold!(
+        docs_page_names_inline_code_in_the_template,
+        "03-03",
+        "a script body, on<event>= or style= in api_docs.html is named (clause iv)"
+    );
+    pending_gold!(
+        docs_page_names_a_loose_script_policy,
+        "03-03",
+        "'unsafe-inline' or * in API_DOCS_CSP script-src is named (clause v)"
+    );
+    pending_gold!(
+        docs_page_names_a_remote_reference_in_the_css,
+        "03-03",
+        "an @import, @font-face or non-data: url( in swagger-ui.css is named (clause vi)"
+    );
+}

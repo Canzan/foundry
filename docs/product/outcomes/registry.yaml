@@ -1034,3 +1034,99 @@ outcomes:
   - OUT-28
   - OUT-30
   superseded_by: null
+- id: OUT-32
+  kind: operation
+  summary: Every instance serves its own OpenAPI description of /api/v1, with no credential,
+    byte-identical to the committed file
+  feature: api-openapi-document
+  inputs:
+  - shape: 'GET /api/v1/openapi.json (any credential or none; HEAD too); any other method on
+      that address'
+  output:
+    shape: '200 application/json, Cache-Control no-cache: an OpenAPI 3.1.0 document (info.title
+      "Foundry API v1", info.version = the release the footer shows, servers [{url: "/"}], the
+      machineToken bearer scheme and the Error envelope with the D14 copy), bytes equal to
+      crates/foundry-api/openapi.json for every caller and every instance on one release, naming
+      nothing of the instance; never 401 (D8). Any method other than GET or HEAD answers the
+      catch-all 404 envelope byte for byte, with no Allow'
+  keywords:
+  - openapi
+  - api
+  - description
+  - contract
+  - public
+  artifact: crates/foundry-acceptance/tests/features/api-openapi-document-01-served-description.feature
+  related:
+  - OUT-33
+  - OUT-34
+  superseded_by: null
+- id: OUT-33
+  kind: invariant
+  summary: The API description equals the code; CI refuses a change that makes it lie
+  feature: api-openapi-document
+  inputs:
+  - shape: 'routes() and the handlers in crates/foundry-api/src, ServiceError reachability
+      through status_for, the wire structs, crates/foundry-api/openapi.json'
+  output:
+    shape: 'cargo xtask check-arch (api-openapi-operations, api-openapi-statuses) and the
+      foundry-api openapi unit tests (schemars shapes, OAS 3.1 validity, info.version) fail,
+      naming the operation, the status and the field, on any drift in address, method, path
+      parameter, body, answer, error code, envelope or release; a wording-only edit passes; after
+      slice 02 every /api/v1 operation is described (no pending list) and every deterministic
+      answer the server gives matches its documented status, body and code'
+  keywords:
+  - drift
+  - openapi
+  - check-arch
+  - contract
+  - statuses
+  artifact: crates/foundry-acceptance/tests/features/api-openapi-document-01-drift-check.feature
+  related:
+  - OUT-32
+  - OUT-35
+  superseded_by: null
+- id: OUT-34
+  kind: invariant
+  summary: The self-hosted API page loads nothing from another origin and keeps a pasted token
+    in the tab only
+  feature: api-openapi-document
+  inputs:
+  - shape: 'GET /docs/api (any query string), swagger-ui "Try it out" with a pasted machine
+      token, a reload'
+  output:
+    shape: 'A public page, no Set-Cookie, the page-only content policy and companion headers;
+      the vendored swagger-ui 5.33.3 files and api-docs.js served as the repository holds them;
+      every request goes to the instance''s own origin; ?url= and ?configUrl= are ignored; the
+      token is sent only as Authorization: Bearer to this origin and leaves no trace in storage,
+      cookies or the address; another site cannot frame the page; no other page loads its files'
+  keywords:
+  - swagger
+  - docs
+  - page
+  - csp
+  - token
+  artifact: crates/foundry-acceptance/tests/features/api-openapi-document-03-api-page.feature
+  related:
+  - OUT-32
+  superseded_by: null
+- id: OUT-35
+  kind: operation
+  summary: One command refreshes the committed description's release, and a read-only check
+    refuses a stale one
+  feature: api-openapi-document
+  inputs:
+  - shape: 'cargo xtask openapi [--root <dir>]; cargo xtask openapi --check [--root <dir>]'
+  output:
+    shape: 'The refresh rewrites info.version from crates/foundry-api/Cargo.toml and no other
+      byte, a second run changes nothing; --check changes nothing and fails on a stale
+      info.version naming both versions and "cargo xtask openapi" (the Dockerfile builder stage
+      runs it, DEVOPS R2)'
+  keywords:
+  - openapi
+  - release
+  - version
+  - xtask
+  artifact: crates/foundry-acceptance/tests/features/api-openapi-document-01-drift-check.feature
+  related:
+  - OUT-33
+  superseded_by: null

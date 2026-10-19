@@ -74,5 +74,6 @@ tempfile = { workspace = true }
 # walking-skeleton Then steps verify it is well-formed (manifest + 10 table
 # entries), not merely that a file exists. Same crate the export writer uses.
 tar = "0.4"
+jsonschema = { version = "0.59", default-features = false }
 
 [dev-dependencies]

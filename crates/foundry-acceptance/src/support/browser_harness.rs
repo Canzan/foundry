@@ -531,6 +531,71 @@ pub async fn unhandled_script_errors(client: &fantoccini::Client) -> Vec<String>
         .collect()
 }
 
+/// Every browser-log entry since the last read, of every source (api-openapi-
+/// document: content-policy refusals are logged with source `security` or
+/// `other`, not `javascript`, so [`unhandled_script_errors`] would not see
+/// them). Same recorder (the `goog:loggingPrefs` capability set at session
+/// creation), same DESTRUCTIVE read: each call returns a window.
+pub async fn browser_log(client: &fantoccini::Client) -> Vec<serde_json::Value> {
+    let port = ensure_chromedriver();
+    let session_id = client
+        .session_id()
+        .await
+        .expect("read the WebDriver session id")
+        .expect("the session must still be open to read its log");
+    let body: serde_json::Value = reqwest::Client::new()
+        .post(format!(
+            "http://{}:{port}/session/{session_id}/log",
+            driver_host()
+        ))
+        .json(&serde_json::json!({ "type": "browser" }))
+        .send()
+        .await
+        .expect("ask chromedriver for the browser log")
+        .json()
+        .await
+        .expect("chromedriver's browser log must be JSON");
+    body["value"].as_array().cloned().unwrap_or_else(|| {
+        panic!(
+            "chromedriver returned no browser-log array, so the recorder is not armed and \
+             `nothing was refused` would hold vacuously. Response: {body}"
+        )
+    })
+}
+
+/// Run one Chrome DevTools command in this session through chromedriver's
+/// vendor endpoint (`/session/{id}/goog/cdp/execute`), e.g.
+/// `Network.setBlockedURLs` (api-openapi-document: the "description cannot be
+/// loaded" scenario). Panics with the driver's answer when the command fails.
+pub async fn devtools(
+    client: &fantoccini::Client,
+    cmd: &str,
+    params: serde_json::Value,
+) -> serde_json::Value {
+    let port = ensure_chromedriver();
+    let session_id = client
+        .session_id()
+        .await
+        .expect("read the WebDriver session id")
+        .expect("the session must still be open to run a DevTools command");
+    let resp = reqwest::Client::new()
+        .post(format!(
+            "http://{}:{port}/session/{session_id}/goog/cdp/execute",
+            driver_host()
+        ))
+        .json(&serde_json::json!({ "cmd": cmd, "params": params }))
+        .send()
+        .await
+        .unwrap_or_else(|e| panic!("send the DevTools command {cmd}: {e}"));
+    let status = resp.status();
+    let body: serde_json::Value = resp.json().await.unwrap_or(serde_json::Value::Null);
+    assert!(
+        status.is_success(),
+        "the DevTools command {cmd} failed ({status}): {body}"
+    );
+    body["value"].clone()
+}
+
 /// The mobile device metrics every `open_mobile_session` injects — a mid-range
 /// phone's logical viewport (iPhone-12-class: 390×844 CSS px at DPR 3). ADR-003
 /// (the load-bearing test decision): headless `--headless=new` is DESKTOP Chrome,

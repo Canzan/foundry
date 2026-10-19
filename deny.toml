@@ -59,6 +59,10 @@ allow = [
     # BlueOak-1.0.0: synthez (transitive via cucumber). FSF-approved
     # permissive license, AGPL-compatible.
     "BlueOak-1.0.0",
+    # MIT-0: fluent-uri (transitive via jsonschema -> referencing, the
+    # foundry-acceptance matrix oracle, api-openapi-document DDD-12). MIT
+    # without the attribution clause; OSI-approved, AGPL-compatible.
+    "MIT-0",
 ]
 confidence-threshold = 0.8
 exceptions = []
