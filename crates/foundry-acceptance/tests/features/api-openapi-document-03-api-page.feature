@@ -50,45 +50,45 @@ Feature: An integrator reads the API and tries a call in a page served by their 
   # US-AOD-05: reading the API in the page
   # ---------------------------------------------------------------------------------------------
 
-  @pending @aod-03 @us-aod-05 @driving_port @needs-browser @kpi @contract-shape:pure-function
+  @aod-03 @us-aod-05 @driving_port @needs-browser @kpi @contract-shape:pure-function
   Scenario: An integrator reads every API operation in a page on their own instance
     When Sven opens the API page
     Then he sees the title "Foundry API" and the line "Foundry API v{running release}. The OpenAPI document is at /api/v1/openapi.json."
     And every operation of the API description is listed on the page
 
-  @pending @aod-03 @us-aod-05 @error @needs-browser @kpi @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-05 @error @needs-browser @kpi @contract-shape:unbounded-preservation
   Scenario: The API page loads nothing from another site
     When Sven opens the API page and it finishes loading
     Then every request the browser made went to the instance's own address
     And the browser refused nothing the page asked for
 
-  @pending @aod-03 @us-aod-05 @error @needs-browser @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-05 @error @needs-browser @contract-shape:unbounded-preservation
   Scenario: Another site cannot show the API page inside its own page
     Given a page on another site embeds the API page in a frame
     When Sven's browser opens that page
     Then the browser refuses to show the API page inside it
 
-  @pending @aod-03 @us-aod-05 @error @contract-shape:pure-function
+  @aod-03 @us-aod-05 @error @contract-shape:pure-function
   Scenario: The API page tells the browser to refuse anything from another site
     When a visitor asks for the API page
     Then the answer carries the content policy "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'"
     And the answer tells browsers never to frame it, never to guess its type and never to send a referrer
     And the description at /api/v1/openapi.json and the sign-in page carry no content policy
 
-  @pending @aod-03 @us-aod-05 @needs-browser @contract-shape:pure-function
+  @aod-03 @us-aod-05 @needs-browser @contract-shape:pure-function
   Scenario: The API page tells a visitor without scripting where the description is
     Given Priya's browser has scripting disabled
     When Priya opens the API page
     Then she reads "This page needs JavaScript. The OpenAPI document is at /api/v1/openapi.json." on the API page
     And "/api/v1/openapi.json" on the API page is a link to the description
 
-  @pending @aod-03 @us-aod-05 @error @needs-browser @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-05 @error @needs-browser @contract-shape:unbounded-preservation
   Scenario: The API page says so when the description cannot be loaded
     Given the API description cannot be loaded by Sven's browser
     When Sven opens the API page and it finishes loading
     Then Sven sees that the description could not be loaded, and the line naming /api/v1/openapi.json is still there
 
-  @pending @aod-03 @us-aod-05 @edge @needs-browser @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-05 @edge @needs-browser @contract-shape:unbounded-preservation
   Scenario: Other pages do not carry the API page's code
     Given Sven has opened the API page, which loaded its own files
     When Priya opens Backend's board in her browser
@@ -99,7 +99,7 @@ Feature: An integrator reads the API and tries a call in a page served by their 
     When Sven fetches every file the API page uses
     Then each answers with the bytes the repository holds for it
 
-  @pending @aod-03 @us-aod-05 @edge @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-05 @edge @contract-shape:unbounded-preservation
   Scenario: The API page is the same for everyone, and remembers no one
     When a visitor and Priya, signed in, each ask for the API page
     Then both get the same page, and neither answer sets a cookie

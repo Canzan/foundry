@@ -14,6 +14,7 @@
 
 pub mod admin_cli;
 pub mod admin_tokens;
+pub mod api_docs;
 pub mod attachments;
 pub mod bootstrap;
 pub mod clock;
@@ -823,6 +824,12 @@ pub fn build_router(state: AppState) -> Router {
             csrf::csrf_middleware,
         ))
         .layer(session_layer)
+        // api-openapi-document slice 03 (DDD-15, DDD-23) — the public API page.
+        // Merged AFTER `session_layer` so neither it nor `csrf_middleware` wraps
+        // it (it reads no session and sets no cookie), and BEFORE
+        // `request_tracking_layer` so it is counted like every route. Its
+        // content policy rides on its own route only (ADR-API-OPENAPI-004).
+        .merge(api_docs::routes::<AppState>())
         // Feature A (US-W05b) — the JSON `/api/v1` surface contributed by the
         // foundry-api driving adapter (api-contract.md §"Route surface"). It is
         // a PEER of the HTML routes over the shared `foundry-services` seam.

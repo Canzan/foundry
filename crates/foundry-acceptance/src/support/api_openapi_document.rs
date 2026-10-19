@@ -3186,9 +3186,10 @@ pub async fn then_every_operation_listed(world: &FoundryWorld) {
     let doc = description(world).await;
     let listed = script_with(
         world,
-        "return Array.from(document.querySelectorAll(arguments[0])).map(function (b) {
-           var m = b.querySelector(arguments[1]);
-           var p = b.querySelector(arguments[2]);
+        "var a = arguments;
+         return Array.from(document.querySelectorAll(a[0])).map(function (b) {
+           var m = b.querySelector(a[1]);
+           var p = b.querySelector(a[2]);
            return (m ? m.innerText : '').toLowerCase() + ' ' + (p ? (p.getAttribute('data-path') || p.innerText) : '');
          });",
         vec![

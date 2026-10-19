@@ -16,6 +16,12 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   minted (`/admin/tokens`, by a signed-in workspace admin). It is committed at
   `crates/foundry-api/openapi.json`, and CI fails when it stops matching the code, including
   when any operation is left undescribed.
+- **The API page at `/docs/api`**: every `/api/v1` operation, readable in the browser on your own
+  instance, with the release it describes and a link to `/api/v1/openapi.json` that stays when
+  scripting is off or the description cannot be loaded. No sign-in needed; it is the same for
+  everyone and sets no cookie. It is served from the instance's own vendored swagger-ui 5.33.3
+  and carries its own content policy, so the browser loads nothing from another site and no
+  other site can frame it. No other page changes.
 - **check-arch rule `api-openapi-operations`**: `cargo xtask check-arch` fails, naming the method,
   path and difference, when an `/api/v1` route, path parameter, request body or success answer
   disagrees with `crates/foundry-api/openapi.json`, or when a route cannot be read.

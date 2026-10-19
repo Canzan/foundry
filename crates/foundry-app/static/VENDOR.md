@@ -165,7 +165,19 @@ references, not calls: `"%eval%":eval` (get-intrinsic's table), `u.eval=`
 (an error-class factory) and two `"eval"` strings in highlight.js keyword
 lists. No `setTimeout`/`setInterval` with a string argument. **Step 1** — the
 real-browser probe under the strict policy — is DELIVER 03-02 (the
-`/docs/api` page); its result is recorded here when it runs.
+`/docs/api` page); its result follows.
+
+### Eval probe (OQ-D3 step 1) — browser, 2026-10-19
+
+`/docs/api` was served with the exact page policy (no `'unsafe-eval'`) and
+opened in the browser lane (`selenium/standalone-chrome`, headless Chrome, the
+browser log armed at session creation) by the scenario "The API page loads
+nothing from another site" (`FOUNDRY_ACCEPTANCE_TAGS=aod-03`, run alone before
+any other slice-03 scenario was un-pended). swagger-ui loaded its bundle,
+stylesheet, `api-docs.js` and `/api/v1/openapi.json` from the instance, and the
+browser logged **no content-policy refusal of any kind: no eval refusal, no
+`Refused to` line.** The five `Function` sites above were not reached. The
+policy ships unchanged; OQ-U4 is not asked.
 
 ## Derived assets — the three canzan typefaces (ADR-CANZAN-THEME-001 / -002)
 
