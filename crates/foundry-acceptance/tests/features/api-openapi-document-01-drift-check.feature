@@ -48,13 +48,13 @@ Feature: The maintainer cannot merge a change that makes the API description lie
   Background:
     Given the maintainer works in a copy of the current repository
 
-  @pending @aod-01 @us-aod-02 @driving_port @contract-shape:pure-function
+  @aod-01 @us-aod-02 @driving_port @contract-shape:pure-function
   Scenario: The drift check passes on the current tree, and says what it compared
     When the maintainer runs the drift check
     Then the drift check passes
     And it reports that it compared the API description with the code's routes, statuses and answer shapes
 
-  @pending @aod-01 @us-aod-02 @error @kpi @contract-shape:pure-function
+  @aod-01 @us-aod-02 @error @kpi @contract-shape:pure-function
   Scenario Outline: A field the description lacks fails the build
     When the maintainer adds a field "<field>" to <answer> and runs the drift check
     Then the drift check fails
@@ -65,7 +65,7 @@ Feature: The maintainer cannot merge a change that makes the API description lie
       | priority | the issue answer  | listing a project's issues and its 200 answer   |
       | hint     | the error answer  | the error answer                                |
 
-  @pending @aod-01 @us-aod-02 @error @kpi @contract-shape:pure-function
+  @aod-01 @us-aod-02 @error @kpi @contract-shape:pure-function
   Scenario: An answer the description does not list fails the build
     When the maintainer makes listing a project's issues able to answer 409 and runs the drift check
     Then the drift check fails
@@ -89,7 +89,7 @@ Feature: The maintainer cannot merge a change that makes the API description lie
     Then the drift check fails
     And it names the description's version and the running release, and says to run "cargo xtask openapi"
 
-  @pending @aod-01 @us-aod-02 @edge @contract-shape:pure-function
+  @aod-01 @us-aod-02 @edge @contract-shape:pure-function
   Scenario: A wording-only change to the description passes
     When the maintainer rewords the description of listing a project's issues and runs the drift check
     Then the drift check passes

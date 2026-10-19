@@ -31,6 +31,12 @@
 //!                          describes, failing closed on a route it cannot read;
 //!                          only `PENDING_OPERATIONS` may be undescribed
 //!                          (api-openapi-document ADR-API-OPENAPI-001, DDD-14).
+//!       * api-openapi-statuses — each described operation's statuses, body
+//!                          kinds and error codes, derived from the code by
+//!                          lexical reachability (handler and extractor →
+//!                          use-cases → `ServiceError` tokens → `status_for`'s
+//!                          arms), equal the description's; anything it cannot
+//!                          read fails closed (ADR-API-OPENAPI-002).
 //!     On a violation it NAMES the offending file + line and exits non-zero.
 //!
 //!   LAYER 2 — `cargo-deny` crate-graph dependency-direction (delegated). Runs
@@ -44,7 +50,7 @@
 //! passes `--root <copy>` pointing at a throwaway tree with a planted
 //! violation, proving the guard bites (Principle 12c self-application).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
@@ -115,6 +121,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_project_lifecycle_live_reads(root));
     violations.extend(check_store_natural_key_scoped(root));
     violations.extend(check_api_openapi_operations(root));
+    violations.extend(check_api_openapi_statuses(root));
     violations
 }
 
@@ -153,7 +160,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with only the operations on PENDING_OPERATIONS undescribed (api-openapi-operations), dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with only the operations on PENDING_OPERATIONS undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -9968,11 +9975,21 @@ struct CodeOperation {
     template: String,
     handler: String,
     location: String,
+    /// Chained on the reviewed `any(api_not_found_handler)` (the description's
+    /// own route): every other method answers the catch-all 404, never a 405.
+    beside_any: bool,
 }
 
 impl CodeOperation {
     fn label(&self) -> String {
         format!("{} {}", self.method.to_ascii_uppercase(), self.template)
+    }
+
+    /// DDD-14: on the pending list, so neither description rule compares it.
+    fn is_pending(&self, pending: &[(&str, &str)]) -> bool {
+        pending.iter().any(|(method, path)| {
+            method.eq_ignore_ascii_case(&self.method) && *path == self.template
+        })
     }
 }
 
@@ -10054,13 +10071,13 @@ impl ApiCode {
         };
         if reviewed_any {
             for link in &chain[1..] {
-                self.add_operation(location, &path, link);
+                self.add_operation(location, &path, link, true);
             }
             return;
         }
         for link in &chain {
             if API_METHODS.contains(&link.name.as_str()) {
-                self.add_operation(location, &path, link);
+                self.add_operation(location, &path, link, false);
             } else {
                 self.violations.push(operations_violation(&format!(
                     "the route `{path}` at {location} chains `{}({})`; only get/post/patch/put/delete are compared with the description (an `any(` belongs only to {API_CATCH_ALL} and, under its `get`, to {API_DESCRIPTION_ROUTE}; a `.fallback(` to none)",
@@ -10070,12 +10087,13 @@ impl ApiCode {
         }
     }
 
-    fn add_operation(&mut self, location: &str, path: &str, link: &MethodLink) {
+    fn add_operation(&mut self, location: &str, path: &str, link: &MethodLink, beside_any: bool) {
         self.operations.push(CodeOperation {
             method: link.name.clone(),
             template: path.to_string(),
             handler: link.handler.clone(),
             location: location.to_string(),
+            beside_any,
         });
     }
 
@@ -10095,14 +10113,9 @@ impl ApiCode {
     /// Clause (i), then (ii)-(iv) for each operation both sides have.
     fn compare(&self, description: &ApiDescription, pending: &[(&str, &str)]) -> Vec<String> {
         let mut violations = Vec::new();
-        let is_pending = |op: &CodeOperation| {
-            pending.iter().any(|(method, path)| {
-                method.eq_ignore_ascii_case(&op.method) && *path == op.template
-            })
-        };
         for op in &self.operations {
             let described = description.operation(&op.method, &op.template);
-            let difference = match (is_pending(op), described) {
+            let difference = match (op.is_pending(pending), described) {
                 (true, None) => continue,
                 (true, Some(_)) => vec![
                     "is described but still on PENDING_OPERATIONS; take it off the list"
@@ -10542,6 +10555,932 @@ impl Described<'_> {
             )
         })
     }
+}
+
+// ---------------------------------------------------------------------------
+// api-openapi-statuses (api-openapi-document slice 01, ADR-API-OPENAPI-002)
+// ---------------------------------------------------------------------------
+//
+// For each described operation, the answers the code can give (status, body
+// kind, error codes) equal the ones the description lists. The transport set
+// is read from the handler's signature and route; the domain set by lexical,
+// conservative reachability: from the handler body and, for a bearer
+// operation, the `MachinePrincipal` extractor, every call to a crate `fn` of
+// foundry-api or foundry-services is followed (same-named definitions
+// unioned), every `ServiceError::<Variant>` token and literal Validation
+// `code` collected, and each variant mapped through `status_for`'s parsed
+// arms. The walk only grows the set. Its limit: an error produced with no
+// lexical trace (inside a macro expansion, through a trait object) is not
+// seen; every form it can recognise but not read fails closed instead
+// (the soundness clause), and the acceptance requests are the backstop.
+
+/// Reviewed exemptions, `(operation, status, reason)`, for a status the walk
+/// over-approximates. Empty at design time; adding a row is a reviewed change.
+const STATUSES_EXEMPTIONS: &[(&str, &str, &str)] = &[];
+
+const SERVICES_SRC: &str = "crates/foundry-services/src";
+const API_SRC: &str = "crates/foundry-api/src";
+/// Bodies the walk never enters: `status_for` is the map variants go through,
+/// not a place they arise, and the catch-all is not an operation (D15).
+const UNWALKED_FNS: [&str; 2] = ["status_for", "api_not_found_handler"];
+const BEARER_EXTRACTOR: &str = "MachinePrincipal";
+const EXTRACTOR_START: &str = "from_request_parts";
+const RATE_GUARD: &str = "RevokeRateGuard";
+const RATE_LIMITED_FN: &str = "rate_limited_response";
+const ERROR_SCHEMA: &str = "#/components/schemas/Error";
+const SHARED_RESPONSES: &str = "#/components/responses/";
+
+/// Rule `api-openapi-statuses` (DESIGN [REF] check-arch Rules, rule 2).
+fn check_api_openapi_statuses(root: &Path) -> Vec<String> {
+    api_openapi_statuses(root, PENDING_OPERATIONS)
+}
+
+/// The rule with its pending list as an input (DDD-14), as rule 1 takes it.
+fn api_openapi_statuses(root: &Path, pending: &[(&str, &str)]) -> Vec<String> {
+    let code = ApiCode::read(root);
+    let flow = ErrorFlow::read(root);
+    let map = StatusMap::read(&flow);
+    let mut violations: BTreeSet<String> = flow.soundness_violations().into_iter().collect();
+    violations.extend(map.violations.iter().cloned());
+    let description = match ApiDescription::read(root) {
+        Ok(description) => description,
+        Err(unreadable) => {
+            violations.insert(statuses_violation(&unreadable));
+            return violations.into_iter().collect();
+        }
+    };
+    let describes_any = !description.operations().is_empty();
+    if describes_any && !description.document["components"]["responses"]["NotFound"].is_object() {
+        violations.insert(statuses_violation(&format!(
+            "{API_DESCRIPTION_FILE} has no shared components.responses.NotFound, the answer of the {API_CATCH_ALL} catch-all"
+        )));
+    }
+    for op in code.operations.iter().filter(|op| !op.is_pending(pending)) {
+        let (Some(described), Ok(handler)) = (
+            description.operation(&op.method, &op.template),
+            code.handler(&op.handler),
+        ) else {
+            continue; // undescribed or unresolvable: rule 1 names it
+        };
+        violations.extend(map.missing.iter().cloned());
+        match flow.answers(&code, op, handler, &map) {
+            Ok(answers) => violations.extend(answers.compare(op, &description, described)),
+            Err(unreadable) => violations.extend(unreadable),
+        }
+    }
+    violations.into_iter().collect()
+}
+
+fn statuses_violation(text: &str) -> String {
+    format!("api-openapi-statuses: {text}")
+}
+
+fn soundness_violation(location: &str, text: &str) -> String {
+    statuses_violation(&format!(
+        "{location} {text}; the rule cannot see what it produces, so it fails closed (soundness clause, ADR-API-OPENAPI-002)"
+    ))
+}
+
+/// How an answer's body is described (ADR-API-OPENAPI-002 "equals").
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum BodyKind {
+    Envelope,
+    PlainText,
+    Empty,
+}
+
+impl BodyKind {
+    fn label(self) -> &'static str {
+        match self {
+            BodyKind::Envelope => "the application/json Error envelope",
+            BodyKind::PlainText => "text/plain",
+            BodyKind::Empty => "no body",
+        }
+    }
+
+    fn labels(kinds: &BTreeSet<BodyKind>) -> String {
+        let labels: Vec<&str> = kinds.iter().map(|kind| kind.label()).collect();
+        labels.join(" and ")
+    }
+}
+
+/// One status of one operation: its body kinds, its envelope codes, and (on
+/// the code side) why the code can give it.
+#[derive(Default)]
+struct Answer {
+    kinds: BTreeSet<BodyKind>,
+    codes: BTreeSet<String>,
+    because: BTreeSet<String>,
+}
+
+/// An operation's non-success answers by status.
+#[derive(Default)]
+struct Answers(BTreeMap<u16, Answer>);
+
+impl Answers {
+    fn add(&mut self, status: u16, kind: BodyKind, codes: &BTreeSet<String>, because: String) {
+        let answer = self.0.entry(status).or_default();
+        answer.kinds.insert(kind);
+        answer.codes.extend(codes.iter().cloned());
+        answer.because.insert(because);
+    }
+
+    /// Both directions: status keys, then each shared status's body kinds and
+    /// envelope codes. 2xx answers are rule 1's.
+    fn compare(
+        &self,
+        op: &CodeOperation,
+        description: &ApiDescription,
+        described: Described<'_>,
+    ) -> Vec<String> {
+        let label = format!("{} ({})", op.label(), op.location);
+        let documented = match description.answers(described) {
+            Ok(documented) => documented,
+            Err(unreadable) => return vec![statuses_violation(&format!("{label} {unreadable}"))],
+        };
+        let exempt = |status: &u16| {
+            STATUSES_EXEMPTIONS
+                .iter()
+                .any(|(operation, code, _)| *operation == op.label() && *code == status.to_string())
+        };
+        let mut differences = Vec::new();
+        for (status, answer) in self.0.iter().filter(|(status, _)| !exempt(status)) {
+            let kinds = BodyKind::labels(&answer.kinds);
+            let because: Vec<&str> = answer.because.iter().map(String::as_str).collect();
+            let because = because.join("; ");
+            let Some(listed) = documented.0.get(status) else {
+                differences.push(format!(
+                    "can answer {status} with {kinds} in the code ({because}), but the description does not list {status}"
+                ));
+                continue;
+            };
+            if listed.kinds != answer.kinds {
+                differences.push(format!(
+                    "answers {status} with {kinds} in the code ({because}) but with {} in the description",
+                    BodyKind::labels(&listed.kinds)
+                ));
+            } else if listed.codes != answer.codes {
+                differences.push(format!(
+                    "answers {status} with the error code(s) {:?} in the code ({because}) but the description's examples list {:?}",
+                    answer.codes, listed.codes
+                ));
+            }
+        }
+        for status in documented
+            .0
+            .keys()
+            .filter(|s| !self.0.contains_key(s) && !exempt(s))
+        {
+            differences.push(format!(
+                "lists {status} in the description, but the code cannot answer it"
+            ));
+        }
+        differences
+            .into_iter()
+            .map(|difference| statuses_violation(&format!("{label} {difference}")))
+            .collect()
+    }
+}
+
+impl ApiDescription {
+    /// The described non-success answers, `$ref`s resolved.
+    fn answers(&self, described: Described<'_>) -> Result<Answers, String> {
+        let mut answers = Answers::default();
+        for (key, response) in described.operation["responses"]
+            .as_object()
+            .into_iter()
+            .flatten()
+        {
+            if key.starts_with('2') {
+                continue;
+            }
+            let status: u16 = key.parse().map_err(|_| {
+                format!(
+                    "lists the response key `{key}`, which is not a status the rule can compare"
+                )
+            })?;
+            let response = self.resolve_response(response)?;
+            let answer = answers.0.entry(status).or_default();
+            match response["content"].as_object().filter(|c| !c.is_empty()) {
+                None => {
+                    answer.kinds.insert(BodyKind::Empty);
+                }
+                Some(content) => {
+                    for (media, entry) in content {
+                        match media.as_str() {
+                            "text/plain" => answer.kinds.insert(BodyKind::PlainText),
+                            "application/json" if entry["schema"]["$ref"] == ERROR_SCHEMA => {
+                                let codes = entry["examples"].as_object().into_iter().flatten();
+                                answer.codes.extend(codes.map(|(code, _)| code.clone()));
+                                answer.kinds.insert(BodyKind::Envelope)
+                            }
+                            _ => {
+                                return Err(format!(
+                                    "describes {status} with the content `{media}` {}, which is neither text/plain nor the Error envelope",
+                                    entry["schema"]
+                                ))
+                            }
+                        };
+                    }
+                }
+            }
+        }
+        Ok(answers)
+    }
+
+    fn resolve_response<'a>(
+        &'a self,
+        response: &'a serde_json::Value,
+    ) -> Result<&'a serde_json::Value, String> {
+        let Some(reference) = response["$ref"].as_str() else {
+            return Ok(response);
+        };
+        reference
+            .strip_prefix(SHARED_RESPONSES)
+            .map(|name| &self.document["components"]["responses"][name])
+            .filter(|shared| shared.is_object())
+            .ok_or_else(|| {
+                format!(
+                    "refers to the response `{reference}`, which the description does not define"
+                )
+            })
+    }
+}
+
+/// One Rust source of foundry-api or foundry-services, comments, literals and
+/// `#[cfg(test)]` items blanked (a test cannot raise a production status).
+struct CrateFile {
+    rel: String,
+    in_api: bool,
+    code: String,
+    literals: Vec<RustLiteral>,
+    starts: Vec<usize>,
+}
+
+impl CrateFile {
+    fn read(root: &Path, file: &Path, in_api: bool) -> Option<Self> {
+        let contents = std::fs::read_to_string(file).ok()?;
+        let source = RustSource::scan(&contents);
+        let code = blank_test_items(source.code);
+        Some(CrateFile {
+            rel: rel(root, file),
+            in_api,
+            starts: line_starts(&code),
+            code,
+            literals: source.literals,
+        })
+    }
+
+    fn location(&self, at: usize) -> String {
+        format!("{}:{}", self.rel, line_of(&self.starts, at))
+    }
+
+    fn literal_at(&self, at: usize) -> Option<&RustLiteral> {
+        self.literals.iter().find(|literal| literal.start == at)
+    }
+
+    /// Every word occurrence of `word` in `[from, to)`.
+    fn words(&self, word: &str, from: usize, to: usize) -> Vec<usize> {
+        let mut found = Vec::new();
+        let mut at = from;
+        while let Some(hit) = find_sql_word(&self.code, word, at).filter(|&hit| hit < to) {
+            found.push(hit);
+            at = hit + word.len();
+        }
+        found
+    }
+
+    /// `ServiceError::<Variant>` at `at` (the word's offset): the variant and
+    /// where it ends.
+    fn variant_at(&self, at: usize) -> Option<(String, usize)> {
+        let bytes = self.code.as_bytes();
+        let colons = skip_whitespace(bytes, at + "ServiceError".len());
+        if !self.code[colons..].starts_with("::") {
+            return None;
+        }
+        let start = skip_whitespace(bytes, colons + 2);
+        let end = ident_end(bytes, start);
+        let variant = &self.code[start..end];
+        variant
+            .starts_with(|c: char| c.is_ascii_uppercase())
+            .then(|| (variant.to_string(), end))
+    }
+
+    /// The `code:` literal of the `ServiceError::Validation { … }` whose
+    /// variant ends at `end`, or why it cannot be read.
+    fn validation_code(&self, end: usize) -> Result<String, String> {
+        let bytes = self.code.as_bytes();
+        let open = skip_whitespace(bytes, end);
+        let close = (bytes.get(open) == Some(&b'{'))
+            .then(|| matching_brace(bytes, open))
+            .flatten();
+        let field = close.and_then(|close| self.words("code", open, close).first().copied());
+        let value = field.and_then(|field| {
+            let colon = skip_whitespace(bytes, field + "code".len());
+            (bytes.get(colon) == Some(&b':') && bytes.get(colon + 1) != Some(&b':'))
+                .then(|| skip_whitespace(bytes, colon + 1))
+        });
+        match value.and_then(|value| self.literal_at(value)) {
+            Some(literal) => Ok(literal.text.clone()),
+            None => Err(soundness_violation(
+                &self.location(end),
+                "builds a ServiceError::Validation whose `code` is not a string literal",
+            )),
+        }
+    }
+
+    /// Every call in `[from, to)`: `name(`, `path::name(`, `.name(`, or a
+    /// `name::<…>` turbofish. A `fn name(` definition reads as a call too:
+    /// following it only re-enters same-named functions, so the set can grow
+    /// but never shrink.
+    fn calls(&self, from: usize, to: usize) -> Vec<Call> {
+        let bytes = self.code.as_bytes();
+        let mut calls = Vec::new();
+        let mut at = from;
+        while at < to {
+            let start = at;
+            at = ident_end(bytes, at);
+            if at == start {
+                at += 1;
+                continue;
+            }
+            let next = skip_whitespace(bytes, at);
+            if bytes.get(next) == Some(&b'(') || self.code[next..].starts_with("::<") {
+                calls.push(Call {
+                    name: self.code[start..at].to_string(),
+                    at: start,
+                    receiver: Receiver::of(receiver_name(&self.code, start)),
+                });
+            }
+        }
+        calls
+    }
+}
+
+fn is_rust_ident_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || byte == b'_'
+}
+
+fn ident_end(bytes: &[u8], mut at: usize) -> usize {
+    while bytes.get(at).is_some_and(|&b| is_rust_ident_byte(b)) {
+        at += 1;
+    }
+    at
+}
+
+fn skip_whitespace_back(bytes: &[u8], mut at: usize) -> usize {
+    while at > 0 && bytes[at - 1].is_ascii_whitespace() {
+        at -= 1;
+    }
+    at
+}
+
+/// The identifier right before the `.` of a method call whose name starts at
+/// `at` (`store` in `store\n    .find(`), or `""` for any other call.
+fn receiver_name(code: &str, at: usize) -> &str {
+    let bytes = code.as_bytes();
+    let dot = skip_whitespace_back(bytes, at);
+    if dot == 0 || bytes[dot - 1] != b'.' {
+        return "";
+    }
+    let end = skip_whitespace_back(bytes, dot - 1);
+    let mut start = end;
+    while start > 0 && is_rust_ident_byte(bytes[start - 1]) {
+        start -= 1;
+    }
+    &code[start..end]
+}
+
+/// What a call is made on, for the two receivers the walk treats specially.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Receiver {
+    /// A free or path call, or a method on anything else.
+    Path,
+    /// A method on a `Store` value (`store.…(`, `self.store.…(`): not
+    /// followed, because a store error reaches `ServiceError` only through a
+    /// token the caller holds. A later link of the chain is followed like any
+    /// call, which can only grow the set.
+    Store,
+    /// `services.<method>(`: must be a method of `impl Services`.
+    Services,
+}
+
+impl Receiver {
+    fn of(receiver: &str) -> Self {
+        match receiver {
+            "store" => Receiver::Store,
+            "services" => Receiver::Services,
+            _ => Receiver::Path,
+        }
+    }
+}
+
+struct Call {
+    name: String,
+    at: usize,
+    receiver: Receiver,
+}
+
+/// Blank every `#[cfg(test)]` item: through its block, or its `;`.
+fn blank_test_items(code: String) -> String {
+    const ATTRIBUTE: &str = "#[cfg(test)]";
+    let mut bytes = code.into_bytes();
+    let mut from = 0;
+    while let Some(at) = bytes[from..]
+        .windows(ATTRIBUTE.len())
+        .position(|window| window == ATTRIBUTE.as_bytes())
+        .map(|offset| from + offset)
+    {
+        let opens = bytes[at..].iter().position(|&b| b == b'{' || b == b';');
+        let end = match opens.map(|offset| at + offset) {
+            Some(open) if bytes[open] == b'{' => {
+                matching_brace(&bytes, open).unwrap_or(bytes.len())
+            }
+            Some(semicolon) => semicolon,
+            None => bytes.len(),
+        };
+        for byte in bytes.iter_mut().take(end).skip(at) {
+            if *byte != b'\n' {
+                *byte = b' ';
+            }
+        }
+        from = end;
+    }
+    String::from_utf8(bytes).unwrap_or_default()
+}
+
+/// A crate `fn` the walk can enter.
+struct CrateFn {
+    file: usize,
+    name: String,
+    body: (usize, usize),
+}
+
+/// What a walk reached: the variants, the Validation codes, and every form it
+/// could not read.
+#[derive(Default)]
+struct Reach {
+    variants: BTreeSet<String>,
+    codes: BTreeSet<String>,
+    unreadable: Vec<String>,
+}
+
+/// The `ServiceError` flow through foundry-api and foundry-services.
+struct ErrorFlow {
+    files: Vec<CrateFile>,
+    fns: Vec<CrateFn>,
+    facade: BTreeSet<String>,
+}
+
+impl ErrorFlow {
+    fn read(root: &Path) -> Self {
+        let mut flow = ErrorFlow {
+            files: Vec::new(),
+            fns: Vec::new(),
+            facade: BTreeSet::new(),
+        };
+        for (dir, in_api) in [(SERVICES_SRC, false), (API_SRC, true)] {
+            for file in rust_sources(&root.join(dir)) {
+                if let Some(crate_file) = CrateFile::read(root, &file, in_api) {
+                    flow.add(crate_file);
+                }
+            }
+        }
+        flow
+    }
+
+    fn add(&mut self, file: CrateFile) {
+        let index = self.files.len();
+        let spans = fn_spans(&file.code);
+        if !file.in_api {
+            let facade = impl_blocks(&file.code)
+                .into_iter()
+                .filter(|(header, _, _)| {
+                    impl_target(header) == "Services" && !header.contains(" for ")
+                });
+            for (_, open, close) in facade {
+                let methods = spans.iter().filter(|span| (open..close).contains(&span.at));
+                self.facade.extend(methods.map(|span| span.name.clone()));
+            }
+        }
+        self.fns.extend(spans.into_iter().map(|span| CrateFn {
+            file: index,
+            name: span.name,
+            body: span.body,
+        }));
+        self.files.push(file);
+    }
+
+    fn named(&self, name: &str, api_only: bool) -> Vec<usize> {
+        (0..self.fns.len())
+            .filter(|&i| {
+                self.fns[i].name == name && (!api_only || self.files[self.fns[i].file].in_api)
+            })
+            .collect()
+    }
+
+    /// The forms anywhere in both crates that would let a variant arise, or
+    /// be named, with no `ServiceError::<Variant>` token for the walk to see.
+    fn soundness_violations(&self) -> Vec<String> {
+        let mut violations = Vec::new();
+        for file in &self.files {
+            for at in file.words("ServiceError", 0, file.code.len()) {
+                violations.extend(reference_violation(file, at));
+            }
+            for (header, open, close) in impl_blocks(&file.code) {
+                if impl_target(&header) != "ServiceError" {
+                    continue;
+                }
+                let header = header.split_whitespace().collect::<Vec<_>>().join(" ");
+                if header.contains("From<") {
+                    violations.push(soundness_violation(
+                        &file.location(open),
+                        &format!("converts into ServiceError (`{header}`), so a variant can arise from `?` with no token"),
+                    ));
+                } else if let Some(offset) = file.code[open..close].find("Self::") {
+                    violations.push(soundness_violation(
+                        &file.location(open + offset),
+                        "names a variant as `Self::` inside an impl of ServiceError",
+                    ));
+                }
+            }
+            let bytes = file.code.as_bytes();
+            for at in file.words("enum", 0, file.code.len()) {
+                let name = skip_whitespace(bytes, at + "enum".len());
+                let open = skip_whitespace(bytes, name + "ServiceError".len());
+                if !file.code[name..].starts_with("ServiceError") || bytes.get(open) != Some(&b'{')
+                {
+                    continue;
+                }
+                let close = matching_brace(bytes, open).unwrap_or(file.code.len());
+                if file.code[open..close].contains("#[from]") {
+                    violations.push(soundness_violation(
+                        &file.location(open),
+                        "declares a ServiceError variant `#[from]`, a conversion",
+                    ));
+                }
+            }
+        }
+        violations
+    }
+
+    /// Walk from `starts`, following crate calls to a fixed point.
+    fn reach(&self, starts: Vec<usize>) -> Reach {
+        let mut reach = Reach::default();
+        let mut seen = BTreeSet::new();
+        let mut queue = starts;
+        while let Some(index) = queue.pop() {
+            if !seen.insert(index) {
+                continue;
+            }
+            let function = &self.fns[index];
+            let file = &self.files[function.file];
+            let (from, to) = function.body;
+            for at in file.words("ServiceError", from, to) {
+                let Some((variant, end)) = file.variant_at(at) else {
+                    continue; // named by the soundness scan
+                };
+                if variant == "Validation" {
+                    match file.validation_code(end) {
+                        Ok(code) => {
+                            reach.codes.insert(code);
+                        }
+                        Err(unreadable) => reach.unreadable.push(unreadable),
+                    }
+                }
+                reach.variants.insert(variant);
+            }
+            for call in file.calls(from, to) {
+                if call.receiver == Receiver::Store || UNWALKED_FNS.contains(&call.name.as_str()) {
+                    continue;
+                }
+                if call.receiver == Receiver::Services && !self.facade.contains(&call.name) {
+                    reach.unreadable.push(soundness_violation(
+                        &file.location(call.at),
+                        &format!("calls `services.{}(`, which no `impl Services` method in {SERVICES_SRC} defines", call.name),
+                    ));
+                    continue;
+                }
+                queue.extend(self.named(&call.name, false));
+            }
+        }
+        reach
+    }
+
+    /// The answers `op` can give: transport from its handler and route, then
+    /// the domain set its walk reaches, mapped through `status_for`.
+    fn answers(
+        &self,
+        code: &ApiCode,
+        op: &CodeOperation,
+        handler: &Handler,
+        map: &StatusMap,
+    ) -> Result<Answers, Vec<String>> {
+        let mut answers = Answers::default();
+        let mut variants: Vec<(String, String)> = Vec::new();
+        let mut starts = self.named(&op.handler, true);
+        let none = BTreeSet::new();
+        if generic_argument(&handler.returns, "Result").is_some_and(|r| r.contains("ApiError")) {
+            variants.push(("Internal".into(), "its ApiError error type".into()));
+        }
+        if find_sql_word(&handler.params, BEARER_EXTRACTOR, 0).is_some() {
+            let extractor = self.named(EXTRACTOR_START, true);
+            if extractor.is_empty() {
+                return Err(vec![statuses_violation(&format!(
+                    "{} ({}) takes {BEARER_EXTRACTOR}, but no `fn {EXTRACTOR_START}` in {API_SRC} can be walked; the rule fails closed",
+                    op.label(), op.location
+                ))]);
+            }
+            starts.extend(extractor);
+            variants.push((
+                "Unauthorized".into(),
+                format!("its {BEARER_EXTRACTOR} extractor"),
+            ));
+        }
+        if let Ok(parameters) = handler.path_parameters(&op.template) {
+            if parameters.iter().any(|p| p.rust != "String") {
+                answers.add(
+                    400,
+                    BodyKind::PlainText,
+                    &none,
+                    "its Path<…> holds a segment that may not parse".into(),
+                );
+            }
+        }
+        if let Some(body) = handler.request_body() {
+            for status in [400, 413, 415, 422] {
+                answers.add(
+                    status,
+                    BodyKind::PlainText,
+                    &none,
+                    format!("its Json<{body}> body: 400, 413, 415 and 422 in text/plain"),
+                );
+            }
+        }
+        if find_sql_word(&handler.params, RATE_GUARD, 0).is_some() {
+            let codes = BTreeSet::from([map.rate_limited.clone().map_err(|e| vec![e])?]);
+            answers.add(
+                429,
+                BodyKind::Envelope,
+                &codes,
+                format!("its {RATE_GUARD} answers {RATE_LIMITED_FN}()"),
+            );
+        }
+        let offered = code
+            .operations
+            .iter()
+            .filter(|other| other.template == op.template)
+            .count();
+        if op.beside_any {
+            variants.push((
+                "NotFound".into(),
+                "its route's any(api_not_found_handler)".into(),
+            ));
+        } else if offered < API_METHODS.len() {
+            answers.add(
+                405,
+                BodyKind::Empty,
+                &none,
+                format!(
+                    "its path offers {offered} of the {} methods",
+                    API_METHODS.len()
+                ),
+            );
+        }
+        let reach = self.reach(starts);
+        if !reach.unreadable.is_empty() {
+            return Err(reach.unreadable);
+        }
+        variants.extend(reach.variants.iter().map(|variant| {
+            (
+                variant.clone(),
+                format!("`ServiceError::{variant}` is reachable from its handler or extractor"),
+            )
+        }));
+        let mut unmapped = Vec::new();
+        for (variant, because) in variants {
+            match map.arms.get(&variant).map(|arm| (arm.status, arm.code.clone())) {
+                Some((status, Some(code))) => {
+                    answers.add(status, BodyKind::Envelope, &BTreeSet::from([code]), because)
+                }
+                Some((status, None)) => {
+                    answers.add(status, BodyKind::Envelope, &reach.codes, format!("{because}, with the code(s) {:?}", reach.codes))
+                }
+                None => unmapped.push(statuses_violation(&format!(
+                    "{} ({}) can raise ServiceError::{variant} ({because}), but status_for has no readable arm for it",
+                    op.label(), op.location
+                ))),
+            }
+        }
+        if unmapped.is_empty() {
+            Ok(answers)
+        } else {
+            Err(unmapped)
+        }
+    }
+}
+
+/// `impl … {` blocks: the header text and the block's brace offsets.
+fn impl_blocks(code: &str) -> Vec<(String, usize, usize)> {
+    let bytes = code.as_bytes();
+    let mut blocks = Vec::new();
+    let mut from = 0;
+    while let Some(at) = find_sql_word(code, "impl", from) {
+        from = at + "impl".len();
+        let Some(open) = code[from..].find(['{', ';']).map(|i| from + i) else {
+            break;
+        };
+        if bytes[open] == b'{' {
+            let close = matching_brace(bytes, open).unwrap_or(code.len());
+            blocks.push((code[at..open].to_string(), open, close));
+        }
+    }
+    blocks
+}
+
+/// The type an `impl` header implements on: `impl From<X> for a::T` → `T`.
+fn impl_target(header: &str) -> &str {
+    let target = header.split_whitespace().last().unwrap_or_default();
+    target.rsplit("::").next().unwrap_or(target)
+}
+
+/// A `ServiceError` reference that is not `ServiceError::<Variant>` or a type:
+/// a glob or brace import, a lowercase path, or an alias.
+fn reference_violation(file: &CrateFile, at: usize) -> Option<String> {
+    let bytes = file.code.as_bytes();
+    let after = skip_whitespace(bytes, at + "ServiceError".len());
+    let rest = &file.code[after..];
+    let form = if let Some(path) = rest.strip_prefix("::") {
+        let path = path.trim_start();
+        (!path.starts_with(|c: char| c.is_ascii_uppercase())).then(|| {
+            let shown: String = path.chars().take_while(|&c| !c.is_whitespace() && c != ';').collect();
+            format!("refers to `ServiceError::{shown}`; only ServiceError::<Variant> is read, and a glob or brace import hides variants from the walk")
+        })
+    } else if find_sql_word(rest, "as", 0) == Some(0) {
+        Some("imports ServiceError under an alias (`ServiceError as …`), which hides its variants from the walk".to_string())
+    } else {
+        let statement = file.code[..at]
+            .rsplit([';', '{', '}'])
+            .next()
+            .unwrap_or_default();
+        let words: Vec<&str> = statement.split_whitespace().collect();
+        (words.last() == Some(&"=") && words.contains(&"type")).then(|| {
+            "declares a type alias of ServiceError, which hides its variants from the walk"
+                .to_string()
+        })
+    };
+    form.map(|form| soundness_violation(&file.location(at), &form))
+}
+
+/// One readable `status_for` arm: the status, and its literal code (`None`
+/// for the Validation arm, whose code is the variant's own `code`).
+struct StatusArm {
+    status: u16,
+    code: Option<String>,
+}
+
+/// `status_for`'s parsed match arms, and `rate_limited_response`'s code.
+struct StatusMap {
+    arms: BTreeMap<String, StatusArm>,
+    rate_limited: Result<String, String>,
+    /// No single `status_for`: a violation once an operation needs the map.
+    missing: Option<String>,
+    violations: Vec<String>,
+}
+
+impl StatusMap {
+    fn read(flow: &ErrorFlow) -> Self {
+        let mut map = StatusMap {
+            arms: BTreeMap::new(),
+            rate_limited: flow.single_literal_code(RATE_LIMITED_FN),
+            missing: None,
+            violations: Vec::new(),
+        };
+        match flow.single_fn("status_for") {
+            Ok((file, body)) => map.read_arms(file, body),
+            Err(missing) => map.missing = Some(missing),
+        }
+        map
+    }
+
+    fn read_arms(&mut self, file: &CrateFile, (from, to): (usize, usize)) {
+        let bytes = file.code.as_bytes();
+        let open = file
+            .words("match", from, to)
+            .first()
+            .and_then(|&at| file.code[at..to].find('{').map(|i| at + i));
+        let Some((open, close)) = open.and_then(|open| Some((open, matching_brace(bytes, open)?)))
+        else {
+            self.violations.push(statuses_violation(&format!(
+                "{} status_for has no `match` the rule can read; it maps variants only through its arms",
+                file.location(from)
+            )));
+            return;
+        };
+        for (start, end) in top_level_pieces(bytes, open + 1, close) {
+            if let Err(unreadable) = self.read_arm(file, start, end) {
+                self.violations
+                    .push(soundness_violation(&file.location(start), &unreadable));
+            }
+        }
+    }
+
+    fn read_arm(&mut self, file: &CrateFile, start: usize, end: usize) -> Result<(), String> {
+        let text = &file.code[start..end];
+        let arrow = text
+            .find("=>")
+            .ok_or("status_for has an arm the rule cannot read")?;
+        let pattern = text[..arrow].trim();
+        if find_sql_word(pattern, "if", 0).is_some() {
+            return Err(format!("status_for has a guarded arm (`{pattern}`); a guard makes the mapping depend on a value"));
+        }
+        let Some(variant) = pattern.strip_prefix("ServiceError::") else {
+            return Err(format!("status_for has a wildcard arm (`{pattern}`) or one that is not ServiceError::<Variant>"));
+        };
+        let variant: String = variant
+            .chars()
+            .take_while(|&c| c.is_ascii_alphanumeric() || c == '_')
+            .collect();
+        let bytes = file.code.as_bytes();
+        let tuple = skip_whitespace(bytes, start + arrow + 2);
+        let close = (bytes.get(tuple) == Some(&b'('))
+            .then(|| matching_brace(bytes, tuple))
+            .flatten()
+            .filter(|&close| close < end)
+            .ok_or(format!("status_for maps ServiceError::{variant} to something other than a (status, code, …) tuple"))?;
+        let elements = top_level_pieces(bytes, tuple + 1, close);
+        let status = elements
+            .first()
+            .and_then(|&(s, e)| file.code[s..e].trim().parse::<u16>().ok())
+            .ok_or(format!("status_for maps ServiceError::{variant} to a status that is not an integer literal"))?;
+        let code_at = elements.get(1).map(|&(s, _)| skip_whitespace(bytes, s));
+        let code = match code_at {
+            Some(at) if file.literal_at(at).is_some() => file.literal_at(at).map(|l| l.text.clone()),
+            Some(at) if find_sql_word(&file.code, "code", at) == Some(at) && find_sql_word(pattern, "code", 0).is_some() => None,
+            _ => return Err(format!("status_for maps ServiceError::{variant} to a code that is neither a string literal nor the Validation `code`")),
+        };
+        self.arms.insert(variant, StatusArm { status, code });
+        Ok(())
+    }
+}
+
+impl ErrorFlow {
+    /// The one foundry-api `fn name`, or why there is not exactly one.
+    fn single_fn(&self, name: &str) -> Result<(&CrateFile, (usize, usize)), String> {
+        match self.named(name, true).as_slice() {
+            [one] => Ok((&self.files[self.fns[*one].file], self.fns[*one].body)),
+            found => Err(statuses_violation(&format!(
+                "{} `fn {name}` found in {API_SRC} where the rule needs exactly one; it fails closed",
+                found.len()
+            ))),
+        }
+    }
+
+    /// The `code: "<literal>"` of the one foundry-api `fn name`.
+    fn single_literal_code(&self, name: &str) -> Result<String, String> {
+        let (file, (from, to)) = self.single_fn(name)?;
+        let bytes = file.code.as_bytes();
+        file.words("code", from, to)
+            .into_iter()
+            .find_map(|at| {
+                let colon = skip_whitespace(bytes, at + "code".len());
+                (bytes.get(colon) == Some(&b':'))
+                    .then(|| file.literal_at(skip_whitespace(bytes, colon + 1)))
+                    .flatten()
+                    .map(|literal| literal.text.clone())
+            })
+            .ok_or_else(|| {
+                statuses_violation(&format!(
+                    "{} `fn {name}` builds no `code: \"<literal>\"`; the rule fails closed",
+                    file.location(from)
+                ))
+            })
+    }
+}
+
+/// `[from, to)` split at the commas outside any `(…)`, `[…]` or `{…}`,
+/// blank pieces dropped.
+fn top_level_pieces(bytes: &[u8], from: usize, to: usize) -> Vec<(usize, usize)> {
+    let mut pieces = Vec::new();
+    let mut depth = 0i32;
+    let mut start = from;
+    for (at, &byte) in bytes.iter().enumerate().take(to).skip(from) {
+        match byte {
+            b'(' | b'[' | b'{' => depth += 1,
+            b')' | b']' | b'}' => depth -= 1,
+            b',' if depth == 0 => {
+                pieces.push((start, at));
+                start = at + 1;
+            }
+            _ => {}
+        }
+    }
+    pieces.push((start, to));
+    pieces
+        .into_iter()
+        .map(|(s, e)| (skip_whitespace(bytes, s), e))
+        .filter(|&(s, e)| s < e)
+        .collect()
 }
 
 #[cfg(test)]
@@ -11016,81 +11955,1057 @@ async fn revoke_token_handler(
     }
 
     // Rule 2: api-openapi-statuses (slice 01, step 01-03; ADR-API-OPENAPI-002 gold list).
-    pending_gold!(
-        statuses_clean_tree_and_wording_edit_pass,
-        "01-03",
-        "a clean tree and a wording-only description edit pass"
-    );
-    pending_gold!(
-        statuses_names_a_conflict_in_a_use_case,
-        "01-03",
-        "Conflict in resolve_board_project names list issues and 409"
-    );
-    pending_gold!(
-        statuses_names_a_conflict_in_a_handler_body,
-        "01-03",
-        "Conflict in list_issues_handler names list issues and 409"
-    );
-    pending_gold!(
-        statuses_names_a_status_removed_from_the_document,
-        "01-03",
-        "401 removed from one operation is named"
-    );
-    pending_gold!(
-        statuses_names_a_new_validation_code,
-        "01-03",
-        "title_too_long in create_issue names create issue, 422 and the code"
-    );
-    pending_gold!(
-        statuses_names_a_remapped_variant,
-        "01-03",
-        "Gone remapped to 404 in status_for names edit comment and 410"
-    );
-    pending_gold!(
-        statuses_soundness_names_a_from_conversion,
-        "01-03",
-        "impl From<StoreError> for ServiceError names the soundness clause"
-    );
-    pending_gold!(
-        statuses_names_new_text_plain_answers,
-        "01-03",
-        "a Json<…> on history names history and the four text/plain statuses"
-    );
-    pending_gold!(
-        statuses_fails_closed_on_a_non_literal_code,
-        "01-03",
-        "a non-literal Validation code is named"
-    );
-    pending_gold!(
-        statuses_fails_closed_on_a_glob_import,
-        "01-03",
-        "use ServiceError::* is named"
-    );
-    pending_gold!(
-        statuses_fails_closed_on_a_guarded_arm,
-        "01-03",
-        "a guarded status_for arm is named"
-    );
-    pending_gold!(
-        statuses_fails_closed_on_an_unknown_services_method,
-        "01-03",
-        "a handler calling a Services method that does not exist is named"
-    );
-    pending_gold!(
-        statuses_unions_same_named_definitions,
-        "01-03",
-        "a second fn resolve_board_project returning Conflict names list issues and 409"
-    );
-    pending_gold!(
-        statuses_walks_the_extractor_start_set,
-        "01-03",
-        "Forbidden in token_auth / resolve_active_token names every bearer operation without a 403"
-    );
-    pending_gold!(
-        ci_and_smoke_run_the_drift_check,
-        "01-03",
-        "the ci and smoke step lists run check-arch and the foundry-api openapi tests (US-AOD-02 AC 8)"
-    );
+    //
+    // Each test stages a small foundry-api (routes, handlers, `status_for`, the
+    // `MachinePrincipal` extractor and `token_auth`) and foundry-services (the
+    // `Services` facade and the use-cases it delegates to), shaped like the
+    // shipped ones, with a description listing every answer they can give;
+    // plants one change; and asserts the rule names the operation, the status
+    // and the difference.
+
+    use super::api_openapi_statuses;
+
+    const COMMENT: &str =
+        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments/{comment_id}";
+
+    const STATUS_API_LIB: &str = r#"
+use foundry_services::{Principal, ServiceError, Services};
+
+pub fn status_for(err: &ServiceError) -> (u16, ErrorBody) {
+    let (status, code, message): (u16, &str, String) = match err {
+        ServiceError::Unauthorized => (401, "unauthorized", "unauthorized".into()),
+        ServiceError::Forbidden => (403, "forbidden", "forbidden".into()),
+        ServiceError::NotFound => (404, "not_found", "not found".into()),
+        ServiceError::Gone => (410, "gone", "gone".into()),
+        ServiceError::Conflict => (409, "conflict", "conflict".into()),
+        ServiceError::Validation { code, message } => (422, code.as_str(), message.clone()),
+        ServiceError::Internal => (500, "internal", "internal error".into()),
+    };
+    (status, ErrorBody { error: ErrorDetail { code: code.to_string(), message } })
+}
+
+pub struct ApiError(pub ServiceError);
+
+impl From<ServiceError> for ApiError {
+    fn from(err: ServiceError) -> Self {
+        ApiError(err)
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (status, body) = status_for(&self.0);
+        let code = StatusCode::from_u16(status).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        (code, Json(body)).into_response()
+    }
+}
+
+fn rate_limited_response() -> Response {
+    let body = ErrorBody {
+        error: ErrorDetail {
+            code: "rate_limited".to_string(),
+            message: "too many token revocations; slow down".to_string(),
+        },
+    };
+    (StatusCode::TOO_MANY_REQUESTS, Json(body)).into_response()
+}
+
+pub fn routes<S>() -> Router<S> {
+    Router::new()
+        .route("/api/v1/{*rest}", any(api_not_found_handler))
+        .route(
+            "/api/v1/openapi.json",
+            any(api_not_found_handler).get(openapi::openapi_document),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues",
+            get(list_issues_handler).post(create_issue_handler),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/history",
+            get(list_issue_history_handler),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments/{comment_id}",
+            patch(edit_comment_handler),
+        )
+        .route(
+            "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens/{jti}",
+            delete(revoke_token_handler),
+        )
+}
+
+async fn api_not_found_handler() -> ApiError {
+    ApiError(ServiceError::NotFound)
+}
+
+async fn list_issues_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+) -> Result<Json<Vec<IssueJson>>, ApiError> {
+    let rows = services
+        .list_board_issues(&principal, &team_slug, &project_slug)
+        .await?;
+    Ok(Json(rows.into_iter().map(IssueJson::from).collect()))
+}
+
+async fn create_issue_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+    Json(request): Json<CreateIssueRequest>,
+) -> Result<Response, ApiError> {
+    let created = services
+        .create_issue(&principal, &team_slug, &project_slug, &request.title)
+        .await?;
+    let body = IssueJson {
+        key: created.key,
+        number: created.number,
+    };
+    Ok((StatusCode::CREATED, Json(body)).into_response())
+}
+
+async fn list_issue_history_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug, number)): Path<(String, String, i32)>,
+) -> Result<Json<Vec<IssueHistoryJson>>, ApiError> {
+    let entries = services
+        .list_issue_change_history(&principal, &team_slug, &project_slug, number)
+        .await?;
+    Ok(Json(entries.into_iter().map(IssueHistoryJson::from).collect()))
+}
+
+async fn edit_comment_handler(
+    State(services): State<Services>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug, number, comment_id)): Path<(String, String, i32, uuid::Uuid)>,
+    Json(request): Json<CommentBodyRequest>,
+) -> Result<Json<CommentJson>, ApiError> {
+    let view = services
+        .edit_comment(&principal, &team_slug, &project_slug, number, comment_id, &request.body)
+        .await?;
+    Ok(Json(view.into()))
+}
+
+async fn revoke_token_handler(
+    State(services): State<Services>,
+    State(rate_guard): State<Arc<dyn RevokeRateGuard>>,
+    MachinePrincipal(principal): MachinePrincipal,
+    Path((team_slug, project_slug, jti)): Path<(String, String, uuid::Uuid)>,
+) -> Result<Response, ApiError> {
+    if !rate_guard.check_revoke(principal.user_id()) {
+        return Ok(rate_limited_response());
+    }
+    services
+        .revoke_project_token(&principal, &team_slug, &project_slug, jti)
+        .await?;
+    Ok(StatusCode::NO_CONTENT.into_response())
+}
+
+pub struct MachinePrincipal(pub Principal);
+
+impl<S> FromRequestParts<S> for MachinePrincipal {
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let verifier = Arc::<MachineTokenVerifier>::from_ref(state);
+        let services = Services::from_ref(state);
+        let header = parts.headers.get(AUTHORIZATION).and_then(|value| value.to_str().ok());
+        let principal = token_auth::authenticate(header, &verifier, &services).await?;
+        Ok(MachinePrincipal(principal))
+    }
+}
+
+pub mod token_auth {
+    use super::*;
+
+    pub fn verify_bearer(
+        header: Option<&str>,
+        verifier: &MachineTokenVerifier,
+    ) -> Result<MachineTokenClaims, ServiceError> {
+        let jwt = header.ok_or(ServiceError::Unauthorized)?;
+        verifier.verify(jwt).map_err(|_| ServiceError::Unauthorized)
+    }
+
+    pub async fn authenticate(
+        header: Option<&str>,
+        verifier: &MachineTokenVerifier,
+        services: &Services,
+    ) -> Result<Principal, ServiceError> {
+        let claims = verify_bearer(header, verifier)?;
+        let active = services.resolve_active_token(claims.jti).await?;
+        Ok(Principal::Machine { user_id: active.user_id })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user_id() -> uuid::Uuid {
+        let _ = ServiceError::Conflict;
+        uuid::Uuid::nil()
+    }
+}
+"#;
+
+    const STATUS_SERVICES_LIB: &str = r#"
+pub struct Services {
+    store: Arc<Store>,
+}
+
+impl Services {
+    pub async fn list_board_issues(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<Vec<BoardIssue>, ServiceError> {
+        board::list_board_issues(&self.store, principal, team_slug, project_slug).await
+    }
+
+    pub async fn create_issue(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        title: &str,
+    ) -> Result<CreatedIssue, ServiceError> {
+        issues::create_issue(&self.store, principal, team_slug, project_slug, title).await
+    }
+
+    pub async fn list_issue_change_history(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        number: i32,
+    ) -> Result<Vec<issues::IssueChangeHistoryEntry>, ServiceError> {
+        issues::list_issue_change_history(&self.store, principal, team_slug, project_slug, number)
+            .await
+    }
+
+    pub async fn edit_comment(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        issue_number: i32,
+        comment_id: uuid::Uuid,
+        new_body: &str,
+    ) -> Result<comments::CommentView, ServiceError> {
+        comments::edit_comment(&self.store, principal, team_slug, project_slug, issue_number, comment_id, new_body)
+            .await
+    }
+
+    pub async fn resolve_active_token(
+        &self,
+        jti: uuid::Uuid,
+    ) -> Result<auth::ActiveMachineToken, ServiceError> {
+        auth::resolve_active_token(&self.store, jti).await
+    }
+
+    pub async fn revoke_project_token(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        jti: uuid::Uuid,
+    ) -> Result<(), ServiceError> {
+        tokens::revoke_project_token(&self.store, principal, team_slug, project_slug, jti).await
+    }
+}
+
+impl Principal {
+    pub fn user_id(&self) -> uuid::Uuid {
+        self.user_id
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ServiceError {
+    #[error("not found")]
+    NotFound,
+    #[error("forbidden")]
+    Forbidden,
+    #[error("unauthorized")]
+    Unauthorized,
+    #[error("validation: {code}: {message}")]
+    Validation { code: String, message: String },
+    #[error("gone")]
+    Gone,
+    #[error("conflict")]
+    Conflict,
+    #[error("internal error")]
+    Internal,
+}
+
+pub mod auth {
+    use super::*;
+
+    pub async fn resolve_active_token(
+        store: &Store,
+        jti: uuid::Uuid,
+    ) -> Result<ActiveMachineToken, ServiceError> {
+        let row = store
+            .find_machine_token_by_jti(jti)
+            .await
+            .map_err(|_| ServiceError::Unauthorized)?
+            .ok_or(ServiceError::Unauthorized)?;
+        if row.revoked_at.is_some() {
+            return Err(ServiceError::Unauthorized);
+        }
+        Ok(ActiveMachineToken { user_id: row.user_id })
+    }
+}
+
+#[cfg(test)]
+use std::sync::Mutex;
+
+pub mod board {
+    use super::*;
+
+    pub async fn list_board_issues(
+        store: &Store,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<Vec<BoardIssue>, ServiceError> {
+        let project = resolve_board_project(store, principal, team_slug, project_slug).await?;
+        let rows = store
+            .list_issues_by_project(project.id)
+            .await
+            .map_err(|_| ServiceError::Internal)?;
+        Ok(rows.into_iter().map(BoardIssue::from).collect())
+    }
+
+    async fn resolve_board_project(
+        store: &Store,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<ProjectRow, ServiceError> {
+        let team = store
+            .find_team_by_slug(team_slug)
+            .await
+            .map_err(|_| ServiceError::Internal)?
+            .ok_or(ServiceError::NotFound)?;
+        store
+            .find_project_by_slug(team.id, project_slug)
+            .await
+            .map_err(|_| ServiceError::Internal)?
+            .ok_or(ServiceError::NotFound)
+    }
+}
+
+pub mod comments;
+pub mod issues;
+pub mod teams;
+pub mod tokens;
+"#;
+
+    const STATUS_SERVICES_ISSUES: &str = r#"
+use crate::{Principal, ServiceError};
+
+pub async fn create_issue(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    title: &str,
+) -> Result<CreatedIssue, ServiceError> {
+    let title = title.trim();
+    if title.is_empty() || title.chars().count() > 256 {
+        return Err(ServiceError::Validation {
+            code: "title_required".to_string(),
+            message: "Title is required".to_string(),
+        });
+    }
+    if title.len() > 262_144 {
+        return Err(too_long());
+    }
+    let project = resolve_member_project(store, principal, team_slug, project_slug).await?;
+    store
+        .insert_issue(project.id, title)
+        .await
+        .map_err(|_| ServiceError::Internal)
+}
+
+fn too_long() -> ServiceError {
+    ServiceError::Validation {
+        code: "description_too_long".to_string(),
+        message: "Description is too long".to_string(),
+    }
+}
+
+pub async fn list_issue_change_history(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    number: i32,
+) -> Result<Vec<IssueChangeHistoryEntry>, ServiceError> {
+    let project = resolve_member_project(store, principal, team_slug, project_slug).await?;
+    store
+        .list_issue_changes(project.id, number)
+        .await
+        .map_err(|_| ServiceError::Internal)
+}
+
+pub async fn resolve_member_project(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+) -> Result<ProjectRow, ServiceError> {
+    store
+        .find_member_project(principal.user_id(), team_slug, project_slug)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .ok_or(ServiceError::NotFound)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_long_description_is_refused() {
+        match too_long() {
+            ServiceError::Validation { code, .. } => assert_eq!(code, "description_too_long"),
+            other => panic!("{other:?}"),
+        }
+    }
+}
+"#;
+
+    const STATUS_SERVICES_COMMENTS: &str = r#"
+use crate::{Principal, ServiceError};
+
+pub async fn edit_comment(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    issue_number: i32,
+    comment_id: uuid::Uuid,
+    new_body: &str,
+) -> Result<CommentView, ServiceError> {
+    let body = validate_body(new_body)?;
+    let project =
+        crate::issues::resolve_member_project(store, principal, team_slug, project_slug).await?;
+    let comment = store
+        .find_comment(project.id, issue_number, comment_id)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .ok_or(ServiceError::NotFound)?;
+    if comment.deleted {
+        return Err(ServiceError::Gone);
+    }
+    if comment.author_id != principal.user_id() {
+        return Err(ServiceError::Forbidden);
+    }
+    store
+        .update_comment(comment_id, &body)
+        .await
+        .map_err(|_| ServiceError::Internal)
+}
+
+fn validate_body(body: &str) -> Result<String, ServiceError> {
+    let body = body.trim();
+    if body.is_empty() {
+        return Err(ServiceError::Validation {
+            code: "comment_empty".to_string(),
+            message: "Comment cannot be empty".to_string(),
+        });
+    }
+    if body.chars().count() > 65_536 {
+        return Err(ServiceError::Validation {
+            code: "comment_too_long".to_string(),
+            message: "Comment is too long".to_string(),
+        });
+    }
+    Ok(body.to_string())
+}
+"#;
+
+    /// A web-tier lookup sharing its name with the store method the board gate
+    /// calls: a store call is never followed, so its 409 reaches no operation.
+    const STATUS_SERVICES_TEAMS: &str = r#"
+use crate::{Principal, ServiceError};
+
+pub async fn find_team_by_slug(store: &Store, team_slug: &str) -> Result<TeamRow, ServiceError> {
+    Err(ServiceError::Conflict)
+}
+"#;
+
+    const STATUS_SERVICES_TOKENS: &str = r#"
+use crate::{Principal, ServiceError};
+
+pub async fn revoke_project_token(
+    store: &Store,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    jti: uuid::Uuid,
+) -> Result<(), ServiceError> {
+    require_workspace_admin(store, principal).await?;
+    resolve_token_address(store, team_slug, project_slug).await?;
+    store
+        .revoke_machine_token(jti)
+        .await
+        .map_err(|_| ServiceError::Internal)
+}
+
+async fn require_workspace_admin(store: &Store, principal: &Principal) -> Result<(), ServiceError> {
+    let admin = store
+        .is_workspace_admin(principal.user_id())
+        .await
+        .map_err(|_| ServiceError::Internal)?;
+    if !admin {
+        return Err(ServiceError::Forbidden);
+    }
+    Ok(())
+}
+
+async fn resolve_token_address(store: &Store, team_slug: &str, project_slug: &str) -> Result<(), ServiceError> {
+    store
+        .find_project_by_slugs(team_slug, project_slug)
+        .await
+        .map_err(|_| ServiceError::Internal)?
+        .ok_or(ServiceError::NotFound)?;
+    Ok(())
+}
+"#;
+
+    fn shared(name: &str) -> Value {
+        json!({"$ref": format!("#/components/responses/{name}")})
+    }
+
+    fn envelope(codes: &[&str]) -> Value {
+        json!({"description": "Refused.", "content": {"application/json": envelope_content(codes)}})
+    }
+
+    fn envelope_content(codes: &[&str]) -> Value {
+        let examples: serde_json::Map<String, Value> = codes
+            .iter()
+            .map(|code| {
+                let value = json!({"value": {"error": {"code": code, "message": "m"}}});
+                (code.to_string(), value)
+            })
+            .collect();
+        json!({"schema": {"$ref": "#/components/schemas/Error"}, "examples": examples})
+    }
+
+    fn plain_text() -> Value {
+        json!({"description": "From the framework.", "content": {"text/plain": {"schema": {"type": "string"}}}})
+    }
+
+    /// The 422 of a body-taking operation: the extractor's text/plain refusal
+    /// and the envelope with its Validation codes, under one status key.
+    fn unprocessable(codes: &[&str]) -> Value {
+        json!({"description": "Unprocessable.", "content": {
+            "text/plain": {"schema": {"type": "string"}},
+            "application/json": envelope_content(codes),
+        }})
+    }
+
+    /// The description of the statuses fixture: every answer it can give.
+    fn status_description() -> Value {
+        json!({
+            "openapi": "3.1.0",
+            "paths": {
+                "/api/v1/openapi.json": {"get": {"responses": {
+                    "200": answer(json!({"type": "object"})),
+                    "404": shared("NotFound"),
+                }}},
+                ISSUES: {
+                    "get": {"description": "The project's issues.", "responses": {
+                        "200": answer(json!({"type": "array", "items": {"$ref": "#/components/schemas/Issue"}})),
+                        "401": shared("Unauthorized"),
+                        "404": shared("NotFound"),
+                        "405": shared("MethodNotAllowed"),
+                        "500": shared("Internal"),
+                    }},
+                    "post": {"responses": {
+                        "201": answer(json!({"$ref": "#/components/schemas/Issue"})),
+                        "400": shared("BadBody"),
+                        "401": shared("Unauthorized"),
+                        "404": shared("NotFound"),
+                        "405": shared("MethodNotAllowed"),
+                        "413": shared("PayloadTooLarge"),
+                        "415": plain_text(),
+                        "422": unprocessable(&["title_required", "description_too_long"]),
+                        "500": shared("Internal"),
+                    }}
+                },
+                HISTORY: {"get": {"responses": {
+                    "200": answer(json!({"type": "array"})),
+                    "400": shared("BadPath"),
+                    "401": shared("Unauthorized"),
+                    "404": shared("NotFound"),
+                    "405": shared("MethodNotAllowed"),
+                    "500": shared("Internal"),
+                }}},
+                COMMENT: {"patch": {"responses": {
+                    "200": answer(json!({"$ref": "#/components/schemas/Comment"})),
+                    "400": shared("BadPath"),
+                    "401": shared("Unauthorized"),
+                    "403": envelope(&["forbidden"]),
+                    "404": shared("NotFound"),
+                    "405": shared("MethodNotAllowed"),
+                    "410": envelope(&["gone"]),
+                    "413": shared("PayloadTooLarge"),
+                    "415": plain_text(),
+                    "422": unprocessable(&["comment_empty", "comment_too_long"]),
+                    "500": shared("Internal"),
+                }}},
+                REVOKE: {"delete": {"responses": {
+                    "204": {"description": "Revoked."},
+                    "400": shared("BadPath"),
+                    "401": shared("Unauthorized"),
+                    "403": envelope(&["forbidden"]),
+                    "404": shared("NotFound"),
+                    "405": shared("MethodNotAllowed"),
+                    "429": envelope(&["rate_limited"]),
+                    "500": shared("Internal"),
+                }}}
+            },
+            "components": {"responses": {
+                "Unauthorized": envelope(&["unauthorized"]),
+                "NotFound": envelope(&["not_found"]),
+                "Internal": envelope(&["internal"]),
+                "MethodNotAllowed": {"description": "No such method.", "headers": {"Allow": {"schema": {"type": "string"}}}},
+                "BadPath": plain_text(),
+                "BadBody": plain_text(),
+                "PayloadTooLarge": plain_text(),
+            }}
+        })
+    }
+
+    const SERVICES_LIB: &str = "crates/foundry-services/src/lib.rs";
+    const SERVICES_ISSUES: &str = "crates/foundry-services/src/issues.rs";
+    const SERVICES_COMMENTS: &str = "crates/foundry-services/src/comments.rs";
+    const SERVICES_TOKENS: &str = "crates/foundry-services/src/tokens.rs";
+    const API_LIB_RS: &str = "crates/foundry-api/src/lib.rs";
+
+    struct StatusTree {
+        files: Vec<(&'static str, String)>,
+        description: Value,
+    }
+
+    impl StatusTree {
+        fn clean() -> Self {
+            StatusTree {
+                files: vec![
+                    (API_LIB_RS, STATUS_API_LIB.to_string()),
+                    (
+                        "crates/foundry-api/src/openapi.rs",
+                        API_OPENAPI_RS.to_string(),
+                    ),
+                    (SERVICES_LIB, STATUS_SERVICES_LIB.to_string()),
+                    (SERVICES_ISSUES, STATUS_SERVICES_ISSUES.to_string()),
+                    (SERVICES_COMMENTS, STATUS_SERVICES_COMMENTS.to_string()),
+                    (
+                        "crates/foundry-services/src/teams.rs",
+                        STATUS_SERVICES_TEAMS.to_string(),
+                    ),
+                    (SERVICES_TOKENS, STATUS_SERVICES_TOKENS.to_string()),
+                ],
+                description: status_description(),
+            }
+        }
+
+        /// Plant one change in `file`: `from` must occur in it.
+        fn code(mut self, file: &str, from: &str, to: &str) -> Self {
+            let (_, text) = self
+                .files
+                .iter_mut()
+                .find(|(path, _)| *path == file)
+                .expect("a staged file");
+            assert!(text.contains(from), "{file} has no {from:?}");
+            *text = text.replacen(from, to, 1);
+            self
+        }
+
+        fn add(mut self, file: &'static str, text: &str) -> Self {
+            self.files.push((file, text.to_string()));
+            self
+        }
+
+        fn describe(mut self, edit: impl FnOnce(&mut Value)) -> Self {
+            edit(&mut self.description);
+            self
+        }
+
+        fn violations(&self) -> Vec<String> {
+            let description = serde_json::to_string_pretty(&self.description).expect("encode");
+            let mut files: Vec<(&str, &str)> = self
+                .files
+                .iter()
+                .map(|(path, text)| (*path, text.as_str()))
+                .collect();
+            files.push(("crates/foundry-api/openapi.json", description.as_str()));
+            let tree = stage(&files);
+            api_openapi_statuses(tree.path(), &[])
+        }
+    }
+
+    /// Kills the "always fail" mutant; a wording edit changes no status.
+    #[test]
+    fn statuses_clean_tree_and_wording_edit_pass() {
+        let clean = StatusTree::clean().violations();
+        assert!(clean.is_empty(), "{clean:#?}");
+
+        let reworded = StatusTree::clean()
+            .describe(|d| {
+                d["paths"][ISSUES]["get"]["description"] = json!("Every issue, newest last.");
+                d["components"]["responses"]["NotFound"]["description"] =
+                    json!("Nothing is there, or your token cannot reach it.");
+            })
+            .violations();
+        assert!(reworded.is_empty(), "{reworded:#?}");
+    }
+
+    /// The domain set: a `Conflict` in a use-case helper reaches list issues.
+    #[test]
+    fn statuses_names_a_conflict_in_a_use_case() {
+        let violations = StatusTree::clean()
+            .code(
+                SERVICES_LIB,
+                "        let team = store\n            .find_team_by_slug(",
+                "        if team_slug.is_empty() {\n            return Err(ServiceError::Conflict);\n        }\n        let team = store\n            .find_team_by_slug(",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &[&format!("GET {ISSUES} "), "409", "does not list"],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// foundry-api is in the collector scope: a handler's own body counts.
+    #[test]
+    fn statuses_names_a_conflict_in_a_handler_body() {
+        let violations = StatusTree::clean()
+            .code(
+                API_LIB_RS,
+                "    let rows = services\n",
+                "    if team_slug.is_empty() {\n        return Err(ApiError(ServiceError::Conflict));\n    }\n    let rows = services\n",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &[&format!("GET {ISSUES} "), "409", "does not list"],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// The other direction: a status the code gives that the document dropped.
+    #[test]
+    fn statuses_names_a_status_removed_from_the_document() {
+        let violations = StatusTree::clean()
+            .describe(|d| {
+                d["paths"][HISTORY]["get"]["responses"]
+                    .as_object_mut()
+                    .expect("responses")
+                    .remove("401");
+            })
+            .violations();
+        assert_named(
+            &violations,
+            &[&format!("GET {HISTORY} "), "401", "does not list"],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// A 422 envelope's codes are the reachable Validation literals.
+    #[test]
+    fn statuses_names_a_new_validation_code() {
+        let violations = StatusTree::clean()
+            .code(
+                SERVICES_ISSUES,
+                "    if title.len() > 262_144 {",
+                "    if title.len() > 200 {\n        return Err(ServiceError::Validation {\n            code: \"title_too_long\".to_string(),\n            message: \"Title is too long\".to_string(),\n        });\n    }\n    if title.len() > 262_144 {",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &[&format!("POST {ISSUES} "), "422", "title_too_long"],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// Variants map through `status_for`'s parsed arms, never a fixed table.
+    #[test]
+    fn statuses_names_a_remapped_variant() {
+        let violations = StatusTree::clean()
+            .code(
+                API_LIB_RS,
+                "ServiceError::Gone => (410, \"gone\"",
+                "ServiceError::Gone => (404, \"gone\"",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &[&format!("PATCH {COMMENT} "), "410", "cannot answer"],
+        );
+        assert_named(&violations, &[&format!("PATCH {COMMENT} "), "404", "gone"]);
+    }
+
+    /// Soundness: a conversion lets a variant arise with no token to see.
+    #[test]
+    fn statuses_soundness_names_a_from_conversion() {
+        let violations = StatusTree::clean()
+            .code(
+                SERVICES_LIB,
+                "pub mod auth {",
+                "impl From<StoreError> for ServiceError {\n    fn from(_: StoreError) -> Self {\n        ServiceError::Internal\n    }\n}\n\npub mod auth {",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &[
+                "crates/foundry-services/src/lib.rs:",
+                "From<StoreError>",
+                "soundness clause",
+            ],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+
+        let derived = StatusTree::clean()
+            .code(
+                SERVICES_LIB,
+                "#[error(\"internal error\")]\n    Internal,",
+                "#[error(\"internal error\")]\n    Internal,\n    #[error(\"store\")]\n    Store(#[from] StoreError),",
+            )
+            .violations();
+        assert_named(
+            &derived,
+            &[
+                "crates/foundry-services/src/lib.rs:",
+                "#[from]",
+                "soundness clause",
+            ],
+        );
+    }
+
+    /// The transport set: a `Json<…>` body brings the extractor's refusals.
+    #[test]
+    fn statuses_names_new_text_plain_answers() {
+        let violations = StatusTree::clean()
+            .code(
+                API_LIB_RS,
+                "Path((team_slug, project_slug, number)): Path<(String, String, i32)>,\n) -> Result<Json<Vec<IssueHistoryJson>>",
+                "Path((team_slug, project_slug, number)): Path<(String, String, i32)>,\n    Json(request): Json<CommentBodyRequest>,\n) -> Result<Json<Vec<IssueHistoryJson>>",
+            )
+            .violations();
+        for status in ["413", "415", "422"] {
+            assert_named(
+                &violations,
+                &[
+                    &format!("GET {HISTORY} "),
+                    &format!("answer {status} "),
+                    "Json<CommentBodyRequest>",
+                    "400, 413, 415 and 422",
+                    "text/plain",
+                ],
+            );
+        }
+        assert_eq!(violations.len(), 3, "{violations:#?}");
+    }
+
+    #[test]
+    fn statuses_fails_closed_on_a_non_literal_code() {
+        let violations = StatusTree::clean()
+            .code(
+                SERVICES_ISSUES,
+                "code: \"title_required\".to_string(),",
+                "code: TITLE_REQUIRED.to_string(),",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &[
+                "crates/foundry-services/src/issues.rs:",
+                "Validation",
+                "not a string literal",
+            ],
+        );
+
+        let shorthand = StatusTree::clean()
+            .code(
+                SERVICES_COMMENTS,
+                "code: \"comment_empty\".to_string(),",
+                "code,",
+            )
+            .violations();
+        assert_named(
+            &shorthand,
+            &[
+                "crates/foundry-services/src/comments.rs:",
+                "not a string literal",
+            ],
+        );
+    }
+
+    #[test]
+    fn statuses_fails_closed_on_a_glob_import() {
+        let violations = StatusTree::clean()
+            .code(
+                SERVICES_TOKENS,
+                "use crate::{Principal, ServiceError};",
+                "use crate::{Principal, ServiceError};\nuse crate::ServiceError::*;",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &[
+                "crates/foundry-services/src/tokens.rs:3",
+                "ServiceError::*",
+                "soundness clause",
+            ],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+
+        let alias = StatusTree::clean()
+            .code(
+                SERVICES_TOKENS,
+                "use crate::{Principal, ServiceError};",
+                "use crate::{Principal, ServiceError as Refusal};",
+            )
+            .violations();
+        assert_named(&alias, &["tokens.rs:2", "alias", "soundness clause"]);
+
+        let type_alias = StatusTree::clean()
+            .code(
+                SERVICES_TOKENS,
+                "use crate::{Principal, ServiceError};",
+                "use crate::{Principal, ServiceError};\npub type Refusal = ServiceError;",
+            )
+            .violations();
+        assert_named(
+            &type_alias,
+            &["tokens.rs:3", "type alias", "soundness clause"],
+        );
+    }
+
+    #[test]
+    fn statuses_fails_closed_on_a_guarded_arm() {
+        let violations = StatusTree::clean()
+            .code(
+                API_LIB_RS,
+                "ServiceError::Gone => (410",
+                "ServiceError::Gone if cfg!(debug_assertions) => (410",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &["crates/foundry-api/src/lib.rs:", "status_for", "guard"],
+        );
+
+        let wildcard = StatusTree::clean()
+            .code(
+                API_LIB_RS,
+                "        ServiceError::Internal => (500, \"internal\", \"internal error\".into()),\n",
+                "        _ => (500, \"internal\", \"internal error\".into()),\n",
+            )
+            .violations();
+        assert_named(&wildcard, &["status_for", "wildcard"]);
+    }
+
+    #[test]
+    fn statuses_fails_closed_on_an_unknown_services_method() {
+        let violations = StatusTree::clean()
+            .code(
+                API_LIB_RS,
+                ".list_board_issues(&principal",
+                ".list_board_issues_for(&principal",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &[
+                "crates/foundry-api/src/lib.rs:",
+                "list_board_issues_for",
+                "impl Services",
+            ],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// Same-named definitions are unioned: the walk cannot tell them apart.
+    #[test]
+    fn statuses_unions_same_named_definitions() {
+        let violations = StatusTree::clean()
+            .add(
+                "crates/foundry-services/src/web_board.rs",
+                "use crate::ServiceError;\n\nasync fn resolve_board_project(store: &Store) -> Result<ProjectRow, ServiceError> {\n    Err(ServiceError::Conflict)\n}\n",
+            )
+            .violations();
+        assert_named(
+            &violations,
+            &[&format!("GET {ISSUES} "), "409", "does not list"],
+        );
+        assert_eq!(violations.len(), 1, "{violations:#?}");
+    }
+
+    /// The extractor is a start: what `token_auth` and `resolve_active_token`
+    /// reach is added to every operation that takes `MachinePrincipal`.
+    #[test]
+    fn statuses_walks_the_extractor_start_set() {
+        let bearer_without_403 = [
+            format!("GET {ISSUES} "),
+            format!("POST {ISSUES} "),
+            format!("GET {HISTORY} "),
+        ];
+        let plants = [
+            (
+                API_LIB_RS,
+                "        let claims = verify_bearer(header, verifier)?;\n",
+                "        let claims = verify_bearer(header, verifier)?;\n        if claims.scoped {\n            return Err(ServiceError::Forbidden);\n        }\n",
+            ),
+            (
+                SERVICES_LIB,
+                "        if row.revoked_at.is_some() {",
+                "        if row.suspended {\n            return Err(ServiceError::Forbidden);\n        }\n        if row.revoked_at.is_some() {",
+            ),
+        ];
+        for (file, from, to) in plants {
+            let violations = StatusTree::clean().code(file, from, to).violations();
+            for operation in &bearer_without_403 {
+                assert_named(&violations, &[operation, "403", "does not list"]);
+            }
+            assert_eq!(violations.len(), 3, "{file}: {violations:#?}");
+        }
+    }
+
+    /// US-AOD-02 AC 8: the drift check is a step of both pre-release gates.
+    #[test]
+    fn ci_and_smoke_run_the_drift_check() {
+        let source = super::RustSource::scan(include_str!("main.rs"));
+        for gate in ["run_ci", "run_smoke"] {
+            let span = super::fn_spans(&source.code)
+                .into_iter()
+                .find(|span| span.name == gate)
+                .unwrap_or_else(|| panic!("xtask has no fn {gate}"));
+            let literals: Vec<&str> = source
+                .literals
+                .iter()
+                .filter(|l| span.body.0 < l.start && l.end <= span.body.1)
+                .map(|l| l.text.as_str())
+                .collect();
+            for step in ["check-arch", "test", "--workspace"] {
+                assert!(literals.contains(&step), "{gate} has no {step:?} step");
+            }
+            assert!(
+                !literals.contains(&"foundry-api"),
+                "{gate} excludes or narrows foundry-api, whose openapi tests are the type-derived layer"
+            );
+        }
+    }
 
     // `cargo xtask openapi` (DDD-13) and its read-only `--check` (DEVOPS R2), step 01-05.
     pending_gold!(

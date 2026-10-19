@@ -15,6 +15,10 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 - **check-arch rule `api-openapi-operations`**: `cargo xtask check-arch` fails, naming the method,
   path and difference, when an `/api/v1` route, path parameter, request body or success answer
   disagrees with `crates/foundry-api/openapi.json`, or when a route cannot be read.
+- **check-arch rule `api-openapi-statuses`**: `cargo xtask check-arch` fails, naming the operation,
+  status and difference, when an answer the code can give (status, body kind or error code) is
+  missing from `crates/foundry-api/openapi.json` or listed there without the code giving it, or
+  when the code uses a form the rule cannot read.
 
 ### Unchanged
 
