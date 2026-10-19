@@ -11,6 +11,16 @@
 //! These run in `smoke` and `ci` with no browser; the browser lane keeps only
 //! what needs one (`api-openapi-document-03-api-page.feature`, `@needs-browser`).
 
+use axum::body::Body;
+use axum::http::{header, Request, StatusCode};
+use foundry_app::{AppState, Notifier, SystemClock};
+use secrecy::SecretString;
+use std::sync::Arc;
+use tower::ServiceExt;
+
+/// The fixed test Ed25519 public key (`foundry_auth::test_keys`).
+const PUBLIC_KEY_PEM: &str = "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\n-----END PUBLIC KEY-----\n";
+
 /// `GET /docs/api` with no cookie and with a signed-in session: 200, no
 /// `Set-Cookie`, the exact `API_DOCS_CSP` string, `X-Frame-Options: DENY`,
 /// `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`,
@@ -47,10 +57,83 @@ fn no_other_answer_carries_the_page_policy() {
 
 /// Every vendored swagger-ui file and `api-docs.js` answers 200 through the
 /// real `ServeDir`, `/vendor/` immutable and `/js/` no-cache (ADR-B03).
-#[test]
-#[ignore = "pending: api-openapi-document 03-01 — every vendored file and the initializer are served"]
-fn every_page_file_is_served_with_its_cache_policy() {
-    panic!(
-        "Not yet implemented -- RED scaffold (api-openapi-document 03-01: vendored files served)"
-    );
+///
+/// Driven through `foundry_app::build_router` with a never-connecting pool (the
+/// `csrf_middleware.rs` idiom): `/static` is a `ServeDir` and reads no store, so
+/// this needs no Docker. The body must be the repository's bytes, verbatim.
+#[tokio::test]
+async fn every_page_file_is_served_with_its_cache_policy() {
+    const IMMUTABLE: &str = "public, max-age=31536000, immutable";
+    let files = [
+        ("vendor/swagger-ui-5.33.3/swagger-ui-bundle.js", IMMUTABLE),
+        ("vendor/swagger-ui-5.33.3/swagger-ui.css", IMMUTABLE),
+        ("vendor/swagger-ui-5.33.3/LICENSE.txt", IMMUTABLE),
+        ("vendor/swagger-ui-5.33.3/NOTICE.txt", IMMUTABLE),
+        ("js/api-docs.js", "no-cache"),
+    ];
+    let router = static_router();
+    let static_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("static");
+    for (relative, cache_control) in files {
+        let path = format!("/static/{relative}");
+        let request = Request::builder()
+            .uri(&path)
+            .body(Body::empty())
+            .expect("a valid request");
+        let response = router.clone().oneshot(request).await.expect("an answer");
+        assert_eq!(response.status(), StatusCode::OK, "{path}");
+        assert_eq!(
+            response
+                .headers()
+                .get(header::CACHE_CONTROL)
+                .and_then(|v| v.to_str().ok()),
+            Some(cache_control),
+            "{path}: its cache policy (ADR-B03)"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("a readable body");
+        let on_disk = std::fs::read(static_root.join(relative))
+            .unwrap_or_else(|e| panic!("the repository holds no {path}: {e}"));
+        assert!(
+            body.as_ref() == on_disk.as_slice(),
+            "{path} is not served as the repository holds it"
+        );
+    }
+}
+
+/// The real router over a pool that never connects: enough for `/static`.
+fn static_router() -> axum::Router {
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .min_connections(0)
+        .max_connections(1)
+        .connect_lazy("postgres://noone:nopass@127.0.0.1:1/none")
+        .expect("a lazy pool");
+    foundry_app::build_router(AppState {
+        oidc: None,
+        store: Arc::new(foundry_store::Store::from_pool(pool)),
+        session_secret: Arc::new(SecretString::new(
+            "api-docs-page-secret-thirty-two-bytes-or-more".into(),
+        )),
+        machine_token_verifier: Arc::new(
+            foundry_auth::MachineTokenVerifier::from_public_keys(&[PUBLIC_KEY_PEM.to_string()])
+                .expect("fixed test public key is valid"),
+        ),
+        machine_token_signer: None,
+        session_cookie_secure: false,
+        db_schema: "public".into(),
+        public_url: "http://foundry.test".into(),
+        clock: Arc::new(SystemClock),
+        notifier: Arc::new(Notifier::empty()),
+        revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
+        realtime_tx: foundry_realtime::build_broadcast(),
+        sse_heartbeat_ms: foundry_app::DEFAULT_SSE_HEARTBEAT_MS,
+        file_upload_max_mb: foundry_app::DEFAULT_FILE_UPLOAD_MAX_MB,
+        db_unreachable: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        force_board_render_failure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+        test_migrations_dir: None,
+        applied_migrations: Arc::new(std::sync::Mutex::new(
+            foundry_store::MigrationReport::default(),
+        )),
+        test_migration_delay_ms: 0,
+    })
 }

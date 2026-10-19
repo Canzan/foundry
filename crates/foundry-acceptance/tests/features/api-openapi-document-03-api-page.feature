@@ -94,7 +94,7 @@ Feature: An integrator reads the API and tries a call in a page served by their 
     When Priya opens Backend's board in her browser
     Then the board loads none of the API page's files
 
-  @pending @aod-03 @us-aod-05 @adapter-integration @contract-shape:pure-function
+  @aod-03 @us-aod-05 @adapter-integration @contract-shape:pure-function
   Scenario: The API page's files come from the instance itself, exactly as the repository holds them
     When Sven fetches every file the API page uses
     Then each answers with the bytes the repository holds for it

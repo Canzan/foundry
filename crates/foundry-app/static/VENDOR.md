@@ -15,8 +15,8 @@ like tampering.**
 
 | Shape | Rows | What "verify" means |
 |---|---|---|
-| **Upstream-verbatim** | `vendor/htmx.min.js` | Re-download the pinned release, re-hash, compare. The blob IS the upstream artifact. |
-| **Authored-in-tree** | `css/foundry.<hash>.css`, `js/theme.js` | Re-hash and compare with the value recorded in the table. There is no upstream release to re-download. (For the CSS the hash is ALSO the filename; `theme.js` is unhashed, so the table row is the only record.) |
+| **Upstream-verbatim** | `vendor/htmx.min.js`, the four `vendor/swagger-ui-5.33.3/*` files | Re-download the pinned release, re-hash, compare. The blob IS the upstream artifact. |
+| **Authored-in-tree** | `css/foundry.<hash>.css`, `js/theme.js`, `js/api-docs.js` | Re-hash and compare with the value recorded in the table. There is no upstream release to re-download. (For the CSS the hash is ALSO the filename; `theme.js` is unhashed, so the table row is the only record.) |
 | **Derived** (NEW, 04-01) | the three `fonts/*.woff2` | Two SEPARATE claims of different strength — see § Derived assets below. The blob is derived from a named upstream and is **not byte-identical to it**; re-hashing against an upstream digest fails BY DESIGN. |
 
 An auditor (or an air-gapped operator) can verify any row's committed bytes with
@@ -32,6 +32,11 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
 | `vendor/htmx.min.js` | htmx **2.0.4** (pinned latest-stable 2.0.x; step 04-01 migration) | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | 2026-06-04 | `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447` |
 | `css/foundry.8d661015.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-10-09 | `8d661015f1b5d96c7e9e79010b5be50e2a292756a05117bfe83a12411fcee9e9` |
 | `js/theme.js` | hand-authored (this repo) — a two-value PORT of canzan-lift `src/ui/assets/theme.js`, NOT vendored from a release | — (not vendored; authored in-tree) | 2026-08-29 | `95a7ffdd0f97d75332fc988dc3a87d53ea758131eff31de48bde6000043e8813` |
+| `vendor/swagger-ui-5.33.3/swagger-ui-bundle.js` | swagger-ui-dist **5.33.3** (Apache-2.0), `package/swagger-ui-bundle.js` | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `3861ec4cc8e7b9fa9f250280da9350436e418137788282c753b9a2ac5fb7bd2f` |
+| `vendor/swagger-ui-5.33.3/swagger-ui.css` | swagger-ui-dist **5.33.3** (Apache-2.0), `package/swagger-ui.css` | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `1ac324f7dcd27e4b9386b4bd6421271ec147e922a22c05ba24b11515e9aa6321` |
+| `vendor/swagger-ui-5.33.3/LICENSE.txt` | licence text, upstream-verbatim — `package/LICENSE` renamed `.txt` (Apache-2.0) | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
+| `vendor/swagger-ui-5.33.3/NOTICE.txt` | NOTICE, upstream-verbatim — `package/NOTICE` renamed `.txt` (Apache-2.0 §4(d)) | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `0d20d1adef18aee3f40dd258172155521ce702ac445cb5f7b7d60ed32dad2fb2` |
+| `js/api-docs.js` | hand-authored (this repo) — the API page's swagger-ui initializer and its Authorize-dialog plugin (DDD-18, DDD-20) | — (not vendored; authored in-tree) | 2026-10-19 | `0a4c707525e597579df839317c9543b574e1e0e78869791ad5f3f635f8868e75` |
 | `fonts/bricolage-grotesque.3bd3b180.woff2` | **derived** — `ateliertriay/bricolage@84745e5b` | github.com/ateliertriay/bricolage (OFL-1.1) | 2026-08-29 | `3bd3b180978a3c167fe394da73b34a5dca88b1107d8cb426b7e544a924e2a597` |
 | `fonts/public-sans.a2bd64e2.woff2` | **derived** — `uswds/public-sans@v2.001` | github.com/uswds/public-sans (OFL-1.1) | 2026-08-29 | `a2bd64e2c7420ec38a2c794be957e51347858940fd6f652c2fad7212c4caa7a2` |
 | `fonts/jetbrains-mono.4e194fb3.woff2` | **derived** — `JetBrains/JetBrainsMono@v2.304` | github.com/JetBrains/JetBrainsMono (OFL-1.1) | 2026-08-29 | `4e194fb3b563af1df4eac36952711cd30ad491e2c6122df81a370f6fc5d6266f` |
@@ -58,7 +63,8 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   `x-show` / `x-init` / `@click`), so the framework was parsed and executed on
   every page load to do nothing. The client keyboard layer that replaced the
   intent is `static/js/keyboard.js` — one app-owned vanilla IIFE, no framework.
-  htmx remains the only vendored runtime dependency.
+  htmx remains the only vendored runtime dependency of the app's pages;
+  swagger-ui (below) is loaded by the API page `/docs/api` alone (D12).
 - `foundry.8d661015.css` is hand-authored and served as-authored (gzip via the
   `compression-gzip` tower-http feature handles the wire size); no CSS minifier
   is introduced (DB6). **The `.8d661015.` segment is the content hash** (first 8
@@ -93,6 +99,73 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   head script in `base.html` with no `defer`/`async`/`type="module"`; see the
   comment above the tag, and the acceptance scenario that asserts its shape.
 - Re-verify a hash with: `shasum -a 256 crates/foundry-app/static/vendor/<file>`.
+
+## swagger-ui 5.33.3 — the API page only (api-openapi-document DDD-17/18)
+
+Four **upstream-verbatim** files from the npm tarball of `swagger-ui-dist`
+5.33.3 (published 2026-10-15), byte-identical to the tarball's `package/`
+entries; only the two licence files are renamed `.txt` (the `OFL-*.txt`
+precedent, so R3 enrols them). The tarball itself was verified against the
+registry before extraction: sha1 `87902fe54194d1652c73d65c1cd82774e8e0eb1e` and
+`sha512-7xJKxAjf+/ajlW/V/dMfbiY+NC5BWtbvzzdI/AsX5UzMtOMudmFz/tjuKN0jN7QVe5drKKnx01CdYEJvTFvQlw==`
+(the registry's `dist.shasum` and `dist.integrity`); its own sha256 is
+`43b39460ac8d3136c88b939ebaf70e253284c2a6b2b535fb3b41d0066c4fce72`.
+
+- **Not vendored:** the standalone preset (its URL box), every `.map`,
+  `index.html`, the stock `swagger-initializer.js` (petstore), `oauth2-redirect.*`,
+  `swagger-ui.js`, the es-bundles and `swagger-ui-bundle.js.LICENSE.txt`
+  (webpack's extracted banner comments; `LICENSE.txt` and `NOTICE.txt` are the
+  package's licence of record).
+- **Frozen once served (R5).** The directory is version-addressed so the
+  blanket `public, max-age=31536000, immutable` on `/static/vendor/` is honest
+  (ADR-B03). Never edit these bytes in place, even before a release: an update
+  is a new `swagger-ui-<version>/` directory, new rows, and the page's three
+  references moved in one commit.
+- **Licence:** Apache-2.0. §4(d) requires redistributing `NOTICE`, hence
+  `NOTICE.txt` ships beside the bundle and is served.
+- **Weight (NFR-AOD-3):** 1,587,262 + 186,154 + 11,358 + 55 = **1,784,829 B**
+  (1.78 MB; `du -ck` 1,752 KiB), against the **2.5 MB** ceiling. Only
+  `/docs/api` fetches them (D12).
+- **Advisory check (NFR-AOD-1), 2026-10-19 22:08 UTC — no open advisory:**
+  the GitHub advisory database (`api.github.com/advisories?ecosystem=npm&affects=`)
+  lists **0** advisories affecting `swagger-ui-dist@5.33.3` and **0** affecting
+  `swagger-ui@5.33.3`; every advisory it holds for either package is fixed at
+  or below 4.1.3 (latest: GHSA-qrmm-w75w-3wpx and GHSA-6c9x-mj3g-h47x /
+  CVE-2021-46708, `< 4.1.3`). The npm registry's bulk audit endpoint
+  (`/-/npm/v1/security/advisories/bulk`, `{"swagger-ui-dist":["5.33.3"]}`)
+  answered `{}`. Re-check on the tag day (R6).
+- **Initializer:** `js/api-docs.js` is authored in tree (its row above), served
+  `no-cache` like every `/static/js/` file. It pins `url`
+  `/api/v1/openapi.json`, `queryConfigEnabled: false`, `validatorUrl: "none"`,
+  `persistAuthorization: false`, `withCredentials: false`, `deepLinking: false`,
+  `tryItOutEnabled: false`, and carries the DDD-20 plugin that gives the
+  Authorize dialog's bearer field the D14 label and hint.
+
+### Eval audit (OQ-D3 step 0) — static, 2026-10-19
+
+The page's policy grants no `'unsafe-eval'` (DDD-19), so before any page
+existed the bundle was searched (Python `re`, the file read as data, never
+run) for `(?<![\w$.])eval\(|new Function\b|Function\(\s*["']return this`, and
+then more broadly for every `Function(` constructor call and every `eval`
+token. Result: **no eval call; five `Function` constructor sites, none
+reachable in a browser.** Offsets are character offsets into
+`swagger-ui-bundle.js`.
+
+| # | Offset | Source | Code | Why it never runs in a browser |
+|---|--------|--------|------|------------------------------|
+| 1 | 184936 | lodash `_root` (copy 1) | `C\|\|j\|\|Function("return this")()` | `j` = `self` when `typeof self == "object"`; `self` always exists in a window |
+| 2 | 222929 | lodash `_root` (copy 2) | `a\|\|u\|\|Function("return this")()` | `u` = `self`, as above |
+| 3 | 534190 | core-js `global-this` | `check(globalThis)\|\|…\|\|Function("return this")()` | `globalThis` (then `window`, `self`) answers first |
+| 4 | 555862 | webpack `__webpack_require__.g` | `if("object"==typeof globalThis)return globalThis; … new Function("return this")()` | returns `globalThis` before the `try` |
+| 5 | 51414 | `function-bind` polyfill (module 89353) | `Function("binder","return function ("+…)` | only reached via module 66743, `Function.prototype.bind\|\|implementation`; native `bind` exists in every browser that runs this bundle |
+
+Hit 5 is not matched by the first pattern (it does not say `return this`);
+the broad `Function(` sweep found it. The `eval` tokens present are
+references, not calls: `"%eval%":eval` (get-intrinsic's table), `u.eval=`
+(an error-class factory) and two `"eval"` strings in highlight.js keyword
+lists. No `setTimeout`/`setInterval` with a string argument. **Step 1** — the
+real-browser probe under the strict policy — is DELIVER 03-02 (the
+`/docs/api` page); its result is recorded here when it runs.
 
 ## Derived assets — the three canzan typefaces (ADR-CANZAN-THEME-001 / -002)
 
