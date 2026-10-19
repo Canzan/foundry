@@ -20,6 +20,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   missing from `crates/foundry-api/openapi.json` or listed there without the code giving it, or
   when the code uses a form the rule cannot read.
 
+### Documented
+
+- Existing behaviour now written down: a JSON body over 2 MB answers 413 `text/plain`; a token
+  that cannot be checked answers 401.
+
 ### Releasing
 
 - `RELEASING.md` step 3 now runs `cargo xtask openapi` (sets `info.version` in

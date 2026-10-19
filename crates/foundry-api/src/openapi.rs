@@ -46,6 +46,10 @@ mod tests {
     const OAS_SCHEMA_SHA256: &str =
         "1b8ccc6e34234b17536f2dd0eb3597142a32bd108438cd42471a5fca4c1a07ef";
 
+    /// The wire components no described operation carries yet: the token
+    /// operations are still pending (step 02-02 describes them and empties this).
+    const NOT_YET_DESCRIBED: &[&str] = &["Token"];
+
     const COMPONENTS: &str = "#/components/schemas/";
     const DEFS: &str = "#/$defs/";
 
@@ -62,22 +66,34 @@ mod tests {
         }
     }
 
-    /// The nine wire structs as `schemars` sees them (the serde shape).
+    /// The nine wire structs as `schemars` sees them (the serde shape). An
+    /// answer is judged as the server writes it, so an `Option` field is
+    /// present-but-null and required (DDD-8); a request body is judged as the
+    /// server reads it, so a `#[serde(default)]` field is optional (C8).
     fn wire_schemas() -> Vec<(String, Value)> {
-        fn of<T: schemars::JsonSchema>() -> (String, Value) {
-            let schema = serde_json::to_value(schemars::schema_for!(T)).expect("schema");
+        fn sent<T: schemars::JsonSchema>() -> (String, Value) {
+            of::<T>(schemars::generate::SchemaSettings::draft2020_12().for_serialize())
+        }
+        fn read<T: schemars::JsonSchema>() -> (String, Value) {
+            of::<T>(schemars::generate::SchemaSettings::draft2020_12().for_deserialize())
+        }
+        fn of<T: schemars::JsonSchema>(
+            settings: schemars::generate::SchemaSettings,
+        ) -> (String, Value) {
+            let schema = settings.into_generator().into_root_schema_for::<T>();
+            let schema = serde_json::to_value(schema).expect("schema");
             (component_name(&T::schema_name()), schema)
         }
         vec![
-            of::<ErrorBody>(),
-            of::<ErrorDetail>(),
-            of::<IssueJson>(),
-            of::<CreateIssueRequest>(),
-            of::<PatchIssueRequest>(),
-            of::<CommentBodyRequest>(),
-            of::<CommentJson>(),
-            of::<IssueHistoryJson>(),
-            of::<TokenJson>(),
+            sent::<ErrorBody>(),
+            sent::<ErrorDetail>(),
+            sent::<IssueJson>(),
+            read::<CreateIssueRequest>(),
+            read::<PatchIssueRequest>(),
+            read::<CommentBodyRequest>(),
+            sent::<CommentJson>(),
+            sent::<IssueHistoryJson>(),
+            sent::<TokenJson>(),
         ]
     }
 
@@ -258,11 +274,14 @@ mod tests {
             strays.is_empty(),
             "openapi.json describes components no wire struct has: {strays:?}"
         );
-        // Until slice 02 describes every operation, only the components the
-        // document already holds are compared.
         let mut failures = Vec::new();
         for (name, schema) in &wire {
             let Some(component) = documented.get(name) else {
+                if !NOT_YET_DESCRIBED.contains(&name.as_str()) {
+                    failures.push(format!(
+                        "wire struct component `{name}` is not described in openapi.json"
+                    ));
+                }
                 continue;
             };
             let (code, described) = (normalise(schema), normalise(component));

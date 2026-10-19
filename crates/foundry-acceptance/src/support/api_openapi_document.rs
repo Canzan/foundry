@@ -44,8 +44,11 @@
 //! exception, project-lifecycle U2): every issue (`issue:<project>:<number>`),
 //! every comment (`comment:<id>`) and every machine token (`token:<label>`,
 //! minus `last_used_at`, which every authenticated call touches) of Canzan
-//! Labs. A refusal's expected delta is empty; a success declares the one key
-//! it adds or changes.
+//! Labs. Issues are read minus `position`: board ranking is server-internal
+//! re-ranking of siblings (card-ranking-within-status ADR-001 R4 — a create
+//! shifts its landing lane, a state change renumbers the columns it touches),
+//! not a change the answer reports. A refusal's expected delta is empty; a
+//! success declares the one key it adds or changes.
 
 use crate::support::harness::{establish_session, seed_lanes_for_project, InProcHarness};
 use crate::world::FoundryWorld;
@@ -1972,7 +1975,9 @@ async fn spend_revoke_budget(world: &mut FoundryWorld) {
 pub async fn universe(world: &FoundryWorld) -> Universe {
     let ws = world.aod.workspace_id.expect("workspace seeded");
     let rows: Vec<(String, String)> = sqlx::query_as(
-        "SELECT 'issue:' || p.slug || ':' || i.number, to_jsonb(i.*)::text
+        // `- 'position'`: sibling re-ranking (card-ranking-within-status
+        // ADR-001 R4) is not a change the answer reports; see module docs.
+        "SELECT 'issue:' || p.slug || ':' || i.number, (to_jsonb(i.*) - 'position')::text
            FROM issues i JOIN projects p ON p.id = i.project_id WHERE i.workspace_id = $1
          UNION ALL
          SELECT 'comment:' || c.id::text, to_jsonb(c.*)::text FROM comments c WHERE c.workspace_id = $1

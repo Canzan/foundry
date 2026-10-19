@@ -86,7 +86,7 @@ Feature: The description tells an integrator every operation's real answers
       | revoke a token               | 429    | rate_limited                          |
       | read the API description     | 404    | not_found                             |
 
-  @pending @aod-02 @us-aod-03 @edge @contract-shape:pure-function
+  @aod-02 @us-aod-03 @edge @contract-shape:pure-function
   Scenario: No answer the code cannot give is described
     When Sven reads the API description
     Then no operation lists a 409 answer, and no answer carries the code "invalid_json"
@@ -114,26 +114,26 @@ Feature: The description tells an integrator every operation's real answers
     When Sven reads the shape of a token in the API description
     Then nothing in it could hold a token's value
 
-  @pending @aod-02 @us-aod-03 @edge @contract-shape:pure-function
+  @aod-02 @us-aod-03 @edge @contract-shape:pure-function
   Scenario: An issue's state is described as one of its project's lanes, not a fixed list
     When Sven reads how the description describes an issue's state
     Then it is a text with no fixed list of values
     And its description reads "The lane the issue is in, by its slug. Each project has its own lanes; the defaults are backlog, todo, in_progress, done and cancelled. `in-progress` and `canceled` are accepted as aliases."
 
-  @pending @aod-02 @us-aod-03 @edge @contract-shape:pure-function
+  @aod-02 @us-aod-03 @edge @contract-shape:pure-function
   Scenario: Malformed requests are described as they really answer
     When Sven reads how the description says he can create an issue
     Then its 400, 413 and 415 answers and one of its 422 answers have plain-text bodies
     And its other 422 answer is the error answer with the codes title_required and description_too_long
 
-  @pending @aod-02 @us-aod-03 @edge @contract-shape:pure-function
+  @aod-02 @us-aod-03 @edge @contract-shape:pure-function
   Scenario: Refusals that must not reveal anything are described as uniform
     When Sven reads the API description
     Then every operation's 404 answer is the error answer "not_found" with the message "not found"
     And that 404 answer is described as "Not found. The same answer, byte for byte, for a team, project, issue or comment that does not exist, one your token cannot reach, and a path that is not part of the API."
     And the 401 answer is described once, for the machine token, and says "Also answered when the token cannot be checked."
 
-  @pending @aod-02 @us-aod-03 @edge @contract-shape:pure-function
+  @aod-02 @us-aod-03 @edge @contract-shape:pure-function
   Scenario: A wrong way of asking at a known address is described
     When Sven reads how the description describes the address of one issue
     Then it offers only changing the issue's state there
@@ -158,7 +158,7 @@ Feature: The description tells an integrator every operation's real answers
   # after all setup and immediately before that request.
   # ---------------------------------------------------------------------------------------------
 
-  @pending @aod-02 @us-aod-03 @kpi @contract-shape:bounded-change
+  @aod-02 @us-aod-03 @kpi @contract-shape:bounded-change
   Scenario Outline: An issue or comment call that succeeds answers the way the description says
     Given <precondition>
     When Sven tries to <operation> <situation>
@@ -177,7 +177,7 @@ Feature: The description tells an integrator every operation's real answers
       | Sven has commented on AUTH-7                     | edit a comment           | of his own                         | 200    |
       | Canzan Labs is as the Background left it         | read the API description | with his token                     | 200    |
 
-  @pending @aod-02 @us-aod-03 @error @kpi @contract-shape:unbounded-preservation
+  @aod-02 @us-aod-03 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A refused issue or comment call answers the way the description says
     Given <precondition>
     When Sven tries to <operation> <situation>

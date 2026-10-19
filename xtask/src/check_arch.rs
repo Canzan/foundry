@@ -9766,30 +9766,11 @@ pub async fn reader(&self) {
 // ---------------------------------------------------------------------------
 
 /// DDD-14 / D13: the `/api/v1` operations the description does not describe
-/// yet, as `(METHOD, path template)`. Exactly the seven D13 names. Slice 02
-/// deletes this list in the same commit as the last operation's entry, and
+/// yet, as `(METHOD, path template)`. Of the seven D13 names, step 02-01
+/// described the five issue and comment operations; the two token operations
+/// remain. Slice 02 deletes this list in the same commit as the last operation's entry, and
 /// release gate R4 keeps any tree that still holds it from being tagged.
 const PENDING_OPERATIONS: &[(&str, &str)] = &[
-    (
-        "POST",
-        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues",
-    ),
-    (
-        "PATCH",
-        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}",
-    ),
-    (
-        "GET",
-        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/history",
-    ),
-    (
-        "POST",
-        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments",
-    ),
-    (
-        "PATCH",
-        "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments/{comment_id}",
-    ),
     (
         "GET",
         "/api/v1/teams/{team_slug}/projects/{project_slug}/tokens",

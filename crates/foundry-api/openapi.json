@@ -110,6 +110,649 @@
             "$ref": "#/components/responses/Internal"
           }
         }
+      },
+      "post": {
+        "operationId": "createIssue",
+        "summary": "Create an issue",
+        "description": "Creates an issue in the project and answers it. The title is trimmed; an empty title and one over 256 characters both answer 422 `title_required`. The description is optional, defaults to empty, and over 262,144 characters answers 422 `description_too_long`. A refused request creates nothing.",
+        "parameters": [
+          {
+            "name": "team_slug",
+            "in": "path",
+            "required": true,
+            "description": "The team's slug.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "backend"
+          },
+          {
+            "name": "project_slug",
+            "in": "path",
+            "required": true,
+            "description": "The project's slug, within the team.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "auth"
+          }
+        ],
+        "requestBody": {
+          "description": "The new issue.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateIssueRequest"
+              },
+              "example": {
+                "title": "Sign-in times out behind the proxy",
+                "description": "Seen from the CI runners only."
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created. The new issue, as a later read answers it.",
+            "headers": {
+              "Location": {
+                "description": "The new issue's address: `/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}`, with the new issue's number.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Issue"
+                },
+                "example": {
+                  "key": "AUTH-8",
+                  "number": 8,
+                  "title": "Sign-in times out behind the proxy",
+                  "state": "backlog"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadBody"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "description": "Unprocessable. Two kinds of answer share this status. A JSON body that lacks a required field or has a field of the wrong type is refused by the server framework with plain text, not the `Error` envelope, and its wording is not part of the contract. A title that is empty or over 256 characters, or a description over 262,144 characters, answers the `Error` envelope, with one of the codes below.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "title_required": {
+                    "value": {
+                      "error": {
+                        "code": "title_required",
+                        "message": "Title is required"
+                      }
+                    }
+                  },
+                  "description_too_long": {
+                    "value": {
+                      "error": {
+                        "code": "description_too_long",
+                        "message": "Description is too long"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}": {
+      "patch": {
+        "operationId": "changeIssueState",
+        "summary": "Move an issue to another lane",
+        "description": "Moves the issue to one of its project's lanes and answers the issue. `state` names the lane by its slug; each project has its own lanes, so there is no fixed list. `in-progress` and `canceled` are accepted for `in_progress` and `cancelled`. A lane the project does not have answers 422 `invalid_state`. A refused request changes nothing.",
+        "parameters": [
+          {
+            "name": "team_slug",
+            "in": "path",
+            "required": true,
+            "description": "The team's slug.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "backend"
+          },
+          {
+            "name": "project_slug",
+            "in": "path",
+            "required": true,
+            "description": "The project's slug, within the team.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "auth"
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "description": "The issue's number within its project. Anything but an integer answers 400.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 7
+          }
+        ],
+        "requestBody": {
+          "description": "The lane to move the issue to.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PatchIssueRequest"
+              },
+              "example": {
+                "state": "in_progress"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The issue, in its new lane.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Issue"
+                },
+                "example": {
+                  "key": "AUTH-7",
+                  "number": 7,
+                  "title": "Sign-in times out behind the proxy",
+                  "state": "in_progress"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request. A path segment does not parse (an issue number that is not an integer, or a comment id that is not a UUID), or the body is not valid JSON. The body is plain text from the server framework, not the `Error` envelope, and its wording is not part of the contract.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "description": "Unprocessable. Two kinds of answer share this status. A JSON body that lacks a required field or has a field of the wrong type is refused by the server framework with plain text, not the `Error` envelope, and its wording is not part of the contract. A `state` that names none of the project's lanes answers the `Error` envelope, with one of the codes below.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "invalid_state": {
+                    "value": {
+                      "error": {
+                        "code": "invalid_state",
+                        "message": "Invalid issue state"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/history": {
+      "get": {
+        "operationId": "listIssueHistory",
+        "summary": "Read an issue's change history",
+        "description": "Answers every recorded change of the issue, oldest first. An issue that never changed answers an empty array.",
+        "parameters": [
+          {
+            "name": "team_slug",
+            "in": "path",
+            "required": true,
+            "description": "The team's slug.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "backend"
+          },
+          {
+            "name": "project_slug",
+            "in": "path",
+            "required": true,
+            "description": "The project's slug, within the team.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "auth"
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "description": "The issue's number within its project. Anything but an integer answers 400.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 7
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The issue's changes, oldest first.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/IssueHistoryEntry"
+                  }
+                },
+                "example": [
+                  {
+                    "actor": "sven@example.org",
+                    "field": "state",
+                    "old": "backlog",
+                    "new": "todo",
+                    "at": "2026-10-19T09:30:00Z"
+                  }
+                ]
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadPath"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments": {
+      "post": {
+        "operationId": "createComment",
+        "summary": "Comment on an issue",
+        "description": "Adds a comment to the issue and answers it. The body is Markdown; the answer carries it rendered and sanitised as `body_html`. A body that is empty after trimming answers 422 `comment_empty`, and one over 65,536 characters answers 422 `comment_too_long`. A refused request adds nothing.",
+        "parameters": [
+          {
+            "name": "team_slug",
+            "in": "path",
+            "required": true,
+            "description": "The team's slug.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "backend"
+          },
+          {
+            "name": "project_slug",
+            "in": "path",
+            "required": true,
+            "description": "The project's slug, within the team.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "auth"
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "description": "The issue's number within its project. Anything but an integer answers 400.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 7
+          }
+        ],
+        "requestBody": {
+          "description": "The comment, in Markdown.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentBodyRequest"
+              },
+              "example": {
+                "body": "Seen again on the staging proxy."
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Created. The new comment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                },
+                "example": {
+                  "id": "0199f3c2-6a8e-7c41-9d2b-5e3f1a7b8c90",
+                  "author_email": "sven@example.org",
+                  "body_html": "<p>Seen again on the staging proxy.</p>",
+                  "edited": false
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request. A path segment does not parse (an issue number that is not an integer, or a comment id that is not a UUID), or the body is not valid JSON. The body is plain text from the server framework, not the `Error` envelope, and its wording is not part of the contract.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "description": "Unprocessable. Two kinds of answer share this status. A JSON body that lacks a required field or has a field of the wrong type is refused by the server framework with plain text, not the `Error` envelope, and its wording is not part of the contract. A body that is empty after trimming or over 65,536 characters answers the `Error` envelope, with one of the codes below.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "comment_empty": {
+                    "value": {
+                      "error": {
+                        "code": "comment_empty",
+                        "message": "Comment cannot be empty"
+                      }
+                    }
+                  },
+                  "comment_too_long": {
+                    "value": {
+                      "error": {
+                        "code": "comment_too_long",
+                        "message": "Comment is too long"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
+      }
+    },
+    "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}/comments/{comment_id}": {
+      "patch": {
+        "operationId": "editComment",
+        "summary": "Edit a comment",
+        "description": "Replaces the body of a comment you wrote and answers the comment, marked as edited. Only the comment's author may edit it. A refused request changes nothing.",
+        "parameters": [
+          {
+            "name": "team_slug",
+            "in": "path",
+            "required": true,
+            "description": "The team's slug.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "backend"
+          },
+          {
+            "name": "project_slug",
+            "in": "path",
+            "required": true,
+            "description": "The project's slug, within the team.",
+            "schema": {
+              "type": "string"
+            },
+            "example": "auth"
+          },
+          {
+            "name": "number",
+            "in": "path",
+            "required": true,
+            "description": "The issue's number within its project. Anything but an integer answers 400.",
+            "schema": {
+              "type": "integer",
+              "format": "int32"
+            },
+            "example": 7
+          },
+          {
+            "name": "comment_id",
+            "in": "path",
+            "required": true,
+            "description": "The comment's id. Anything but a UUID answers 400.",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "example": "0199f3c2-6a8e-7c41-9d2b-5e3f1a7b8c90"
+          }
+        ],
+        "requestBody": {
+          "description": "The comment's new body, in Markdown.",
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommentBodyRequest"
+              },
+              "example": {
+                "body": "Seen again on the staging proxy, twice."
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "The edited comment.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Comment"
+                },
+                "example": {
+                  "id": "0199f3c2-6a8e-7c41-9d2b-5e3f1a7b8c90",
+                  "author_email": "sven@example.org",
+                  "body_html": "<p>Seen again on the staging proxy, twice.</p>",
+                  "edited": true
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request. A path segment does not parse (an issue number that is not an integer, or a comment id that is not a UUID), or the body is not valid JSON. The body is plain text from the server framework, not the `Error` envelope, and its wording is not part of the contract.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "description": "Forbidden. The comment was written by someone else.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "forbidden": {
+                    "value": {
+                      "error": {
+                        "code": "forbidden",
+                        "message": "forbidden"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "405": {
+            "$ref": "#/components/responses/MethodNotAllowed"
+          },
+          "410": {
+            "description": "Gone. The comment was deleted.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "gone": {
+                    "value": {
+                      "error": {
+                        "code": "gone",
+                        "message": "gone"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "description": "Unprocessable. Two kinds of answer share this status. A JSON body that lacks a required field or has a field of the wrong type is refused by the server framework with plain text, not the `Error` envelope, and its wording is not part of the contract. A body that is empty after trimming or over 65,536 characters answers the `Error` envelope, with one of the codes below.",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                },
+                "examples": {
+                  "comment_empty": {
+                    "value": {
+                      "error": {
+                        "code": "comment_empty",
+                        "message": "Comment cannot be empty"
+                      }
+                    }
+                  },
+                  "comment_too_long": {
+                    "value": {
+                      "error": {
+                        "code": "comment_too_long",
+                        "message": "Comment is too long"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "$ref": "#/components/responses/Internal"
+          }
+        }
       }
     }
   },
@@ -194,6 +837,152 @@
               "in_progress",
               "done",
               "cancelled"
+            ]
+          }
+        }
+      },
+      "CreateIssueRequest": {
+        "type": "object",
+        "description": "The body of a request to create an issue.",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string",
+            "description": "The issue's title: 1 to 256 characters after trimming.",
+            "examples": [
+              "Sign-in times out behind the proxy"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "description": "The issue's description, in Markdown, up to 262,144 characters. Optional; it defaults to empty.",
+            "examples": [
+              "Seen from the CI runners only."
+            ]
+          }
+        }
+      },
+      "PatchIssueRequest": {
+        "type": "object",
+        "description": "The body of a request to move an issue to another lane.",
+        "required": [
+          "state"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "description": "The slug of one of the issue's project's lanes. `in-progress` and `canceled` are accepted as aliases.",
+            "examples": [
+              "in_progress"
+            ]
+          }
+        }
+      },
+      "CommentBodyRequest": {
+        "type": "object",
+        "description": "The body of a request to add or edit a comment.",
+        "required": [
+          "body"
+        ],
+        "properties": {
+          "body": {
+            "type": "string",
+            "description": "The comment, in Markdown: not empty after trimming, and up to 65,536 characters.",
+            "examples": [
+              "Seen again on the staging proxy."
+            ]
+          }
+        }
+      },
+      "Comment": {
+        "type": "object",
+        "description": "A comment on an issue.",
+        "required": [
+          "id",
+          "author_email",
+          "body_html",
+          "edited"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "The comment's id, a UUID.",
+            "examples": [
+              "0199f3c2-6a8e-7c41-9d2b-5e3f1a7b8c90"
+            ]
+          },
+          "author_email": {
+            "type": "string",
+            "description": "The email of the comment's author.",
+            "examples": [
+              "sven@example.org"
+            ]
+          },
+          "body_html": {
+            "type": "string",
+            "description": "The comment rendered from its Markdown and sanitised.",
+            "examples": [
+              "<p>Seen again on the staging proxy.</p>"
+            ]
+          },
+          "edited": {
+            "type": "boolean",
+            "description": "Whether the comment was edited after it was written.",
+            "examples": [
+              false
+            ]
+          }
+        }
+      },
+      "IssueHistoryEntry": {
+        "type": "object",
+        "description": "One recorded change of an issue.",
+        "required": [
+          "actor",
+          "field",
+          "old",
+          "new",
+          "at"
+        ],
+        "properties": {
+          "actor": {
+            "type": "string",
+            "description": "The email of the person whose call made the change.",
+            "examples": [
+              "sven@example.org"
+            ]
+          },
+          "field": {
+            "type": "string",
+            "description": "What changed, such as `state`.",
+            "examples": [
+              "state"
+            ]
+          },
+          "old": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The value before the change, or null where there was none.",
+            "examples": [
+              "backlog"
+            ]
+          },
+          "new": {
+            "type": "string",
+            "description": "The value after the change.",
+            "examples": [
+              "todo"
+            ]
+          },
+          "at": {
+            "type": "string",
+            "description": "When the change was made, as an RFC 3339 UTC timestamp.",
+            "examples": [
+              "2026-10-19T09:30:00Z"
             ]
           }
         }

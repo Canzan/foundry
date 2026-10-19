@@ -7,8 +7,8 @@
 //! testcontainers Postgres (the `api_comment_scoping.rs` harness), judges every
 //! answer against the document's entry for that operation and status, and
 //! removes the `#[ignore]`. Step 01-01 lands the five that the served
-//! description alone makes true; the three that need every operation
-//! described stay pending for 02-01 and 02-02. The acceptance matrix
+//! description alone makes true; step 02-01 lands the 405 and Location
+//! ones; the extractor refusals stay pending. The acceptance matrix
 //! (`api-openapi-document-02-every-answer.feature`) produces the same answers
 //! through the HTTP lane; these tests hold them below it, inside
 //! `cargo test --workspace` (so `smoke` and `ci` run them unconditionally).
@@ -141,6 +141,19 @@ async fn world() -> World {
               VALUES ($1, $2, $3, 'auth', 'auth', 'AUTH')",
         &[project_id, team_id, workspace_id],
         "seed project",
+    )
+    .await;
+    // The default lanes, so an issue can be created (the
+    // `api_comment_scoping.rs` idiom).
+    exec(
+        &store,
+        "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+         SELECT gen_random_uuid(), $1, $2, v.slug, v.label, v.position
+           FROM (VALUES ('backlog', 'Backlog', 0), ('todo', 'Todo', 1),
+                        ('in_progress', 'In-Progress', 2), ('done', 'Done', 3))
+                AS v (slug, label, position)",
+        &[project_id, workspace_id],
+        "seed lanes",
     )
     .await;
     let hash = foundry_auth::hash_password(&SecretString::new(PASSWORD.into()))
@@ -469,10 +482,74 @@ async fn every_documented_operation_refuses_no_token_as_documented() {
 /// For each documented path except the description's own, each undocumented
 /// method answers 405 with an `Allow` header equal to the documented methods
 /// (plus HEAD where GET).
-#[test]
-#[ignore = "pending: api-openapi-document 01-04 — 405 with an Allow header equal to the documented methods"]
-fn every_documented_path_answers_405_with_the_documented_methods() {
-    panic!("Not yet implemented -- RED scaffold (api-openapi-document 01-04: 405 + Allow)");
+#[tokio::test]
+async fn every_documented_path_answers_405_with_the_documented_methods() {
+    let w = world().await;
+    let doc = document();
+    let asked = [
+        Method::GET,
+        Method::POST,
+        Method::PUT,
+        Method::PATCH,
+        Method::DELETE,
+    ];
+    let mut refused = 0;
+    for (template, item) in doc["paths"].as_object().expect("the description has paths") {
+        if template == DOC_PATH {
+            // The description's own path answers the catch-all instead (DDD-4).
+            continue;
+        }
+        let documented: Vec<Method> = asked
+            .iter()
+            .filter(|m| item.get(m.as_str().to_ascii_lowercase()).is_some())
+            .cloned()
+            .collect();
+        let mut allowed: std::collections::BTreeSet<String> =
+            documented.iter().map(|m| m.as_str().to_string()).collect();
+        if documented.contains(&Method::GET) {
+            allowed.insert("HEAD".to_string());
+        }
+        for method in &documented {
+            let op = &item[method.as_str().to_ascii_lowercase()];
+            let response = resolve(&doc, &op["responses"]["405"]);
+            assert!(
+                response["headers"].get("Allow").is_some(),
+                "{method} {template} documents no 405 with an Allow header"
+            );
+            assert!(
+                response.get("content").is_none(),
+                "{method} {template} documents a body on its 405"
+            );
+        }
+        for method in asked.iter().filter(|m| !documented.contains(m)) {
+            let answer = call(&w.router, method.clone(), &concrete(template), &[]).await;
+            assert_eq!(
+                answer.status,
+                StatusCode::METHOD_NOT_ALLOWED,
+                "{method} {template} is not documented, so it answers 405"
+            );
+            assert!(
+                answer.body.is_empty(),
+                "{method} {template}'s 405 has no body"
+            );
+            let named: std::collections::BTreeSet<String> = answer
+                .header(header::ALLOW)
+                .unwrap_or_default()
+                .split(',')
+                .map(|m| m.trim().to_ascii_uppercase())
+                .filter(|m| !m.is_empty())
+                .collect();
+            assert_eq!(
+                named, allowed,
+                "{method} {template}'s Allow names the documented methods"
+            );
+            refused += 1;
+        }
+    }
+    assert!(
+        refused >= 1,
+        "the description documents no path a wrong method can be tried on"
+    );
 }
 
 /// With a real token on a seeded project: a bad `{number}` / `{jti}` /
@@ -486,10 +563,58 @@ fn the_extractor_refusals_answer_as_documented() {
 }
 
 /// A valid create answers 201 with a `Location` of the documented form.
-#[test]
-#[ignore = "pending: api-openapi-document 01-04 — a created issue carries the documented Location"]
-fn a_created_issue_carries_the_documented_location() {
-    panic!("Not yet implemented -- RED scaffold (api-openapi-document 01-04: 201 Location)");
+#[tokio::test]
+async fn a_created_issue_carries_the_documented_location() {
+    let w = world().await;
+    let doc = document();
+    let collection = "/api/v1/teams/{team_slug}/projects/{project_slug}/issues";
+    let one_issue = "/api/v1/teams/{team_slug}/projects/{project_slug}/issues/{number}";
+    let created = resolve(&doc, &doc["paths"][collection]["post"]["responses"]["201"]);
+    assert!(
+        created["headers"].get("Location").is_some(),
+        "POST {collection} documents no Location header on its 201"
+    );
+    assert!(
+        doc["paths"].get(one_issue).is_some(),
+        "the description has no path for one issue for a Location to name"
+    );
+    let (_, token) = mint(&w, "creator", time::Duration::hours(1)).await;
+    let req = Request::builder()
+        .method(Method::POST)
+        .uri(concrete(collection))
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .body(Body::from(
+            r#"{"title":"Sign-in times out behind the proxy"}"#,
+        ))
+        .expect("request");
+    let resp = w.router.clone().oneshot(req).await.expect("response");
+    assert_eq!(
+        resp.status(),
+        StatusCode::CREATED,
+        "a valid create answers 201"
+    );
+    let location = resp
+        .headers()
+        .get(header::LOCATION)
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_string)
+        .expect("the 201 carries a Location");
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .expect("body");
+    let issue: Value = serde_json::from_slice(&body).expect("the 201 body parses");
+    let number = issue["number"]
+        .as_i64()
+        .expect("the created issue has a number");
+    let expected = one_issue
+        .replace("{team_slug}", "backend")
+        .replace("{project_slug}", "auth")
+        .replace("{number}", &number.to_string());
+    assert_eq!(
+        location, expected,
+        "the Location is the documented one-issue address of the created issue"
+    );
 }
 
 /// Review L1: the document's `info.version` equals
