@@ -2428,8 +2428,9 @@ async fn stage_tree() -> PathBuf {
             if !from.exists() {
                 continue;
             }
-            // `cp -pR` keeps mtimes, so the dedicated target dir rebuilds only
-            // what a plant touched.
+            // `cp -pR` keeps mtimes, so the dedicated target dir reuses the
+            // rest of the workspace; `forget_foundry_api_build` makes sure
+            // foundry-api itself is never reused across staged trees.
             let status = std::process::Command::new("cp")
                 .arg("-pR")
                 .arg(&from)
@@ -2642,11 +2643,48 @@ fn plant(world: &mut FoundryWorld, tree: &Path, drift: &DriftPlant) {
     }
 }
 
+/// Drops every cached foundry-api fingerprint in the drift target dir, so the
+/// next build recompiles foundry-api (and re-reads the `include_bytes!` of
+/// `openapi.json`) while the rest of the workspace stays cached.
+///
+/// mtimes cannot decide this: the staged copy keeps the checkout's mtimes, and
+/// the file that differs from the cached build is often one no plant touched
+/// (a release bump leaves `openapi.json` at the checkout's old mtime while an
+/// earlier refresh built the same version against a rewritten one). Cargo then
+/// sees the cached artifact as newer and reuses it — a false green.
+fn forget_foundry_api_build(target: &Path) {
+    let Ok(profiles) = std::fs::read_dir(target) else {
+        return; // nothing cached yet
+    };
+    for profile in profiles {
+        let fingerprints = profile
+            .expect("drift target entry")
+            .path()
+            .join(".fingerprint");
+        let Ok(units) = std::fs::read_dir(&fingerprints) else {
+            continue;
+        };
+        for unit in units {
+            let unit = unit.expect("fingerprint entry");
+            if unit
+                .file_name()
+                .to_string_lossy()
+                .starts_with("foundry-api-")
+            {
+                std::fs::remove_dir_all(unit.path()).unwrap_or_else(|e| {
+                    panic!("forget the cached build {}: {e}", unit.path().display())
+                });
+            }
+        }
+    }
+}
+
 async fn run_drift_check(world: &mut FoundryWorld) {
     let tree = ensure_staged(world).await;
     let xtask = xtask_binary().await;
     let target = drift_dir().join("target");
     let (output, passed) = tokio::task::spawn_blocking(move || {
+        forget_foundry_api_build(&target);
         let arch = std::process::Command::new(&xtask)
             .current_dir(&tree)
             .args(["check-arch", "--root"])
