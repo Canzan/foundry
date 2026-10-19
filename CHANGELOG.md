@@ -20,6 +20,13 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   missing from `crates/foundry-api/openapi.json` or listed there without the code giving it, or
   when the code uses a form the rule cannot read.
 
+### Releasing
+
+- `RELEASING.md` step 3 now runs `cargo xtask openapi` (sets `info.version` in
+  `crates/foundry-api/openapi.json` to the new release, touching nothing else) and
+  `cargo xtask smoke`. The image build runs `cargo xtask openapi --check` and refuses a
+  description that names another release.
+
 ### Unchanged
 
 - Any method other than GET or HEAD on `/api/v1/openapi.json` answers the uniform 404 envelope,

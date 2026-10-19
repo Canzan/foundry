@@ -70,9 +70,20 @@ ARG FOUNDRY_STAMP_DATE=
 # Cross-compile for the target triple. rustup installs the pinned toolchain
 # (1.91) + the cross std. Caches are scoped per-arch so concurrent amd64 /
 # arm64 builds don't contend on the same cache mount.
+#
+# First, refuse a stale API description (api-openapi-document DEVOPS R2):
+# `xtask openapi --check` is read-only and fails, naming both versions and the
+# fix, when `info.version` in crates/foundry-api/openapi.json (served verbatim
+# at /api/v1/openapi.json) is not the release in crates/foundry-api/Cargo.toml.
+# Neither publish workflow runs tests, so this is the one gate every image
+# build (GHCR, the Forgejo zot mirror, a local `docker build`) cannot skip. It
+# compiles xtask for the build host, sharing the cache mounts below. An xtask
+# test (`dockerfile_checks_the_description_before_building_foundry`) fails if
+# this line goes missing or moves after the foundry build.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARGETARCH} \
     --mount=type=cache,target=/work/target,id=cargo-target-${TARGETARCH} \
     triple="$(cat /rust-target)" \
+    && cargo run --locked --release -q -p xtask -- openapi --check \
     && rustup target add "$triple" \
     && cargo build --locked --release --target "$triple" -p foundry-app --bin foundry \
     && cp "/work/target/$triple/release/foundry" /usr/local/bin/foundry

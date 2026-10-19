@@ -8,9 +8,14 @@
 //!                  PLUS the `cargo-deny` crate-graph dependency-direction
 //!                  layer. Passes on a clean tree with zero manual steps; on a
 //!                  violation it NAMES the offender and exits non-zero.
+//!   `openapi`    — sets `info.version` in `crates/foundry-api/openapi.json`
+//!                  to the release in `crates/foundry-api/Cargo.toml`, touching
+//!                  no other byte. `--check` only compares the two and fails,
+//!                  naming both and the fix, when they differ (DEVOPS R2).
 //!   `help`       — list subcommands.
 
 mod check_arch;
+mod openapi;
 
 use std::process::{Command, ExitCode};
 
@@ -32,6 +37,7 @@ fn main() -> ExitCode {
         "ci" => run_ci(),
         "smoke" => run_smoke(),
         "check-arch" => check_arch::run(std::env::args().skip(2).collect()),
+        "openapi" => openapi::run(std::env::args().skip(2).collect()),
         other => {
             eprintln!("unknown subcommand: {other}");
             usage();
@@ -48,6 +54,8 @@ fn usage() {
     println!("  smoke       Fast pre-COMMIT subset: fmt, clippy, boundary guard,");
     println!("              workspace unit/integration tests (no acceptance/deny)");
     println!("  check-arch  Run the web/api boundary guard (US-W06)");
+    println!("  openapi     Set info.version in crates/foundry-api/openapi.json to the");
+    println!("              release; --check only compares them (read-only)");
     println!("  help        Show this message");
 }
 

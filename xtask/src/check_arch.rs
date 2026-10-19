@@ -191,7 +191,7 @@ fn parse_root(args: &[String]) -> Result<PathBuf, String> {
 }
 
 /// The workspace root: `xtask`'s `CARGO_MANIFEST_DIR` parent.
-fn workspace_root() -> PathBuf {
+pub(crate) fn workspace_root() -> PathBuf {
     let manifest = env!("CARGO_MANIFEST_DIR");
     Path::new(manifest)
         .parent()
@@ -13008,31 +13008,186 @@ async fn resolve_token_address(store: &Store, team_slug: &str, project_slug: &st
     }
 
     // `cargo xtask openapi` (DDD-13) and its read-only `--check` (DEVOPS R2), step 01-05.
-    pending_gold!(
-        openapi_refresh_changes_only_the_version,
-        "01-05",
-        "the refresh rewrites info.version and no other byte"
-    );
-    pending_gold!(
-        openapi_refresh_is_idempotent,
-        "01-05",
-        "a second refresh changes nothing"
-    );
-    pending_gold!(
-        openapi_check_refuses_a_stale_description,
-        "01-05",
-        "--check fails on a stale info.version, naming both versions and cargo xtask openapi"
-    );
-    pending_gold!(
-        openapi_check_leaves_the_file_unchanged,
-        "01-05",
-        "a failing --check leaves the file byte for byte"
-    );
-    pending_gold!(
-        openapi_check_accepts_a_current_description,
-        "01-05",
-        "--check passes on a current description"
-    );
+    //
+    // Each test stages a crate manifest and a description laid out like the
+    // committed one, runs the command through its argument list (`--root` at the
+    // staged tree, as the maintainer and the Dockerfile run it) and reads the
+    // file back. The description repeats the version literal outside `info`, so
+    // a rewrite that touches the first or every match is caught.
+
+    const OPENAPI_JSON: &str = "crates/foundry-api/openapi.json";
+    const API_MANIFEST: &str = "crates/foundry-api/Cargo.toml";
+
+    fn manifest_at(release: &str) -> String {
+        format!(
+            "[package]\nname = \"foundry-api\"\nversion = \"{release}\"\nedition.workspace = true\n\n\
+             [dependencies]\nserde = {{ version = \"1\" }}\n"
+        )
+    }
+
+    fn description_at(version: &str) -> String {
+        format!(
+            "{{\n  \"openapi\": \"3.1.0\",\n  \"x-pinned\": {{ \"version\": \"{version}\" }},\n  \
+             \"info\": {{\n    \"title\": \"Foundry API v1\",\n    \"version\": \"{version}\",\n    \
+             \"description\": \"Since {version}.\"\n  }},\n  \"paths\": {{}}\n}}\n"
+        )
+    }
+
+    fn openapi_tree(release: &str, documented: &str) -> tempfile::TempDir {
+        stage(&[
+            (API_MANIFEST, &manifest_at(release)),
+            (OPENAPI_JSON, &description_at(documented)),
+        ])
+    }
+
+    fn xtask_openapi(tree: &tempfile::TempDir, check: bool) -> crate::openapi::Outcome {
+        let mut args: Vec<String> = Vec::new();
+        if check {
+            args.push("--check".to_string());
+        }
+        args.push("--root".to_string());
+        args.push(tree.path().display().to_string());
+        crate::openapi::execute(&args)
+    }
+
+    fn committed(tree: &tempfile::TempDir) -> String {
+        std::fs::read_to_string(tree.path().join(OPENAPI_JSON)).expect("read the description")
+    }
+
+    #[test]
+    fn openapi_refresh_changes_only_the_version() {
+        let tree = openapi_tree("0.16.1", "0.16.0");
+        let before = committed(&tree);
+        let outcome = xtask_openapi(&tree, false);
+        assert!(
+            outcome.succeeded(),
+            "the refresh failed: {}",
+            outcome.message
+        );
+        let info_version = "    \"version\": \"0.16.0\",\n    \"description\"";
+        assert_eq!(before.matches(info_version).count(), 1, "fixture layout");
+        assert_eq!(
+            committed(&tree),
+            before.replacen(
+                info_version,
+                "    \"version\": \"0.16.1\",\n    \"description\"",
+                1
+            ),
+            "the refresh changed more than info.version"
+        );
+    }
+
+    #[test]
+    fn openapi_refresh_is_idempotent() {
+        let tree = openapi_tree("0.16.1", "0.16.0");
+        let first = xtask_openapi(&tree, false);
+        assert!(first.succeeded(), "the refresh failed: {}", first.message);
+        let refreshed = committed(&tree);
+        let second = xtask_openapi(&tree, false);
+        assert!(
+            second.succeeded(),
+            "the second refresh failed: {}",
+            second.message
+        );
+        assert_eq!(
+            committed(&tree),
+            refreshed,
+            "a second refresh changed the file"
+        );
+    }
+
+    #[test]
+    fn openapi_check_refuses_a_stale_description() {
+        let tree = openapi_tree("0.16.1", "0.16.0");
+        let outcome = xtask_openapi(&tree, true);
+        assert!(!outcome.succeeded(), "--check accepted a stale description");
+        for needle in ["0.16.0", "0.16.1", "cargo xtask openapi", OPENAPI_JSON] {
+            assert!(
+                outcome.message.contains(needle),
+                "the refusal does not name {needle:?}: {}",
+                outcome.message
+            );
+        }
+    }
+
+    #[test]
+    fn openapi_check_leaves_the_file_unchanged() {
+        let tree = openapi_tree("0.16.1", "0.16.0");
+        let before = committed(&tree);
+        let outcome = xtask_openapi(&tree, true);
+        assert!(!outcome.succeeded(), "--check accepted a stale description");
+        assert_eq!(
+            committed(&tree),
+            before,
+            "a failing --check changed the file"
+        );
+    }
+
+    #[test]
+    fn openapi_check_accepts_a_current_description() {
+        let tree = openapi_tree("0.16.1", "0.16.1");
+        let before = committed(&tree);
+        let outcome = xtask_openapi(&tree, true);
+        assert!(
+            outcome.succeeded(),
+            "--check refused a current description: {}",
+            outcome.message
+        );
+        assert_eq!(committed(&tree), before, "--check changed the file");
+    }
+
+    /// DESIGN Handoff, round-2 review L2 (DEVOPS R2): the Dockerfile builder
+    /// stage runs `xtask openapi --check` in the same `RUN` as, and before, the
+    /// `cargo build … --bin foundry`, so no image builds from a stale
+    /// description.
+    fn dockerfile_checks_before_building(dockerfile: &str) -> Result<(), String> {
+        let joined = dockerfile.replace("\\\n", " ");
+        let build = joined
+            .lines()
+            .find(|line| {
+                line.trim_start().starts_with("RUN ")
+                    && line.contains("cargo build")
+                    && line.contains("--bin foundry")
+            })
+            .ok_or("Dockerfile: no RUN builds `--bin foundry`")?;
+        let check = build.find("xtask -- openapi --check").ok_or(
+            "Dockerfile: the RUN that builds foundry does not run `xtask -- openapi --check`",
+        )?;
+        if check > build.find("cargo build").unwrap_or(0) {
+            return Err(
+                "Dockerfile: `xtask -- openapi --check` runs after `cargo build … --bin foundry`"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn dockerfile_checks_the_description_before_building_foundry() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let dockerfile = std::fs::read_to_string(root.join("Dockerfile")).expect("read Dockerfile");
+        if let Err(problem) = dockerfile_checks_before_building(&dockerfile) {
+            panic!("{problem}");
+        }
+        let check = "    && cargo run --locked --release -q -p xtask -- openapi --check \\\n";
+        let build = "    && cargo build --locked --release --target \"$triple\" -p foundry-app --bin foundry \\\n";
+        let head = "RUN --mount=type=cache,target=/work/target \\\n    triple=x \\\n";
+        let tail = "    && cp a b\n";
+        for (planted, what) in [
+            (format!("{head}{build}{tail}"), "missing"),
+            (format!("{head}{build}{check}{tail}"), "misordered"),
+            (
+                format!("RUN true \\\n{check}    && true\n{head}{build}{tail}"),
+                "in another RUN",
+            ),
+        ] {
+            let verdict = dockerfile_checks_before_building(&planted);
+            assert!(
+                verdict.as_ref().is_err_and(|p| p.contains("Dockerfile")),
+                "a {what} check is not named with the Dockerfile: {verdict:?}"
+            );
+        }
+    }
 
     // Rule 3: api-docs-page (slice 03, step 03-03).
     pending_gold!(docs_page_clean_tree_passes, "03-03", "a clean tree passes");

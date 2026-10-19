@@ -30,7 +30,9 @@ breaking changes; we still flag them in `CHANGELOG.md` with the
 
 # 1. Make sure main is green.
 git checkout main && git pull --ff-only
-cargo xtask ci    # full local pipeline; same gates as remote CI
+FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci   # full local pipeline. Docker forced on:
+                                                # without it, ci skips the acceptance and
+                                                # browser lanes and still exits 0.
 
 # 2. Update CHANGELOG.md — move everything under "## Unreleased" into
 #    a new "## [vX.Y.Z] - YYYY-MM-DD" heading. See `keep-a-changelog`
@@ -42,9 +44,16 @@ $EDITOR CHANGELOG.md
 #    its own 0.1.0). Refresh the lock for the workspace crates only.
 $EDITOR crates/*/Cargo.toml
 cargo update --workspace
+# The API description (crates/foundry-api/openapi.json, served verbatim at
+# /api/v1/openapi.json) carries the release in `info.version`. Rewrite that one
+# value from crates/foundry-api/Cargo.toml, then re-run the pre-commit gate on the
+# bumped tree: step 1 ran BEFORE the bump, and neither publish workflow runs tests.
+# smoke needs Docker (the workspace tests start Postgres containers).
+cargo xtask openapi
+cargo xtask smoke
 
 # 4. Commit, tag, push.
-git add CHANGELOG.md Cargo.lock crates/*/Cargo.toml
+git add CHANGELOG.md Cargo.lock crates/*/Cargo.toml crates/foundry-api/openapi.json
 git commit -m "chore(release): vX.Y.Z"
 git tag -s vX.Y.Z -m "vX.Y.Z"   # signed tags strongly recommended
 git push origin main
@@ -59,6 +68,11 @@ git push origin vX.Y.Z
 #      ghcr.io/<owner>/foundry:latest
 #
 #    Track progress in the Actions tab.
+#
+#    The homelab deploys the image the Forgejo mirror builds
+#    (.forgejo/workflows/build-and-publish.yml, pushed to zot), not the
+#    GHCR one. Both builds run `cargo xtask openapi --check` in the
+#    Dockerfile and refuse a tree whose description names another release.
 ```
 
 ## Verifying a deployment

@@ -83,7 +83,7 @@ Feature: The maintainer cannot merge a change that makes the API description lie
     Then the drift check fails
     And it names "GET /api/v1/teams/{team_slug}/projects/{project_slug}/issues" as described but not offered by the code
 
-  @pending @aod-01 @us-aod-02 @error @kpi @contract-shape:pure-function
+  @aod-01 @us-aod-02 @error @kpi @contract-shape:pure-function
   Scenario: A committed description left behind by a release bump fails the build
     When the maintainer bumps the release version without refreshing the committed description and runs the drift check
     Then the drift check fails
@@ -95,7 +95,7 @@ Feature: The maintainer cannot merge a change that makes the API description lie
     Then the drift check passes
     And it reports that it compared the API description with the code's routes, statuses and answer shapes
 
-  @pending @aod-01 @us-aod-02 @driving_port @contract-shape:bounded-change
+  @aod-01 @us-aod-02 @driving_port @contract-shape:bounded-change
   Scenario: One command brings the committed description up to a new release, and changes nothing else
     Given the maintainer has bumped the release version without refreshing the committed description
     When the maintainer runs the description refresh
@@ -103,12 +103,12 @@ Feature: The maintainer cannot merge a change that makes the API description lie
     And every other byte of the committed description is unchanged
     And the drift check now passes on that tree
 
-  @pending @aod-01 @us-aod-02 @edge @contract-shape:unbounded-preservation
+  @aod-01 @us-aod-02 @edge @contract-shape:unbounded-preservation
   Scenario: Refreshing a description that is already current changes nothing
     When the maintainer runs the description refresh
     Then the committed description is byte for byte what it was
 
-  @pending @aod-01 @us-aod-02 @error @kpi @contract-shape:unbounded-preservation
+  @aod-01 @us-aod-02 @error @kpi @contract-shape:unbounded-preservation
   Scenario: Checking a description left behind by a release bump refuses it, and changes nothing
     Given the maintainer has bumped the release version without refreshing the committed description
     When the image build checks the committed description without changing it
