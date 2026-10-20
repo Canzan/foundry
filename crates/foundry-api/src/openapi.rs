@@ -104,8 +104,11 @@ mod tests {
     }
 
     /// DDD-11: keep property names, type sets, `format`, `required` and
-    /// `$ref` targets (a `$defs` reference becomes its component reference);
-    /// drop titles, descriptions, examples, defaults and `$schema`.
+    /// `$ref` targets (a `$defs` reference becomes its component reference),
+    /// and every other keyword that constrains the shape: `enum`, `const`,
+    /// `nullable`, `additionalProperties`, `pattern`, the length, bound and
+    /// item-count limits. Drop only titles, descriptions, examples, defaults,
+    /// `$schema` and anything else that does not decide what a value may be.
     fn normalise(schema: &Value) -> Value {
         let Some(object) = schema.as_object() else {
             return schema.clone();
@@ -124,6 +127,10 @@ mod tests {
                 "type" => string_set(value),
                 "format" => value.clone(),
                 "required" => string_set(value),
+                "enum" | "const" | "nullable" | "pattern" | "minLength" | "maxLength"
+                | "minimum" | "maximum" | "exclusiveMinimum" | "exclusiveMaximum" | "minItems"
+                | "maxItems" => value.clone(),
+                "additionalProperties" => normalise(value),
                 "items" => normalise(value),
                 "properties" => Value::Object(
                     value
@@ -146,6 +153,109 @@ mod tests {
             out.insert(key.clone(), kept);
         }
         Value::Object(out)
+    }
+
+    /// DDD-11: a change in any shape-bearing keyword is a drift; a change in
+    /// prose or examples is not.
+    #[test]
+    fn normalise_keeps_every_shape_keyword() {
+        let base = serde_json::json!({
+            "type": "object",
+            "title": "T",
+            "description": "d",
+            "properties": { "state": { "type": "string", "examples": ["todo"] } },
+            "required": ["state"],
+        });
+        let with = |pointer: &str, key: &str, value: Value| {
+            let mut schema = base.clone();
+            schema
+                .pointer_mut(pointer)
+                .and_then(Value::as_object_mut)
+                .expect("a schema object")
+                .insert(key.to_string(), value);
+            schema
+        };
+        for (key, a, b) in [
+            (
+                "enum",
+                serde_json::json!(["todo"]),
+                serde_json::json!(["done"]),
+            ),
+            (
+                "const",
+                serde_json::json!("todo"),
+                serde_json::json!("done"),
+            ),
+            (
+                "nullable",
+                serde_json::json!(true),
+                serde_json::json!(false),
+            ),
+            (
+                "pattern",
+                serde_json::json!("^a$"),
+                serde_json::json!("^b$"),
+            ),
+            ("minLength", serde_json::json!(1), serde_json::json!(2)),
+            ("maxLength", serde_json::json!(10), serde_json::json!(20)),
+            ("minimum", serde_json::json!(0), serde_json::json!(1)),
+            ("maximum", serde_json::json!(9), serde_json::json!(8)),
+            (
+                "exclusiveMinimum",
+                serde_json::json!(0),
+                serde_json::json!(1),
+            ),
+            (
+                "exclusiveMaximum",
+                serde_json::json!(9),
+                serde_json::json!(8),
+            ),
+            ("minItems", serde_json::json!(0), serde_json::json!(1)),
+            ("maxItems", serde_json::json!(9), serde_json::json!(8)),
+        ] {
+            let property = "/properties/state";
+            let (one, other) = (with(property, key, a.clone()), with(property, key, b));
+            assert_ne!(
+                normalise(&one),
+                normalise(&other),
+                "a changed `{key}` is not detected"
+            );
+            assert_ne!(
+                normalise(&one),
+                normalise(&base),
+                "an added `{key}` is not detected"
+            );
+        }
+        let closed = with("", "additionalProperties", serde_json::json!(false));
+        let open = with(
+            "",
+            "additionalProperties",
+            serde_json::json!({ "type": "string" }),
+        );
+        assert_ne!(
+            normalise(&closed),
+            normalise(&open),
+            "a changed `additionalProperties` is not detected"
+        );
+        assert_ne!(
+            normalise(&closed),
+            normalise(&base),
+            "an added `additionalProperties` is not detected"
+        );
+        let reworded = with("", "description", serde_json::json!("other prose"));
+        let reworded = {
+            let mut schema = reworded;
+            schema["properties"]["state"]["examples"] = serde_json::json!(["done"]);
+            schema["title"] = serde_json::json!("U");
+            schema["default"] = serde_json::json!({});
+            schema["$schema"] = serde_json::json!("x");
+            schema
+        };
+        assert_eq!(
+            normalise(&reworded),
+            normalise(&base),
+            "prose or examples count as drift"
+        );
     }
 
     /// The fields at which two normalised object schemas differ.

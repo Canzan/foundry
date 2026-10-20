@@ -11499,25 +11499,34 @@ fn check_api_docs_page(root: &Path) -> Vec<String> {
 const DOCS_PAGE_PATH: &str = "/docs/api";
 const DOCS_PAGE_DOCUMENT: &str = "\"/api/v1/openapi.json\"";
 
-/// Each option the initializer must set, in its whitespace-free spelling.
-const DOCS_PAGE_PINNED: [&str; 4] = [
-    "validatorUrl:\"none\"",
-    "persistAuthorization:false",
-    "queryConfigEnabled:false",
-    "withCredentials:false",
+/// Each option the initializer must set, and its value in whitespace-free
+/// spelling. The name is named exactly once in the initializer, as that
+/// option: JavaScript keeps the last of two equal keys, so a second
+/// `persistAuthorization` could quietly undo the first (review D4).
+const DOCS_PAGE_PINNED: [(&str, &str); 4] = [
+    ("validatorUrl", "\"none\""),
+    ("persistAuthorization", "false"),
+    ("queryConfigEnabled", "false"),
+    ("withCredentials", "false"),
 ];
 
 /// Names that choose another description, touch the browser's storage or
 /// evaluate text, matched where an identifier starts.
-const DOCS_PAGE_FORBIDDEN: [&str; 7] = [
+const DOCS_PAGE_FORBIDDEN: [&str; 8] = [
     "urls:",
     "configUrl",
     "spec:",
     "localStorage",
     "sessionStorage",
+    "indexedDB",
     "document.cookie",
     "eval(",
 ];
+
+/// Storage names short or common enough to sit inside another name, matched
+/// only as a whole identifier: the Cache API's `caches` (not `cachesize`) and
+/// `window.name` (not `window.namespace`) (review D5).
+const DOCS_PAGE_FORBIDDEN_WORDS: [&str; 2] = ["caches", "window.name"];
 
 fn docs_page_read(root: &Path, file: &Path) -> Result<String, String> {
     std::fs::read_to_string(file).map_err(|e| {
@@ -11652,14 +11661,60 @@ fn is_js_identifier_char(c: char) -> bool {
     c.is_ascii_alphanumeric() || c == '_' || c == '$'
 }
 
+/// Where `name` occurs in `text` with no identifier character before it.
+fn docs_page_starts(text: &str, name: &str) -> Vec<usize> {
+    text.match_indices(name)
+        .map(|(at, _)| at)
+        .filter(|at| {
+            text[..*at]
+                .chars()
+                .next_back()
+                .is_none_or(|c| !is_js_identifier_char(c))
+        })
+        .collect()
+}
+
 /// `name` occurs in `text` where no identifier character precedes it.
 fn docs_page_names(text: &str, name: &str) -> bool {
-    text.match_indices(name).any(|(at, _)| {
-        text[..at]
-            .chars()
-            .next_back()
-            .is_none_or(|c| !is_js_identifier_char(c))
-    })
+    !docs_page_starts(text, name).is_empty()
+}
+
+/// Where `word` occurs in `text` as a whole identifier: no identifier
+/// character on either side.
+fn docs_page_words(text: &str, word: &str) -> Vec<usize> {
+    docs_page_starts(text, word)
+        .into_iter()
+        .filter(|at| {
+            text[at + word.len()..]
+                .chars()
+                .next()
+                .is_none_or(|c| !is_js_identifier_char(c))
+        })
+        .collect()
+}
+
+/// Why the whitespace-free initializer `compact` does not pin `name` to
+/// `value`: the name must occur exactly once, as a key (bare or quoted)
+/// whose value is `value`.
+fn docs_page_pin(compact: &str, name: &str, value: &str) -> Option<String> {
+    let at = match docs_page_words(compact, name).as_slice() {
+        [at] => *at,
+        [] => return Some(format!("does not set `{name}:{value}`")),
+        many => {
+            return Some(format!(
+                "names `{name}` {} times; JavaScript keeps the last, so it is set once, as \
+                 `{name}:{value}`",
+                many.len()
+            ));
+        }
+    };
+    let rest = &compact[at + name.len()..];
+    let rest = rest.strip_prefix('"').unwrap_or(rest);
+    let set = rest.strip_prefix(':').is_some_and(|rest| {
+        rest.strip_prefix(value)
+            .is_some_and(|after| after.starts_with([',', '}']))
+    });
+    (!set).then(|| format!("does not set `{name}:{value}`"))
 }
 
 /// The initializer's single `url:` option is the description's path, as a
@@ -11707,6 +11762,12 @@ fn docs_page_initializer(root: &Path, file: &Path) -> Vec<String> {
             .iter()
             .copied()
             .filter(|name| docs_page_names(&compact, name))
+            .chain(
+                DOCS_PAGE_FORBIDDEN_WORDS
+                    .iter()
+                    .copied()
+                    .filter(|word| !docs_page_words(&compact, word).is_empty()),
+            )
             .chain(compact.contains("Function(").then_some("Function("));
         for name in forbidden {
             violations.push(format!(
@@ -11724,11 +11785,10 @@ fn docs_page_initializer(root: &Path, file: &Path) -> Vec<String> {
              as the url option (D10)."
         ));
     }
-    for option in DOCS_PAGE_PINNED {
-        if !compact.contains(option) {
+    for (name, value) in DOCS_PAGE_PINNED {
+        if let Some(why) = docs_page_pin(&compact, name, value) {
             violations.push(format!(
-                "api-docs-page: {label} does not set `{option}`; every D10 option is pinned \
-                 (DDD-18)."
+                "api-docs-page: {label} {why}; every D10 option is pinned, once (DDD-18)."
             ));
         }
     }
@@ -13802,6 +13862,162 @@ pub fn routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
         }
     }
 
+    /// Clause (iii): a pinned option set twice is named, because JavaScript
+    /// keeps the last of two equal keys (review D4).
+    #[test]
+    fn docs_page_names_a_pinned_option_set_twice() {
+        for (planted, option) in [
+            ("persistAuthorization: true,", "persistAuthorization"),
+            ("\"persistAuthorization\": true,", "persistAuthorization"),
+            ("withCredentials: false,", "withCredentials"),
+            ("'validatorUrl': \"none\",", "validatorUrl"),
+            ("queryConfigEnabled: true,", "queryConfigEnabled"),
+        ] {
+            let violations = DocsTree::clean()
+                .plant(
+                    DOCS_JS,
+                    "    withCredentials: false,\n",
+                    &format!("    withCredentials: false,\n    {planted}\n"),
+                )
+                .violations();
+            assert_named(
+                &violations,
+                &["api-docs-page", "api-docs.js", option, "2 times"],
+            );
+        }
+        for (from, to, option) in [
+            (
+                "persistAuthorization: false",
+                "persistAuthorization: falsey",
+                "persistAuthorization",
+            ),
+            (
+                "persistAuthorization: false",
+                "persistAuthorization: false || x",
+                "persistAuthorization",
+            ),
+            (
+                "withCredentials: false",
+                "withCredentials = false",
+                "withCredentials",
+            ),
+        ] {
+            let violations = DocsTree::clean().plant(DOCS_JS, from, to).violations();
+            assert_named(
+                &violations,
+                &["api-docs-page", "api-docs.js", option, "does not set"],
+            );
+        }
+        let quoted = DocsTree::clean()
+            .plant(
+                DOCS_JS,
+                "persistAuthorization: false",
+                "\"persistAuthorization\": false",
+            )
+            .violations();
+        assert!(
+            quoted.is_empty(),
+            "a quoted pinned key is still that key: {quoted:#?}"
+        );
+        let last = DocsTree::clean()
+            .plant(
+                DOCS_JS,
+                "    withCredentials: false,\n",
+                "    withCredentials: false\n",
+            )
+            .violations();
+        assert!(last.is_empty(), "the last option needs no comma: {last:#?}");
+    }
+
+    /// Clause (iii): the Cache API, IndexedDB and `window.name` are storage too
+    /// (review D5); a name that only contains a forbidden one is not.
+    #[test]
+    fn docs_page_names_the_other_browser_stores() {
+        for (planted, name) in [
+            ("x: indexedDB.open(\"d\"),", "indexedDB"),
+            ("x: caches.open(\"c\"),", "caches"),
+            ("x: self.caches,", "caches"),
+            ("x: window.name,", "window.name"),
+            ("x: localStorage,", "localStorage"),
+        ] {
+            let violations = DocsTree::clean()
+                .plant(
+                    DOCS_JS,
+                    "dom_id: \"#swagger-ui\",",
+                    &format!("dom_id: \"#swagger-ui\", {planted}"),
+                )
+                .violations();
+            assert_named(&violations, &["api-docs-page", "api-docs.js:9", name]);
+        }
+        for innocent in [
+            "x: my_localStorage,",
+            "x: $localStorage,",
+            "x: mylocalStorage,",
+            "x: cachesize,",
+            "x: mycaches,",
+            "x: my_caches,",
+            "x: $caches,",
+            "x: caches_,",
+            "x: caches$,",
+            "x: window.namespace,",
+            "x: window.name_,",
+            "x: window.name$,",
+            "x: \"url:other\",",
+        ] {
+            let violations = DocsTree::clean()
+                .plant(
+                    DOCS_JS,
+                    "dom_id: \"#swagger-ui\",",
+                    &format!("dom_id: \"#swagger-ui\", {innocent}"),
+                )
+                .violations();
+            assert!(
+                violations.is_empty(),
+                "{innocent:?} was named: {violations:#?}"
+            );
+        }
+    }
+
+    /// Clause (iii): the url option may come through any identifier set to the
+    /// document, `_` and `$` included, but not through an expression.
+    #[test]
+    fn docs_page_url_through_a_variable() {
+        for name in ["DOC_URL", "$doc", "doc1"] {
+            let violations = DocsTree::clean()
+                .plant(DOCS_JS, "var DOCUMENT_URL =", &format!("var {name} ="))
+                .plant(DOCS_JS, "url: DOCUMENT_URL,", &format!("url: {name},"))
+                .violations();
+            assert!(violations.is_empty(), "url through {name}: {violations:#?}");
+        }
+        for (from, to) in [
+            ("url: DOCUMENT_URL,", "url: DOCUMENT_URL + x,"),
+            ("url: DOCUMENT_URL,", "url: OTHER,"),
+            ("url: DOCUMENT_URL,", "url: ,"),
+            ("var DOCUMENT_URL = ", "var DOCUMENT_URL = x || "),
+        ] {
+            let violations = DocsTree::clean().plant(DOCS_JS, from, to).violations();
+            assert_named(&violations, &["api-docs-page", "api-docs.js", "url option"]);
+        }
+        let first = DocsTree::clean()
+            .plant(DOCS_JS, "    url: DOCUMENT_URL,\n", "")
+            .plant(
+                DOCS_JS,
+                "window.SwaggerUIBundle({",
+                "window.SwaggerUIBundle({url: DOCUMENT_URL,",
+            )
+            .violations();
+        assert!(first.is_empty(), "url first in the object: {first:#?}");
+        let last = DocsTree::clean()
+            .plant(DOCS_JS, "    url: DOCUMENT_URL,\n", "")
+            .plant(
+                DOCS_JS,
+                "withCredentials: false,",
+                "withCredentials: false, url: DOCUMENT_URL",
+            )
+            .violations();
+        assert!(last.is_empty(), "url last in the object: {last:#?}");
+    }
+
     /// Clause (iii): nothing that picks another description or touches storage
     /// or evaluates text.
     #[test]
@@ -13865,6 +14081,83 @@ pub fn routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
             let violations = DocsTree::clean().plant(DOCS_HTML, from, to).violations();
             assert_named(&violations, &["api-docs-page", "api_docs.html:14", what]);
         }
+    }
+
+    /// Clause (iv): an attribute only named `on`, or `on` and no letter, is no
+    /// handler; `on` and an event name is one.
+    #[test]
+    fn docs_page_tells_a_handler_from_an_on_attribute() {
+        for innocent in [
+            "<div id=\"swagger-ui\" on=\"x\"></div>",
+            "<div id=\"swagger-ui\" on-x=\"y\"></div>",
+            "<div id=\"swagger-ui\" data-onclick=\"go()\"></div>",
+        ] {
+            let violations = DocsTree::clean()
+                .plant(DOCS_HTML, "<div id=\"swagger-ui\"></div>", innocent)
+                .violations();
+            let handlers: Vec<&String> = violations
+                .iter()
+                .filter(|v| v.contains("handler"))
+                .collect();
+            assert!(handlers.is_empty(), "{innocent:?}: {violations:#?}");
+        }
+        let spaced = DocsTree::clean()
+            .plant(
+                DOCS_HTML,
+                "<div id=\"swagger-ui\"></div>",
+                "<div id=\"swagger-ui\" onclick  =  \"go()\"></div>",
+            )
+            .violations();
+        assert_named(&spaced, &["api_docs.html:14", "onclick= handler"]);
+        let spaced_style = DocsTree::clean()
+            .plant(
+                DOCS_HTML,
+                "<div id=\"swagger-ui\"></div>",
+                "<div id=\"swagger-ui\" style =\"color: red\"></div>",
+            )
+            .violations();
+        assert_named(&spaced_style, &["api_docs.html:14", "style= attribute"]);
+        let empty_script = DocsTree::clean()
+            .plant(
+                DOCS_HTML,
+                "<div id=\"swagger-ui\"></div>",
+                "<script src=\"/static/js/x.js\">\n </script>",
+            )
+            .violations();
+        assert!(
+            empty_script.is_empty(),
+            "a blank script body is no inline code: {empty_script:#?}"
+        );
+    }
+
+    /// Clause (vi): only a `swagger-ui-*` directory is a vendored release; a
+    /// file so named, or another vendored file, is not read as one.
+    #[test]
+    fn docs_page_reads_only_swagger_ui_directories() {
+        let mut tree = DocsTree::clean();
+        tree.files.push((
+            "crates/foundry-app/static/vendor/swagger-ui-x",
+            "@import \"theme.css\";".to_string(),
+        ));
+        tree.files.push((
+            "crates/foundry-app/static/vendor/htmx.min.js",
+            "x".to_string(),
+        ));
+        tree.files.push((
+            "crates/foundry-app/static/vendor/htmx-2/swagger-ui.css",
+            "@import \"theme.css\";".to_string(),
+        ));
+        let violations = tree.violations();
+        assert!(violations.is_empty(), "{violations:#?}");
+        let mut second = DocsTree::clean();
+        second.files.push((
+            "crates/foundry-app/static/vendor/swagger-ui-6.0.0/swagger-ui.css",
+            ".a{}\n.b{background:url(/x.png)}".to_string(),
+        ));
+        assert_named(
+            &second.violations(),
+            &["api-docs-page", "swagger-ui-6.0.0/swagger-ui.css:2", "url("],
+        );
     }
 
     /// Clause (v): the page's script-src stays `'self'` alone (DDD-19).

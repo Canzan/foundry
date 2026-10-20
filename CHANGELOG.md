@@ -39,8 +39,15 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   when the API page moves from `/docs/api`, another template loads swagger-ui, the page's
   initializer names a remote address, drops a pinned option (`url`, `validatorUrl: "none"`,
   `persistAuthorization: false`, `queryConfigEnabled: false`, `withCredentials: false`) or uses
-  `urls`, `configUrl`, `spec`, browser storage or eval, the page's markup gains inline code, its
-  `script-src` becomes anything but `'self'`, or the vendored stylesheet loads anything.
+  `urls`, `configUrl`, `spec`, browser storage (local or session storage, IndexedDB, the Cache
+  API, `window.name`, cookies) or eval, sets a pinned option more than once, the page's markup
+  gains inline code, its `script-src` becomes anything but `'self'`, or the vendored stylesheet
+  loads anything.
+
+### Fixed
+
+- Revoking an already-revoked machine token now keeps its first revocation time; the store
+  previously moved it to the time of the latest revoke.
 
 ### Documented
 
