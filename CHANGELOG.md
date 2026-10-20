@@ -7,6 +7,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.17.0] - 2026-10-20
+
 ### Added
 
 - **`GET /api/v1/openapi.json`**, an OpenAPI 3.1 description of every `/api/v1` operation and
@@ -1230,7 +1232,9 @@ followed it.
 - A `comments_visible` SQL VIEW for defense-in-depth against missed
   soft-delete filters is deferred to v0.3 (ADR-017).
 
-[Unreleased]: https://github.com/Canzan/foundry/compare/v0.15.1...HEAD
+[Unreleased]: https://github.com/Canzan/foundry/compare/v0.17.0...HEAD
+[v0.17.0]: https://github.com/Canzan/foundry/compare/v0.16.0...v0.17.0
+[v0.16.0]: https://github.com/Canzan/foundry/compare/v0.15.1...v0.16.0
 [v0.15.1]: https://github.com/Canzan/foundry/compare/v0.15.0...v0.15.1
 [v0.15.0]: https://github.com/Canzan/foundry/compare/v0.14.2...v0.15.0
 [v0.14.2]: https://github.com/Canzan/foundry/compare/v0.14.1...v0.14.2

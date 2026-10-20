@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Foundry API v1",
-    "version": "0.16.0",
+    "version": "0.17.0",
     "description": "The JSON API of a Foundry instance, under /api/v1. Every operation except reading this description needs a machine token (the `machineToken` scheme). Every JSON error answer is the `Error` envelope.\n\nAn address under /api/v1 that is not one of the operations listed here answers 404 with the uniform not-found envelope, `{\"error\":{\"code\":\"not_found\",\"message\":\"not found\"}}`, and checks no credential.\n\nThe order in which refusals are given:\n\n1. An address under /api/v1 that is not an operation answers 404, with no authentication.\n2. On an operation's path, a method the path does not offer answers 405 with an empty body and an `Allow` header, with no authentication. The exception is this description's own path, which answers the 404 envelope.\n3. On an operation's path, a missing or bad token answers 401 before any 400, 413, 415 or 422.\n4. When revoking a token, 429 can come before 403. No order is promised between them."
   },
   "servers": [
