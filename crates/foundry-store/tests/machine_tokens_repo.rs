@@ -175,6 +175,58 @@ async fn revoke_flips_revoked_at_but_find_still_returns_the_row() {
 }
 
 #[tokio::test]
+async fn re_revoking_keeps_the_first_revocation_time() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let (workspace_id, user_id, team_id) = seed_principal(&store).await;
+
+    let jti = uuid::Uuid::now_v7();
+    let expires_at = time::OffsetDateTime::now_utc() + time::Duration::days(30);
+    store
+        .insert_machine_token(
+            jti,
+            user_id,
+            workspace_id,
+            Some(team_id),
+            expires_at,
+            "Devansh's dashboard",
+            user_id,
+        )
+        .await
+        .expect("insert machine token");
+
+    store.revoke_machine_token(jti).await.expect("first revoke");
+    let first = store
+        .find_machine_token_by_jti(jti)
+        .await
+        .expect("query by jti after first revoke")
+        .expect("revoked row is still present")
+        .revoked_at
+        .expect("first revoke sets revoked_at");
+
+    // Let the clock move well past timestamptz's microsecond resolution so a
+    // re-stamp would be observable as a different time.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    store
+        .revoke_machine_token(jti)
+        .await
+        .expect("second revoke");
+    let second = store
+        .find_machine_token_by_jti(jti)
+        .await
+        .expect("query by jti after second revoke")
+        .expect("revoked row is still present")
+        .revoked_at;
+
+    assert_eq!(
+        second,
+        Some(first),
+        "a re-revoke keeps the first revocation time"
+    );
+}
+
+#[tokio::test]
 async fn list_returns_issued_credentials_for_the_workspace() {
     let (base, _guard) = fresh_postgres().await;
     let store = migrated_store(&base).await;
