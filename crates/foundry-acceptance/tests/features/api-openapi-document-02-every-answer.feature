@@ -28,7 +28,7 @@
 # comment, one revoked token). Read-only base-table SQL for the universe is the house exception
 # (project-lifecycle U2, OQ-D6).
 #
-# RED (ADR-025): every scenario @pending. Before the feature the answers already exist, so each row
+# RED (ADR-025): every scenario was authored pending (the tag is removed in DELIVER). Before the feature the answers already exist, so each row
 # is RED only because the description is not served; that is the missing functionality.
 
 @api-openapi-document @real-io

@@ -30,7 +30,7 @@
 # and through the page's own copy for everything Foundry authored (title, heading line, noscript,
 # the Authorize label and hint, D14).
 #
-# RED (ADR-025): every scenario @pending. Before the feature /docs/api answers the uniform
+# RED (ADR-025): every scenario was authored pending (the tag is removed in DELIVER). Before the feature /docs/api answers the uniform
 # not-found page, so every scenario stops at its first look at the page.
 
 @api-openapi-document @real-io
@@ -108,29 +108,29 @@ Feature: An integrator reads the API and tries a call in a page served by their 
   # US-AOD-06: trying a call, and where the token goes
   # ---------------------------------------------------------------------------------------------
 
-  @pending @aod-03 @us-aod-06 @driving_port @needs-browser @kpi @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-06 @driving_port @needs-browser @kpi @contract-shape:unbounded-preservation
   Scenario: An integrator lists a project's issues from the API page with a pasted token
     When Sven pastes "ci-issue-filer" into the API page and tries listing Backend's "auth" project issues
     Then he sees a 200 answer listing AUTH-7
     And the call went to the instance's own address
     And the page shows the command line that made the call, carrying the pasted token
 
-  @pending @aod-03 @us-aod-06 @edge @needs-browser @contract-shape:pure-function
+  @aod-03 @us-aod-06 @edge @needs-browser @contract-shape:pure-function
   Scenario: The token field says where the token goes
     When Sven opens the API page's token dialog
     Then the token field is labelled "Machine token" and says "Kept in this tab only and sent only to this Foundry. Reloading forgets it."
 
-  @pending @aod-03 @us-aod-06 @needs-browser @contract-shape:bounded-change
+  @aod-03 @us-aod-06 @needs-browser @contract-shape:bounded-change
   Scenario: Sven revokes a token from the API page
     When Sven pastes "ci-issue-filer" into the API page and revokes "scratch-rotation"
     Then he sees the 204 answer, and "scratch-rotation" is revoked
 
-  @pending @aod-03 @us-aod-06 @error @needs-browser @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-06 @error @needs-browser @contract-shape:unbounded-preservation
   Scenario: Trying a call without a token shows the documented refusal
     When Sven tries listing Backend's "auth" project issues from the API page without a token
     Then he sees the 401 answer with the error code "unauthorized"
 
-  @pending @aod-03 @us-aod-06 @error @needs-browser @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-06 @error @needs-browser @contract-shape:unbounded-preservation
   Scenario Outline: A refused call from the page shows the documented answer
     Given <precondition>
     When Sven tries <call> from the API page with <token>
@@ -144,19 +144,19 @@ Feature: An integrator reads the API and tries a call in a page served by their 
       | Canzan Labs is as the Background left it | revoking "scratch-rotation"             | Mei's token                            | 403    | forbidden    |
       | Sven has used his revoke budget          | revoking "scratch-rotation"             | "ci-issue-filer"                       | 429    | rate_limited |
 
-  @pending @aod-03 @us-aod-06 @error @needs-browser @kpi @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-06 @error @needs-browser @kpi @contract-shape:unbounded-preservation
   Scenario: A pasted token is forgotten on reload and never stored
     Given Sven has already made a call from the page with "ci-issue-filer"
     When Sven reloads the API page
     Then no token is filled in
     And the browser keeps no trace of the token
 
-  @pending @aod-03 @us-aod-06 @error @needs-browser @kpi @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-06 @error @needs-browser @kpi @contract-shape:unbounded-preservation
   Scenario: A pasted token is never sent to another site
     When Sven pastes "ci-issue-filer" into the API page and tries every operation once
     Then every request the browser made went to the instance's own address
 
-  @pending @aod-03 @us-aod-06 @error @needs-browser @kpi @contract-shape:unbounded-preservation
+  @aod-03 @us-aod-06 @error @needs-browser @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A link cannot make the API page show someone else's description
     Given another site serves its own API description and configuration
     When Priya opens the API page from a link that names that site's <what>

@@ -35,7 +35,7 @@
 # COST — the type-derived layer compiles foundry-api's tests in the copy. The first scenario of a
 # run builds the workspace crates once into the dedicated target dir; later ones are incremental.
 #
-# RED (ADR-025): every scenario @pending; see distill/red-classification.md. Layer 4 (subprocess
+# RED (ADR-025): every scenario was authored pending (the tag is removed in DELIVER); see distill/red-classification.md. Layer 4 (subprocess
 # against the source tree, NOT the foundry binary): one named example per drift, never generated.
 
 @api-openapi-document @real-io @drift-check @slow

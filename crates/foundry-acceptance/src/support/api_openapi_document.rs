@@ -622,6 +622,9 @@ pub struct AodState {
     pub foreign: Option<ForeignSite>,
     pub fetched_files: Vec<Answer>,
     pub drift_guard: Option<tokio::sync::OwnedMutexGuard<()>>,
+    /// The swagger-ui block of the operation last tried from the API page, so
+    /// its answer is read from that block and no other.
+    pub page_operation: Option<String>,
 }
 
 // ===========================================================================
@@ -3078,14 +3081,23 @@ mod swagger_dom {
     pub const SUMMARY: &str = ".opblock-summary";
     pub const TRY_OUT: &str = ".try-out__btn";
     pub const EXECUTE: &str = ".execute";
-    pub const LIVE_STATUS: &str = ".live-responses-table .response-col_status";
-    pub const LIVE_BODY: &str =
-        ".live-responses-table .response-col_description pre, .live-responses-table .microlight";
+    /// The answer row's status cell. The live table's header row also carries
+    /// `response-col_status` (`<td class="col_header response-col_status">Code`),
+    /// so the selector names the answer row (`tbody tr.response`) explicitly.
+    pub const LIVE_STATUS: &str = ".live-responses-table tbody tr.response .response-col_status";
+    pub const LIVE_DETAILS: &str =
+        ".live-responses-table tbody tr.response .response-col_description";
     pub const CURL: &str = ".live-responses-table .curl, .curl-command .curl, .curl";
 
     /// One operation's block, by method and documented path.
     pub fn operation(method: &str, path: &str) -> String {
         format!(".swagger-ui .opblock-{method}:has(.opblock-summary-path[data-path=\"{path}\"])")
+    }
+
+    /// The answer body shown in one operation's block (the answer row's first
+    /// code panel; the header row's "Details" cell holds none).
+    pub fn live_body(block: &str) -> String {
+        format!("{block} {LIVE_DETAILS} pre, {block} {LIVE_DETAILS} .microlight")
     }
 
     /// One path parameter's input inside an operation's block.
@@ -3263,6 +3275,13 @@ async fn log_lines(world: &FoundryWorld) -> Vec<String> {
 }
 
 pub async fn then_nothing_refused(world: &FoundryWorld) {
+    assert_nothing_refused(world, "while loading").await;
+}
+
+/// The browser log since its last read holds no content-policy refusal. The
+/// read is destructive, so each call judges the window since the previous one;
+/// `during` names that window in the failure.
+async fn assert_nothing_refused(world: &FoundryWorld, during: &str) {
     let refused: Vec<String> = log_lines(world)
         .await
         .into_iter()
@@ -3270,7 +3289,7 @@ pub async fn then_nothing_refused(world: &FoundryWorld) {
         .collect();
     assert!(
         refused.is_empty(),
-        "the browser refused content the API page asked for (an eval here is OQ-U4): {refused:?}"
+        "the browser refused content the API page asked for {during} (an eval here is OQ-U4): {refused:?}"
     );
 }
 
@@ -3514,7 +3533,12 @@ async fn authorize(world: &FoundryWorld, jwt: &str) {
     click(world, swagger_dom::AUTH_CLOSE, "the dialog's close").await;
 }
 
-async fn try_operation(world: &FoundryWorld, method: &str, path: &str, params: &[(&str, String)]) {
+async fn try_operation(
+    world: &mut FoundryWorld,
+    method: &str,
+    path: &str,
+    params: &[(&str, String)],
+) {
     let block = swagger_dom::operation(method, path);
     click(
         world,
@@ -3550,20 +3574,29 @@ async fn try_operation(world: &FoundryWorld, method: &str, path: &str, params: &
         "the answer",
     )
     .await;
+    // OQ-U4 evidence: Authorize and Try it out ran no code the policy refused.
+    assert_nothing_refused(world, &format!("while trying {method} {path}")).await;
+    world.aod.page_operation = Some(block);
 }
 
 async fn shown_answer(world: &FoundryWorld) -> (u16, String) {
+    let block = world
+        .aod
+        .page_operation
+        .clone()
+        .expect("an operation was tried from the API page");
     let seen = script_with(
         world,
         "var s = document.querySelector(arguments[0]);
          var b = document.querySelector(arguments[1]);
          return [s ? s.innerText : '', b ? b.innerText : ''];",
         vec![
-            Value::String(swagger_dom::LIVE_STATUS.into()),
-            Value::String(swagger_dom::LIVE_BODY.into()),
+            Value::String(format!("{block} {}", swagger_dom::LIVE_STATUS)),
+            Value::String(swagger_dom::live_body(&block)),
         ],
     )
     .await;
+    assert_nothing_refused(world, "while showing the answer").await;
     let status: u16 = seen[0]
         .as_str()
         .unwrap_or_default()

@@ -22,6 +22,12 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   everyone and sets no cookie. It is served from the instance's own vendored swagger-ui 5.33.3
   and carries its own content policy, so the browser loads nothing from another site and no
   other site can frame it. No other page changes.
+- **Try a call from the API page with a machine token**: Authorize takes a pasted machine token
+  ("Machine token": kept in this tab only and sent only to this Foundry), and "Try it out" sends
+  the call to the instance itself and shows its answer, refusals included, with the `curl` line
+  that made it. The token is never stored: not in local or session storage, a cookie or the
+  address, and a reload forgets it. A link cannot make the page load another description or
+  configuration.
 - **check-arch rule `api-openapi-operations`**: `cargo xtask check-arch` fails, naming the method,
   path and difference, when an `/api/v1` route, path parameter, request body or success answer
   disagrees with `crates/foundry-api/openapi.json`, or when a route cannot be read.
@@ -29,6 +35,12 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   status and difference, when an answer the code can give (status, body kind or error code) is
   missing from `crates/foundry-api/openapi.json` or listed there without the code giving it, or
   when the code uses a form the rule cannot read.
+- **check-arch rule `api-docs-page`**: `cargo xtask check-arch` fails, naming the file and line,
+  when the API page moves from `/docs/api`, another template loads swagger-ui, the page's
+  initializer names a remote address, drops a pinned option (`url`, `validatorUrl: "none"`,
+  `persistAuthorization: false`, `queryConfigEnabled: false`, `withCredentials: false`) or uses
+  `urls`, `configUrl`, `spec`, browser storage or eval, the page's markup gains inline code, its
+  `script-src` becomes anything but `'self'`, or the vendored stylesheet loads anything.
 
 ### Documented
 

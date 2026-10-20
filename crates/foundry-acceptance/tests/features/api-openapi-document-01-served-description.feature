@@ -21,7 +21,7 @@
 # Refusal-shaped rows carry a control ("the description is still served"), because before the
 # feature every one of them already answers the catch-all 404 and would pass for the wrong reason.
 #
-# RED (ADR-025 scaffolded RED): every scenario is @pending, the walking skeleton included (house
+# RED (ADR-025 scaffolded RED): every scenario was authored pending, the walking skeleton included (house
 # precedent: notification-preferences-ui, team-membership). DELIVER's first step un-pends the
 # skeleton and makes it GREEN. Classification: docs/feature/api-openapi-document/distill/red-classification.md.
 #

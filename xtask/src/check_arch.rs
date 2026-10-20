@@ -37,6 +37,12 @@
 //!                          use-cases → `ServiceError` tokens → `status_for`'s
 //!                          arms), equal the description's; anything it cannot
 //!                          read fails closed (ADR-API-OPENAPI-002).
+//!       * api-docs-page  — the API page stays at /docs/api, only its template
+//!                          loads swagger-ui, its initializer pins every D10
+//!                          option and reaches nowhere else, its markup has no
+//!                          inline code, its script-src is 'self' alone and the
+//!                          vendored stylesheet loads nothing
+//!                          (ADR-API-OPENAPI-003/004).
 //!     On a violation it NAMES the offending file + line and exits non-zero.
 //!
 //!   LAYER 2 — `cargo-deny` crate-graph dependency-direction (delegated). Runs
@@ -122,6 +128,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_store_natural_key_scoped(root));
     violations.extend(check_api_openapi_operations(root));
     violations.extend(check_api_openapi_statuses(root));
+    violations.extend(check_api_docs_page(root));
     violations
 }
 
@@ -160,7 +167,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4041,6 +4048,22 @@ mod tests {
             // `check_api_openapi_operations` fails closed on a missing
             // description, so the clean tree carries one describing nothing.
             ("crates/foundry-api/openapi.json", "{\"paths\": {}}\n"),
+            // `check_api_docs_page` fails closed on any missing page file, so
+            // the clean tree carries a minimal page that keeps every clause.
+            (
+                "crates/foundry-app/src/api_docs.rs",
+                "pub const API_DOCS_PATH: &str = \"/docs/api\";\n\
+                 pub const API_DOCS_CSP: &str = \"script-src 'self'\";\n\
+                 fn r() { Router::new().route(API_DOCS_PATH, get(show)) }\n",
+            ),
+            ("crates/foundry-app/templates/api_docs.html", "<div id=\"swagger-ui\"></div>\n"),
+            (
+                "crates/foundry-app/static/js/api-docs.js",
+                "var D = \"/api/v1/openapi.json\";\n\
+                 SwaggerUIBundle({ url: D, queryConfigEnabled: false, validatorUrl: \"none\", \
+                 persistAuthorization: false, withCredentials: false });\n",
+            ),
+            ("crates/foundry-app/static/vendor/swagger-ui-0/swagger-ui.css", ".a{}\n"),
         ]);
         let clean_args = vec!["--root".to_string(), clean.path().display().to_string()];
         let planted = every_layer_1_rule_violated_tree();
@@ -11448,6 +11471,404 @@ fn top_level_pieces(bytes: &[u8], from: usize, to: usize) -> Vec<(usize, usize)>
         .collect()
 }
 
+/// api-docs-page (slice 03, ADR-API-OPENAPI-003/004, DESIGN check-arch rule 3).
+///
+/// The API page stays at `/docs/api` (i); only its template loads swagger-ui
+/// (ii, D12); its initializer reaches nowhere else, pins every D10 option and
+/// names no other description, no storage and no eval (iii, DDD-18); its markup
+/// has no inline script, handler or style (iv, DDD-16); its `script-src` is
+/// `'self'` alone (v, DDD-19); and the vendored stylesheet loads nothing (vi).
+/// A file it cannot read fails the rule rather than passing it.
+fn check_api_docs_page(root: &Path) -> Vec<String> {
+    let app = root.join("crates").join("foundry-app");
+    let templates = app.join("templates");
+    let mut violations = docs_page_route_and_policy(root, &app.join("src").join("api_docs.rs"));
+    violations.extend(docs_page_swagger_ui_loaders(root, &templates));
+    violations.extend(docs_page_initializer(
+        root,
+        &app.join("static").join("js").join("api-docs.js"),
+    ));
+    violations.extend(docs_page_template(root, &templates.join("api_docs.html")));
+    violations.extend(docs_page_vendored_css(
+        root,
+        &app.join("static").join("vendor"),
+    ));
+    violations
+}
+
+const DOCS_PAGE_PATH: &str = "/docs/api";
+const DOCS_PAGE_DOCUMENT: &str = "\"/api/v1/openapi.json\"";
+
+/// Each option the initializer must set, in its whitespace-free spelling.
+const DOCS_PAGE_PINNED: [&str; 4] = [
+    "validatorUrl:\"none\"",
+    "persistAuthorization:false",
+    "queryConfigEnabled:false",
+    "withCredentials:false",
+];
+
+/// Names that choose another description, touch the browser's storage or
+/// evaluate text, matched where an identifier starts.
+const DOCS_PAGE_FORBIDDEN: [&str; 7] = [
+    "urls:",
+    "configUrl",
+    "spec:",
+    "localStorage",
+    "sessionStorage",
+    "document.cookie",
+    "eval(",
+];
+
+fn docs_page_read(root: &Path, file: &Path) -> Result<String, String> {
+    std::fs::read_to_string(file).map_err(|e| {
+        format!(
+            "api-docs-page: cannot read {} ({e}) — the API page could not be checked.",
+            rel(root, file)
+        )
+    })
+}
+
+/// Clauses (i) and (v), both read from `api_docs.rs`.
+fn docs_page_route_and_policy(root: &Path, file: &Path) -> Vec<String> {
+    let source = match docs_page_read(root, file) {
+        Ok(source) => source,
+        Err(violation) => return vec![violation],
+    };
+    let label = rel(root, file);
+    let literals = rust_string_literals(&source);
+    let constant = |name: &str| -> Option<(usize, String)> {
+        let line = source
+            .lines()
+            .position(|line| line.contains(&format!("const {name}:")))?
+            + 1;
+        literals.iter().find(|(at, _)| *at == line).cloned()
+    };
+    let mut violations = Vec::new();
+    match constant("API_DOCS_PATH") {
+        Some((_, path)) if path == DOCS_PAGE_PATH => {}
+        Some((line, path)) => violations.push(format!(
+            "api-docs-page: {label}:{line} sets API_DOCS_PATH to {path:?}; the API page stays at \
+             /docs/api (DDD-15)."
+        )),
+        None => violations.push(format!(
+            "api-docs-page: {label} has no `const API_DOCS_PATH` string; the API page stays at \
+             /docs/api (DDD-15)."
+        )),
+    }
+    let stripped: Vec<String> = source.lines().map(strip_comment).collect();
+    let blocks = route_blocks(&stripped);
+    if blocks.is_empty() {
+        violations.push(format!(
+            "api-docs-page: {label} mounts no `.route(`; the API page stays at /docs/api (DDD-15)."
+        ));
+    }
+    for (first, last) in blocks {
+        let block = stripped[first..=last].join(" ");
+        let after = block.split_once(".route(").map_or("", |(_, rest)| rest);
+        let target = after.split(',').next().unwrap_or_default().trim();
+        if target != "API_DOCS_PATH" && target != format!("\"{DOCS_PAGE_PATH}\"") {
+            violations.push(format!(
+                "api-docs-page: {label}:{} routes the API page at {target}; it stays at /docs/api, \
+                 through API_DOCS_PATH (DDD-15).",
+                first + 1
+            ));
+        }
+    }
+    let Some((line, policy)) = constant("API_DOCS_CSP") else {
+        violations.push(format!(
+            "api-docs-page: {label} has no `const API_DOCS_CSP` string; the page's script-src \
+             could not be checked (DDD-19)."
+        ));
+        return violations;
+    };
+    let script_src = policy
+        .split(';')
+        .map(|directive| directive.split_whitespace().collect::<Vec<_>>().join(" "))
+        .find(|directive| directive.split(' ').next() == Some("script-src"));
+    match script_src {
+        Some(directive) if directive == "script-src 'self'" => {}
+        Some(directive) => violations.push(format!(
+            "api-docs-page: {label}:{line} API_DOCS_CSP has `{directive}`; the page's script-src \
+             is 'self' alone: no 'unsafe-inline', '*', 'unsafe-eval' or host (DDD-19, OQ-U4)."
+        )),
+        None => violations.push(format!(
+            "api-docs-page: {label}:{line} API_DOCS_CSP has no script-src; it is 'self' alone \
+             (DDD-19)."
+        )),
+    }
+    violations
+}
+
+/// Clause (ii): no template but the page's own references swagger-ui.
+fn docs_page_swagger_ui_loaders(root: &Path, templates: &Path) -> Vec<String> {
+    let own = templates.join("api_docs.html");
+    let (files, unreadable) = files_under(templates, "html", &|_| false);
+    let mut violations: Vec<String> = unreadable
+        .iter()
+        .map(|dir| {
+            format!(
+                "api-docs-page: cannot list {} — no template could be checked for swagger-ui.",
+                rel(root, dir)
+            )
+        })
+        .collect();
+    for file in files.iter().filter(|file| **file != own) {
+        let source = match docs_page_read(root, file) {
+            Ok(source) => source,
+            Err(violation) => {
+                violations.push(violation);
+                continue;
+            }
+        };
+        for (idx, line) in source.lines().enumerate() {
+            if line.contains("/static/vendor/swagger-ui-") {
+                violations.push(format!(
+                    "api-docs-page: {}:{} loads swagger-ui; only templates/api_docs.html does \
+                     (D12).",
+                    rel(root, file),
+                    idx + 1
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// `text` with every whitespace character removed and `'` folded to `"`.
+fn docs_page_compact(text: &str) -> String {
+    text.chars()
+        .filter(|c| !c.is_whitespace())
+        .map(|c| if c == '\'' { '"' } else { c })
+        .collect()
+}
+
+/// `name` occurs in `text` where no identifier character precedes it.
+fn docs_page_names(text: &str, name: &str) -> bool {
+    text.match_indices(name).any(|(at, _)| {
+        text[..at]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+    })
+}
+
+/// The initializer's single `url:` option is the description's path, as a
+/// literal or through a variable set to it.
+fn docs_page_url_is_the_document(compact: &str) -> bool {
+    let values: Vec<&str> = compact
+        .match_indices("url:")
+        .filter(|(at, _)| *at > 0 && matches!(compact.as_bytes()[at - 1], b'{' | b','))
+        .map(|(at, _)| {
+            let rest = &compact[at + 4..];
+            &rest[..rest.find([',', '}']).unwrap_or(rest.len())]
+        })
+        .collect();
+    let [value] = values.as_slice() else {
+        return false;
+    };
+    let identifier = !value.is_empty()
+        && value
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    *value == DOCS_PAGE_DOCUMENT
+        || (identifier && compact.contains(&format!("{value}={DOCS_PAGE_DOCUMENT}")))
+}
+
+/// Clause (iii): the initializer, comments stripped.
+fn docs_page_initializer(root: &Path, file: &Path) -> Vec<String> {
+    let source = match docs_page_read(root, file) {
+        Ok(source) => source,
+        Err(violation) => return vec![violation],
+    };
+    let label = rel(root, file);
+    let stripped = strip_js_comments(&source);
+    let mut violations = Vec::new();
+    for (idx, line) in stripped.lines().enumerate() {
+        if ["http:", "https:", "//"]
+            .iter()
+            .any(|remote| line.contains(remote))
+        {
+            violations.push(format!(
+                "api-docs-page: {label}:{} names a remote address; the initializer reaches only \
+                 this Foundry (D10).",
+                idx + 1
+            ));
+        }
+        let compact = docs_page_compact(line);
+        let forbidden = DOCS_PAGE_FORBIDDEN
+            .iter()
+            .copied()
+            .filter(|name| docs_page_names(&compact, name))
+            .chain(compact.contains("Function(").then_some("Function("));
+        for name in forbidden {
+            violations.push(format!(
+                "api-docs-page: {label}:{} uses `{name}`; the initializer picks no other \
+                 description, touches no storage and evaluates no text (D10, DDD-18).",
+                idx + 1
+            ));
+        }
+    }
+    let compact = docs_page_compact(&stripped);
+    let count = compact.matches(DOCS_PAGE_DOCUMENT).count();
+    if count != 1 {
+        violations.push(format!(
+            "api-docs-page: {label} names \"/api/v1/openapi.json\" {count} times; exactly once, \
+             as the url option (D10)."
+        ));
+    }
+    for option in DOCS_PAGE_PINNED {
+        if !compact.contains(option) {
+            violations.push(format!(
+                "api-docs-page: {label} does not set `{option}`; every D10 option is pinned \
+                 (DDD-18)."
+            ));
+        }
+    }
+    if !docs_page_url_is_the_document(&compact) {
+        violations.push(format!(
+            "api-docs-page: {label} does not set its one url option to \"/api/v1/openapi.json\" \
+             (DDD-18)."
+        ));
+    }
+    violations
+}
+
+/// What inline code the tag `tag` (lower-cased, `<` to `>`) carries, given
+/// the markup `after` it.
+fn docs_page_inline_code(tag: &str, after: &str) -> Option<String> {
+    if tag.starts_with("<style") {
+        return Some("<style> element".to_string());
+    }
+    if tag.starts_with("<script") {
+        let body = after.find("</script").map_or(after, |end| &after[..end]);
+        if !body.trim().is_empty() {
+            return Some("<script> body".to_string());
+        }
+    }
+    let mut normalised = tag.trim_end_matches('>').to_string();
+    while normalised.contains(" =") || normalised.contains("= ") {
+        normalised = normalised.replace(" =", "=").replace("= ", "=");
+    }
+    normalised
+        .split_whitespace()
+        .skip(1)
+        .filter_map(|attribute| attribute.split_once('=').map(|(name, _)| name))
+        .find_map(|name| {
+            let handler = name.len() > 2
+                && name.starts_with("on")
+                && name[2..].chars().all(|c| c.is_ascii_alphabetic());
+            match name {
+                "style" => Some("style= attribute".to_string()),
+                _ if handler => Some(format!("{name}= handler")),
+                _ => None,
+            }
+        })
+}
+
+/// Clause (iv): Foundry's markup on the page carries no inline code.
+fn docs_page_template(root: &Path, file: &Path) -> Vec<String> {
+    let source = match docs_page_read(root, file) {
+        Ok(source) => source,
+        Err(violation) => return vec![violation],
+    };
+    let label = rel(root, file);
+    let lower = source.to_ascii_lowercase();
+    let line_of = |at: usize| lower[..at].matches('\n').count() + 1;
+    let mut violations = Vec::new();
+    let mut from = 0;
+    while let Some(open) = lower[from..].find('<').map(|offset| from + offset) {
+        let close = lower[open..]
+            .find('>')
+            .map_or(lower.len(), |end| open + end + 1);
+        if let Some(what) = docs_page_inline_code(&lower[open..close], &lower[close..]) {
+            violations.push(format!(
+                "api-docs-page: {label}:{} has an inline {what}; the API page's markup carries \
+                 no inline script, handler or style (DDD-16, ADR-API-OPENAPI-004).",
+                line_of(open)
+            ));
+        }
+        from = close;
+    }
+    for (at, _) in lower.match_indices("javascript:") {
+        violations.push(format!(
+            "api-docs-page: {label}:{} has a `javascript:` address; the API page's markup carries \
+             no inline script (DDD-16).",
+            line_of(at)
+        ));
+    }
+    violations
+}
+
+/// Clause (vi): every vendored `swagger-ui.css` loads nothing — no `@import`,
+/// no `@font-face`, and no `url(` but a `data:` URI (review H3).
+fn docs_page_vendored_css(root: &Path, vendor: &Path) -> Vec<String> {
+    let mut dirs: Vec<PathBuf> = std::fs::read_dir(vendor)
+        .map(|entries| {
+            entries
+                .flatten()
+                .map(|entry| entry.path())
+                .filter(|path| {
+                    path.is_dir()
+                        && path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .is_some_and(|n| n.starts_with("swagger-ui-"))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    dirs.sort();
+    if dirs.is_empty() {
+        return vec![format!(
+            "api-docs-page: no vendored swagger-ui-*/swagger-ui.css under {} — the stylesheet \
+             could not be checked (D11).",
+            rel(root, vendor)
+        )];
+    }
+    let mut violations = Vec::new();
+    for dir in dirs {
+        let file = dir.join("swagger-ui.css");
+        let source = match docs_page_read(root, &file) {
+            Ok(source) => source,
+            Err(violation) => {
+                violations.push(violation);
+                continue;
+            }
+        };
+        let label = rel(root, &file);
+        for (idx, line) in strip_css_block_comments(&source).lines().enumerate() {
+            let lower = line.to_ascii_lowercase();
+            let mut found: Vec<String> = ["@import", "@font-face"]
+                .into_iter()
+                .filter(|at_rule| lower.contains(at_rule))
+                .map(|at_rule| format!("`{at_rule}`"))
+                .collect();
+            let mut at = 0;
+            while let Some(offset) = lower[at..].find("url(") {
+                let arg = lower[at + offset + 4..].trim_start();
+                let quote = arg.chars().next().filter(|c| *c == '"' || *c == '\'');
+                let inner = quote.map_or(arg, |_| &arg[1..]);
+                if !inner.starts_with("data:") {
+                    let shown: String = inner.chars().take(40).collect();
+                    found.push(format!("a `url(` to {shown:?}"));
+                }
+                let end = quote
+                    .map_or_else(|| inner.find(')'), |q| inner.find(q))
+                    .unwrap_or(inner.len());
+                at = lower.len() - inner.len() + end;
+            }
+            for what in found {
+                violations.push(format!(
+                    "api-docs-page: {label}:{} has {what}; the vendored stylesheet loads no \
+                     remote stylesheet, font or file (review H3).",
+                    idx + 1
+                ));
+            }
+        }
+    }
+    violations
+}
+
 #[cfg(test)]
 mod api_openapi_check_arch_tests {
     //! Injected-violation gold tests for the three api-openapi-document rules
@@ -11462,22 +11883,6 @@ mod api_openapi_check_arch_tests {
     //! with a staged tree (the `project_lifecycle_check_arch_tests` `stage`
     //! helper), the rule run against it and the offender named, and removes the
     //! `#[ignore]`. Each stub names the "always pass" mutant it must kill.
-
-    macro_rules! pending_gold {
-        ($name:ident, $step:literal, $what:literal) => {
-            #[test]
-            #[ignore = concat!("pending: api-openapi-document ", $step, " — ", $what)]
-            fn $name() {
-                panic!(concat!(
-                    "Not yet implemented -- RED scaffold (api-openapi-document ",
-                    $step,
-                    ": ",
-                    $what,
-                    ")"
-                ));
-            }
-        };
-    }
 
     // Rule 1: api-openapi-operations (slice 01, step 01-02).
     //
@@ -13155,37 +13560,346 @@ async fn resolve_token_address(store: &Store, team_slug: &str, project_slug: &st
     }
 
     // Rule 3: api-docs-page (slice 03, step 03-03).
-    pending_gold!(docs_page_clean_tree_passes, "03-03", "a clean tree passes");
-    pending_gold!(
-        docs_page_names_a_moved_route,
-        "03-03",
-        "a docs route other than /docs/api is named (clause i)"
-    );
-    pending_gold!(
-        docs_page_names_another_template_loading_swagger_ui,
-        "03-03",
-        "a second template referencing /static/vendor/swagger-ui- is named (clause ii)"
-    );
-    pending_gold!(
-        docs_page_names_a_remote_url_in_the_initializer,
-        "03-03",
-        "an http(s): or //host literal in api-docs.js is named (clause iii)"
-    );
-    pending_gold!(docs_page_names_a_missing_pinned_option, "03-03", "api-docs.js without validatorUrl \"none\", persistAuthorization or queryConfigEnabled false is named (clause iii)");
-    pending_gold!(docs_page_names_a_forbidden_initializer_name, "03-03", "urls:, configUrl, spec:, localStorage, sessionStorage or document.cookie in api-docs.js is named (clause iii)");
-    pending_gold!(
-        docs_page_names_inline_code_in_the_template,
-        "03-03",
-        "a script body, on<event>= or style= in api_docs.html is named (clause iv)"
-    );
-    pending_gold!(
-        docs_page_names_a_loose_script_policy,
-        "03-03",
-        "'unsafe-inline' or * in API_DOCS_CSP script-src is named (clause v)"
-    );
-    pending_gold!(
-        docs_page_names_a_remote_reference_in_the_css,
-        "03-03",
-        "an @import, @font-face or non-data: url( in swagger-ui.css is named (clause vi)"
-    );
+    //
+    // Each test stages the page's five files (route module, its template, one
+    // other template, the initializer and the vendored stylesheet) in their
+    // shipped shape, plants one fault, and asserts the rule names the file and
+    // what is wrong.
+
+    use super::check_api_docs_page;
+
+    const DOCS_RS: &str = "crates/foundry-app/src/api_docs.rs";
+    const DOCS_HTML: &str = "crates/foundry-app/templates/api_docs.html";
+    const BOARD_HTML: &str = "crates/foundry-app/templates/board.html";
+    const DOCS_JS: &str = "crates/foundry-app/static/js/api-docs.js";
+    const DOCS_CSS: &str = "crates/foundry-app/static/vendor/swagger-ui-5.33.3/swagger-ui.css";
+
+    const DOCS_RS_BODY: &str = r#"
+/// The page's address (DDD-15).
+pub const API_DOCS_PATH: &str = "/docs/api";
+
+pub const API_DOCS_CSP: &str = "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; frame-ancestors 'none'";
+
+pub fn routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
+    Router::new().route(
+        API_DOCS_PATH,
+        get(show).layer(middleware::from_fn(api_docs_headers)),
+    )
+}
+"#;
+
+    const DOCS_HTML_BODY: &str = r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Foundry API</title>
+<script defer src="/static/vendor/swagger-ui-5.33.3/swagger-ui-bundle.js"></script>
+<link rel="stylesheet" href="/static/vendor/swagger-ui-5.33.3/swagger-ui.css">
+<script defer src="/static/js/api-docs.js"></script>
+</head>
+<body>
+<h1>Foundry API</h1>
+<p>Foundry API v{{ version }}. The OpenAPI document is at <a href="/api/v1/openapi.json">/api/v1/openapi.json</a>.</p>
+<noscript><p>This page needs JavaScript.</p></noscript>
+<div id="swagger-ui"></div>
+</body>
+</html>
+"#;
+
+    const BOARD_HTML_BODY: &str = r#"{% extends "base.html" %}
+{% block head %}<script defer src="/static/js/board.js"></script>{% endblock %}
+"#;
+
+    const DOCS_JS_BODY: &str = r##"// The initializer. A comment may name https://validator.swagger.io,
+// urls:, spec: or localStorage: comments are not code.
+(function () {
+  "use strict";
+  /* configUrl in a block comment is not code either */
+  var DOCUMENT_URL = "/api/v1/openapi.json";
+  window.SwaggerUIBundle({
+    url: DOCUMENT_URL,
+    dom_id: "#swagger-ui",
+    queryConfigEnabled: false,
+    validatorUrl: "none",
+    persistAuthorization: false,
+    withCredentials: false,
+  });
+})();
+"##;
+
+    const DOCS_CSS_BODY: &str = "/*! swagger-ui; @import url(https://fonts.example/x.css) in a comment */\n.swagger-ui .a{background:url(\"data:image/svg+xml;charset=utf-8,%3Csvg%3E\")}.swagger-ui .b{background:url( data:image/png;base64,AAAA )}\n";
+
+    /// The page's files in their shipped shape; `plant` changes one of them.
+    struct DocsTree {
+        files: Vec<(&'static str, String)>,
+    }
+
+    impl DocsTree {
+        fn clean() -> Self {
+            Self {
+                files: vec![
+                    (DOCS_RS, DOCS_RS_BODY.to_string()),
+                    (DOCS_HTML, DOCS_HTML_BODY.to_string()),
+                    (BOARD_HTML, BOARD_HTML_BODY.to_string()),
+                    (DOCS_JS, DOCS_JS_BODY.to_string()),
+                    (DOCS_CSS, DOCS_CSS_BODY.to_string()),
+                ],
+            }
+        }
+
+        /// Replace `from` with `to` in `file`; a plant that misses is a test bug.
+        fn plant(mut self, file: &str, from: &str, to: &str) -> Self {
+            let body = &mut self
+                .files
+                .iter_mut()
+                .find(|(path, _)| *path == file)
+                .expect("a staged file")
+                .1;
+            assert!(body.contains(from), "the fixture {file} has no {from:?}");
+            *body = body.replacen(from, to, 1);
+            self
+        }
+
+        fn violations(&self) -> Vec<String> {
+            let files: Vec<(&str, &str)> = self
+                .files
+                .iter()
+                .map(|(path, body)| (*path, body.as_str()))
+                .collect();
+            let tree = stage(&files);
+            check_api_docs_page(tree.path())
+        }
+    }
+
+    /// Kills the "always fail" mutant, on the fixture and on the shipped tree.
+    #[test]
+    fn docs_page_clean_tree_passes() {
+        let violations = DocsTree::clean().violations();
+        assert!(violations.is_empty(), "{violations:#?}");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..");
+        let shipped = check_api_docs_page(&root);
+        assert!(shipped.is_empty(), "{shipped:#?}");
+    }
+
+    /// Clause (i): the page stays at /docs/api, by the constant or by the route.
+    #[test]
+    fn docs_page_names_a_moved_route() {
+        let moved_constant = DocsTree::clean()
+            .plant(DOCS_RS, "\"/docs/api\"", "\"/docs/openapi\"")
+            .violations();
+        assert_named(
+            &moved_constant,
+            &["api-docs-page", "api_docs.rs", "/docs/openapi"],
+        );
+        let moved_route = DocsTree::clean()
+            .plant(DOCS_RS, "        API_DOCS_PATH,", "        \"/swagger\",")
+            .violations();
+        assert_named(&moved_route, &["api-docs-page", "api_docs.rs", "/swagger"]);
+        let no_route = DocsTree::clean()
+            .plant(DOCS_RS, "Router::new().route(", "Router::new().nest(")
+            .violations();
+        assert_named(&no_route, &["api-docs-page", "api_docs.rs", "/docs/api"]);
+    }
+
+    /// Clause (ii): no other template loads swagger-ui (D12).
+    #[test]
+    fn docs_page_names_another_template_loading_swagger_ui() {
+        let violations = DocsTree::clean()
+            .plant(
+                BOARD_HTML,
+                "/static/js/board.js",
+                "/static/vendor/swagger-ui-5.33.3/swagger-ui-bundle.js",
+            )
+            .violations();
+        assert_named(&violations, &["api-docs-page", "board.html", "swagger-ui"]);
+    }
+
+    /// Clause (iii): no remote address in the initializer, comments aside.
+    #[test]
+    fn docs_page_names_a_remote_url_in_the_initializer() {
+        for remote in [
+            "http://foundry.example/api/v1/openapi.json",
+            "https://foundry.example/api/v1/openapi.json",
+            "//foundry.example/api/v1/openapi.json",
+        ] {
+            let violations = DocsTree::clean()
+                .plant(
+                    DOCS_JS,
+                    "dom_id: \"#swagger-ui\",",
+                    &format!("dom_id: \"#swagger-ui\", oauth2RedirectUrl: \"{remote}\","),
+                )
+                .violations();
+            assert_named(&violations, &["api-docs-page", "api-docs.js:9", "remote"]);
+        }
+        let twice = DocsTree::clean()
+            .plant(
+                DOCS_JS,
+                "url: DOCUMENT_URL,",
+                "url: \"/api/v1/openapi.json\",",
+            )
+            .violations();
+        assert_named(
+            &twice,
+            &[
+                "api-docs-page",
+                "api-docs.js",
+                "/api/v1/openapi.json",
+                "exactly once",
+            ],
+        );
+        let elsewhere = DocsTree::clean()
+            .plant(
+                DOCS_JS,
+                "url: DOCUMENT_URL,",
+                "url: location.hash.slice(1),",
+            )
+            .violations();
+        assert_named(&elsewhere, &["api-docs-page", "api-docs.js", "url"]);
+    }
+
+    /// Clause (iii): every D10 option is pinned explicitly (DDD-18).
+    #[test]
+    fn docs_page_names_a_missing_pinned_option() {
+        for (from, to, option) in [
+            ("    validatorUrl: \"none\",\n", "", "validatorUrl"),
+            (
+                "validatorUrl: \"none\"",
+                "validatorUrl: null",
+                "validatorUrl",
+            ),
+            (
+                "persistAuthorization: false",
+                "persistAuthorization: true",
+                "persistAuthorization",
+            ),
+            ("    queryConfigEnabled: false,\n", "", "queryConfigEnabled"),
+            (
+                "withCredentials: false",
+                "withCredentials: true",
+                "withCredentials",
+            ),
+            ("    url: DOCUMENT_URL,\n", "", "url"),
+        ] {
+            let violations = DocsTree::clean().plant(DOCS_JS, from, to).violations();
+            assert_named(&violations, &["api-docs-page", "api-docs.js", option]);
+        }
+    }
+
+    /// Clause (iii): nothing that picks another description or touches storage
+    /// or evaluates text.
+    #[test]
+    fn docs_page_names_a_forbidden_initializer_name() {
+        for (planted, name) in [
+            ("urls: [],", "urls:"),
+            ("configUrl: DOCUMENT_URL,", "configUrl"),
+            ("spec: {},", "spec:"),
+            ("x: localStorage.length,", "localStorage"),
+            ("x: sessionStorage.length,", "sessionStorage"),
+            ("x: document.cookie,", "document.cookie"),
+            ("x: eval(\"1\"),", "eval("),
+            ("x: new Function(\"1\"),", "Function("),
+        ] {
+            let violations = DocsTree::clean()
+                .plant(
+                    DOCS_JS,
+                    "dom_id: \"#swagger-ui\",",
+                    &format!("dom_id: \"#swagger-ui\", {planted}"),
+                )
+                .violations();
+            assert_named(&violations, &["api-docs-page", "api-docs.js:9", name]);
+        }
+    }
+
+    /// Clause (iv): Foundry's markup carries no inline code (DDD-16).
+    #[test]
+    fn docs_page_names_inline_code_in_the_template() {
+        for (from, to, what) in [
+            (
+                "<div id=\"swagger-ui\"></div>",
+                "<script>window.x = 1;</script>",
+                "script",
+            ),
+            (
+                "<div id=\"swagger-ui\"></div>",
+                "<div id=\"swagger-ui\" onclick=\"go()\"></div>",
+                "onclick",
+            ),
+            (
+                "<div id=\"swagger-ui\"></div>",
+                "<div id=\"swagger-ui\" ONLOAD = \"go()\"></div>",
+                "onload",
+            ),
+            (
+                "<div id=\"swagger-ui\"></div>",
+                "<div id=\"swagger-ui\" style=\"color: red\"></div>",
+                "style",
+            ),
+            (
+                "<div id=\"swagger-ui\"></div>",
+                "<style>p { color: red }</style>",
+                "style",
+            ),
+            (
+                "<div id=\"swagger-ui\"></div>",
+                "<a href=\"javascript:go()\">go</a>",
+                "javascript:",
+            ),
+        ] {
+            let violations = DocsTree::clean().plant(DOCS_HTML, from, to).violations();
+            assert_named(&violations, &["api-docs-page", "api_docs.html:14", what]);
+        }
+    }
+
+    /// Clause (v): the page's script-src stays `'self'` alone (DDD-19).
+    #[test]
+    fn docs_page_names_a_loose_script_policy() {
+        for loosened in [
+            "script-src 'self' 'unsafe-inline'",
+            "script-src 'self' *",
+            "script-src *",
+            "script-src 'self' 'unsafe-eval'",
+            "script-src 'self' https://cdn.example",
+        ] {
+            let violations = DocsTree::clean()
+                .plant(DOCS_RS, "script-src 'self'", loosened)
+                .violations();
+            assert_named(
+                &violations,
+                &["api-docs-page", "api_docs.rs", "API_DOCS_CSP", loosened],
+            );
+        }
+        let dropped = DocsTree::clean()
+            .plant(DOCS_RS, " script-src 'self';", "")
+            .violations();
+        assert_named(
+            &dropped,
+            &["api-docs-page", "api_docs.rs", "API_DOCS_CSP", "script-src"],
+        );
+    }
+
+    /// Clause (vi): the vendored stylesheet loads nothing (review H3).
+    #[test]
+    fn docs_page_names_a_remote_reference_in_the_css() {
+        for (planted, what) in [
+            ("@import \"theme.css\";", "@import"),
+            ("@font-face{font-family:x;src:local(x)}", "@font-face"),
+            (".c{background:url(https://cdn.example/x.png)}", "url("),
+            (".c{background:url('/static/x.png')}", "url("),
+        ] {
+            let violations = DocsTree::clean()
+                .plant(
+                    DOCS_CSS,
+                    ".swagger-ui .a{",
+                    &format!("{planted}.swagger-ui .a{{"),
+                )
+                .violations();
+            assert_named(&violations, &["api-docs-page", "swagger-ui.css:2", what]);
+        }
+        let mut unvendored = DocsTree::clean();
+        unvendored.files.retain(|(path, _)| *path != DOCS_CSS);
+        assert_named(
+            &unvendored.violations(),
+            &["api-docs-page", "swagger-ui.css"],
+        );
+    }
 }
