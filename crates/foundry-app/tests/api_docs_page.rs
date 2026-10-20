@@ -2,13 +2,10 @@
 //! DDD-16, DDD-19, review H3; [REF] Test Seams "foundry-app integration,
 //! slice 03").
 //!
-//! Authored RED in DISTILL 2026-10-19 as pending panic stubs (the
-//! project-lifecycle `project_lifecycle_copy.rs` idiom): `/docs/api`,
-//! `api_docs::show`, `API_DOCS_CSP` and the vendored files do not exist yet.
-//! DELIVER step 03-02 replaces each stub with requests through
-//! `foundry_app::build_router` (the `api_comment_scoping.rs` harness; Docker
-//! required, as for every testcontainers test) and removes the `#[ignore]`.
-//! These run in `smoke` and `ci` with no browser; the browser lane keeps only
+//! Each test sends requests through `foundry_app::build_router`: the signed-in
+//! one over a testcontainers Postgres (the `api_comment_scoping.rs` harness;
+//! Docker required), the rest over a pool that never connects. These run in
+//! `smoke` and `ci` with no browser; the browser lane keeps only
 //! what needs one (`api-openapi-document-03-api-page.feature`, `@needs-browser`).
 
 use axum::body::Body;

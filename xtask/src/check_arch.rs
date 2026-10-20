@@ -9794,6 +9794,7 @@ const API_CATCH_ALL: &str = "/api/v1/{*rest}";
 /// `any(api_not_found_handler)` (DDD-4, DELIVER UI-1).
 const API_DESCRIPTION_ROUTE: &str = "/api/v1/openapi.json";
 const API_DESCRIPTION_FILE: &str = "crates/foundry-api/openapi.json";
+const API_SRC: &str = "crates/foundry-api/src";
 const API_METHODS: [&str; 5] = ["get", "post", "patch", "put", "delete"];
 const OPENAPI_METHODS: [&str; 8] = [
     "get", "put", "post", "delete", "options", "head", "patch", "trace",
@@ -9930,7 +9931,7 @@ fn method_chain(expression: &str) -> Option<Vec<MethodLink>> {
 /// `/api`, so an `/api/v1` route cannot be mounted where the rule does not look.
 fn api_routes_outside_foundry_api(root: &Path) -> Vec<String> {
     let crates = root.join("crates");
-    let api_src = crates.join("foundry-api").join("src");
+    let api_src = root.join(API_SRC);
     let mut violations = Vec::new();
     for file in rust_sources(&crates) {
         let in_a_crate_src = file.strip_prefix(&crates).is_ok_and(|inside| {
@@ -9999,7 +10000,7 @@ struct ApiCode {
 
 impl ApiCode {
     fn read(root: &Path) -> Self {
-        let api_src = root.join("crates").join("foundry-api").join("src");
+        let api_src = root.join(API_SRC);
         let mut code = ApiCode {
             operations: Vec::new(),
             handlers: Vec::new(),
@@ -10567,7 +10568,6 @@ impl Described<'_> {
 const STATUSES_EXEMPTIONS: &[(&str, &str, &str)] = &[];
 
 const SERVICES_SRC: &str = "crates/foundry-services/src";
-const API_SRC: &str = "crates/foundry-api/src";
 /// Bodies the walk never enters: `status_for` is the map variants go through,
 /// not a place they arise, and the catch-all is not an operation (D15).
 const UNWALKED_FNS: [&str; 2] = ["status_for", "api_not_found_handler"];
@@ -11581,22 +11581,27 @@ fn docs_page_route_and_policy(root: &Path, file: &Path) -> Vec<String> {
         ));
         return violations;
     };
+    violations.extend(docs_page_script_src(&format!("{label}:{line}"), &policy));
+    violations
+}
+
+/// Clause (v): the policy's `script-src` is `'self'` alone.
+fn docs_page_script_src(location: &str, policy: &str) -> Option<String> {
     let script_src = policy
         .split(';')
         .map(|directive| directive.split_whitespace().collect::<Vec<_>>().join(" "))
         .find(|directive| directive.split(' ').next() == Some("script-src"));
     match script_src {
-        Some(directive) if directive == "script-src 'self'" => {}
-        Some(directive) => violations.push(format!(
-            "api-docs-page: {label}:{line} API_DOCS_CSP has `{directive}`; the page's script-src \
+        Some(directive) if directive == "script-src 'self'" => None,
+        Some(directive) => Some(format!(
+            "api-docs-page: {location} API_DOCS_CSP has `{directive}`; the page's script-src \
              is 'self' alone: no 'unsafe-inline', '*', 'unsafe-eval' or host (DDD-19, OQ-U4)."
         )),
-        None => violations.push(format!(
-            "api-docs-page: {label}:{line} API_DOCS_CSP has no script-src; it is 'self' alone \
+        None => Some(format!(
+            "api-docs-page: {location} API_DOCS_CSP has no script-src; it is 'self' alone \
              (DDD-19)."
         )),
     }
-    violations
 }
 
 /// Clause (ii): no template but the page's own references swagger-ui.
@@ -11642,34 +11647,37 @@ fn docs_page_compact(text: &str) -> String {
         .collect()
 }
 
+/// A character that continues a JavaScript identifier.
+fn is_js_identifier_char(c: char) -> bool {
+    c.is_ascii_alphanumeric() || c == '_' || c == '$'
+}
+
 /// `name` occurs in `text` where no identifier character precedes it.
 fn docs_page_names(text: &str, name: &str) -> bool {
     text.match_indices(name).any(|(at, _)| {
         text[..at]
             .chars()
             .next_back()
-            .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+            .is_none_or(|c| !is_js_identifier_char(c))
     })
 }
 
 /// The initializer's single `url:` option is the description's path, as a
 /// literal or through a variable set to it.
 fn docs_page_url_is_the_document(compact: &str) -> bool {
+    const OPTION: &str = "url:";
     let values: Vec<&str> = compact
-        .match_indices("url:")
-        .filter(|(at, _)| *at > 0 && matches!(compact.as_bytes()[at - 1], b'{' | b','))
+        .match_indices(OPTION)
+        .filter(|(at, _)| compact[..*at].ends_with(['{', ',']))
         .map(|(at, _)| {
-            let rest = &compact[at + 4..];
+            let rest = &compact[at + OPTION.len()..];
             &rest[..rest.find([',', '}']).unwrap_or(rest.len())]
         })
         .collect();
     let [value] = values.as_slice() else {
         return false;
     };
-    let identifier = !value.is_empty()
-        && value
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$');
+    let identifier = !value.is_empty() && value.chars().all(is_js_identifier_char);
     *value == DOCS_PAGE_DOCUMENT
         || (identifier && compact.contains(&format!("{value}={DOCS_PAGE_DOCUMENT}")))
 }
@@ -11745,18 +11753,20 @@ fn docs_page_inline_code(tag: &str, after: &str) -> Option<String> {
             return Some("<script> body".to_string());
         }
     }
-    let mut normalised = tag.trim_end_matches('>').to_string();
-    while normalised.contains(" =") || normalised.contains("= ") {
-        normalised = normalised.replace(" =", "=").replace("= ", "=");
-    }
-    normalised
+    let attributes = tag
+        .trim_end_matches('>')
+        .split('=')
+        .map(|piece| piece.trim_matches(' '))
+        .collect::<Vec<_>>()
+        .join("=");
+    attributes
         .split_whitespace()
         .skip(1)
         .filter_map(|attribute| attribute.split_once('=').map(|(name, _)| name))
         .find_map(|name| {
-            let handler = name.len() > 2
-                && name.starts_with("on")
-                && name[2..].chars().all(|c| c.is_ascii_alphabetic());
+            let handler = name.strip_prefix("on").is_some_and(|event| {
+                !event.is_empty() && event.chars().all(|c| c.is_ascii_alphabetic())
+            });
             match name {
                 "style" => Some("style= attribute".to_string()),
                 _ if handler => Some(format!("{name}= handler")),
@@ -11775,19 +11785,20 @@ fn docs_page_template(root: &Path, file: &Path) -> Vec<String> {
     let lower = source.to_ascii_lowercase();
     let line_of = |at: usize| lower[..at].matches('\n').count() + 1;
     let mut violations = Vec::new();
-    let mut from = 0;
-    while let Some(open) = lower[from..].find('<').map(|offset| from + offset) {
-        let close = lower[open..]
-            .find('>')
-            .map_or(lower.len(), |end| open + end + 1);
-        if let Some(what) = docs_page_inline_code(&lower[open..close], &lower[close..]) {
+    let mut close = 0;
+    for chunk in lower.split_inclusive('>') {
+        let start = close;
+        close += chunk.len();
+        let Some(offset) = chunk.find('<') else {
+            continue;
+        };
+        if let Some(what) = docs_page_inline_code(&chunk[offset..], &lower[close..]) {
             violations.push(format!(
                 "api-docs-page: {label}:{} has an inline {what}; the API page's markup carries \
                  no inline script, handler or style (DDD-16, ADR-API-OPENAPI-004).",
-                line_of(open)
+                line_of(start + offset)
             ));
         }
-        from = close;
     }
     for (at, _) in lower.match_indices("javascript:") {
         violations.push(format!(
@@ -11838,26 +11849,18 @@ fn docs_page_vendored_css(root: &Path, vendor: &Path) -> Vec<String> {
         let label = rel(root, &file);
         for (idx, line) in strip_css_block_comments(&source).lines().enumerate() {
             let lower = line.to_ascii_lowercase();
-            let mut found: Vec<String> = ["@import", "@font-face"]
+            let at_rules = ["@import", "@font-face"]
                 .into_iter()
                 .filter(|at_rule| lower.contains(at_rule))
-                .map(|at_rule| format!("`{at_rule}`"))
-                .collect();
-            let mut at = 0;
-            while let Some(offset) = lower[at..].find("url(") {
-                let arg = lower[at + offset + 4..].trim_start();
-                let quote = arg.chars().next().filter(|c| *c == '"' || *c == '\'');
-                let inner = quote.map_or(arg, |_| &arg[1..]);
-                if !inner.starts_with("data:") {
-                    let shown: String = inner.chars().take(40).collect();
-                    found.push(format!("a `url(` to {shown:?}"));
-                }
-                let end = quote
-                    .map_or_else(|| inner.find(')'), |q| inner.find(q))
-                    .unwrap_or(inner.len());
-                at = lower.len() - inner.len() + end;
-            }
-            for what in found {
+                .map(|at_rule| format!("`{at_rule}`"));
+            let urls = css_url_arguments(&lower)
+                .into_iter()
+                .filter(|argument| !argument.starts_with("data:"))
+                .map(|argument| {
+                    let shown: String = argument.chars().take(40).collect();
+                    format!("a `url(` to {shown:?}")
+                });
+            for what in at_rules.chain(urls) {
                 violations.push(format!(
                     "api-docs-page: {label}:{} has {what}; the vendored stylesheet loads no \
                      remote stylesheet, font or file (review H3).",
@@ -11869,20 +11872,34 @@ fn docs_page_vendored_css(root: &Path, vendor: &Path) -> Vec<String> {
     violations
 }
 
+/// What each `url(` in a CSS line points at: the argument from just inside its
+/// quote (or its first non-blank character) to the end of the line. A `url(`
+/// inside an argument is part of that argument, not another reference.
+fn css_url_arguments(line: &str) -> Vec<&str> {
+    const OPEN: &str = "url(";
+    let mut arguments = Vec::new();
+    let mut rest = line;
+    while let Some(offset) = rest.find(OPEN) {
+        let argument = rest[offset + OPEN.len()..].trim_start();
+        let quote = argument.chars().next().filter(|c| *c == '"' || *c == '\'');
+        let inner = quote.map_or(argument, |_| &argument[1..]);
+        arguments.push(inner);
+        let end = quote
+            .map_or_else(|| inner.find(')'), |q| inner.find(q))
+            .unwrap_or(inner.len());
+        rest = &inner[end..];
+    }
+    arguments
+}
+
 #[cfg(test)]
 mod api_openapi_check_arch_tests {
     //! Injected-violation gold tests for the three api-openapi-document rules
     //! (DESIGN [REF] check-arch Rules, DDD-21; ADR-API-OPENAPI-001/002/003).
     //!
-    //! Authored RED in DISTILL 2026-10-19 as pending panic stubs (the
-    //! project-lifecycle `project_lifecycle_copy.rs` idiom): the rule functions
-    //! (`check_api_openapi_operations`, `check_api_openapi_statuses`,
-    //! `check_api_docs_page`, each `fn(&Path) -> Vec<String>`) and the committed
-    //! description they parse do not exist yet. DELIVER writes each rule WITH its
-    //! gold tests in one commit (DESIGN For Software Crafter), replacing each stub
-    //! with a staged tree (the `project_lifecycle_check_arch_tests` `stage`
-    //! helper), the rule run against it and the offender named, and removes the
-    //! `#[ignore]`. Each stub names the "always pass" mutant it must kill.
+    //! Each test stages a tree (the `project_lifecycle_check_arch_tests` `stage`
+    //! helper), plants one violation, runs the rule against it and asserts the
+    //! offender is named, so an "always pass" rule fails it.
 
     // Rule 1: api-openapi-operations (slice 01, step 01-02).
     //

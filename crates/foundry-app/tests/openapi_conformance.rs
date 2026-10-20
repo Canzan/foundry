@@ -1,14 +1,10 @@
 //! api-openapi-document — router-level conformance of the served description
 //! (DESIGN DDD-9 behavioural layer, [REF] Test Seams "foundry-app integration").
 //!
-//! Authored RED in DISTILL 2026-10-19 as pending panic stubs (the
-//! project-lifecycle `project_lifecycle_copy.rs` idiom). DELIVER replaces each
-//! stub with real requests through `foundry_app::build_router` on a
-//! testcontainers Postgres (the `api_comment_scoping.rs` harness), judges every
-//! answer against the document's entry for that operation and status, and
-//! removes the `#[ignore]`. Step 01-01 lands the five that the served
-//! description alone makes true; step 02-01 lands the 405 and Location
-//! ones; the extractor refusals stay pending. The acceptance matrix
+//! Each test sends real requests through `foundry_app::build_router` on a
+//! testcontainers Postgres (the `api_comment_scoping.rs` harness) and judges
+//! every answer against the document's entry for that operation and status.
+//! The acceptance matrix
 //! (`api-openapi-document-02-every-answer.feature`) produces the same answers
 //! through the HTTP lane; these tests hold them below it, inside
 //! `cargo test --workspace` (so `smoke` and `ci` run them unconditionally).
