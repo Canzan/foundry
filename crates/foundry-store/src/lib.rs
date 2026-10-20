@@ -3506,15 +3506,17 @@ impl Store {
         Ok(row.map(machine_token_row_from))
     }
 
-    /// Revoke a machine token by stamping `revoked_at = now()`. Idempotent
-    /// in effect — re-revoking only refreshes the timestamp. The row is
-    /// retained (denylist semantics): the per-request check keeps refusing
-    /// the credential until it expires and is swept.
+    /// Revoke a machine token by stamping `revoked_at = now()`. Idempotent —
+    /// re-revoking leaves the first revocation time (and the row) unchanged.
+    /// The row is retained (denylist semantics): the per-request check keeps
+    /// refusing the credential until it expires and is swept.
     pub async fn revoke_machine_token(&self, jti: uuid::Uuid) -> Result<(), StoreError> {
-        sqlx::query("UPDATE machine_tokens SET revoked_at = now() WHERE jti = $1")
-            .bind(jti)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE machine_tokens SET revoked_at = now() WHERE jti = $1 AND revoked_at IS NULL",
+        )
+        .bind(jti)
+        .execute(&self.pool)
+        .await?;
         Ok(())
     }
 

@@ -41,14 +41,33 @@
 //! # Universe (Mandate 8)
 //!
 //! Port-exposed rows only, read with read-only base-table SQL (the house
-//! exception, project-lifecycle U2): every issue (`issue:<project>:<number>`),
-//! every comment (`comment:<id>`) and every machine token (`token:<label>`,
-//! minus `last_used_at`, which every authenticated call touches) of Canzan
-//! Labs. Issues are read minus `position`: board ranking is server-internal
-//! re-ranking of siblings (card-ranking-within-status ADR-001 R4 — a create
-//! shifts its landing lane, a state change renumbers the columns it touches),
-//! not a change the answer reports. A refusal's expected delta is empty; a
-//! success declares the one key it adds or changes.
+//! exception, project-lifecycle U2): every issue (`issue:<project>:<number>`,
+//! the whole row, `position` included), every comment (`comment:<id>`) and
+//! every machine token (`token:<label>`, minus `last_used_at`, which every
+//! authenticated call touches; `revoked_at` included) of Canzan Labs. A
+//! refusal's expected delta is empty, positions included; a success declares
+//! the one key it adds or changes, and nothing else may move.
+//!
+//! ## Board ranking (card-ranking-within-status ADR-001)
+//!
+//! Positions are contiguous `0..N-1` per `(project, lane)`. Two of the success
+//! rows therefore move siblings, and they declare exactly how
+//! ([`Expected::Reranks`]): the card that lands, the lane and slot it lands
+//! in, and for every sibling the one position step it takes. A sibling may
+//! change in `position` only, by exactly that step; any other issue, or any
+//! other field of a sibling, changing fails the row. For the Background's seed
+//! (AUTH-1..7 filed in order through the create operation, so all in backlog,
+//! newest first: AUTH-7 at 0 .. AUTH-1 at 6):
+//!
+//! * create (R4 "new-issue slot"): AUTH-8 lands in backlog at 0 and AUTH-1..7
+//!   each step `+1`, in the same transaction;
+//! * change of state of AUTH-7 (the Move rule: close the gap in the source
+//!   lane, open a slot in the target): AUTH-7 lands at 0 of its new lane,
+//!   which the seed leaves empty, so 0 is the only contiguous slot; AUTH-1..6,
+//!   behind it in backlog, each step `-1`.
+//!
+//! Re-revoking an already-revoked token is a no-op (PO decision 2026-10-20):
+//! the original `revoked_at` stands, so that row expects no change at all.
 
 use crate::support::harness::{establish_session, seed_lanes_for_project, InProcHarness};
 use crate::world::FoundryWorld;
@@ -573,6 +592,15 @@ pub enum Expected {
     Nothing,
     Changes(String),
     AppearsWithPrefix(&'static str),
+    /// A card lands in `lane` at `slot` (the card's row may change in any
+    /// field, or appear), and every issue in `steps` changes in `position`
+    /// only, by exactly its step. Nothing else changes (module docs, ADR-001).
+    Reranks {
+        card: String,
+        lane: &'static str,
+        slot: i64,
+        steps: BTreeMap<String, i64>,
+    },
 }
 
 /// The staged tree and the last run of the maintainer's commands.
@@ -625,6 +653,18 @@ pub struct AodState {
     /// The swagger-ui block of the operation last tried from the API page, so
     /// its answer is read from that block and no other.
     pub page_operation: Option<String>,
+    /// What the browser kept right after the call, read just before a reload.
+    pub traces_after_call: Option<BrowserTraces>,
+}
+
+/// Everything the browser can keep for the instance's origin (D5).
+#[derive(Debug, Clone)]
+pub struct BrowserTraces {
+    /// The address, every cookie (script-visible and the browser's own jar,
+    /// HttpOnly included) and every localStorage / sessionStorage entry.
+    pub stores: String,
+    /// The origin's IndexedDB databases by name; the page opens none.
+    pub databases: Vec<String>,
 }
 
 // ===========================================================================
@@ -1978,9 +2018,7 @@ async fn spend_revoke_budget(world: &mut FoundryWorld) {
 pub async fn universe(world: &FoundryWorld) -> Universe {
     let ws = world.aod.workspace_id.expect("workspace seeded");
     let rows: Vec<(String, String)> = sqlx::query_as(
-        // `- 'position'`: sibling re-ranking (card-ranking-within-status
-        // ADR-001 R4) is not a change the answer reports; see module docs.
-        "SELECT 'issue:' || p.slug || ':' || i.number, (to_jsonb(i.*) - 'position')::text
+        "SELECT 'issue:' || p.slug || ':' || i.number, to_jsonb(i.*)::text
            FROM issues i JOIN projects p ON p.id = i.project_id WHERE i.workspace_id = $1
          UNION ALL
          SELECT 'comment:' || c.id::text, to_jsonb(c.*)::text FROM comments c WHERE c.workspace_id = $1
@@ -2194,8 +2232,28 @@ pub async fn when_tries(world: &mut FoundryWorld, operation: Operation, situatio
     );
     if succeeds {
         expected = match (operation, situation) {
-            (Operation::CreateIssue, _) => Expected::Changes(format!("issue:{PROJECT}:8")),
-            (Operation::ChangeState, _) => Expected::Changes(format!("issue:{PROJECT}:7")),
+            // R4: AUTH-8 lands at the top of backlog; AUTH-1..7 shift down one.
+            (Operation::CreateIssue, _) => Expected::Reranks {
+                card: format!("issue:{PROJECT}:8"),
+                lane: "backlog",
+                slot: 0,
+                steps: (1..=7)
+                    .map(|n| (format!("issue:{PROJECT}:{n}"), 1))
+                    .collect(),
+            },
+            // Move: AUTH-7 leaves backlog slot 0, AUTH-1..6 close the gap; its
+            // new lane is empty, so it lands at 0.
+            (Operation::ChangeState, _) => Expected::Reranks {
+                card: format!("issue:{PROJECT}:7"),
+                lane: match situation {
+                    S::OwnLane => "review",
+                    _ => "in_progress",
+                },
+                slot: 0,
+                steps: (1..=6)
+                    .map(|n| (format!("issue:{PROJECT}:{n}"), -1))
+                    .collect(),
+            },
             (Operation::CreateComment, _) => Expected::AppearsWithPrefix("comment:"),
             (Operation::EditComment, _) => Expected::Changes(format!(
                 "comment:{}",
@@ -2203,13 +2261,6 @@ pub async fn when_tries(world: &mut FoundryWorld, operation: Operation, situatio
             )),
             (Operation::RevokeToken, S::HisToken) => {
                 Expected::Changes("token:scratch-rotation".to_string())
-            }
-            // Re-revoking is an idempotent re-stamp, not a no-op: the store
-            // runs `UPDATE machine_tokens SET revoked_at = now()` again, so the
-            // already-revoked token's revocation time moves. That one token
-            // changes; nothing else in the universe may (UI-7).
-            (Operation::RevokeToken, S::AlreadyRevoked) => {
-                Expected::Changes("token:old-ci-issue-filer".to_string())
             }
             _ => Expected::Nothing,
         };
@@ -2353,7 +2404,7 @@ pub async fn then_changed_only_as_reported(world: &FoundryWorld) {
     {
         Expected::Nothing => assert!(
             changed.is_empty(),
-            "a read changed Canzan Labs: {changed:?}"
+            "the answer reports no change, yet Canzan Labs changed: {changed:?}"
         ),
         Expected::Changes(key) => assert_eq!(
             changed,
@@ -2368,7 +2419,44 @@ pub async fn then_changed_only_as_reported(world: &FoundryWorld) {
                 "the one change is a new {prefix} row: {key}"
             );
         }
+        Expected::Reranks {
+            card,
+            lane,
+            slot,
+            steps,
+        } => {
+            let declared: BTreeSet<String> = steps.keys().cloned().chain([card.clone()]).collect();
+            assert_eq!(
+                changed, declared,
+                "Canzan Labs changed otherwise than {card} landing and its siblings re-ranking"
+            );
+            let landed = row(&after, &card);
+            assert_eq!(
+                (landed["state"].as_str(), landed["position"].as_i64()),
+                (Some(lane), Some(slot)),
+                "{card} lands in {lane} at {slot}"
+            );
+            for (sibling, step) in steps {
+                let (mut was, mut is) = (row(&before, &sibling), row(&after, &sibling));
+                let moved = is["position"].as_i64().zip(was["position"].as_i64());
+                assert_eq!(
+                    moved.map(|(to, from)| to - from),
+                    Some(step),
+                    "{sibling} steps {step:+} in position: {was} -> {is}"
+                );
+                was.as_object_mut().expect("a row").remove("position");
+                is.as_object_mut().expect("a row").remove("position");
+                assert_eq!(was, is, "{sibling} changed in more than its position");
+            }
+        }
     }
+}
+
+fn row(universe: &Universe, key: &str) -> Value {
+    let text = universe
+        .get(key)
+        .unwrap_or_else(|| panic!("{key} is in the universe"));
+    serde_json::from_str(text).expect("a universe row is JSON")
 }
 
 fn diff(before: &Universe, after: &Universe) -> BTreeSet<String> {
@@ -3787,8 +3875,44 @@ pub async fn given_pasted_and_called(world: &mut FoundryWorld) {
 }
 
 pub async fn when_reloads(world: &mut FoundryWorld) {
+    world.aod.traces_after_call = Some(browser_traces(world).await);
     browser(world).refresh().await.expect("reload the API page");
     settle(world).await;
+}
+
+async fn browser_traces(world: &FoundryWorld) -> BrowserTraces {
+    let read = browser(world)
+        .execute_async(
+            "var done = arguments[arguments.length - 1];
+             var all = [location.href, document.cookie];
+             for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); all.push(k + '=' + localStorage.getItem(k)); }
+             for (var j = 0; j < sessionStorage.length; j++) { var s = sessionStorage.key(j); all.push(s + '=' + sessionStorage.getItem(s)); }
+             var stores = all.join('\\n');
+             if (!window.indexedDB || !indexedDB.databases) { done({stores: stores, databases: ['<indexedDB.databases() unavailable>']}); return; }
+             indexedDB.databases().then(
+               function (list) { done({stores: stores, databases: list.map(function (d) { return d.name; })}); },
+               function (e) { done({stores: stores, databases: ['<indexedDB unreadable: ' + e + '>']}); });",
+            Vec::new(),
+        )
+        .await
+        .unwrap_or_else(|e| panic!("read the browser's storage: {e}"));
+    let jar = browser(world)
+        .get_all_cookies()
+        .await
+        .unwrap_or_else(|e| panic!("read the browser's cookie jar: {e}"));
+    let mut stores = read["stores"].as_str().unwrap_or_default().to_string();
+    for cookie in jar {
+        stores.push_str(&format!("\ncookie {}={}", cookie.name(), cookie.value()));
+    }
+    let databases = read["databases"]
+        .as_array()
+        .map(|list| {
+            list.iter()
+                .map(|name| name.as_str().unwrap_or("<unnamed>").to_string())
+                .collect()
+        })
+        .unwrap_or_else(|| vec![format!("<unreadable answer: {read}>")]);
+    BrowserTraces { stores, databases }
 }
 
 pub async fn then_no_token_filled(world: &FoundryWorld) {
@@ -3806,19 +3930,27 @@ pub async fn then_no_token_filled(world: &FoundryWorld) {
 
 pub async fn then_no_trace(world: &FoundryWorld) {
     let jwt = world.aod.tokens["ci-issue-filer"].jwt.clone();
-    let stores = script(
-        world,
-        "var all = [location.href, document.cookie];
-         for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); all.push(k + '=' + localStorage.getItem(k)); }
-         for (var j = 0; j < sessionStorage.length; j++) { var s = sessionStorage.key(j); all.push(s + '=' + sessionStorage.getItem(s)); }
-         return all.join('\\n');",
-    )
-    .await;
-    let stores = stores.as_str().unwrap_or_default();
-    assert!(
-        !stores.contains(&jwt),
-        "the browser keeps a trace of the token: {stores}"
-    );
+    let after_call = world
+        .aod
+        .traces_after_call
+        .clone()
+        .expect("the reload read the browser's storage first");
+    let after_reload = browser_traces(world).await;
+    for (when, traces) in [
+        ("after the call", after_call),
+        ("after the reload", after_reload),
+    ] {
+        assert!(
+            !traces.stores.contains(&jwt),
+            "{when}, the browser keeps a trace of the token: {}",
+            traces.stores
+        );
+        assert!(
+            traces.databases.is_empty(),
+            "{when}, the page's origin holds IndexedDB databases: {:?}",
+            traces.databases
+        );
+    }
 }
 
 pub async fn when_pastes_and_tries_every(world: &mut FoundryWorld) {

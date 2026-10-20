@@ -297,7 +297,7 @@ async fn read_workspace_tokens(
 ) -> Result<Vec<TokenView>, ServiceError> {
     // Read — workspace-scoped, newest-first (the store ORDERs by created_at
     //    DESC). Map each metadata row to a value-free `TokenView`, resolving the
-    //    minting admin's display name from `created_by` — the ISSUER who minted
+    //    minting admin's email from `created_by` — the ISSUER who minted
     //    the credential (NFR-MT-SEC-06), NOT `user_id` (the SUBJECT the credential
     //    acts AS; they coincide only when an admin mints a token for themselves).
     //    A NULL `created_by` (legacy / `ON DELETE SET NULL`) or a deleted author
@@ -335,7 +335,8 @@ async fn read_workspace_tokens(
 /// 1. authz `is_workspace_admin` → false ⇒ `Forbidden`.
 /// 2. workspace isolation: `find_machine_token_by_jti(jti)` None OR
 ///    `row.workspace_id != principal.workspace_id()` ⇒ `NotFound` (non-enumerable).
-/// 3. `revoke_machine_token(jti)` (idempotent re-stamp); `Ok(())`.
+/// 3. `revoke_machine_token(jti)` (idempotent; a re-revoke keeps the first
+///    revocation time); `Ok(())`.
 /// 4. effectiveness is the SHIPPED per-request denylist (no new refusal code).
 pub async fn revoke_token(
     store: &Store,
@@ -382,9 +383,9 @@ async fn revoke_in_workspace(
         return Err(ServiceError::NotFound);
     }
 
-    // 3. Flip `revoked_at` (idempotent re-stamp — re-revoking an already-revoked
-    //    token only refreshes the timestamp). Effectiveness is the SHIPPED
-    //    per-request denylist: the `/api/v1` `token_auth` extractor already
+    // 3. Flip `revoked_at` (idempotent — re-revoking an already-revoked token
+    //    keeps its first revocation time and changes nothing). Effectiveness is
+    //    the SHIPPED per-request denylist: the `/api/v1` `token_auth` extractor already
     //    refuses any token whose `revoked_at` is set, so the kill-switch takes
     //    effect on the credential's very next call with no new refusal code.
     store
