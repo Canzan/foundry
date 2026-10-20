@@ -725,10 +725,13 @@ DELIVER finalize.
 
 ### The JSON API describes itself, and CI holds it to the code
 
-**Designed (api-openapi-document DESIGN, 2026-10-18; not yet delivered).** ADR-API-OPENAPI-001
-to -004 were accepted by the user on 2026-10-18. Any method other than GET or HEAD on
-`/api/v1/openapi.json` answers the uniform 404 envelope, through a method fallback scoped to that
-route. Every other `/api/v1` path keeps axum's 405.
+**Shipped (api-openapi-document DESIGN 2026-10-18; DELIVER finalize 2026-10-20, tip `a05434b`;
+not yet released).** ADR-API-OPENAPI-001 to -004 were accepted by the user on 2026-10-18. Any
+method other than GET or HEAD on `/api/v1/openapi.json` answers the uniform 404 envelope with no
+`Allow` header. It is mounted as `any(api_not_found_handler).get(openapi_document)`, because a
+chained `.fallback(` adds `Allow: GET,HEAD` on axum 0.8.9 (DELIVER UI-1). Every other `/api/v1`
+path keeps axum's 405. A re-revoke of an already-revoked machine token keeps its first
+`revoked_at` (user decision 2026-10-20).
 
 **The contract.**
 - The contract of record for `/api/v1` is one hand-written OpenAPI 3.1.0 file,
@@ -791,7 +794,10 @@ mounted after the session layer, beside the `/api/v1` merge, so neither the sess
   `default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:;
   connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; object-src 'none'`.
 
-| Design element | Designed as | Where | DDD | Slice |
+Every row below shipped as designed. The slice-01 `PENDING_OPERATIONS` list was emptied and
+removed in step 02-02.
+
+| Design element | Shipped as | Where | DDD | Slice |
 |---|---|---|---|---|
 | Document | hand-written OpenAPI 3.1.0, shared responses, envelope `examples` keyed by `error.code` | `crates/foundry-api/openapi.json` | 1, 2, 5-8 | 01, 02 |
 | Document route | `GET /api/v1/openapi.json`, no extractor, `include_bytes!`, `application/json`, `no-cache` | `crates/foundry-api/src/openapi.rs`, `lib.rs` | 3, 4 | 01 |

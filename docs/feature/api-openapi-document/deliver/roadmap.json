@@ -1,0 +1,500 @@
+{
+  "roadmap": {
+    "project_id": "api-openapi-document",
+    "created_at": "2026-10-19T00:00:00Z",
+    "total_steps": 9,
+    "goal": "A committed OpenAPI 3.1 description served without a token at /api/v1/openapi.json, held to the code by a three-layer drift check, kept on the release by cargo xtask openapi, and tryable at a self-hosted /docs/api page.",
+    "sources": [
+      "docs/feature/api-openapi-document/feature-delta.md",
+      "docs/product/architecture/adr-api-openapi-00{1..4}-*.md"
+    ],
+    "scenario_ownership_invariant": "53 scenarios (163 rows) and 54 stubs (41 xtask, 8 conformance, 5 docs page), each owned by exactly one step. Deviations from DISTILL: 01-04 retired as validation-only (its stubs are re-mapped and the id is unused); scenarios 22, 23 and 25 moved to 02-02 (token rows). @pending left after each step: 43, 41, 37, 33, 26, 17, 16, 8, 0. Ignored stubs: 49, 37, 22, 17, 15, 14, 13, 9, 0.",
+    "pending_id_remap": {
+      "rule": "Change a moved stub's ignore reason and panic id before un-ignoring it.",
+      "gold_tests": [
+        "01-04 -> 01-01: openapi_conformance.rs::the_description_is_the_same_bytes_for_every_credential",
+        "01-04 -> 01-01: openapi_conformance.rs::writing_to_the_description_answers_the_catch_all",
+        "01-04 -> 01-01: openapi_conformance.rs::asking_only_for_the_headers_answers_200_with_no_body",
+        "01-04 -> 01-01: openapi_conformance.rs::every_documented_operation_refuses_no_token_as_documented",
+        "01-04 -> 01-01: openapi_conformance.rs::the_description_version_is_the_footer_version",
+        "01-04 -> 02-01: openapi_conformance.rs::every_documented_path_answers_405_with_the_documented_methods",
+        "01-04 -> 02-01: openapi_conformance.rs::a_created_issue_carries_the_documented_Location",
+        "01-04 -> 02-02: openapi_conformance.rs::the_extractor_refusals_answer_as_documented"
+      ]
+    },
+    "release_gates": "DEVOPS R1-R7. R2 at 01-05. R4: slices 01 and 02 ship in one tag, never from a tree holding PENDING_OPERATIONS (01-02 to 02-02). R3 at 03-03. R7: each step's CHANGELOG line is named in its notes. No push or tag without the user's go.",
+    "standing_rules": "TEST PARADIGM: example-based (project CLAUDE.md). DISTILL owns the scenarios, the driver and each stub's intent: un-pend or un-ignore only in the owning step, never re-author, and send driver failures back to the test owner. LANES: run lane_env first and lane_common last. Keep Docker up. Run aod_warm before acceptance, because the suite uses a prebuilt foundry and the drift driver runs target/debug/xtask. Every aod-0N count must be non-zero. Rerun the us-04 flake alone. Count xtask stubs with pending_gold!( because their step id sits on its own line. MUTATION: >= 80% on modified Rust; non-Rust faults per DEVOPS Mutation testing strategy 3. COMMIT: one local commit per step; no push, tag or PR. aod_pre is diagnostic (always exits 0): read its output, and stop if it shows a stale acceptance process or a foreign listener on the test ports. aod_mut runs before the step's commit, after `git add -N` so new files are in the diff.",
+    "lane_env": "set -o pipefail; export CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false RUST_TEST_THREADS=1 EV=target/aod-evidence; mkdir -p $EV; aod_pre() { timeout 30 lsof -nP -iTCP -sTCP:LISTEN | grep -i acceptanc; timeout 30 pgrep -fl 'cargo|foundry-acceptance'; true; }; aod_warm() { timeout 2400 cargo build --release -p foundry-app --bin foundry && timeout 1200 cargo build -q -p xtask && for i in 1 2 3; do timeout 300 target/release/foundry --version || true; done; }; aod_lane() { FOUNDRY_ACCEPTANCE_TAGS=$1 timeout 5400 cargo test -p foundry-acceptance --release --test acceptance 2>&1 | tee $EV/$1.log; }; aod_mut() { a=(); for f; do a+=(--file \"$f\"); done; timeout 60 git add -N . && timeout 60 git diff HEAD > $EV/step.diff; timeout 14400 cargo mutants -j 1 --in-diff $EV/step.diff \"${a[@]}\"; }",
+    "evidence_dir": "target/aod-evidence/ ($EV, gitignored): downloads, lane logs, diffs, ci.log",
+    "lane_common": [
+      "timeout 900 cargo fmt --all -- --check",
+      "timeout 1800 cargo clippy --workspace --all-targets -- -D warnings",
+      "timeout 600 cargo xtask check-arch",
+      "timeout 3600 cargo xtask smoke",
+      "aod_warm && env -u FOUNDRY_ACCEPTANCE_TAGS timeout 5400 cargo test -p foundry-acceptance --release --test acceptance"
+    ]
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Served description and drift check",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Served description skeleton, its route, and unit tests",
+          "description": "Hand-written OpenAPI 3.1 description in foundry-api (skeleton, list issues, its own route, token scheme, Error, shared responses), served verbatim without a token. Adds five foundry-api unit tests and five conformance tests. Un-pends 1-10.",
+          "criteria": [
+            "Anyone, with or without a credential, downloads the committed bytes, versioned as the footer",
+            "Other methods on the description's address, or addresses beside it, answer the API's uniform not-found",
+            "The description is valid OpenAPI 3.1, names no instance, and its list-issues answers match what the server sends"
+          ],
+          "estimate": "1.25 days",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-api/openapi.json",
+            "crates/foundry-api/src/openapi.rs",
+            "crates/foundry-api/src/lib.rs",
+            "crates/foundry-api/Cargo.toml",
+            "crates/foundry-api/tests/fixtures/oas-3.1-schema-2025-11-23.json",
+            "CHANGELOG.md",
+            "crates/foundry-app/tests/openapi_conformance.rs",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-01-served-description.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/api-openapi-document-01-served-description.feature",
+          "scenario_name": [
+            "An integrator downloads the API description from the instance without a token",
+            "The description an instance serves is the one committed in the repository",
+            "A bad or stale credential does not change the answer",
+            "The description names nothing about the instance serving it",
+            "Two instances running the same release serve the same description",
+            "An address next to the description still answers the API's not-found",
+            "Anything but reading the description's address answers the API's not-found",
+            "Reading the description needs no credential, and every API operation asks for the machine token",
+            "Listing a project's issues answers the way the description says",
+            "A refused list of a project's issues answers the way the description says",
+            "openapi_conformance.rs::the_description_is_the_same_bytes_for_every_credential",
+            "openapi_conformance.rs::writing_to_the_description_answers_the_catch_all",
+            "openapi_conformance.rs::asking_only_for_the_headers_answers_200_with_no_body",
+            "openapi_conformance.rs::every_documented_operation_refuses_no_token_as_documented",
+            "openapi_conformance.rs::the_description_version_is_the_footer_version",
+            "new, DIST-5 names: document_is_valid_openapi_3_1, wire_shapes_match_document, info_version_is_the_release, document_carries_the_d14_copy, document_names_no_instance"
+          ],
+          "lane_commands": [
+            "timeout 60 docker info >/dev/null && aod_pre",
+            "timeout 900 cargo test -p foundry-api --lib openapi && timeout 900 cargo deny check",
+            "timeout 1800 cargo test -p foundry-app --test openapi_conformance",
+            "aod_warm && for t in aod-01 us-w05a us-w05c token-management-api pl-02; do aod_lane $t || break; done",
+            "aod_mut crates/foundry-api/src/openapi.rs crates/foundry-api/src/lib.rs"
+          ],
+          "lane_expect": "5; 5 passed / 3 ignored; aod-01 23 rows",
+          "implementation_notes": "Order per For Software Crafter and DIST-1, with scenario 1 first. Document per DDD-2/5-8 and DIST-7; serving per DDD-3/4 and Changed Assumption 1; unit tests per Test Seams and DDD-11/12/12a. The 401 stub excludes the credential-less description route. Until 02-02 the shape test covers only the components present. CHANGELOG: Added (01+02), Unchanged. STANDING."
+        },
+        {
+          "id": "01-02",
+          "name": "Operations drift rule with the pending-operations list",
+          "description": "check-arch rule api-openapi-operations: the code's routes, parameters, bodies and success answers equal the described operations, failing closed. Not-yet-described operations sit on one pending list. Un-ignores 12 stubs; un-pends 14, 15.",
+          "criteria": [
+            "A route and operation mismatch in either direction fails the check, naming method and path",
+            "A wrong parameter, request body or success answer fails the check, naming the difference",
+            "Any undescribed operation fails the check, naming it, except operations not yet in scope for this slice"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "xtask/src/check_arch.rs",
+            "xtask/Cargo.toml",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-01-drift-check.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/api-openapi-document-01-drift-check.feature",
+          "scenario_name": [
+            "An operation missing from the description fails the build",
+            "A described operation the code no longer offers fails the build",
+            "check_arch.rs::operations_clean_tree_passes",
+            "check_arch.rs::operations_names_an_undocumented_route",
+            "check_arch.rs::operations_names_a_documented_operation_the_code_lacks",
+            "check_arch.rs::operations_names_a_mistyped_path_parameter",
+            "check_arch.rs::operations_names_a_renamed_path_parameter",
+            "check_arch.rs::operations_names_a_new_request_body",
+            "check_arch.rs::operations_names_a_changed_success_status",
+            "check_arch.rs::operations_tolerates_only_pending_operations",
+            "check_arch.rs::operations_names_an_api_route_outside_foundry_api",
+            "check_arch.rs::operations_fails_closed_on_a_non_literal_route",
+            "check_arch.rs::operations_fails_closed_on_a_stray_fallback",
+            "check_arch.rs::operations_fails_closed_on_an_untyped_success_body"
+          ],
+          "lane_commands": [
+            "timeout 60 docker info >/dev/null && aod_pre",
+            "timeout 900 cargo test -p xtask && timeout 30 grep -c 'pending_gold!(' xtask/src/check_arch.rs",
+            "aod_warm && aod_lane aod-01",
+            "aod_mut xtask/src/check_arch.rs"
+          ],
+          "lane_expect": "12/29; 29; 25 rows",
+          "implementation_notes": "Rule 1 per DESIGN check-arch Rules 1 (i-vii), ADR-API-OPENAPI-001 and OQ-D4 (share the no-mint parser). Per DDD-14 the pending list holds the 7 operations D13 names. Keep the pending set a rule input so that operations_tolerates_only_pending_operations survives its deletion in 02-02; retiring that test is the acceptance designer's call. STANDING."
+        },
+        {
+          "id": "01-03",
+          "name": "Statuses drift rule with its soundness clause",
+          "description": "check-arch rule api-openapi-statuses: each operation's statuses, body kinds and error codes, derived from the code by reachability, equal the description's. Un-ignores 15 stubs; un-pends 11, 12, 13, 17.",
+          "criteria": [
+            "An answer the code can give but the description omits, or the reverse, fails the check",
+            "Anything the rule cannot read fails the check instead of contributing nothing",
+            "A passing drift check states which two description rules it applied and what it compared",
+            "The pre-release checks include the drift check"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "xtask/src/check_arch.rs",
+            "xtask/src/main.rs",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-01-drift-check.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/api-openapi-document-01-drift-check.feature",
+          "scenario_name": [
+            "The drift check passes on the current tree, and says what it compared",
+            "A field the description lacks fails the build",
+            "An answer the description does not list fails the build",
+            "A wording-only change to the description passes",
+            "check_arch.rs::statuses_clean_tree_and_wording_edit_pass",
+            "check_arch.rs::statuses_names_a_conflict_in_a_use_case",
+            "check_arch.rs::statuses_names_a_conflict_in_a_handler_body",
+            "check_arch.rs::statuses_names_a_status_removed_from_the_document",
+            "check_arch.rs::statuses_names_a_new_validation_code",
+            "check_arch.rs::statuses_names_a_remapped_variant",
+            "check_arch.rs::statuses_soundness_names_a_from_conversion",
+            "check_arch.rs::statuses_names_new_text_plain_answers",
+            "check_arch.rs::statuses_fails_closed_on_a_non_literal_code",
+            "check_arch.rs::statuses_fails_closed_on_a_glob_import",
+            "check_arch.rs::statuses_fails_closed_on_a_guarded_arm",
+            "check_arch.rs::statuses_fails_closed_on_an_unknown_services_method",
+            "check_arch.rs::statuses_unions_same_named_definitions",
+            "check_arch.rs::statuses_walks_the_extractor_start_set",
+            "check_arch.rs::ci_and_smoke_run_the_drift_check"
+          ],
+          "lane_commands": [
+            "timeout 60 docker info >/dev/null && aod_pre",
+            "timeout 900 cargo test -p xtask && timeout 30 grep -c 'pending_gold!(' xtask/src/check_arch.rs",
+            "aod_warm && aod_lane aod-01",
+            "aod_mut xtask/src/check_arch.rs xtask/src/main.rs"
+          ],
+          "lane_expect": "27/14; 14; 30 rows",
+          "implementation_notes": "Rule 2 per DESIGN check-arch Rules 2, For Software Crafter and ADR-API-OPENAPI-002. The constructs that fail closed are the soundness clause's; the exemption list starts empty. Edit main.rs only if ci or smoke lacks a drift step (US-AOD-02 AC 8). Scenarios 11 and 17 need the DIST-5 names. STANDING."
+        },
+        {
+          "id": "01-05",
+          "name": "Description refresh command, image-build check, release steps",
+          "description": "cargo xtask openapi [--check] [--root <dir>], with --root defaulting to the workspace root: the refresh sets only the version, and --check is read-only. The image build runs --check. RELEASING.md gains the steps. Un-ignores 5 stubs; un-pends 16, 18-20.",
+          "criteria": [
+            "After a bump, one command updates only the description's version, and a rerun changes nothing",
+            "The read-only check refuses a stale description, naming both versions and the fix, and changes nothing",
+            "No image builds from a stale description"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "xtask/src/main.rs",
+            "Dockerfile",
+            "RELEASING.md",
+            "CHANGELOG.md",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-01-drift-check.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/api-openapi-document-01-drift-check.feature",
+          "scenario_name": [
+            "A committed description left behind by a release bump fails the build",
+            "One command brings the committed description up to a new release, and changes nothing else",
+            "Refreshing a description that is already current changes nothing",
+            "Checking a description left behind by a release bump refuses it, and changes nothing",
+            "check_arch.rs::openapi_refresh_changes_only_the_version",
+            "check_arch.rs::openapi_refresh_is_idempotent",
+            "check_arch.rs::openapi_check_refuses_a_stale_description",
+            "check_arch.rs::openapi_check_leaves_the_file_unchanged",
+            "check_arch.rs::openapi_check_accepts_a_current_description",
+            "new: the Dockerfile-check test (DESIGN L2)"
+          ],
+          "lane_commands": [
+            "timeout 60 docker info >/dev/null && aod_pre",
+            "timeout 900 cargo test -p xtask",
+            "timeout 300 cargo xtask openapi --check && timeout 300 cargo xtask openapi && timeout 30 git diff --exit-code crates/foundry-api/openapi.json",
+            "aod_warm && aod_lane aod-01",
+            "aod_mut xtask/src/main.rs"
+          ],
+          "lane_expect": "32/9; no diff; 34 rows",
+          "implementation_notes": "Contract per DESIGN Contract Shapes, DDD-13 and DIST-4. Dockerfile per DEVOPS Release flow option A. The L2 test (DESIGN Handoff) fails naming the Dockerfile when the check is missing or misordered. RELEASING.md gets the DEVOPS Release flow edits (P4). CHANGELOG: Releasing. STANDING."
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Every operation, every answer",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Issue and comment operations described with every answer",
+          "description": "Describe create issue, change state, history, comment and edit comment with every answer the code gives, and take them off the pending list. Un-pends 24, 27-30, 33, 34; un-ignores 2 stubs.",
+          "criteria": [
+            "Every deterministic answer of these operations, produced for real, is documented and validates",
+            "A refusal changes nothing; a success changes only what it reports",
+            "A created issue carries the documented Location, and wrong methods answer 405 naming the documented ones"
+          ],
+          "estimate": "1.25 days",
+          "dependencies": [
+            "01-05"
+          ],
+          "files_to_modify": [
+            "crates/foundry-api/openapi.json",
+            "crates/foundry-api/src/openapi.rs",
+            "xtask/src/check_arch.rs",
+            "CHANGELOG.md",
+            "crates/foundry-app/tests/openapi_conformance.rs",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-02-every-answer.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/api-openapi-document-02-every-answer.feature",
+          "scenario_name": [
+            "No answer the code cannot give is described",
+            "An issue's state is described as one of its project's lanes, not a fixed list",
+            "Malformed requests are described as they really answer",
+            "Refusals that must not reveal anything are described as uniform",
+            "A wrong way of asking at a known address is described",
+            "An issue or comment call that succeeds answers the way the description says",
+            "A refused issue or comment call answers the way the description says",
+            "openapi_conformance.rs::every_documented_path_answers_405_with_the_documented_methods",
+            "openapi_conformance.rs::a_created_issue_carries_the_documented_Location"
+          ],
+          "lane_commands": [
+            "timeout 60 docker info >/dev/null && aod_pre",
+            "timeout 900 cargo test -p foundry-api --lib openapi && timeout 1800 cargo test -p foundry-app --test openapi_conformance",
+            "aod_warm && aod_lane aod-02 && aod_lane aod-01",
+            "aod_mut crates/foundry-api/src/openapi.rs xtask/src/check_arch.rs"
+          ],
+          "lane_expect": "5; 7/1; 60 rows; 34 rows",
+          "implementation_notes": "Per the DESIGN Statuses table and DDD-6/7/8. The shape test covers the new components, and the 405 stub iterates the document's paths. Scenario 24 may already be green. CHANGELOG: Documented (02). Hand table: the openapi.json rows. STANDING."
+        },
+        {
+          "id": "02-02",
+          "name": "Token operations described; pending list emptied and removed",
+          "description": "Describe list tokens and revoke token, then delete the pending list and every reference to it. Un-pends 21-23, 25, 26, 31, 32, 35, 36; un-ignores 1 stub.",
+          "criteria": [
+            "Every one of the nine operations is checked by the drift rules, with no exception",
+            "Every token call's deterministic answer, produced for real, is documented, and a revoke changes only that token",
+            "The description offers no way to mint a token and names where one is minted"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-api/openapi.json",
+            "crates/foundry-api/src/openapi.rs",
+            "xtask/src/check_arch.rs",
+            "CHANGELOG.md",
+            "crates/foundry-app/tests/openapi_conformance.rs",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-02-every-answer.feature",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-01-drift-check.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/api-openapi-document-02-every-answer.feature",
+          "scenario_name": [
+            "Once every operation is described, leaving one out fails the build",
+            "Every operation is described with every answer it can give",
+            "Each refusal lists the error codes it can carry",
+            "The shapes the description gives are the ones the server sends",
+            "The description never shows a token's value",
+            "The description offers no way to create a token, and says where one comes from",
+            "The place the description sends people to mint a token exists",
+            "A token call that succeeds answers the way the description says",
+            "A refused token call answers the way the description says",
+            "openapi_conformance.rs::the_extractor_refusals_answer_as_documented"
+          ],
+          "lane_commands": [
+            "timeout 60 docker info >/dev/null && aod_pre",
+            "timeout 900 cargo test -p foundry-api --lib openapi && timeout 1800 cargo test -p foundry-app --test openapi_conformance",
+            "timeout 30 git grep -n PENDING_OPERATIONS -- xtask/src",
+            "aod_warm && for t in aod-02 aod-01 us-w05b token-management-api; do aod_lane $t || break; done",
+            "aod_mut xtask/src/check_arch.rs crates/foundry-api/src/openapi.rs"
+          ],
+          "lane_expect": "5; 8/0; no grep output; 107 rows; 34 rows",
+          "implementation_notes": "Per the Statuses table, DDD-5/8 and D14. R4: delete the pending list in one commit, keeping the input the 01-02 test plants. The shape test now requires all nine wire structs. CHANGELOG: widen Added (01+02). From here slices 01 and 02 can be tagged, on the user's go. STANDING."
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "The API page and Try-it-out",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Vendored swagger-ui and initializer served from the instance",
+          "description": "Step 0: grep the downloaded swagger-ui 5.33.3 bundle for eval and new Function. Then vendor its four files with VENDOR.md rows and add the initializer. Un-pends 44; un-ignores 1 stub.",
+          "criteria": [
+            "Eval use in the bundle is recorded before any page exists, and a reachable hit stops the step for the user",
+            "Each vendored file and the initializer is served with the repository's bytes",
+            "The vendored set is hash-pinned, licensed, advisory-checked and within 2.5 MB"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/vendor/swagger-ui-5.33.3/swagger-ui-bundle.js",
+            "crates/foundry-app/static/vendor/swagger-ui-5.33.3/swagger-ui.css",
+            "crates/foundry-app/static/vendor/swagger-ui-5.33.3/LICENSE.txt",
+            "crates/foundry-app/static/vendor/swagger-ui-5.33.3/NOTICE.txt",
+            "crates/foundry-app/static/js/api-docs.js",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-app/tests/api_docs_page.rs",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-03-api-page.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/api-openapi-document-03-api-page.feature",
+          "scenario_name": [
+            "The API page's files come from the instance itself, exactly as the repository holds them",
+            "api_docs_page.rs::every_page_file_is_served_with_its_cache_policy"
+          ],
+          "lane_commands": [
+            "timeout 60 docker info >/dev/null && aod_pre",
+            "timeout 300 sh -c 'mkdir -p $EV/swagger-ui-5.33.3 && curl -fsSL https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | tar -xz -C $EV/swagger-ui-5.33.3 --strip-components=1'",
+            "timeout 30 test -s $EV/swagger-ui-5.33.3/swagger-ui-bundle.js && { timeout 60 grep -noE '.{0,40}(eval\\(|new Function).{0,40}' $EV/swagger-ui-5.33.3/swagger-ui-bundle.js | tee $EV/eval-grep.txt; wc -l < $EV/eval-grep.txt; }",
+            "timeout 60 cmp $EV/swagger-ui-5.33.3/swagger-ui-bundle.js crates/foundry-app/static/vendor/swagger-ui-5.33.3/swagger-ui-bundle.js && timeout 60 du -ck crates/foundry-app/static/vendor/swagger-ui-5.33.3",
+            "timeout 1800 cargo test -p foundry-app --test api_docs_page",
+            "aod_warm && aod_lane aod-03"
+          ],
+          "lane_expect": "missing download fails; hits copied to VENDOR.md; cmp silent; <= 2.5 MB; 1/4; 1 row",
+          "implementation_notes": "Download into $EV (untrusted), grep there and record the count and every hit in VENDOR.md, then copy (OQ-D3 step 0). A reachable hit means STOP and ask the user (OQ-U4). Vendor per DDD-17 and ADR-API-OPENAPI-003; initializer per DDD-18. 03-03 covers its hand-table rows. STANDING. Served by the existing /static route (no new Rust file)."
+        },
+        {
+          "id": "03-02",
+          "name": "API page at /docs/api with its content policy",
+          "description": "GET /docs/api with the locked copy, outside session and CSRF, carrying the page-only content policy. The eval probe runs first, and a refusal stops for the user. Un-pends 37-43, 45; un-ignores 4 stubs.",
+          "criteria": [
+            "Anyone sees the page's title, release line and every described operation",
+            "Only the page carries the exact content policy, and it loads nothing from elsewhere and cannot be framed",
+            "The page is the same signed in or out, sets no cookie, and points to the description when scripting or loading fails"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "03-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/api_docs.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/api_docs.html",
+            "CHANGELOG.md",
+            "crates/foundry-app/static/VENDOR.md",
+            "crates/foundry-app/tests/api_docs_page.rs",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-03-api-page.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/api-openapi-document-03-api-page.feature",
+          "scenario_name": [
+            "An integrator reads every API operation in a page on their own instance",
+            "The API page loads nothing from another site",
+            "Another site cannot show the API page inside its own page",
+            "The API page tells the browser to refuse anything from another site",
+            "The API page tells a visitor without scripting where the description is",
+            "The API page says so when the description cannot be loaded",
+            "Other pages do not carry the API page's code",
+            "The API page is the same for everyone, and remembers no one",
+            "api_docs_page.rs::the_api_page_carries_its_policy_and_sets_no_cookie",
+            "api_docs_page.rs::the_api_page_copy_is_byte_exact",
+            "api_docs_page.rs::the_api_page_references_exactly_its_three_files",
+            "api_docs_page.rs::no_other_answer_carries_the_page_policy"
+          ],
+          "lane_commands": [
+            "timeout 60 docker info >/dev/null && aod_pre",
+            "aod_warm && aod_lane aod-03",
+            "timeout 1800 cargo test -p foundry-app --test api_docs_page",
+            "aod_warm && aod_lane aod-03",
+            "aod_mut crates/foundry-app/src/api_docs.rs crates/foundry-app/src/lib.rs"
+          ],
+          "lane_expect": "probe run with only 38 un-pended: 2 rows, no eval refusal; 5/0; 9 rows",
+          "implementation_notes": "Probe first (OQ-D3 step 1): un-pend only 38 and run aod-03. The harness has no name filter. On a refusal: STOP and ask the user (OQ-U4); never loosen the policy. Per DDD-15/16/19 and ADR-API-OPENAPI-004. Mount between the session layer (lib.rs:825) and the request-tracking layer (lib.rs:842). CHANGELOG: the Added (03) page line. STANDING."
+        },
+        {
+          "id": "03-03",
+          "name": "Try-it-out token dialog and the API page rule",
+          "description": "The Authorize dialog shows the locked token copy; a pasted token stays in the tab and goes only to this instance. Adds check-arch rule api-docs-page. Satisfies DEVOPS R3. Un-pends 46-53; un-ignores 9 stubs.",
+          "criteria": [
+            "With a pasted token an integrator calls the API from the page and sees each documented refusal",
+            "The token never reaches another site, and a reload leaves no trace of it",
+            "A page change breaking the policy, initializer or vendoring rules fails the architecture check"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "03-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/static/js/api-docs.js",
+            "xtask/src/check_arch.rs",
+            "CHANGELOG.md",
+            "crates/foundry-acceptance/tests/features/api-openapi-document-03-api-page.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/api-openapi-document-03-api-page.feature",
+          "scenario_name": [
+            "An integrator lists a project's issues from the API page with a pasted token",
+            "The token field says where the token goes",
+            "Sven revokes a token from the API page",
+            "Trying a call without a token shows the documented refusal",
+            "A refused call from the page shows the documented answer",
+            "A pasted token is forgotten on reload and never stored",
+            "A pasted token is never sent to another site",
+            "A link cannot make the API page show someone else's description",
+            "check_arch.rs::docs_page_clean_tree_passes",
+            "check_arch.rs::docs_page_names_a_moved_route",
+            "check_arch.rs::docs_page_names_another_template_loading_swagger_ui",
+            "check_arch.rs::docs_page_names_a_remote_url_in_the_initializer",
+            "check_arch.rs::docs_page_names_a_missing_pinned_option",
+            "check_arch.rs::docs_page_names_a_forbidden_initializer_name",
+            "check_arch.rs::docs_page_names_inline_code_in_the_template",
+            "check_arch.rs::docs_page_names_a_loose_script_policy",
+            "check_arch.rs::docs_page_names_a_remote_reference_in_the_css"
+          ],
+          "lane_commands": [
+            "timeout 60 docker info >/dev/null && aod_pre",
+            "timeout 900 cargo test -p xtask",
+            "aod_warm && for t in aod-01 aod-02 aod-03; do aod_lane $t || break; done",
+            "timeout 30 grep -rn 'pending: api-openapi-document' crates xtask; timeout 30 grep -c 'pending_gold!(' xtask/src/check_arch.rs; timeout 30 grep -n '@pending' crates/foundry-acceptance/tests/features/api-openapi-document-0*.feature; timeout 30 git grep -n PENDING_OPERATIONS -- xtask/src",
+            "FOUNDRY_XTASK_INCLUDE_DOCKER=1 timeout 10800 cargo xtask ci 2>&1 | tee $EV/ci.log",
+            "aod_mut xtask/src/check_arch.rs"
+          ],
+          "lane_expect": "41/0; 34, 107, 22 rows; greps empty, count 0; ci green, acceptance in log, 0 ignored (R3 a-d)",
+          "implementation_notes": "Plugin per DDD-20; rule 3 per DESIGN check-arch Rules 3. Delete the pending_gold! macro with its last use. Run the hand-table rows for the initializer, template and policy. CHANGELOG: the Added (03) token line. R6 on the tag day is the user's. STANDING."
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-api/",
+      "crates/foundry-app/",
+      "xtask/src/",
+      "Dockerfile",
+      "RELEASING.md",
+      "CHANGELOG.md"
+    ],
+    "test_directories": [
+      "crates/foundry-app/tests/",
+      "crates/foundry-acceptance/tests/features/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-acceptance/src/**"
+    ]
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-software-crafter-reviewer iteration 1 NEEDS_REVISION; every item addressed",
+    "quality_gate_self_check": {
+      "criteria": "pass: outcomes only, <= 5 per step, <= 30 words each",
+      "no_implementation_code": "pass after iteration-2 fix F1 (03-02 mount anchors now prose)",
+      "decomposition_ratio": "pass: 9 / 19 = 0.47 (20 with Cargo.lock)",
+      "no_validation_only_steps": "pass: 01-04 retired",
+      "test_linkage": "pass: 53 scenarios and 54 stubs owned once",
+      "concision": "pass: descriptions <= 50 words, notes <= 100 words, total under 3000",
+      "lanes_bounded": "pass: all commands use timeout or lane_env functions that do"
+    },
+    "approved_by": "nw-acceptance-designer-reviewer iteration 2 (2026-10-19) found 1 blocker, 3 high, 4 low; all mechanical, applied by the orchestrator and re-verified"
+  }
+}

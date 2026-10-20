@@ -2725,3 +2725,171 @@ Every `aod-0N` lane run DELIVER reports must show a non-zero scenario count.
 | Default acceptance lane (empty tag) | not re-run: the shared changes are one World field and two additive browser-harness functions; no shipped step or feature changed, and the new step phrases match no other feature's step line |
 
 Only the containers these runs started were created. Nothing committed or pushed.
+
+## Wave: DELIVER / [WHY] Upstream Issues
+
+| # | Origin | Issue | Resolution |
+|---|--------|-------|------------|
+| UI-1 | DESIGN DDD-4; check-arch rule 1 (vii); DEVOPS Dockerfile comment | On axum 0.8.9, `get(openapi_document).fallback(api_not_found_handler)` adds `Allow: GET,HEAD` to the fallback's 404, so the answer is not byte-identical to the catch-all (`writing_to_the_description_answers_the_catch_all` failed on it). Only an `any(..)` method router omits `Allow`. | Step 01-01 mounts `any(api_not_found_handler).get(openapi::openapi_document)` on `/api/v1/openapi.json`. The behaviour the user decided on 2026-10-18 is unchanged: GET/HEAD answer the document, and every other method gets the catch-all 404 with no `Allow`. Rule 1 (vii) now reads: an `any(` is a violation except the `/api/v1/{*rest}` catch-all and `any(api_not_found_handler).get(..)` on `/api/v1/openapi.json`; a chained `.fallback(` is a violation everywhere. The gold test `operations_fails_closed_on_a_stray_fallback` plants that `any(..).get(..)` form on another route and expects it to be named. |
+| UI-2 | DISTILL gold list for rule 1 (step 01-02 mutation run: 218 mutants, 190 caught, 5 timeout, 15 missed; 90.5-92.9%) | Surviving mutants show gold-set gaps: no test plants a wrong success-body `$ref` (`Described::success_body_difference -> None` survives); no test describes a request body on a handler without `Json` (`request_body_difference`); `check_api_openapi_operations -> vec![]` is caught only by the aod-01 lane; no fixture has a tuple return like `(StatusCode, Json<T>)` (`split_top_level` depth); `post_on_tokens_collection_blocks` line arithmetic. | Above the 80% gate, so not blocking. For nw-acceptance-designer: consider adding gold tests for these before Phase 5 mutation. |
+| UI-3 | ADR-API-OPENAPI-002 reachability wording (step 01-03) | (a) Reachability is slightly wider than the ADR: only the first method call directly on `store` is skipped; later links and `fn` definitions are followed. It can only add statuses, never drop one, and the real tree derives exactly the DESIGN Statuses table. (b) A Validation `code: helper()` fails closed instead of being followed as the ADR allows — stricter, still sound. (c) Mutation 89.8% (274 mutants); survivors as in UI-2 (`check_api_openapi_statuses -> vec![]` caught only by aod-01; `BodyKind::label` wording; empty-exemption comparison; `ERROR_SCHEMA` guard with no non-Error application/json fixture). | Both are sound narrowings or harmless widenings; accepted for review in Phase 4. |
+| UI-4 | DISTILL driver `universe()` (aod-02 "An issue or comment call that succeeds…", step "changed only as that answer reports") | `to_jsonb(i.*)` includes the board ranking column `issues.position`. Creating an issue shifts its lane siblings and a state change renumbers the columns it touches (card-ranking-within-status ADR-001 R4), so 4 success rows (create, 3 change-state) failed on sibling re-ranks the answer does not report. Found by step 02-01 (GREEN logged FAIL; nothing committed). | Orchestrator decision 2026-10-19: the universe excludes `position`, as it already excludes tokens' `last_used_at`; re-ranking is server-internal. Driver edit routed to nw-acceptance-designer; 02-01 resumes afterwards. AC2 is unchanged for every reported field. **Superseded 2026-10-20 (Phase 4 review D2):** `position` is back in the universe; the create and change-state rows declare the sibling re-rank explicitly as their expected delta. |
+| UI-5 | DISTILL drift driver `stage_tree` / `run_drift_check` | `cp -pR` keeps mtimes and the cache `target/aod-drift/target` persists, so a foundry-api test binary from an earlier run can look newer than a planted `openapi.json`; cargo reuses it and the drift check passes over a planted version bump (false green, seen twice in 02-01's aod-01 runs). | Routed to nw-acceptance-designer to make planted files always newer than cached artifacts (and/or clear foundry-api fingerprints per run), before 02-02. |
+| UI-6 | DEVOPS mutation strategy (step 02-01) | 02-01's Rust changes are `#[cfg(test)]` or a const list, so cargo-mutants found no mutants. `openapi.json` is covered by both check-arch rules, the shape test and 60 aod-02 rows. | Accepted; no kill rate for this step. Phase 5 runs per-feature mutation over all modified files. |
+| UI-7 | DISTILL driver, aod-02 "A token call that succeeds…" row "that is already revoked" (step 02-02) | The row expected no change, but `Store::revoke_machine_token` re-stamps the revoke timestamp on an already-revoked token by design ("only refreshes the timestamp", lib.rs ~3514; "idempotent re-stamp", tokens.rs ~385). Found by 02-02 (GREEN logged FAIL; 106/107; nothing committed). | Orchestrator decision 2026-10-19: the row expects `Changes("token:old-ci-issue-filer")`, so the universe stays strict (option b, not excluding the column). Production code unchanged. Driver edit routed to nw-acceptance-designer; 02-02 resumes afterwards. **Superseded 2026-10-20 (Phase 4 review D1, product decision by the user):** a re-revoke keeps the first `revoked_at`; the store becomes `... WHERE jti = $1 AND revoked_at IS NULL`, and the row again expects no change, as written. |
+| UI-8 | DISTILL browser driver `then_every_operation_listed` (api_openapi_document.rs ~3189) | The WebDriver script reads `arguments[1]`/`arguments[2]` inside a `.map(function (b) {…})` callback, where `arguments` is the callback's, so the selector is `0` and querySelector throws. Blocked 03-02 at 8/9 aod-03 rows (GREEN not logged; nothing committed). The OQ-D3 step-1 eval probe passed with no CSP refusal (recorded in VENDOR.md); OQ-U4 not asked. Caveat: the probe renders but runs no "Try it out" call (ADR-004 decision 4); the US-AOD-06 rows in 03-03 cover that. | Routed to nw-acceptance-designer: bind the script args before the callback, and audit every other browser script in the driver for the same pattern. 03-02 resumes afterwards. |
+| UI-9 | DISTILL browser driver `swagger_dom::LIVE_STATUS` (api_openapi_document.rs ~3081), used by `try_operation` and `shown_answer` | `.live-responses-table .response-col_status` also matches swagger-ui 5.33.3's header cell (`col_header response-col_status` = "Code"), so `querySelector` reads status 0 and the wait is satisfied before the answer row exists. 8 Try-it-out rows failed although the page showed the right answer (step 03-03 RED; nothing committed). Also no Try-it-out row read the browser's CSP log, so OQ-U4 under Try it out rested on absence of failure, not evidence. | Routed to nw-acceptance-designer: scope the selector to the answer row (wait + read), and assert "the browser refused nothing" after Try it out. 03-03 resumes afterwards. The crafter's comment-only rewording of three feature-file headers ("@pending" → "was authored pending", for the R3 grep) is accepted. |
+
+## Wave: DELIVER / [REF] Implementation Summary
+
+Apex (@nw-platform-architect), DELIVER Phase 7 finalize, 2026-10-20. **Sources:**
+`deliver/roadmap.json`, `deliver/execution-log.json`, `git log a6b4095..99330d6` and the
+evidence logs in `target/aod-evidence/` (not committed). This section is pointers.
+Evolution archive: `docs/evolution/2026-10-20-api-openapi-document.md`.
+
+There are 9 roadmap steps in 3 phases, one phase per slice. 01-04 was retired as
+validation-only in the roadmap (its stubs re-mapped to 01-01 and 02-01; the id is unused).
+Every step ends COMMIT/PASS. `des-verify-integrity`: "All 9 steps have complete DES traces",
+exit 0.
+- **Slice 01, served document and drift check** (`06978bb` 01-01, `980b869` 01-02,
+  `215b37c` 01-03, `75bc2a9` 01-05):
+  - `GET`/`HEAD /api/v1/openapi.json`, no credential, `include_bytes!`, mounted as
+    `any(api_not_found_handler).get(..)` (UI-1);
+  - check-arch `api-openapi-operations` and `api-openapi-statuses`;
+  - `cargo xtask openapi [--check]`, the Dockerfile builder `--check`, RELEASING step 3.
+- **Slice 02, every operation, every status** (`de66f92` 02-01, `3a61e53` UI-5 driver fix,
+  `4017d00` 02-02): the issue, comment and token operations with every answer; the D13
+  pending list emptied and removed (no `PENDING_OPERATIONS` left in `check_arch.rs`).
+- **Slice 03, the API page** (`0a30e50` 03-01, `3ca4f6f` 03-02, `c40a60e` 03-03): vendored
+  swagger-ui 5.33.3 and `api-docs.js`; `/docs/api` with its route-scoped CSP; Try it out
+  with a token dialog; check-arch `api-docs-page`.
+- **After the close:** `497aec4` (L1-L3 refactor); `58baa41` (02-02 re-run through DES:
+  a re-revoke keeps the first revocation time); `c33d641` and `a05434b` (review gaps and
+  planted mutation survivors); `99330d6` (store-level re-revoke test).
+
+GREEN FAIL events are logged honestly: 02-01 (UI-4), 02-02 (UI-7), and 03-03 RED (UI-9).
+Each was resolved by a driver fix routed to nw-acceptance-designer, then the step resumed.
+
+### [REF] Files Modified
+
+From `git diff --stat a6b4095 a05434b` (31 files; no other feature's work is in the range).
+
+**Production**
+- `crates/foundry-api/openapi.json`: **new**, the hand-written OAS 3.1.0 contract (1387 lines).
+- `crates/foundry-api/src/openapi.rs`, `src/lib.rs`, `Cargo.toml`: the route, `include_bytes!`, dev-only `schemars`/`jsonschema`.
+- `crates/foundry-app/src/api_docs.rs`: **new**, `/docs/api`, `API_DOCS_CSP` and the header layer.
+- `crates/foundry-app/src/lib.rs`: mounts `/docs/api` beside the `/api/v1` merge.
+- `crates/foundry-app/templates/api_docs.html`: **new**, the standalone page.
+- `crates/foundry-app/static/js/api-docs.js`: **new**, the authored swagger-ui initializer.
+- `crates/foundry-app/static/vendor/swagger-ui-5.33.3/{swagger-ui-bundle.js,swagger-ui.css,LICENSE.txt,NOTICE.txt}`: **new**, vendored.
+- `crates/foundry-app/static/VENDOR.md`: swagger-ui rows and the eval-probe record.
+- `crates/foundry-store/src/lib.rs`: `revoke_machine_token` updates only where `revoked_at IS NULL` (`58baa41`).
+- `crates/foundry-services/src/tokens.rs`: doc comments for the re-revoke rule.
+- `xtask/src/check_arch.rs`: rules `api-openapi-operations`, `api-openapi-statuses`, `api-docs-page` and their gold tests (+5019).
+- `xtask/src/openapi.rs` (**new**), `xtask/src/main.rs`, `xtask/Cargo.toml`: `cargo xtask openapi [--check] [--root]`.
+- `Dockerfile`: builder-stage `cargo xtask openapi --check` (DEVOPS R2).
+- `Cargo.lock`: the dev-dependencies.
+
+**Tests**
+- `crates/foundry-api/tests/fixtures/oas-3.1-schema-2025-11-23.json`: **new**, the vendored OAS 3.1 schema.
+- `crates/foundry-app/tests/openapi_conformance.rs`, `tests/api_docs_page.rs`: DISTILL stubs made real.
+- `crates/foundry-acceptance/src/support/api_openapi_document.rs`: driver fixes UI-4, UI-5, UI-7, UI-8, UI-9 and the review's D2 (`Expected::Reranks`).
+- `crates/foundry-acceptance/tests/features/api-openapi-document-0{1,2,3}-*.feature`: `@pending` lifted; header comments reworded.
+
+**Docs**
+- `CHANGELOG.md`: `[Unreleased]` entry, including the re-revoke rule.
+- `RELEASING.md`: step 3 runs `cargo xtask openapi`, then `smoke`.
+- **Changed at this finalize:** this file, `deliver/roadmap.json` and `deliver/execution-log.json` (first commit), `docs/evolution/2026-10-20-api-openapi-document.md`, and the `brief.md` inventory (designed → shipped).
+
+### [REF] Scenarios Green
+
+| Scope | Result |
+|---|---|
+| `FOUNDRY_ACCEPTANCE_TAGS=aod-01` | **34/34 scenarios, 209/209 steps**, 2026-10-20 (after `58baa41`) |
+| `aod-02` | **107/107 scenarios, 918/918 steps**, 2026-10-20 (after `58baa41`); also 107/107 alone on 2026-10-19 as the CI flake re-run |
+| `aod-03` (`@needs-browser`, Docker) | **22/22 scenarios, 176/176 steps**, 2026-10-20; 15 browser rows run in headless Chrome |
+| Feature total | **163/163**, 0 `@pending` |
+| Full `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`, run 2 (2026-10-19) | 1780/1781 scenarios, 13912/13913 steps; the one failure is the known sqlx `'\0'` pool flake on an aod-02 outline row (see Quality Gates) |
+
+### [REF] DoD Check
+
+Against *DISCUSS / [REF] DoD*.
+
+| # | DoD item | Status | Evidence |
+|---|---|---|---|
+| 1 | All UAT scenarios pass; neighbouring lanes and the default lane green | **MET** | aod-01/02/03 163/163. Neighbours in CI run 2 (1780/1781, the one failure a known flake re-run green) and in their own logs (us-w05a/b/c, token-management-api, machine-token-admin) |
+| 2 | Drift check gold tests: planted field, status, operation, envelope and committed-copy drift each fails and names it | **MET** | aod-01 34/34; the xtask gold tests; `c33d641`/`a05434b` added plants for the review gaps and mutation survivors |
+| 3 | D13's list empty and removed at the end of slice 02 | **MET** | `4017d00`; no `PENDING_OPERATIONS` in `check_arch.rs` |
+| 4 | check-arch and smoke before each commit; Docker `xtask ci` before push; mutation ≥80% on modified files | **PARTLY MET** | check-arch, smoke, fmt, clippy green. Mutation 95.1%. **No single fully green `ci` run yet**: run 2 had one known flake, run 1 a port collision. One is owed on a quiet machine before the tag |
+| 5 | Dogfood on dev and prod after the release | **OWED** | Needs the release. No release or push has been done |
+| 6 | CHANGELOG `[Unreleased]`; both api-contract.md amended; `brief.md` inventory; jobs.yaml, persona, journey | **MET** | CHANGELOG in the feature commits; api-contract.md files and jobs/persona/journey in `a6b4095`; brief inventory marked shipped at this finalize |
+
+### [REF] Demo Evidence
+
+From `target/aod-evidence/demo-evidence.log`: the release binary against a throwaway
+Postgres, 2026-10-19.
+
+**US-AOD-01, the document with no token.** `curl /api/v1/openapi.json`:
+- 200, `content-type: application/json`;
+- `openapi` 3.1.0; `info.title` "Foundry API v1", `info.version` 0.16.0 (the pitch's 0.17.0
+  arrives with the release bump, through `cargo xtask openapi`);
+- `servers` `[{"url": "/"}]`; `securitySchemes.machineToken` http bearer; the `Error` schema
+  present;
+- 9 operations, each with its status set (for example list issues 200/401/404/405/500,
+  revoke token 204/400/401/403/404/405/429/500); no create-token operation;
+- `HEAD` 200.
+
+**US-AOD-05, the page.** `GET /docs/api`:
+- 200, title "Foundry API", text "Foundry API v0.16.0. The OpenAPI document is at
+  /api/v1/openapi.json.";
+- `content-security-policy: default-src 'none'; script-src 'self'; ...; frame-ancestors 'none'; object-src 'none'`,
+  `x-frame-options: DENY`, `x-content-type-options: nosniff`, `referrer-policy: no-referrer`,
+  `cache-control: no-cache`;
+- no external origins; the assets are the vendored bundle and CSS, `api-docs.js` and the document.
+
+**US-AOD-02 (drift) and US-AOD-06 (Try it out)** are demonstrated by the aod-01 and aod-03
+scenarios: a planted drift fails `ci` and names itself; a token pasted in the dialog lists
+issues and revokes a scratch token from the page. Stakeholder sign-off is the user's to give.
+
+### [REF] Quality Gates
+
+| Gate | Outcome | Evidence |
+|---|---|---|
+| Phase 3 refactor (L1-L3; L4-L6 none) | Done, behaviour-preserving | `497aec4`; aod-01/02/03 and the 11-row hand table re-run green |
+| Phase 4 adversarial review, pass 1 | **REJECTED** | D1: the aod-02 re-revoke row's expectation had been weakened to fit the code (UI-7). D2: `position` dropped from the universe (UI-4). D3: no escalation record for either. D4-D8 lower (page-rule options and storage, drift normalise keywords, a stale comment, driver details) |
+| User product decision, 2026-10-20 | "A re-revoke keeps the first revocation time" | Fixed in `58baa41` (02-02 re-run through DES, RED → GREEN → COMMIT), D2 `Expected::Reranks`; D4-D6 in `c33d641`/`a05434b` |
+| Phase 4 review, pass 2 | **APPROVED** | |
+| Phase 5 mutation (per-feature, ≥80%) | **PASS: 95.1%** (98.3% excluding timeouts) | 622 mutants: 565 caught, 10 missed, 19 timeouts, 28 unviable. All 10 survivors are in `xtask` (rerun2 list): the `main`/`usage`/`openapi::run` entry points (exercised by the aod-01 lane, not by unit tests), `Answers::compare` operators, and `CrateFile::validation_code` / `StatusMap::read_arm` / `ErrorFlow::answers` bounds. They were explained in Phase 5; the plants for the earlier survivors landed in `c33d641`/`a05434b` |
+| Phase 6 integrity | `des-verify-integrity` exit 0, 9 steps | |
+| Full CI, run 1 (2026-10-19) | FAILED, not this feature | Port collision with canzan-lift's test servers; `comment_scoping` passed alone |
+| Full CI, run 2 (2026-10-19) | 1780/1781 | The one failure is the sqlx `'\0'` pool flake; aod-02 re-run alone 107/107. **No single fully green run yet**; the tag-day run needs a quiet machine |
+| check-arch / `xtask openapi --check` / fmt / clippy | Green | |
+| Rule-3 hand table | 11/11 faults caught | `phase5-hand-table.log`, uncaught 0 |
+
+**Recorded gaps:**
+- The "browser refused nothing" CSP check (console refusals) is verified in headless Chrome
+  only, not in Firefox or Safari.
+- `execution-log.json` carries no machine-readable entry for the user's 2026-10-20 product
+  decision; it is recorded in UI-7 and the `58baa41` message.
+- The store-level re-revoke test landed after the review, in `99330d6`
+  (`crates/foundry-store/tests/machine_tokens_repo.rs`); before it the rule was held by the
+  aod-02 row alone.
+
+### [REF] Pre-requisites
+
+1. **Commit scope at this finalize:** this file, `deliver/roadmap.json`,
+   `deliver/execution-log.json`, `docs/evolution/2026-10-20-api-openapi-document.md` and
+   `docs/product/architecture/brief.md`. The store-test follow-up `99330d6` was committed
+   separately.
+2. **Phase B migration: nothing to migrate.** The feature uses the single `feature-delta.md`
+   layout; there is no `design/` or `discuss/` directory and no `design/adrs/`. ADR-API-OPENAPI-001
+   to -004 already live in `docs/product/architecture/`; the journey, jobs and persona in
+   `docs/product/`. `distill/red-classification.md` and `slices/` stay as delivery history.
+3. **Session markers** (`.nwave/des/*`, `deliver/.develop-progress.json`) are the
+   orchestrator's; nothing was removed here.
+4. **Not done: push, tag and release.** Before the tag: one fully green
+   `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` on a quiet machine, then
+   `cargo xtask openapi` for 0.17.0.
+5. **Owed by the user after the release:** the DoD 5 dogfood on dev and prod (document hash
+   against the tagged file; Try it out with a scratch token; the network log shows no other
+   origin).
