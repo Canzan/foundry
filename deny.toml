@@ -35,6 +35,16 @@ ignore = [
     # checked-in YAML fixtures, never untrusted input. Revisit when
     # serde_yaml_ng moves off it or a maintained YAML crate fits.
     "RUSTSEC-2024-0449",
+    # webpki-roots 0.26.11 (RUSTSEC-2026-0381, emSign roots): a shim whose only
+    # dependency is webpki-roots 1.x, already at the patched 1.0.10, so the roots
+    # it hands sqlx are the fixed set. Flagged by version alone. Revisit when
+    # sqlx moves to webpki-roots 1.x directly.
+    { id = "RUSTSEC-2026-0381", reason = "0.26.11 re-exports webpki-roots 1.0.10 (patched); flagged by version only" },
+    # basic-toml (RUSTSEC-2026-0374, unmaintained, no safe upgrade): used only by
+    # askama_derive at compile time to read askama's config; never in the
+    # foundry binary, never parses untrusted input. Goes away with the
+    # askama 0.12 -> 0.13+ migration (askama_axum is retired there).
+    { id = "RUSTSEC-2026-0374", reason = "build-time only via askama_derive; removed by the askama 0.13+ migration" },
 ]
 
 [licenses]

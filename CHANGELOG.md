@@ -49,6 +49,12 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 - Revoking an already-revoked machine token now keeps its first revocation time; the store
   previously moved it to the time of the latest revoke.
 
+### Security
+
+- **rustls-webpki 0.103.16** (RUSTSEC-2026-0382) and **webpki-roots 1.0.10**
+  (RUSTSEC-2026-0381): outgoing TLS no longer accepts a certificate path through the
+  distrusted emSign intermediates, whose private keys are now public.
+
 ### Documented
 
 - Existing behaviour now written down: a JSON body over 2 MB answers 413 `text/plain`; a token
