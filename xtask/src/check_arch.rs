@@ -13636,6 +13636,297 @@ async fn resolve_token_address(store: &Store, team_slug: &str, project_slug: &st
         }
     }
 
+    // Rules 1 and 2: plants and unit checks for the phase-5 mutation survivors.
+
+    /// The shipped entry points fail closed on a tree with no description.
+    #[test]
+    fn shipped_rules_fail_closed_on_an_empty_tree() {
+        let tree = stage(&[]);
+        let operations = super::check_api_openapi_operations(tree.path());
+        assert_named(&operations, &["api-openapi-operations"]);
+        let statuses = super::check_api_openapi_statuses(tree.path());
+        assert_named(&statuses, &["api-openapi-statuses"]);
+    }
+
+    /// Clause (iii): a described body the handler does not take, and a body
+    /// the description does not require, are both named.
+    #[test]
+    fn operations_names_a_request_body_the_handler_does_not_take() {
+        let unread = ApiTree::clean()
+            .describe(|d| {
+                d["paths"][HISTORY]["get"]["requestBody"] = json!({"required": true, "content": {
+                    "application/json": {"schema": {"$ref": "#/components/schemas/CommentBodyRequest"}}
+                }});
+            })
+            .violations(&[]);
+        assert_named(
+            &unread,
+            &[
+                &format!("GET {HISTORY} "),
+                "has a request body in the description",
+            ],
+        );
+        let optional = ApiTree::clean()
+            .describe(|d| {
+                d["paths"][ISSUES]["post"]["requestBody"]["required"] = json!(false);
+            })
+            .violations(&[]);
+        assert_named(
+            &optional,
+            &[
+                &format!("POST {ISSUES} "),
+                "Json<CreateIssueRequest>",
+                "required",
+            ],
+        );
+    }
+
+    /// Clause (iv): a changed success body is named.
+    #[test]
+    fn operations_names_a_changed_success_body() {
+        let violations = ApiTree::clean()
+            .describe(|d| {
+                d["paths"][ISSUES]["post"]["responses"]["201"] =
+                    answer(json!({"$ref": "#/components/schemas/Comment"}));
+            })
+            .violations(&[]);
+        assert_named(&violations, &[&format!("POST {ISSUES} "), "201"]);
+    }
+
+    /// Clause (iv): only a handler returning `Response` has its body read from
+    /// a `Json(T { … })` literal; any other unread return type fails closed.
+    #[test]
+    fn operations_fails_closed_on_an_opaque_return_type() {
+        let violations = ApiTree::clean()
+            .code(
+                "    Json(request): Json<CreateIssueRequest>,\n) -> Result<Response, ApiError> {",
+                "    Json(request): Json<CreateIssueRequest>,\n) -> Result<impl IntoResponse, ApiError> {",
+            )
+            .violations(&[]);
+        assert_named(
+            &violations,
+            &[&format!("POST {ISSUES} "), "no single success body type"],
+        );
+    }
+
+    /// A single `Path<T>` is one parameter of type T, not a tuple's inside.
+    #[test]
+    fn a_single_path_parameter_keeps_its_type() {
+        let handler = super::Handler {
+            params: "Path(jti): Path<Uuid>".to_string(),
+            returns: String::new(),
+            body: String::new(),
+        };
+        let parameters = handler.path_parameters("/x/{jti}").expect("one parameter");
+        let read: Vec<(&str, &str)> = parameters
+            .iter()
+            .map(|p| (p.name.as_str(), p.rust.as_str()))
+            .collect();
+        assert_eq!(read, [("jti", "Uuid")]);
+    }
+
+    #[test]
+    fn split_top_level_splits_only_outside_brackets() {
+        assert_eq!(
+            super::split_top_level("String, Vec<(A, B)>, (C, D), E,"),
+            ["String", "Vec<(A, B)>", "(C, D)", "E"]
+        );
+        assert_eq!(super::split_top_level("A<B>, C"), ["A<B>", "C"]);
+    }
+
+    #[test]
+    fn method_chain_refuses_a_handler_that_is_not_a_path() {
+        assert!(super::method_chain("get(a.b)").is_none());
+        assert!(super::method_chain("get()").is_none());
+        let chain = super::method_chain("get(a::b).post(c)").expect("a chain");
+        let links: Vec<(&str, &str)> = chain
+            .iter()
+            .map(|l| (l.name.as_str(), l.handler.as_str()))
+            .collect();
+        assert_eq!(links, [("get", "b"), ("post", "c")]);
+    }
+
+    #[test]
+    fn receiver_name_reads_the_identifier_before_the_dot() {
+        assert_eq!(super::skip_whitespace_back(b"  x", 2), 0);
+        assert_eq!(super::skip_whitespace_back(b"a  x", 3), 1);
+        let code = "store\n    .find(";
+        assert_eq!(
+            super::receiver_name(code, code.find("find").unwrap()),
+            "store"
+        );
+        assert_eq!(super::receiver_name("find(", 0), "");
+        assert_eq!(super::receiver_name(" find(", 1), "");
+        assert_eq!(super::receiver_name("x(store).find(", 9), "");
+    }
+
+    fn crate_file(code: &str) -> super::CrateFile {
+        super::CrateFile {
+            rel: "f.rs".to_string(),
+            in_api: true,
+            code: code.to_string(),
+            literals: Vec::new(),
+            starts: super::line_starts(code),
+        }
+    }
+
+    /// `words` and `calls` read `[from, to)`: nothing that starts at `to`.
+    #[test]
+    fn crate_file_ranges_exclude_their_end() {
+        let file = crate_file("a(b(code code");
+        let names: Vec<String> = file.calls(0, 2).into_iter().map(|c| c.name).collect();
+        assert_eq!(names, ["a"]);
+        let all: Vec<String> = file.calls(0, 4).into_iter().map(|c| c.name).collect();
+        assert_eq!(all, ["a", "b"]);
+        assert_eq!(file.words("code", 0, 9), [4]);
+        assert_eq!(file.words("code", 0, 13), [4, 9]);
+    }
+
+    #[test]
+    fn body_kinds_are_named_in_order() {
+        use super::BodyKind;
+        let all: std::collections::BTreeSet<BodyKind> =
+            [BodyKind::Empty, BodyKind::PlainText, BodyKind::Envelope].into();
+        assert_eq!(
+            BodyKind::labels(&all),
+            "the application/json Error envelope and text/plain and no body"
+        );
+    }
+
+    /// An application/json answer that is not the Error envelope is no
+    /// envelope, even with codes in its examples.
+    #[test]
+    fn statuses_fails_closed_on_a_json_answer_that_is_not_the_envelope() {
+        let violations = StatusTree::clean()
+            .describe(|d| {
+                d["paths"][COMMENT]["patch"]["responses"]["403"] = json!({
+                    "description": "x",
+                    "content": {"application/json": {
+                        "schema": {"$ref": "#/components/schemas/Comment"},
+                        "examples": {"forbidden": {"value": {}}}
+                    }}
+                });
+            })
+            .violations();
+        assert_named(
+            &violations,
+            &["403", "neither text/plain nor the Error envelope"],
+        );
+    }
+
+    /// The api≠mint block pass names the line carrying the `post(`.
+    #[test]
+    fn post_on_the_tokens_collection_names_its_line() {
+        let lines: Vec<String> = [
+            "fn routes() -> Router {",
+            "    let r = Router::new();",
+            "    r",
+            "        .route(",
+            "            \"/api/v1/x/tokens\",",
+            "            get(a).post(b),",
+            "        )",
+            "}",
+        ]
+        .iter()
+        .map(|line| line.to_string())
+        .collect();
+        let hits = super::post_on_tokens_collection_blocks(&lines);
+        let at: Vec<usize> = hits.iter().map(|(line, _)| *line).collect();
+        assert_eq!(at, [5]);
+    }
+
+    /// A `Self::` variant inside an impl of ServiceError is named at its line.
+    #[test]
+    fn statuses_names_a_self_variant_at_its_line() {
+        let violations = StatusTree::clean()
+            .code(
+                SERVICES_LIB,
+                "pub mod auth {",
+                "impl ServiceError {\n    pub fn internal() -> Self {\n\n        Self::Internal\n    }\n}\n\npub mod auth {",
+            )
+            .violations();
+        let line = STATUS_SERVICES_LIB
+            .lines()
+            .position(|l| l.contains("pub mod auth {"))
+            .expect("the fixture has `pub mod auth {`")
+            + 4;
+        assert_named(
+            &violations,
+            &[
+                &format!("crates/foundry-services/src/lib.rs:{line} "),
+                "Self::",
+            ],
+        );
+    }
+
+    /// Only ServiceError's own `#[from]` is a conversion; another enum's
+    /// (even one whose name is as long) is not, and neither is a Result alias.
+    #[test]
+    fn statuses_reads_only_service_error_as_service_error() {
+        let violations = StatusTree::clean()
+            .code(
+                SERVICES_LIB,
+                "pub mod auth {",
+                "pub enum StoreFailure {\n    Db(#[from] DbError),\n}\n\npub type ServiceResult<T> = Result<T, ServiceError>;\n\npub mod auth {",
+            )
+            .violations();
+        assert!(violations.is_empty(), "{violations:#?}");
+    }
+
+    /// The glob is shown as written, up to its `;`.
+    #[test]
+    fn statuses_shows_a_glob_import_as_written() {
+        let violations = StatusTree::clean()
+            .code(
+                SERVICES_TOKENS,
+                "use crate::{Principal, ServiceError};",
+                "use crate::{Principal, ServiceError};\nuse crate::ServiceError::*;",
+            )
+            .violations();
+        assert_named(&violations, &["refers to `ServiceError::*`;"]);
+    }
+
+    /// A status_for code that is neither a literal nor the Validation arm's
+    /// own `code` fails closed.
+    #[test]
+    fn statuses_fails_closed_on_a_non_literal_status_for_code() {
+        for code in ["FORBIDDEN", "code"] {
+            let violations = StatusTree::clean()
+                .code(
+                    API_LIB_RS,
+                    "ServiceError::Forbidden => (403, \"forbidden\",",
+                    &format!("ServiceError::Forbidden => (403, {code},"),
+                )
+                .violations();
+            assert_named(
+                &violations,
+                &[
+                    "ServiceError::Forbidden",
+                    "neither a string literal nor the Validation `code`",
+                ],
+            );
+        }
+    }
+
+    /// Only `impl Services` is the facade: a method of another inherent impl
+    /// is still unknown to it.
+    #[test]
+    fn statuses_facade_is_only_impl_services() {
+        let violations = StatusTree::clean()
+            .code(
+                SERVICES_LIB,
+                "pub mod auth {",
+                "pub struct Other;\n\nimpl Other {\n    pub async fn list_board_issues_for(&self) {}\n}\n\npub mod auth {",
+            )
+            .code(
+                API_LIB_RS,
+                ".list_board_issues(&principal",
+                ".list_board_issues_for(&principal",
+            )
+            .violations();
+        assert_named(&violations, &["list_board_issues_for", "impl Services"]);
+    }
+
     // Rule 3: api-docs-page (slice 03, step 03-03).
     //
     // Each test stages the page's five files (route module, its template, one
