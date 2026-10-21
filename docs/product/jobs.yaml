@@ -1048,3 +1048,187 @@ jobs:
           The document describes a deleted project's API answer (the uniform
           404) and notes that project-lifecycle's "reads SPIKE-2" assumes a
           single-issue GET the API does not have.
+
+  - id: job-route-project-events-to-chat
+    title: Hear about a project's events in the chat room the team already uses, revealing only what I chose
+    job_story: >
+      When something happens on a project my team works on (a new issue, a
+      card reaching Done, a comment), I want it to show up in the Slack channel
+      or Matrix room where the team already talks, with just enough to act on
+      and nothing it should not reveal, so nobody has to keep the board open
+      to find out, and I can decide in one place what goes where.
+    dimensions:
+      functional: >
+        A workspace admin connects Slack (an app installed through Slack's own
+        approval) and Matrix (a Foundry bot invited to a room). A team lead
+        routes chosen events of one project, optionally filtered by lane, to a
+        channel or room at a chosen content level, sees the message before
+        saving, and sees every delivery, failure and repair.
+      emotional: >
+        Stop feeling that the board is the only place work is noticed. Stop
+        worrying that a chat integration floods the channel, leaks a title to
+        people off the team, or breaks in silence.
+      social: >
+        The team triages new and finished work in its own channel; a lead can
+        say "it posts to #auth-dev" and everyone knows what that means.
+    forces:
+      push: >
+        No project event leaves the board. Foundry's only outbound channels
+        are instance-wide environment providers carrying five account emails
+        (invites, password reset and change, member removed), each to one
+        person, sent inline, at most once (notification-delivery-providers
+        ADR-007).
+      pull: >
+        "Add to Slack", pick a channel, see a test message land; invite the bot
+        to a Matrix room; the same route form for both.
+      anxiety: >
+        A channel full of noise; an issue title or comment reaching people who
+        are not on the team (Foundry cannot see a channel's members); someone's
+        text pinging the whole channel; a Slack or Matrix credential in a log;
+        an uninstalled app failing silently for days.
+      habit: >
+        Opening the board to check for changes, and telling teammates in chat
+        by hand. The route must be quieter and more precise than that habit,
+        or the team mutes it.
+    opportunity:
+      importance: high
+      satisfaction: none
+      note: >
+        One of three jobs validated by the same feature; scored together in
+        the feature-delta's [REF] JTBD table. Highest of the three: first named
+        in the request, and no path exists at all. Grounded in the user's
+        request and locked decisions (official app installs), code reading of
+        notify.rs and the outbox, and the persona file (Element on Priya's
+        cluster), not interviews (no DISCOVER or DIVERGE), the same recorded
+        risk as its siblings.
+    validated_by: docs/feature/external-integration-plugins/feature-delta.md
+    relates_to:
+      - job: job-choose-my-project-emails
+        relation: >
+          Sibling. Same events and content rules; this job's actor routes for a
+          whole team to a shared destination, that job's actor chooses for
+          their own inbox.
+      - job: job-team-membership
+        relation: >
+          Uses that job's authority: only a team's lead or a workspace admin
+          may route the team's projects (TeamAccess Manage).
+
+  - id: job-choose-my-project-emails
+    title: Get emailed about exactly the project events I chose, and stop any of them in one click
+    job_story: >
+      When I am not looking at the board, I want Foundry to email me about
+      exactly the project events I chose, and to stop the moment I say so or
+      lose access, so I hear about the comments and moves that concern me
+      without an inbox full of everything else.
+    dimensions:
+      functional: >
+        Per project I can open, choose which of new issue, issue moved, new
+        comment and issue deleted Foundry emails me, for all issues or only
+        those I created or commented on. Every such email says why it came and
+        carries a one-click stop for that choice. Nothing is sent about my own
+        actions, while my workspace is muted, or after I lose access.
+      emotional: >
+        Stop finding out about a teammate's comment days late, and stop fearing
+        that turning email on means drowning in it.
+      social: >
+        Teammates can expect an answer the same day because the person they
+        commented to was told.
+    forces:
+      push: >
+        Foundry emails only account events. The one control is a per-workspace
+        mute (recipient-notification-preferences), reachable in the app only
+        through the unfinished notification-preferences-ui. To hear about a
+        comment, a member must open the issue.
+      pull: >
+        A row of checkboxes per project on the settings page, a confirmation
+        that says exactly what will arrive, and a stop link in every email.
+      anxiety: >
+        Unasked-for email; emails about a project after being removed from it;
+        a stop link that silences everything, or that a link prefetcher clicks.
+      habit: >
+        Inbox rules and checking the board. The shipped workspace mute stays the
+        master switch, and security emails are never affected.
+    opportunity:
+      importance: high
+      satisfaction: low
+      note: >
+        Scored with its two siblings in the feature-delta's [REF] JTBD table.
+        Satisfaction low rather than none: email delivery and a per-workspace
+        mute ship. Extends, does not replace, notification-preferences-ui's
+        manage-my-notifications-from-the-app (seed-grounded, never entered in
+        this file): its /account/settings hosts the choices. Grounded in the
+        user's request ("a user should be able to manage what they get") and
+        code reading, not interviews, the same recorded risk as its siblings.
+    validated_by: docs/feature/external-integration-plugins/feature-delta.md
+    relates_to:
+      - job: job-route-project-events-to-chat
+        relation: >
+          Sibling. Shares the event catalogue, content rules and delivery
+          engine; the destination is one member's inbox.
+
+  - id: job-grant-custom-integration-access
+    title: Connect my own automation to Foundry with signed events and scoped access I can revoke
+    job_story: >
+      When I want Foundry to drive or be driven by my own automation (an n8n
+      workflow, a script, a tool nobody has built a plugin for), I want to
+      receive Foundry's events as signed requests and to grant the tool scoped
+      access I can see and revoke, so I can build any integration without
+      handing it my own machine token or waiting for Foundry to ship one.
+    dimensions:
+      functional: >
+        Configure routes through /api/v1; send a project's events to any https
+        address as signed, documented JSON; register a third-party app in the
+        workspace; let a member grant it chosen scopes in chosen teams through
+        a consent page; list and revoke grants, with access ending within a
+        minute.
+      emotional: >
+        Stop handing a tool a credential with all of my rights and no record.
+        Stop polling the API to find out what changed.
+      social: >
+        A homelab operator can say "n8n can file issues in Backend, as Sven"
+        and show it, rather than "n8n has a token".
+    forces:
+      push: >
+        The only programmatic door is a machine token minted by a workspace
+        admin at /admin/tokens and pasted into the tool. It has team scope at
+        most, no read-versus-write scopes, no consent, and Foundry pushes no
+        events, so tools poll.
+      pull: >
+        A webhook with a signing secret, and an OAuth consent screen like the
+        other services on the cluster offer; n8n supports both natively.
+      anxiety: >
+        A webhook aimed at an internal address; an app keeping access after
+        revoke or after its member leaves a team; a consent page that grants
+        more than it says.
+      habit: >
+        curl with a pasted machine token; n8n polling /api/v1. Machine tokens
+        keep working unchanged; the new doors are additive.
+    opportunity:
+      importance: medium
+      satisfaction: low
+      note: >
+        Scored with its two siblings in the feature-delta's [REF] JTBD table.
+        Importance medium: the user wants it "in the future"; the orchestrator
+        applied "in scope, later slice" as a default the user can overturn
+        (feature-delta OD-2). Builds on job-api-machine-readable-contract
+        (new operations join the described, drift-checked contract). Grounded
+        in the user's request and code reading, not interviews, the same
+        recorded risk as its siblings.
+    validated_by: docs/feature/external-integration-plugins/feature-delta.md
+    relates_to:
+      - job: job-api-machine-readable-contract
+        relation: >
+          Downstream. Route operations and the webhook payload are published in
+          the same OpenAPI document and held to its drift check.
+      - job: job-route-project-events-to-chat
+        relation: >
+          Sibling. A webhook is one more route kind under the same model.
+
+changelog:
+  - date: "2026-10-21"
+    by: docs/feature/external-integration-plugins/feature-delta.md
+    change: >
+      Added job-route-project-events-to-chat, job-choose-my-project-emails and
+      job-grant-custom-integration-access (DISCUSS). First changelog entry in
+      this file; earlier additions are recorded in each job's validated_by and
+      scope_history.

@@ -1,0 +1,697 @@
+# Product SSOT — journeys.
+#
+# Created by the external-integration-plugins DISCUSS wave (2026-10-21). Shape
+# follows journey-api-openapi-document.yaml. Three journeys, one per job and
+# actor. Copy is the feature-delta's (D-13 locks it there; this file quotes it).
+# Paths are proposals (feature-delta [REF] Driving Ports). Slack workspace,
+# homeserver and n8n host names are example data: no prior wave establishes
+# Slack use; Element on Priya's cluster is established (persona file).
+
+schema_version: "0.1"
+
+journeys:
+  - id: journey-route-project-events-to-chat
+    title: Connect the workspace's Slack or Matrix, route a project's events to a channel, and trust it when it breaks
+    persona: persona-instance-operator   # Priya connects; Lena Park (team lead, inline) routes; Sam files
+    job: job-route-project-events-to-chat
+    platform: web + slack + matrix
+    validated_by: docs/feature/external-integration-plugins/feature-delta.md
+
+    goal: >
+      A team hears about its project's new issues, moves and comments in the
+      chat room it already uses, revealing only what the lead chose, without
+      anyone keeping the board open, and recovers in one step when the chat
+      system breaks the connection.
+
+    emotional_arc:
+      pattern: Confidence Building
+      start: >
+        Wary. Will this flood the channel, leak an issue title to people who are
+        not on the team, or put a Slack credential somewhere it should not be?
+      middle: >
+        In control. The audience notice says plainly that Foundry cannot see
+        who reads the channel; the preview shows the exact message; the test
+        message lands before anything is saved.
+      end: >
+        Relieved, and later reassured. The team sees AUTH-12 without opening
+        the board; when Slack drops the app, the route says what broke and one
+        reconnect brings back what was missed.
+      transition_rules:
+        - The one moment of exposure (choosing a destination) is buffered by K-5 and, for a shared channel, K-6 before saving.
+        - The negative turn (connection lost) arrives with its fix in the same sentence (K-10 ends in Reconnect) and an email to the person who can act.
+        - Every refusal on the way (no connection, not invited, encrypted room) names the next step.
+
+    steps:
+      - id: 1
+        name: Connect Slack
+        action: >
+          Priya opens /workspace/integrations, chooses Add to Slack, approves
+          Foundry for the Slack workspace Canzan Labs on Slack's own screen.
+        mockup: |
+          +-- /workspace/integrations ----------------------------------------+
+          | Integrations · Canzan Labs                                         |
+          |  Slack    Connected to ${slack_team} (${slack_domain})             |
+          |           · by ${admin_name} · ${date}        [Disconnect]         |
+          |  Matrix   Not connected                       [Connect Matrix]     |
+          +--------------------------------------------------------------------+
+        emotional_state:
+          entry: Curious, wary of credentials
+          exit: Assured, nothing to copy or paste
+        shared_artifacts: [slack_team, slack_domain, connection_status]
+        integration_checkpoint: >
+          The connection is stored for Canzan Labs only; no token is rendered,
+          logged or returned; an audit record names Priya.
+        failure_modes:
+          - The instance has no Foundry Slack app credentials (K-2).
+          - Priya cancels on Slack's screen, or a forged return arrives (K-3).
+          - A non-admin reaches the page or the return address (uniform 404).
+          - The Slack token appears in a log line or the page source.
+        gherkin: |
+          Scenario: A workspace admin connects Slack and sees the connection
+            Given the instance has the Foundry Slack app set up and Canzan Labs has no Slack connection
+            When Priya chooses Add to Slack on the workspace integrations page and approves Foundry for the Slack workspace "Canzan Labs"
+            Then Priya is back on the workspace integrations page and reads "Connected to Canzan Labs (canzanlabs.slack.com) · by Priya Raman · 21 Oct 2026"
+
+      - id: 2
+        name: Choose a destination
+        action: >
+          Lena opens /team/backend/project/auth/integrations, chooses New
+          route, Slack, and picks #auth-dev.
+        mockup: |
+          +-- Identity Platform · New route ----------------------------------+
+          | Send to   Slack ▾   Channel [ #auth-dev            ▾ ]            |
+          |           Private channels appear here after someone runs         |
+          |           /invite @Foundry in them.                                |
+          | ! Everyone who can read #auth-dev will see what this route sends. |
+          |   Foundry cannot check who that is.                                |
+          +--------------------------------------------------------------------+
+        emotional_state:
+          entry: Wary
+          exit: Aware of the audience
+        shared_artifacts: [destination, connection_status]
+        integration_checkpoint: >
+          The picker lists only channels the workspace's connection can post
+          to; the destination is kept by Slack's channel id.
+        failure_modes:
+          - The workspace has no chat connection (K-4).
+          - A shared channel is saved without the K-6 tick.
+          - A plain member or outsider reaches the page (uniform 404).
+        gherkin: |
+          Scenario: A channel shared with another organisation needs explicit confirmation
+            Given #ext-auth-vendor is shared with another organisation in Slack
+            When Lena chooses it as a destination
+            Then Lena reads "#ext-auth-vendor is shared with another organisation. Tick to confirm that is intended." and cannot save until she ticks it
+
+      - id: 3
+        name: Choose events and what the message reveals
+        action: >
+          Lena ticks New issue and New comment, leaves Summary selected, reads
+          the preview, and chooses Send test.
+        mockup: |
+          Events   [x] New issue  [ ] Issue moved (into: any ▾)
+                   [x] New comment  [ ] Issue deleted
+          Content  ( ) Link only  (•) Summary  ( ) Summary with comment text
+          Preview  ┌──────────────────────────────────────────────┐
+                   │ ${issue_key} ${title}                        │
+                   │ New issue in ${project_name} by ${actor} ·   │
+                   │ ${lane}                    [Open in Foundry] │
+                   └──────────────────────────────────────────────┘
+          [Send test]  → #auth-dev: "Test message from Foundry for Identity
+                          Platform (AUTH). This route will post here."
+          [Save route]
+        emotional_state:
+          entry: Aware of the audience
+          exit: In control, then confident (the test landed)
+        shared_artifacts: [event_catalogue, issue_key, title, actor, lane, foundry_issue_url]
+        integration_checkpoint: >
+          The preview equals what will be sent; the event names match the API's
+          and the webhook's.
+        failure_modes:
+          - The preview differs from the message actually posted.
+          - A description, email address or secret reaches the preview or message.
+          - Text from a user pings the channel (@channel, <!here>).
+        gherkin: |
+          Scenario: A test message confirms the route before it is saved
+            Given Lena is creating a route from Identity Platform to #auth-dev
+            When Lena chooses Send test
+            Then #auth-dev shows "Test message from Foundry for Identity Platform (AUTH). This route will post here."
+
+      - id: 4
+        name: The team hears about new work
+        action: Sam files "Rotate LLDAP bind password" in Identity Platform.
+        mockup: |
+          #auth-dev
+          ┌ Foundry  APP  14:02 ─────────────────────────────────┐
+          │ AUTH-12 Rotate LLDAP bind password                   │
+          │ New issue in Identity Platform by Sam Okafor · Backlog│
+          │ [Open in Foundry]                                    │
+          └──────────────────────────────────────────────────────┘
+          Route row: Delivering · last delivery 14:02
+        emotional_state:
+          entry: Confident
+          exit: Relieved, nobody had to open the board
+        shared_artifacts: [issue_key, title, actor, lane, foundry_issue_url, event_id]
+        integration_checkpoint: >
+          The message arrives within 10 s; filing the issue took its usual
+          time; Homelab Ops issues never reach this route.
+        failure_modes:
+          - Slack is unreachable and the issue create slows or fails (SC-1).
+          - The event is lost on a restart before delivery (SC-2).
+          - An Ops issue reaches #auth-dev (SC-4).
+        gherkin: |
+          Scenario: A new issue in the project appears in the chosen Slack channel
+            Given Canzan Labs is connected to Slack and Lena has routed New issue on Identity Platform to #auth-dev
+            When Sam files "Rotate LLDAP bind password" in Identity Platform and it becomes AUTH-12
+            Then #auth-dev shows a Foundry message "AUTH-12 Rotate LLDAP bind password" / "New issue in Identity Platform by Sam Okafor · Backlog" with Open in Foundry, within 10 seconds
+
+      - id: 5
+        name: Slack breaks the connection
+        action: >
+          A Slack admin removes the Foundry app; the next routed event is
+          refused.
+        mockup: |
+          /workspace/integrations
+          ! Foundry lost its Slack connection for Canzan Labs: the Foundry app
+            was removed from Slack. Routes are paused. [Reconnect]
+          /team/backend/project/auth/integrations
+            #auth-dev       Paused: connection lost
+            #auth-releases  Paused: connection lost
+          Email to Priya: "Foundry lost its Slack connection for Canzan Labs"
+        emotional_state:
+          entry: Relieved (unaware)
+          exit: Alarmed, then reassured (told at once, with the fix)
+        shared_artifacts: [connection_status]
+        integration_checkpoint: >
+          One status source: the banner, every route row, the email and the
+          API all say the connection is lost.
+        failure_modes:
+          - Routes keep reading "Delivering" while every attempt fails.
+          - Every route failure emails the admins (noise) instead of one email.
+          - A channel-level problem (archived) pauses every route.
+        gherkin: |
+          Scenario: A removed Slack app pauses the routes and tells the workspace admins
+            Given Canzan Labs' Slack connection feeds 3 routes and the Foundry app has been removed from Slack
+            When the next routed event is refused by Slack
+            Then each of the 3 routes reads "Paused: connection lost"
+            And Priya receives one email saying the Slack connection was lost, within 5 minutes
+
+      - id: 6
+        name: Reconnect
+        action: Priya chooses Reconnect and approves Canzan Labs again.
+        mockup: |
+          Slack  Connected to Canzan Labs (canzanlabs.slack.com) · by Priya Raman · 21 Oct 2026
+          History · #auth-dev
+            16:41  New issue · AUTH-15 · Delivered after 7 attempts (connection was lost)
+            16:41  New issue · AUTH-16 · Delivered after 5 attempts (connection was lost)
+        emotional_state:
+          entry: Reassured
+          exit: Relieved, nothing under 24 hours was lost
+        shared_artifacts: [connection_status, event_id]
+        integration_checkpoint: >
+          Reconnecting to the same Slack workspace resumes routes; a different
+          Slack workspace changes nothing.
+        failure_modes:
+          - Reconnecting to the wrong Slack workspace silently retargets routes.
+          - Missed events are dropped, or delivered twice without the same event id.
+        gherkin: |
+          Scenario: Reconnecting resumes the routes and delivers what was missed
+            Given the Slack connection was lost 2 hours ago and AUTH-15 and AUTH-16 were filed since
+            When Priya chooses Reconnect and approves Foundry for Canzan Labs again
+            Then the routes read "Delivering" and #auth-dev shows AUTH-15 and AUTH-16's messages
+
+      - id: 7
+        name: The same route in Matrix
+        action: >
+          Priya connects @foundry:canzan.dev; Lena invites it to
+          #auth:canzan.dev in Element and adds a Matrix route.
+        mockup: |
+          Send to  Matrix ▾  Room [ #auth:canzan.dev ]
+                   Foundry is in #auth:canzan.dev (room "Identity Platform", 6 members)
+          Element #auth:canzan.dev
+            foundry (bot, notice)  **AUTH-12 Rotate LLDAP bind password**
+                                   New issue in Identity Platform by Sam Okafor · Backlog
+                                   Open in Foundry
+        emotional_state:
+          entry: Confident
+          exit: Confident, nothing new to learn
+        shared_artifacts: [bot_user, destination, event_catalogue]
+        integration_checkpoint: >
+          Same events, levels, history and lifecycle as Slack; only the
+          destination field differs.
+        failure_modes:
+          - The bot was not invited (K-14).
+          - The room is end-to-end encrypted (K-15).
+          - The bot is kicked, or the room becomes encrypted later (Needs attention).
+          - "@room in a comment notifies the room."
+        gherkin: |
+          Scenario: A room the bot was not invited to is explained
+            Given @foundry:canzan.dev has not been invited to #auth:canzan.dev
+            When Lena enters #auth:canzan.dev as a route destination
+            Then Lena reads "Invite @foundry:canzan.dev to #auth:canzan.dev in your Matrix client first, then try again." and no route is saved
+
+    shared_artifacts:
+      event_catalogue:
+        source_of_truth: feature-delta D-2 (closed list; DESIGN names the enum)
+        consumers: [route event checkboxes, email choices, webhook type, API events field, metric labels, openapi.json]
+        integration_risk: HIGH - one name in UI, API and webhook, or integrations break
+      admin_name:
+        source_of_truth: the connection record's actor (display name)
+        consumers: [K-1, connection row, integration activity]
+        integration_risk: LOW
+      date:
+        source_of_truth: the connection record's creation date
+        consumers: [K-1, integration activity]
+        integration_risk: LOW
+      project_name:
+        source_of_truth: projects.name, read at delivery (a label; key prefix is identity)
+        consumers: [K-7, K-8 messages, K-12 footer, webhook project]
+        integration_risk: MEDIUM - a rename shows the new name
+      connection_status:
+        source_of_truth: the workspace's connection record
+        consumers: [/workspace/integrations banner, every route row, K-10 email, GET /api/v1/integrations]
+        integration_risk: HIGH - a single source, or a route reads Delivering while the connection is gone
+      destination:
+        source_of_truth: the route record (Slack channel id, Matrix room id, webhook URL)
+        consumers: [route row, K-5, K-6, history, API]
+        integration_risk: MEDIUM - names refresh; ids are identity
+      slack_team:
+        source_of_truth: Slack's install answer
+        consumers: [K-1, K-10]
+        integration_risk: LOW
+      slack_domain:
+        source_of_truth: Slack's install answer
+        consumers: [K-1]
+        integration_risk: LOW
+      bot_user:
+        source_of_truth: the Matrix connection's identity check
+        consumers: [connection row, K-14, Needs attention reasons]
+        integration_risk: LOW
+      issue_key:
+        source_of_truth: issues (key prefix and number)
+        consumers: [every message, email subject, webhook payload]
+        integration_risk: LOW - immutable
+      title:
+        source_of_truth: issues.title, read at delivery
+        consumers: [messages at Summary and above, emails, webhook]
+        integration_risk: MEDIUM - shows the current title
+      lane:
+        source_of_truth: the project's lanes, read at delivery
+        consumers: [messages, filters, webhook]
+        integration_risk: MEDIUM - filters bind to the lane's identity, not its name
+      actor:
+        source_of_truth: the acting user's display name
+        consumers: [messages, emails, webhook]
+        integration_risk: MEDIUM - never the email address
+      foundry_issue_url:
+        source_of_truth: the instance's public address plus team and project slugs and issue number
+        consumers: [Open in Foundry in every kind, webhook url]
+        integration_risk: MEDIUM - slugs, never names (brief.md)
+      event_id:
+        source_of_truth: assigned once when the event is recorded
+        consumers: [history, retries, webhook payload and header]
+        integration_risk: HIGH - must be stable across retries
+
+    changelog:
+      - date: "2026-10-21"
+        feature: external-integration-plugins
+        change: Journey created (DISCUSS).
+
+  - id: journey-choose-my-project-emails
+    title: Choose the project events Foundry emails me, get exactly those, and stop any of them in one click
+    persona: Sam Okafor (Backend member, sam.okafor@canzan.dev; inline, team-membership and recipient-notification-preferences)
+    job: job-choose-my-project-emails
+    platform: web + email
+    validated_by: docs/feature/external-integration-plugins/feature-delta.md
+
+    goal: >
+      Hear by email about the project events that concern me, each email
+      saying why I got it, and never after I stop it or lose access.
+
+    emotional_arc:
+      pattern: Problem Relief
+      start: >
+        Overlooked. Sam learns about Lena's comment on his issue days later,
+        because Foundry emails nothing about projects.
+      middle: >
+        Deliberate. One row of choices per project, nothing on until he picks,
+        and a confirmation that says exactly what will be sent and where.
+      end: >
+        Calm. Two kinds of email arrive, each with its reason and a stop link
+        that works without signing in.
+      transition_rules:
+        - The stop moment is a confirm page naming the one choice, so a stop never feels like losing everything.
+        - Muted workspaces say so on the settings page, so silence is never a mystery.
+
+    steps:
+      - id: 1
+        name: Choose project emails
+        action: >
+          Sam opens /account/settings, Project emails, ticks New comment for
+          "Only issues I created or commented on" in Identity Platform, saves.
+        mockup: |
+          +-- /account/settings · Notifications -------------------------------+
+          | Workspaces        Canzan Labs   Subscribed   [Mute]                 |
+          | Project emails                                                       |
+          |  Identity Platform  [ ] New issue  [ ] Issue moved                   |
+          |                     [x] New comment  [ ] Issue deleted               |
+          |                     For: (•) Only issues I created or commented on   |
+          |                          ( ) All issues                              |
+          |  [Save]                                                              |
+          | Saved. Foundry will email ${member_email} about: New comment (issues |
+          | you created or commented on) in Identity Platform.                   |
+          +----------------------------------------------------------------------+
+        emotional_state:
+          entry: Overlooked
+          exit: Deliberate
+        shared_artifacts: [email_choice, member_email]
+        integration_checkpoint: >
+          Only projects Sam can open are listed; nothing is on by default.
+        failure_modes:
+          - The instance has no email transport (K-13).
+          - A project Sam cannot open is listed.
+          - Choices are on by default and email arrives unasked.
+        gherkin: |
+          Scenario: Saving shows exactly what will be emailed
+            Given Sam has no project email choices
+            When Sam ticks New comment for issues he created or commented on in Identity Platform and saves
+            Then Sam reads "Saved. Foundry will email sam.okafor@canzan.dev about: New comment (issues you created or commented on) in Identity Platform."
+
+      - id: 2
+        name: Get the email
+        action: Lena comments on AUTH-7, which Sam created.
+        mockup: |
+          From: Foundry
+          Subject: [AUTH-7] Lena Park commented: Move Grafana sign-in to Keycloak
+          Lena Park commented on AUTH-7 in Identity Platform:
+            "The new bind DN is live on staging; can you verify the Grafana login?"
+          Open in Foundry
+          --
+          You get this because you chose New comment for issues you created or
+          commented on in Identity Platform. Stop these emails · Change what you get
+        emotional_state:
+          entry: Deliberate
+          exit: Informed, the same hour
+        shared_artifacts: [email_choice, issue_key, title, actor, foundry_issue_url]
+        integration_checkpoint: >
+          Sent only if Sam can see the project now; never about Sam's own
+          action; never while Canzan Labs is muted.
+        failure_modes:
+          - Sam is emailed about his own comment.
+          - The email arrives while the workspace is muted.
+          - The footer describes a different choice than the one that caused it.
+        gherkin: |
+          Scenario: A member chooses an event for a project and gets the email it describes
+            Given Sam has chosen New comment for issues he created or commented on in Identity Platform, and Sam created AUTH-7
+            When Lena comments on AUTH-7
+            Then Sam receives an email "[AUTH-7] Lena Park commented: Move Grafana sign-in to Keycloak" within 2 minutes
+
+      - id: 3
+        name: Stop one kind from the email
+        action: Sam follows Stop these emails and confirms, signed out.
+        mockup: |
+          Stop New comment emails from Identity Platform?   [Confirm]
+          → Stopped: New comment in Identity Platform. Your other choices are unchanged.
+        emotional_state:
+          entry: Informed, a little crowded
+          exit: In control
+        shared_artifacts: [email_choice]
+        integration_checkpoint: >
+          GET shows the confirm only; POST stops; the mail client's one-click
+          stops the same choice; a tampered link gets the uniform refusal.
+        failure_modes:
+          - A link prefetcher stops the choice without Sam confirming.
+          - The stop silences the whole workspace or security mail.
+        gherkin: |
+          Scenario: A member stops one kind of email from the email itself
+            Given Sam receives New comment emails for Identity Platform and is signed out
+            When Sam follows Stop these emails in one of them and confirms "Stop New comment emails from Identity Platform?"
+            Then Sam reads "Stopped: New comment in Identity Platform. Your other choices are unchanged."
+
+      - id: 4
+        name: Access ends, email ends
+        action: Tomás, who chose New issue in Identity Platform, is removed from Backend.
+        mockup: |
+          (no email to tomas.rivera@canzan.dev about AUTH-21)
+        emotional_state:
+          entry: n/a (Tomás is unaware)
+          exit: n/a (correctly silent)
+        shared_artifacts: [email_choice]
+        integration_checkpoint: Access is checked at send time.
+        failure_modes:
+          - A removed member keeps getting a project's issue titles by email.
+        gherkin: |
+          Scenario: Losing access stops the emails without any setting changing
+            Given Tomás chose New issue for all issues in Identity Platform
+            When Tomás is removed from Backend and Lena then files AUTH-21
+            Then Tomás receives no email about AUTH-21
+
+    shared_artifacts:
+      email_choice:
+        source_of_truth: the member's per-project choices
+        consumers: [settings page, saved confirmation, K-12 footer, stop link, stop confirm]
+        integration_risk: HIGH - the footer and the stop must describe the choice that caused the email
+      member_email:
+        source_of_truth: users.email of the signed-in member
+        consumers: [saved confirmation, the email's recipient]
+        integration_risk: LOW
+      issue_key:
+        source_of_truth: issues (key prefix and number)
+        consumers: [email subject and body, stop confirm]
+        integration_risk: LOW - immutable
+      title:
+        source_of_truth: issues.title, read at send time
+        consumers: [email subject and body]
+        integration_risk: MEDIUM - shows the current title
+      actor:
+        source_of_truth: the acting user's display name
+        consumers: [email subject and body]
+        integration_risk: MEDIUM - never the email address
+      foundry_issue_url:
+        source_of_truth: the instance's public address plus team and project slugs and issue number
+        consumers: [Open in Foundry in the email]
+        integration_risk: MEDIUM - slugs, never names
+
+    changelog:
+      - date: "2026-10-21"
+        feature: external-integration-plugins
+        change: Journey created (DISCUSS).
+
+  - id: journey-grant-custom-integration-access
+    title: Connect a custom tool to Foundry with signed events and scoped, revocable access
+    persona: persona-api-integrator   # Sven; Priya registers and revokes
+    job: job-grant-custom-integration-access
+    platform: http + web + n8n
+    validated_by: docs/feature/external-integration-plugins/feature-delta.md
+
+    goal: >
+      Make an n8n workflow (or any tool) receive Foundry's events and act on
+      Foundry as a chosen member, within chosen scopes and teams, without a
+      machine token pasted into it, and end that access in one step.
+
+    emotional_arc:
+      pattern: Confidence Building
+      start: >
+        Cautious. Today the tool would hold a machine token with all of its
+        owner's rights, and nobody could see it in a list.
+      middle: >
+        Informed. The consent page says in plain words what the tool may do, as
+        whom and in which teams; events arrive signed and documented.
+      end: >
+        In charge. Priya sees every tool with its last use; one revoke ends it
+        within a minute, on record.
+      transition_rules:
+        - The secret moments (client secret, webhook secret) show K-11 once, so nobody hunts for them later.
+        - An invalid authorization request stops on a Foundry page and never sends the browser elsewhere.
+
+    steps:
+      - id: 1
+        name: Register the app
+        action: >
+          Priya registers "n8n homelab" on /workspace/apps with redirect
+          https://n8n.canzan.dev/rest/oauth2-credential/callback and scopes
+          issues:read, issues:write.
+        mockup: |
+          n8n homelab   Client id  ${client_id}
+                        Client secret  ${client_secret}
+                        Copy it now. Foundry will not show it again.
+        emotional_state:
+          entry: Cautious
+          exit: Prepared
+        shared_artifacts: [client_id, client_secret, scope_catalogue]
+        integration_checkpoint: The secret is write-only after this page.
+        failure_modes:
+          - An http redirect off localhost is accepted.
+          - The secret is shown again later.
+        gherkin: |
+          Scenario: A workspace admin registers an app and copies its secret once
+            Given Canzan Labs has no registered apps
+            When Priya registers "n8n homelab" with redirect https://n8n.canzan.dev/rest/oauth2-credential/callback and scopes issues:read and issues:write
+            Then Priya sees the app's client id and its client secret with "Copy it now. Foundry will not show it again."
+
+      - id: 2
+        name: Consent
+        action: Sven clicks Connect in n8n and lands on Foundry's consent page.
+        mockup: |
+          +-- n8n homelab wants to act as you in Canzan Labs -----------------+
+          |  It will be able to:                                               |
+          |   - Read issues and comments                                       |
+          |   - Create issues, move them and comment                           |
+          |  In teams:  [x] Backend   [ ] Ops                                  |
+          |  It acts as Sven Aarø and never with more than your own access.    |
+          |  [Allow]  [Cancel]                                                 |
+          +--------------------------------------------------------------------+
+        emotional_state:
+          entry: Cautious
+          exit: Informed
+        shared_artifacts: [scope_catalogue]
+        integration_checkpoint: >
+          Only scopes the registration allows are offered; the redirect matches
+          exactly.
+        failure_modes:
+          - An unknown redirect is followed.
+          - A scope the registration does not allow is granted.
+        gherkin: |
+          Scenario: An authorization request with an unknown redirect never redirects
+            Given "n8n homelab" is registered with redirect https://n8n.canzan.dev/rest/oauth2-credential/callback
+            When an authorization request names https://evil.example/cb
+            Then Foundry shows "This app's request is not valid." and sends the browser nowhere
+
+      - id: 3
+        name: The tool acts, within its grant
+        action: n8n creates an issue in Identity Platform and tries to list Homelab Ops.
+        mockup: |
+          POST /api/v1/teams/backend/projects/auth/issues  → 201 AUTH-31 (author: Sven Aarø)
+          GET  /api/v1/teams/ops/projects/ops/issues       → 404 {"error":{"code":"not_found","message":"not found"}}
+        emotional_state:
+          entry: Informed
+          exit: Confident
+        shared_artifacts: [scope_catalogue]
+        integration_checkpoint: >
+          Effective access = grant ∩ registration ∩ Sven's current access, per
+          request.
+        failure_modes:
+          - The app reaches a team outside the grant.
+          - The app keeps access to Backend after Sven leaves it.
+        gherkin: |
+          Scenario: The app cannot reach beyond the grant
+            Given Sven granted n8n homelab access to Backend only, and Sven is also on Ops
+            When n8n homelab lists Homelab Ops issues
+            Then the API answers the uniform 404 not_found
+
+      - id: 4
+        name: Configure the route as code
+        action: >
+          Sven creates the n8n webhook route through /api/v1 instead of the
+          page (with routes:manage in the grant, or a machine token acting as
+          Lena).
+        mockup: |
+          POST /api/v1/teams/backend/projects/auth/routes
+            {"kind":"webhook","destination":"https://n8n.canzan.dev/webhook/foundry-auth",
+             "events":["issue.created","comment.added"],"content":"summary"}
+          201 {"id":"${route_id}","kind":"webhook","status":"delivering",
+               "signing_secret":"${signing_secret}"}   (shown in this answer only)
+          GET  …/routes  → the route, with no signing_secret field
+        emotional_state:
+          entry: Confident
+          exit: Confident, the setup is repeatable
+        shared_artifacts: [event_catalogue, route_id, signing_secret]
+        integration_checkpoint: >
+          The route appears on Lena's page; no later answer contains the secret;
+          the operation is in /api/v1/openapi.json.
+        failure_modes:
+          - A token acting as a plain member creates a route (must be the uniform 404).
+          - The signing secret appears in a list answer or the API description's examples.
+        gherkin: |
+          Scenario: A route created through the API works like one made on the page
+            Given Sven's token acts as Lena, who leads Backend
+            When Sven creates a route from Identity Platform to #auth-releases for issues moved into Done
+            Then the API answers 201 with the route, Lena's integrations page shows it, and the next move into Done posts to #auth-releases
+
+      - id: 5
+        name: Events arrive signed
+        action: >
+          Lena's webhook route sends Identity Platform's events to
+          https://n8n.canzan.dev/webhook/foundry-auth.
+        mockup: |
+          POST /webhook/foundry-auth
+          signature header: timestamped HMAC-SHA256
+          {"id":"${event_id}","type":"issue.created","schema_version":1,
+           "project":{"key":"AUTH","name":"Identity Platform"},
+           "issue":{"key":"AUTH-12","title":"Rotate LLDAP bind password","lane":"backlog"},
+           "actor":{"name":"Sam Okafor"},"url":"${foundry_issue_url}"}
+        emotional_state:
+          entry: Confident
+          exit: Confident, the workflow triggers on its own
+        shared_artifacts: [event_id, event_catalogue, foundry_issue_url]
+        integration_checkpoint: >
+          The signature verifies; a retry repeats the event id; no account
+          notification ever arrives here.
+        failure_modes:
+          - A webhook aimed at 169.254.169.254 or localhost is accepted.
+          - A retry has a new event id, so n8n acts twice.
+        gherkin: |
+          Scenario: A webhook route delivers signed event payloads
+            Given Lena has a webhook route from Identity Platform to https://n8n.canzan.dev/webhook/foundry-auth carrying New issue
+            When Sam files AUTH-12
+            Then the receiver gets one POST whose JSON names event issue.created, schema version 1, AUTH-12 and its title, and whose signature verifies with the route's secret
+
+      - id: 6
+        name: Revoke
+        action: Priya revokes Sven's grant to n8n homelab on /workspace/apps.
+        mockup: |
+          n8n homelab · authorized by Sven Aarø · Backend · Read issues and comments,
+          Create issues, move them and comment · last used 2 minutes ago   [Revoke]
+          → Revoked. n8n homelab can no longer act as Sven Aarø.
+        emotional_state:
+          entry: Confident
+          exit: In charge
+        shared_artifacts: [client_id]
+        integration_checkpoint: >
+          Refused within 60 s; routes created under the grant pause; the
+          activity record shows grant and revoke.
+        failure_modes:
+          - The app keeps working for minutes after revoke, or on one replica.
+        gherkin: |
+          Scenario: An admin revokes an app's grant and the app stops within a minute
+            Given Sven has granted n8n homelab access and it is in use
+            When Priya revokes that grant on the workspace apps page
+            Then Priya reads "Revoked. n8n homelab can no longer act as Sven Aarø." and n8n homelab's calls answer 401 within 60 seconds
+
+    shared_artifacts:
+      client_id:
+        source_of_truth: the app registration
+        consumers: [apps page, n8n credential, consent request, activity record]
+        integration_risk: LOW
+      client_secret:
+        source_of_truth: the app registration, write-only (SC-3)
+        consumers: [shown once at registration or rotation, then nowhere]
+        integration_risk: HIGH - must never be rendered again
+      route_id:
+        source_of_truth: the route record
+        consumers: [API answers, route row, history]
+        integration_risk: LOW
+      signing_secret:
+        source_of_truth: the webhook route, write-only (SC-3)
+        consumers: [shown once on create or rotation (page or API answer), then only used to sign]
+        integration_risk: HIGH - must never appear in a list answer, log or the API description
+      scope_catalogue:
+        source_of_truth: feature-delta OD-15 (issues:read, issues:write, routes:manage)
+        consumers: [registration form, consent page wording, per-request access check, openapi.json security description]
+        integration_risk: HIGH - the consent wording must mean exactly what the check enforces
+      event_catalogue:
+        source_of_truth: feature-delta D-2
+        consumers: [webhook type field, API events field]
+        integration_risk: HIGH
+      event_id:
+        source_of_truth: assigned once per event
+        consumers: [webhook payload, retries, history]
+        integration_risk: HIGH
+      foundry_issue_url:
+        source_of_truth: public address plus slugs
+        consumers: [webhook url]
+        integration_risk: MEDIUM
+
+    changelog:
+      - date: "2026-10-21"
+        feature: external-integration-plugins
+        change: Journey created (DISCUSS).
