@@ -72,6 +72,38 @@ async fn setup(base: &str, stmts: &[&str]) {
     }
 }
 
+/// external-integration-plugins: 0028's outbox columns and dispatch start,
+/// 0029's index and 0030's eight tables (ADR-EIP-002 Earned Trust), for schema
+/// `s`. Every healthy schema needs them since the probe asks for them.
+fn integrations_0028_0030(s: &str) -> Vec<String> {
+    let mut out = vec![
+        format!(
+            "CREATE TABLE {s}.outbox (id bigint PRIMARY KEY, event_id uuid, \
+             source_txid xid8, dispatched_at timestamptz)"
+        ),
+        format!("CREATE TABLE {s}.integration_dispatch_start (outbox_id bigint)"),
+        format!(
+            "CREATE INDEX idx_outbox_undispatched ON {s}.outbox (id) \
+             WHERE dispatched_at IS NULL"
+        ),
+    ];
+    out.extend(
+        [
+            "integration_worker_heartbeats",
+            "integration_connections",
+            "integration_routes",
+            "integration_destination_pacing",
+            "integration_route_lanes",
+            "integration_deliveries",
+            "integration_audit_events",
+            "integration_key_checks",
+        ]
+        .iter()
+        .map(|t| format!("CREATE TABLE {s}.{t} (id bigint)")),
+    );
+    out
+}
+
 #[tokio::test]
 async fn probe_column_check_is_scoped_to_current_schema() {
     let (base, _pg) = postgres().await;
@@ -122,7 +154,14 @@ async fn probe_column_check_is_scoped_to_current_schema() {
          deleted_by uuid, detached_from_team_id uuid)",
             "CREATE VIEW sibling.live_projects AS SELECT * FROM sibling.projects \
          WHERE deleted_at IS NULL",
-        ],
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .chain(integrations_0028_0030("sibling"))
+        .collect::<Vec<_>>()
+        .iter()
+        .map(String::as_str)
+        .collect::<Vec<_>>(),
     )
     .await;
 
@@ -195,6 +234,7 @@ async fn probe_refuses_a_schema_without_the_provisioned_marker() {
              WHERE deleted_at IS NULL"
                 .to_string(),
         ])
+        .chain(integrations_0028_0030("current"))
         .collect();
     stmts.extend(owned.iter().map(String::as_str));
     setup(&base, &stmts).await;
@@ -310,6 +350,7 @@ async fn probe_project_lifecycle_events_check_is_scoped_to_current_schema() {
     stmts.extend(through_0024("sibling"));
     stmts.push(records_0025("sibling"));
     stmts.extend(projects_0026("sibling", true, true));
+    stmts.extend(integrations_0028_0030("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active")
@@ -341,6 +382,7 @@ async fn probe_deleted_marker_and_live_view_check_is_scoped_to_current_schema() 
     }
     stmts.extend(projects_0026("active", false, false));
     stmts.extend(projects_0026("sibling", true, true));
+    stmts.extend(integrations_0028_0030("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active").await.expect_err(
@@ -372,6 +414,7 @@ async fn probe_detach_column_check_is_scoped_to_current_schema() {
     }
     stmts.extend(projects_0026("active", true, false));
     stmts.extend(projects_0026("sibling", true, true));
+    stmts.extend(integrations_0028_0030("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active")

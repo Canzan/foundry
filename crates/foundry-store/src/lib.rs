@@ -8,6 +8,7 @@
 #![deny(clippy::all)]
 
 pub mod attachments;
+pub mod integrations;
 pub mod issue_delete;
 pub mod lanes;
 #[cfg(feature = "test-support")]
@@ -216,6 +217,12 @@ impl Store {
             .bind(MIGRATION_LOCK_ID)
             .execute(&mut *conn)
             .await;
+        // U-D7: a failed `CREATE INDEX CONCURRENTLY` (0029) leaves an INVALID
+        // index that the migration cannot re-create; say so on every boot,
+        // whether or not this boot's migrations applied.
+        for warning in self.invalid_index_warnings().await.unwrap_or_default() {
+            tracing::warn!("{warning}");
+        }
         // team-lifecycle (user decision 2026-10-11): an upgrade through 0023
         // tells the operator, once, that older dumps no longer restore over
         // this database.
@@ -406,6 +413,32 @@ impl Store {
             return Err(ProbeError::Failed(
                 "projects missing migration-0027 detach: detached_from_team_id".to_string(),
             ));
+        }
+        // external-integration-plugins (ADR-EIP-002 Earned Trust): the
+        // dispatcher and senders need 0028's outbox columns and dispatch start,
+        // 0029's index and 0030's tables; refuse readiness without them.
+        // Scoped as above.
+        let (dispatch_objects, index_present, integration_tables): (i64, bool, i64) =
+            sqlx::query_as(integrations::PROBE_SQL)
+                .fetch_one(&self.pool)
+                .await?;
+        if dispatch_objects < integrations::PROBE_0028_OBJECTS {
+            return Err(ProbeError::Failed(format!(
+                "outbox missing migration-0028 dispatch columns and start \
+                 (found {dispatch_objects} of {})",
+                integrations::PROBE_0028_OBJECTS
+            )));
+        }
+        if !index_present {
+            return Err(ProbeError::Failed(
+                "outbox missing migration-0029 index idx_outbox_undispatched".to_string(),
+            ));
+        }
+        if integration_tables < integrations::PROBE_0030_TABLES {
+            return Err(ProbeError::Failed(format!(
+                "missing migration-0030 integration tables (found {integration_tables} of {})",
+                integrations::PROBE_0030_TABLES
+            )));
         }
         Ok(ProbeReport {
             select_one_ok: true,
