@@ -861,8 +861,28 @@ features:
         name: Board actions keep their usual speed with routes active
         type: guardrail
         target: "p95 of issue create and move with one route per kind active and every destination unreachable is within 10% of the no-routes p95"
-        baseline: "not yet recorded: T-1 (slice 01, step 1) runs arm A of the bench on unchanged v0.17.0 code and writes baseline_measured below"
-        baseline_measured: null   # T-1 fills: {commit, machine, cores, postgres_image, profile, n, per operation and concurrency: p50, p95, p99}
+        baseline: "recorded by T-1 (slice 01, step 1, 2026-10-22): arm A of the bench on unchanged v0.17.0 production code; see baseline_measured"
+        baseline_measured:
+          task: T-1
+          command: "EIP_KPI4_MODE=baseline timeout 90m cargo test -p foundry-acceptance --release --test eip_kpi4_bench -- --ignored --nocapture (after eip_warm, scripts/eip-lanes.sh)"
+          commit: 573faf74b93e29fed0a095cbeb7e4c9255b171f8   # production code identical to 45a81d3 (v0.17.0 + docs/tests only)
+          verdict: BASELINE   # arm A only; no ratio exists before arm B (slice 01 routes)
+          result_file: target/eip-kpi4/573faf74b93e29fed0a095cbeb7e4c9255b171f8.json
+          machine: Mac16,5
+          cores: 16
+          load_average_during_run: "16.9 at start, 16.3 at end (1-min); other sessions active, not a quiet machine"
+          postgres_image: postgres:16-alpine   # the bench's own container, 256 MB /dev/shm
+          profile: release
+          latency: client-side wall-clock per request over loopback, milliseconds
+          wall_clock_seconds: 182   # one invocation, against the 90 m bound
+          n: 500   # per operation and concurrency, after 50 discarded warm-up calls
+          issue_create:
+            c1: {p50: 3.426, p95: 5.267, p99: 6.367}
+            c4: {p50: 5.107, p95: 12.641, p99: 18.279}
+          lane_move:
+            c1: {p50: 61.894, p95: 119.717, p99: 232.972}
+            c4: {p50: 301.475, p95: 463.746, p99: 597.208}
+          note: "lane_move latency grows with the destination column's size (a move drops the card at the top of the column; block medians 18 ms at an empty column to 116 ms at ~500 cards for c1, and c4 runs after c1 on a column of 500-1050 cards). Arms move into their own project's column in lockstep, so the B/A ratio is unaffected; absolute move numbers are not a per-card cost"
         method: "UI-9 adopted: #[ignore]d foundry-acceptance test tests/eip_kpi4_bench.rs; release subprocess on postgres:16-alpine; arm A no routes, arm B Slack + Matrix + email routes black-holed with the worker active; 50 warm-up calls discarded; 500 creates and 500 moves at concurrency 1 and again at 4; arms interleaved in blocks of 50; bootstrap (2,000 resamples, fixed seed) 95% interval on p95(B)/p95(A). PASS if the upper bound <= 1.10; FAIL if the lower bound > 1.10; otherwise INCONCLUSIVE: 3 full repeats, median ratio with the pooled interval"
         instruments:
           - {kind: bench, ref: "timeout 90m cargo test -p foundry-acceptance --release --test eip_kpi4_bench -- --ignored --nocapture, one invocation per repeat, each bounded; own postgres:16-alpine container with a 256 MB /dev/shm; output target/eip-kpi4/<sha>.json with a verdict field", oracle: "verdict field PASS (release gate G3 reads the field)"}

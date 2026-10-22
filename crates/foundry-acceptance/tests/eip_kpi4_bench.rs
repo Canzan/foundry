@@ -4,22 +4,865 @@
 //!
 //! `timeout 90m cargo test -p foundry-acceptance --release --test eip_kpi4_bench -- --ignored --nocapture`
 //!
-//! Pending stub written by DISTILL 2026-10-21 (ADR-025 scaffolded RED). DELIVER
-//! slice 01 step 1 (task T-1) replaces it: one release-profile `foundry`
-//! subprocess on its own fresh `postgres:16-alpine` (256 MB /dev/shm); arm A no
-//! routes, arm B one Slack, one Matrix and one email route with every
-//! destination black-holed and the worker active; 50 warm-up calls, then 500
-//! issue creates and 500 lane moves per arm at concurrency 1 and 4, arms
-//! interleaved in blocks of 50; a 2,000-resample bootstrap 95% interval on the
-//! ratio p95(B)/p95(A) with a fixed seed; verdict PASS (upper bound <= 1.10),
-//! FAIL (lower bound > 1.10) or INCONCLUSIVE; output
-//! `target/eip-kpi4/<sha>.json` with a `verdict` field. T-1 runs arm A only on
-//! the unchanged code and records the baseline in `kpi-contracts.yaml`.
+//! One release-profile `foundry` subprocess on its own fresh `postgres:16-alpine`
+//! (256 MB /dev/shm, label `foundry-acceptance=eip`); arm A is a project with no
+//! routes, arm B a project with one Slack, one Matrix and one email route, every
+//! destination black-holed and the worker active. Per concurrency (1, then 4):
+//! 50 warm-up calls per arm, discarded, then 500 issue creates and 500 lane moves
+//! per arm, arms interleaved in blocks of 50 (ABAB…). Statistic: a 2,000-resample
+//! bootstrap 95% interval on p95(B)/p95(A), fixed seed. Verdict PASS (upper bound
+//! <= 1.10), FAIL (lower bound > 1.10) or INCONCLUSIVE; an INCONCLUSIVE run is
+//! repeated three more times and the verdict taken from the pooled samples of
+//! every run on the same commit. Output `target/eip-kpi4/<sha>.json` (`verdict`
+//! field, read by G3) plus each run's raw samples under `target/eip-kpi4/<sha>/`.
+//!
+//! Modes (`EIP_KPI4_MODE`):
+//! - `guardrail` (default): arms A and B; refuses to run while arm B cannot be
+//!   built (route creation lands with slice 01), rather than report a verdict
+//!   it did not measure.
+//! - `baseline`: arm A only (task T-1); verdict `BASELINE`, the arm-A
+//!   p50/p95/p99 per operation and concurrency go into `kpi-contracts.yaml`.
+//!
+//! Latencies are client-side wall-clock per request (send to full body read)
+//! over loopback; the board's htmx forms are what is driven.
+
+use foundry_acceptance::steps::handler_instrumentation::FoundrySubprocess;
+use rand::rngs::StdRng;
+use rand::{Rng, SeedableRng};
+use secrecy::SecretString;
+use serde_json::{json, Value};
+use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
+use sqlx::PgPool;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use testcontainers_modules::postgres::Postgres;
+use testcontainers_modules::testcontainers::runners::AsyncRunner;
+use testcontainers_modules::testcontainers::ImageExt;
+
+const POSTGRES_TAG: &str = "16-alpine";
+const SHM_BYTES: u64 = 256 * 1024 * 1024;
+const SCHEMA: &str = "eip_kpi4";
+const WARM_UP_CALLS: usize = 50;
+const CALLS_PER_OPERATION: usize = 500;
+const BLOCK: usize = 50;
+const CONCURRENCIES: [usize; 2] = [1, 4];
+const RESAMPLES: usize = 2_000;
+const SEED: u64 = 0x00E1_9C41;
+const RATIO_LIMIT: f64 = 1.10;
+const POOLED_RUNS: usize = 4;
+const PASSWORD: &str = "eip-kpi4-bench-password";
+const EMAIL: &str = "bench@example.test";
+const TEAM: &str = "bench";
+const MOVE_TARGET: &str = "in_progress";
 
 #[test]
-#[ignore = "pending: external-integration-plugins 01-01 EIP-KPI-4 bench (T-1 baseline, then the guardrail)"]
+#[ignore = "manual: EIP-KPI-4 bench (run via eip-kpi4-bench)"]
 fn eip_kpi4_bench() {
-    panic!(
-        "Not yet implemented -- RED scaffold (external-integration-plugins 01-01: EIP-KPI-4 bench)"
-    );
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .expect("tokio runtime")
+        .block_on(run_bench());
+}
+
+async fn run_bench() {
+    let started = Instant::now();
+    let mode = Mode::from_env();
+    let arms = mode.arms();
+    if let Some(reason) = arms.iter().find_map(|arm| arm.unavailable_reason()) {
+        panic!(
+            "EIP-KPI-4 {mode:?} run refused: {reason}. Run EIP_KPI4_MODE=baseline for arm A only."
+        );
+    }
+
+    let database = BenchDatabase::start().await;
+    for arm in &arms {
+        database.seed_project(arm).await;
+    }
+    let foundry = FoundrySubprocess::spawn(&database.url_with_schema(), SCHEMA.to_string(), 5)
+        .await
+        .expect("spawn the release foundry subprocess");
+    let base = format!("http://{}", foundry.main_addr);
+    let client = BoardClient::sign_in(&base).await;
+
+    let mut samples = Samples::default();
+    let mut cursors: Vec<IssueCursor> = arms.iter().map(|_| IssueCursor::default()).collect();
+    for concurrency in CONCURRENCIES {
+        for (arm, cursor) in arms.iter().zip(cursors.iter_mut()) {
+            client.warm_up(arm, cursor, concurrency).await;
+        }
+        for _ in 0..CALLS_PER_OPERATION / BLOCK {
+            for (arm, cursor) in arms.iter().zip(cursors.iter_mut()) {
+                let block = client.run_block(arm, cursor, concurrency).await;
+                samples.extend(arm.label, concurrency, block);
+            }
+        }
+    }
+    drop(foundry);
+    database.stop().await;
+
+    let run = RunRecord::new(mode, samples, started.elapsed());
+    let report = ResultStore::for_commit(&run.commit).record(run);
+    println!("{}", report.summary_line());
+}
+
+// ------------------------------------------------------------------ modes, arms
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Guardrail,
+    Baseline,
+}
+
+impl Mode {
+    fn from_env() -> Self {
+        match std::env::var("EIP_KPI4_MODE").as_deref() {
+            Ok("baseline") => Self::Baseline,
+            Ok("guardrail") | Err(_) => Self::Guardrail,
+            Ok(other) => panic!("EIP_KPI4_MODE must be guardrail or baseline; got {other:?}"),
+        }
+    }
+
+    fn arms(self) -> Vec<Arm> {
+        match self {
+            Self::Baseline => vec![Arm::A],
+            Self::Guardrail => vec![Arm::A, Arm::B],
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Guardrail => "guardrail",
+            Self::Baseline => "baseline",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Arm {
+    label: &'static str,
+    project_slug: &'static str,
+    key_prefix: &'static str,
+}
+
+impl Arm {
+    /// No routes.
+    const A: Self = Self {
+        label: "A",
+        project_slug: "arm-a",
+        key_prefix: "ARMA",
+    };
+    /// One Slack, one Matrix and one email route, every destination black-holed.
+    const B: Self = Self {
+        label: "B",
+        project_slug: "arm-b",
+        key_prefix: "ARMB",
+    };
+
+    /// Arm B's routes need the integration route model, which lands with slice
+    /// 01 (Slack), 04 (Matrix) and 05 (email). Until then the arm cannot exist.
+    fn unavailable_reason(&self) -> Option<&'static str> {
+        (*self == Self::B).then_some(
+            "arm B unavailable before slice 01: no integration routes exist yet \
+             (Slack 01, Matrix 04, email 05)",
+        )
+    }
+}
+
+// ---------------------------------------------------------------- the database
+
+struct BenchDatabase {
+    container: testcontainers_modules::testcontainers::ContainerAsync<Postgres>,
+    base_url: String,
+    pool: PgPool,
+}
+
+impl BenchDatabase {
+    async fn start() -> Self {
+        let container = Postgres::default()
+            .with_tag(POSTGRES_TAG)
+            .with_shm_size(SHM_BYTES)
+            .with_label("foundry-acceptance", "eip")
+            .start()
+            .await
+            .expect("start the bench's own postgres container");
+        let host = container.get_host().await.expect("postgres host");
+        let port = container
+            .get_host_port_ipv4(5432)
+            .await
+            .expect("postgres port");
+        let base_url = format!("postgres://postgres:postgres@{host}:{port}/postgres");
+        let pool = Self::schema_pool(&base_url).await;
+        foundry_store::run_migrations(&pool)
+            .await
+            .expect("run migrations");
+        Self {
+            container,
+            base_url,
+            pool,
+        }
+    }
+
+    async fn schema_pool(base_url: &str) -> PgPool {
+        let options = PgConnectOptions::from_str(base_url)
+            .expect("parse postgres url")
+            .ssl_mode(PgSslMode::Disable);
+        let admin = PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(options.clone())
+            .await
+            .expect("connect to postgres");
+        sqlx::query(&format!("CREATE SCHEMA {SCHEMA}"))
+            .execute(&admin)
+            .await
+            .expect("create the bench schema");
+        admin.close().await;
+        PgPoolOptions::new()
+            .max_connections(2)
+            .connect_with(options.options([("search_path", SCHEMA)]))
+            .await
+            .expect("connect with the bench search_path")
+    }
+
+    fn url_with_schema(&self) -> String {
+        format!("{}?options=-csearch_path%3D{SCHEMA}", self.base_url)
+    }
+
+    /// One workspace, team and member, plus one project with its lanes per arm.
+    async fn seed_project(&self, arm: &Arm) {
+        let workspace = self.ensure_member_and_team().await;
+        let project = uuid::Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+             SELECT $1, t.id, t.workspace_id, $2, $2, $3 FROM teams t WHERE t.slug = $4",
+        )
+        .bind(project)
+        .bind(arm.project_slug)
+        .bind(arm.key_prefix)
+        .bind(TEAM)
+        .execute(&self.pool)
+        .await
+        .expect("seed an arm's project");
+        sqlx::query(
+            "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+             SELECT gen_random_uuid(), $1, $2, seed.slug, seed.label, seed.position
+               FROM (VALUES ('backlog', 'Backlog', 0), ('todo', 'Todo', 1),
+                            ('in_progress', 'In-Progress', 2), ('done', 'Done', 3))
+                    AS seed (slug, label, position)",
+        )
+        .bind(project)
+        .bind(workspace)
+        .execute(&self.pool)
+        .await
+        .expect("seed an arm's lanes");
+    }
+
+    async fn ensure_member_and_team(&self) -> uuid::Uuid {
+        if let Some(id) = sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM workspaces LIMIT 1")
+            .fetch_optional(&self.pool)
+            .await
+            .expect("read the workspace")
+        {
+            return id;
+        }
+        let workspace = uuid::Uuid::now_v7();
+        let team = uuid::Uuid::now_v7();
+        let user = uuid::Uuid::now_v7();
+        let hash = foundry_auth::hash_password(&SecretString::new(PASSWORD.to_string().into()))
+            .await
+            .expect("hash the bench password");
+        let statements: [(&str, Vec<Bind>); 5] = [
+            (
+                "INSERT INTO workspaces (id, name) VALUES ($1, 'EIP bench')",
+                vec![Bind::Id(workspace)],
+            ),
+            (
+                "INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Bench', $3)",
+                vec![Bind::Id(team), Bind::Id(workspace), Bind::Text(TEAM.into())],
+            ),
+            (
+                "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                 VALUES ($1, $2, $2, 'Bench Member', $3)",
+                vec![Bind::Id(user), Bind::Text(EMAIL.into()), Bind::Text(hash)],
+            ),
+            (
+                "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+                 VALUES ($1, $2, 'member')",
+                vec![Bind::Id(workspace), Bind::Id(user)],
+            ),
+            (
+                "INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'member')",
+                vec![Bind::Id(team), Bind::Id(user)],
+            ),
+        ];
+        for (sql, binds) in statements {
+            let mut query = sqlx::query(sql);
+            for bind in binds {
+                query = match bind {
+                    Bind::Id(id) => query.bind(id),
+                    Bind::Text(text) => query.bind(text),
+                };
+            }
+            query
+                .execute(&self.pool)
+                .await
+                .expect("seed the bench member");
+        }
+        workspace
+    }
+
+    async fn stop(self) {
+        self.pool.close().await;
+        if let Err(err) = self.container.rm().await {
+            eprintln!("warning: could not remove the bench postgres container: {err}");
+        }
+    }
+}
+
+enum Bind {
+    Id(uuid::Uuid),
+    Text(String),
+}
+
+// ------------------------------------------------------------ the board client
+
+#[derive(Clone)]
+struct BoardClient {
+    http: reqwest::Client,
+    base: String,
+    cookie: String,
+    csrf: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Operation {
+    Create,
+    Move,
+}
+
+impl Operation {
+    const ALL: [Self; 2] = [Self::Create, Self::Move];
+
+    fn name(self) -> &'static str {
+        match self {
+            Self::Create => "issue_create",
+            Self::Move => "lane_move",
+        }
+    }
+}
+
+/// One block's measured latencies, in milliseconds.
+struct BlockLatencies {
+    creates: Vec<f64>,
+    moves: Vec<f64>,
+}
+
+impl BoardClient {
+    async fn sign_in(base: &str) -> Self {
+        let http = reqwest::Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .pool_max_idle_per_host(8)
+            .build()
+            .expect("http client");
+        let page = http
+            .get(format!("{base}/sign-in"))
+            .send()
+            .await
+            .expect("GET /sign-in");
+        let csrf = cookie_value(&page, "foundry_csrf").expect("/sign-in mints foundry_csrf");
+        let signed_in = http
+            .post(format!("{base}/sign-in"))
+            .header(reqwest::header::COOKIE, format!("foundry_csrf={csrf}"))
+            .form(&[
+                ("email", EMAIL),
+                ("password", PASSWORD),
+                ("_csrf", csrf.as_str()),
+            ])
+            .send()
+            .await
+            .expect("POST /sign-in");
+        let session =
+            cookie_value(&signed_in, "foundry_session").expect("sign-in issues a session");
+        Self {
+            http,
+            base: base.to_string(),
+            cookie: format!("foundry_session={session}; foundry_csrf={csrf}"),
+            csrf,
+        }
+    }
+
+    fn project_url(&self, arm: &Arm) -> String {
+        format!("{}/team/{TEAM}/project/{}", self.base, arm.project_slug)
+    }
+
+    /// Half creates, half moves of the issues just created; discarded.
+    async fn warm_up(&self, arm: &Arm, cursor: &mut IssueCursor, concurrency: usize) {
+        let half = WARM_UP_CALLS / 2;
+        self.creates(arm, half, concurrency).await;
+        self.moves(arm, cursor.advance(half), concurrency).await;
+    }
+
+    /// 50 creates, then a lane move of each of the 50 new issues.
+    async fn run_block(
+        &self,
+        arm: &Arm,
+        cursor: &mut IssueCursor,
+        concurrency: usize,
+    ) -> BlockLatencies {
+        let creates = self.creates(arm, BLOCK, concurrency).await;
+        let moves = self.moves(arm, cursor.advance(BLOCK), concurrency).await;
+        BlockLatencies { creates, moves }
+    }
+
+    async fn creates(&self, arm: &Arm, calls: usize, concurrency: usize) -> Vec<f64> {
+        let shares = split(calls, concurrency);
+        let workers = shares.into_iter().map(|share| {
+            let client = self.clone();
+            let url = format!("{}/issues", self.project_url(arm));
+            tokio::spawn(async move {
+                let mut latencies = Vec::with_capacity(share);
+                for _ in 0..share {
+                    latencies.push(client.timed_post(&url, &[("title", "bench issue")]).await);
+                }
+                latencies
+            })
+        });
+        join_latencies(workers).await
+    }
+
+    async fn moves(&self, arm: &Arm, numbers: Vec<i32>, concurrency: usize) -> Vec<f64> {
+        let mut lists: Vec<Vec<i32>> = vec![Vec::new(); concurrency];
+        for (index, number) in numbers.into_iter().enumerate() {
+            lists[index % concurrency].push(number);
+        }
+        let workers = lists.into_iter().map(|list| {
+            let client = self.clone();
+            let project = self.project_url(arm);
+            tokio::spawn(async move {
+                let mut latencies = Vec::with_capacity(list.len());
+                for number in list {
+                    let url = format!("{project}/issues/{number}/state");
+                    latencies.push(client.timed_post(&url, &[("state", MOVE_TARGET)]).await);
+                }
+                latencies
+            })
+        });
+        join_latencies(workers).await
+    }
+
+    async fn timed_post(&self, url: &str, form: &[(&str, &str)]) -> f64 {
+        let mut fields: Vec<(&str, &str)> = form.to_vec();
+        fields.push(("_csrf", self.csrf.as_str()));
+        let start = Instant::now();
+        let response = self
+            .http
+            .post(url)
+            .header(reqwest::header::COOKIE, &self.cookie)
+            .header("HX-Request", "true")
+            .form(&fields)
+            .send()
+            .await
+            .unwrap_or_else(|err| panic!("POST {url}: {err}"));
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        let elapsed = start.elapsed().as_secs_f64() * 1_000.0;
+        assert!(status.is_success(), "POST {url} answered {status}: {body}");
+        elapsed
+    }
+}
+
+/// Issue numbers run 1..=N per project and every create succeeds, so the
+/// numbers a block created are the next ones after the previous block's.
+#[derive(Default)]
+struct IssueCursor {
+    created: i32,
+}
+
+impl IssueCursor {
+    fn advance(&mut self, count: usize) -> Vec<i32> {
+        let first = self.created + 1;
+        self.created += count as i32;
+        (first..=self.created).collect()
+    }
+}
+
+fn cookie_value(response: &reqwest::Response, name: &str) -> Option<String> {
+    let prefix = format!("{name}=");
+    response
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .find_map(|value| value.strip_prefix(&prefix))
+        .and_then(|rest| rest.split(';').next())
+        .map(str::to_string)
+}
+
+fn split(calls: usize, workers: usize) -> Vec<usize> {
+    (0..workers)
+        .map(|index| calls / workers + usize::from(index < calls % workers))
+        .collect()
+}
+
+async fn join_latencies(
+    workers: impl Iterator<Item = tokio::task::JoinHandle<Vec<f64>>>,
+) -> Vec<f64> {
+    let mut all = Vec::new();
+    for worker in workers {
+        all.extend(worker.await.expect("bench worker"));
+    }
+    all
+}
+
+// ------------------------------------------------------------------ statistics
+
+/// Raw latencies keyed by (arm, operation, concurrency).
+#[derive(Default)]
+struct Samples(BTreeMap<(String, Operation, usize), Vec<f64>>);
+
+impl Samples {
+    fn extend(&mut self, arm: &str, concurrency: usize, block: BlockLatencies) {
+        self.cell(arm, Operation::Create, concurrency)
+            .extend(block.creates);
+        self.cell(arm, Operation::Move, concurrency)
+            .extend(block.moves);
+    }
+
+    fn cell(&mut self, arm: &str, operation: Operation, concurrency: usize) -> &mut Vec<f64> {
+        self.0
+            .entry((arm.to_string(), operation, concurrency))
+            .or_default()
+    }
+
+    fn get(&self, arm: &str, operation: Operation, concurrency: usize) -> &[f64] {
+        self.0
+            .get(&(arm.to_string(), operation, concurrency))
+            .map_or(&[], Vec::as_slice)
+    }
+
+    fn to_json(&self) -> Value {
+        let mut out = serde_json::Map::new();
+        for ((arm, operation, concurrency), values) in &self.0 {
+            out.insert(cell_key(arm, *operation, *concurrency), json!(values));
+        }
+        Value::Object(out)
+    }
+
+    fn from_json(value: &Value) -> Self {
+        let mut samples = Self::default();
+        for arm in ["A", "B"] {
+            for operation in Operation::ALL {
+                for concurrency in CONCURRENCIES {
+                    let key = cell_key(arm, operation, concurrency);
+                    if let Some(values) = value.get(&key).and_then(Value::as_array) {
+                        samples
+                            .cell(arm, operation, concurrency)
+                            .extend(values.iter().filter_map(Value::as_f64));
+                    }
+                }
+            }
+        }
+        samples
+    }
+
+    fn pooled(runs: &[Self]) -> Self {
+        let mut pooled = Self::default();
+        for run in runs {
+            for (key, values) in &run.0 {
+                pooled.0.entry(key.clone()).or_default().extend(values);
+            }
+        }
+        pooled
+    }
+}
+
+fn cell_key(arm: &str, operation: Operation, concurrency: usize) -> String {
+    format!("{arm}/{}/c{concurrency}", operation.name())
+}
+
+/// Nearest-rank percentile: the value at index ceil(q * n) - 1 of the sorted sample.
+fn percentile(values: &[f64], q: f64) -> f64 {
+    let mut sorted = values.to_vec();
+    sorted.sort_by(f64::total_cmp);
+    let index = ((sorted.len() as f64) * q).ceil() as usize;
+    sorted[index.saturating_sub(1).min(sorted.len() - 1)]
+}
+
+#[derive(Debug, Clone, Copy)]
+struct RatioInterval {
+    ratio: f64,
+    lower: f64,
+    upper: f64,
+}
+
+impl RatioInterval {
+    /// 2,000-resample percentile bootstrap of p95(B)/p95(A), fixed seed.
+    fn bootstrap(a: &[f64], b: &[f64]) -> Self {
+        let mut rng = StdRng::seed_from_u64(SEED);
+        let mut ratios: Vec<f64> = (0..RESAMPLES)
+            .map(|_| {
+                let a_star = resample(a, &mut rng);
+                let b_star = resample(b, &mut rng);
+                percentile(&b_star, 0.95) / percentile(&a_star, 0.95)
+            })
+            .collect();
+        ratios.sort_by(f64::total_cmp);
+        Self {
+            ratio: percentile(b, 0.95) / percentile(a, 0.95),
+            lower: percentile(&ratios, 0.025),
+            upper: percentile(&ratios, 0.975),
+        }
+    }
+
+    fn verdict(self) -> Verdict {
+        if self.upper <= RATIO_LIMIT {
+            Verdict::Pass
+        } else if self.lower > RATIO_LIMIT {
+            Verdict::Fail
+        } else {
+            Verdict::Inconclusive
+        }
+    }
+}
+
+fn resample(values: &[f64], rng: &mut StdRng) -> Vec<f64> {
+    (0..values.len())
+        .map(|_| values[rng.gen_range(0..values.len())])
+        .collect()
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum Verdict {
+    Pass,
+    Inconclusive,
+    Fail,
+    Baseline,
+}
+
+impl Verdict {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Pass => "PASS",
+            Self::Inconclusive => "INCONCLUSIVE",
+            Self::Fail => "FAIL",
+            Self::Baseline => "BASELINE",
+        }
+    }
+
+    /// Every cell must pass; any failing cell fails the run.
+    fn combine(cells: impl Iterator<Item = Self>) -> Self {
+        cells.max().unwrap_or(Self::Inconclusive)
+    }
+}
+
+/// The guardrail statistic over every (operation, concurrency) cell.
+fn guardrail(samples: &Samples) -> (Verdict, Value) {
+    let mut cells = serde_json::Map::new();
+    let mut verdicts = Vec::new();
+    for operation in Operation::ALL {
+        for concurrency in CONCURRENCIES {
+            let a = samples.get("A", operation, concurrency);
+            let b = samples.get("B", operation, concurrency);
+            let interval = RatioInterval::bootstrap(a, b);
+            verdicts.push(interval.verdict());
+            cells.insert(
+                format!("{}/c{concurrency}", operation.name()),
+                json!({
+                    "p95_a_ms": percentile(a, 0.95),
+                    "p95_b_ms": percentile(b, 0.95),
+                    "ratio": interval.ratio,
+                    "ci95": [interval.lower, interval.upper],
+                    "verdict": interval.verdict().name(),
+                }),
+            );
+        }
+    }
+    (Verdict::combine(verdicts.into_iter()), Value::Object(cells))
+}
+
+/// p50/p95/p99 and n per arm, operation and concurrency.
+fn distribution(samples: &Samples) -> Value {
+    let mut out = serde_json::Map::new();
+    for ((arm, operation, concurrency), values) in &samples.0 {
+        out.insert(
+            cell_key(arm, *operation, *concurrency),
+            json!({
+                "n": values.len(),
+                "p50_ms": round3(percentile(values, 0.50)),
+                "p95_ms": round3(percentile(values, 0.95)),
+                "p99_ms": round3(percentile(values, 0.99)),
+            }),
+        );
+    }
+    Value::Object(out)
+}
+
+fn round3(value: f64) -> f64 {
+    (value * 1_000.0).round() / 1_000.0
+}
+
+// --------------------------------------------------------------------- results
+
+struct RunRecord {
+    mode: Mode,
+    commit: String,
+    samples: Samples,
+    wall_clock: Duration,
+}
+
+impl RunRecord {
+    fn new(mode: Mode, samples: Samples, wall_clock: Duration) -> Self {
+        Self {
+            mode,
+            commit: command_output("git", &["rev-parse", "HEAD"]),
+            samples,
+            wall_clock,
+        }
+    }
+
+    fn to_json(&self) -> Value {
+        json!({
+            "mode": self.mode.name(),
+            "commit": self.commit,
+            "production_code_dirty": !command_output(
+                "git",
+                &["status", "--porcelain", "--", "crates", ":(exclude)crates/foundry-acceptance"],
+            ).is_empty(),
+            "recorded_at_unix": unix_now(),
+            "wall_clock_seconds": self.wall_clock.as_secs(),
+            "machine": {
+                "model": command_output("sysctl", &["-n", "hw.model"]),
+                "cores": command_output("sysctl", &["-n", "hw.ncpu"]),
+                "load_average": command_output("sysctl", &["-n", "vm.loadavg"]),
+            },
+            "postgres_image": format!("postgres:{POSTGRES_TAG}"),
+            "profile": "release",
+            "method": {
+                "warm_up_calls": WARM_UP_CALLS,
+                "calls_per_operation": CALLS_PER_OPERATION,
+                "block": BLOCK,
+                "concurrencies": CONCURRENCIES,
+                "resamples": RESAMPLES,
+                "seed": SEED,
+                "ratio_limit": RATIO_LIMIT,
+                "latency": "client-side wall-clock per request, loopback, ms",
+            },
+            "distribution": distribution(&self.samples),
+            "samples_ms": self.samples.to_json(),
+        })
+    }
+}
+
+struct ResultStore {
+    dir: PathBuf,
+    commit: String,
+}
+
+struct Report {
+    path: PathBuf,
+    summary: Value,
+}
+
+impl Report {
+    fn summary_line(&self) -> String {
+        format!(
+            "EIP-KPI-4 verdict={} commit={} runs={} -> {}",
+            self.summary["verdict"].as_str().unwrap_or("?"),
+            self.summary["commit"].as_str().unwrap_or("?"),
+            self.summary["runs"],
+            self.path.display(),
+        )
+    }
+}
+
+impl ResultStore {
+    fn for_commit(commit: &str) -> Self {
+        let target = std::env::var_os("CARGO_TARGET_DIR")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"));
+        Self {
+            dir: target.join("eip-kpi4"),
+            commit: commit.to_string(),
+        }
+    }
+
+    /// Writes this run's raw record, then the commit's summary with its verdict.
+    fn record(&self, run: RunRecord) -> Report {
+        let runs_dir = self.dir.join(&self.commit);
+        std::fs::create_dir_all(&runs_dir).expect("create the bench result directory");
+        let record = run.to_json();
+        let run_path = runs_dir.join(format!("{}-{}.json", run.mode.name(), unix_now()));
+        write_json(&run_path, &record);
+
+        let mut summary = record;
+        summary
+            .as_object_mut()
+            .expect("record object")
+            .remove("samples_ms");
+        let (verdict, runs, cells) = match run.mode {
+            Mode::Baseline => (Verdict::Baseline, 1, Value::Null),
+            Mode::Guardrail => self.guardrail_verdict(&run.samples),
+        };
+        summary["verdict"] = json!(verdict.name());
+        summary["runs"] = json!(runs);
+        summary["ratio_cells"] = cells;
+        summary["run_record"] = json!(run_path.display().to_string());
+        let path = self.dir.join(format!("{}.json", self.commit));
+        write_json(&path, &summary);
+        Report { path, summary }
+    }
+
+    /// One run decides unless INCONCLUSIVE; then the pooled samples of every
+    /// guardrail run on this commit decide once there are four (one plus three).
+    fn guardrail_verdict(&self, latest: &Samples) -> (Verdict, usize, Value) {
+        let (verdict, cells) = guardrail(latest);
+        if verdict != Verdict::Inconclusive {
+            return (verdict, 1, cells);
+        }
+        let runs = self.guardrail_runs();
+        if runs.len() < POOLED_RUNS {
+            return (verdict, runs.len(), cells);
+        }
+        let (pooled, pooled_cells) = guardrail(&Samples::pooled(&runs));
+        (pooled, runs.len(), pooled_cells)
+    }
+
+    fn guardrail_runs(&self) -> Vec<Samples> {
+        let Ok(entries) = std::fs::read_dir(self.dir.join(&self.commit)) else {
+            return Vec::new();
+        };
+        entries
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with("guardrail-")
+            })
+            .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+            .filter_map(|text| serde_json::from_str::<Value>(&text).ok())
+            .map(|record| Samples::from_json(&record["samples_ms"]))
+            .collect()
+    }
+}
+
+fn write_json(path: &PathBuf, value: &Value) {
+    let text = serde_json::to_string_pretty(value).expect("serialise bench json");
+    std::fs::write(path, text).unwrap_or_else(|err| panic!("write {}: {err}", path.display()));
+}
+
+fn command_output(program: &str, args: &[&str]) -> String {
+    std::process::Command::new(program)
+        .args(args)
+        .output()
+        .map(|out| String::from_utf8_lossy(&out.stdout).trim().to_string())
+        .unwrap_or_default()
+}
+
+fn unix_now() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_secs())
 }
