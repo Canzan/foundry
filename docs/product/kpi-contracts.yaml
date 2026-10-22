@@ -9,7 +9,8 @@
 #   acceptance  - an acceptance scenario's oracle; its verdict in `cargo xtask ci` is the measurement
 #   fault       - a named hand-seeded fault that must turn the scenario red (proves the oracle bites)
 #   dogfood     - a manual real-browser check or report, recorded in the slice's delivery notes
-#   runtime     - a server metric or log (Prometheus/Loki); none are used by the entries below
+#   runtime     - a server metric (Prometheus); first used by external-integration-plugins.
+#                 There is no log store on the homelab clusters, so no instrument reads logs at runtime
 # "alert" is where a breach surfaces. For acceptance instruments that is a red stage 8
 # of `cargo xtask ci` on ci-github.
 #
@@ -24,6 +25,12 @@
 #               Adds instrument kind `check-arch` (a structural rule's verdict in the
 #               `xtask check-arch` step, read from the log line, not the run's colour) and
 #               `curl` (a post-deploy HTTP check against dev and prod).
+#   2026-10-21  external-integration-plugins appended by its DEVOPS wave (EIP-KPI-1..7, status:
+#               designed; EIP-KPI-8/9 deferred with deliverable C to
+#               integration-webhooks-and-oauth-apps). Adds instrument kinds `store-query` (a
+#               read-only SQL query on the instance database, run by the operator), `bench` (an
+#               #[ignore]d measurement harness with a stated statistical verdict) and first use of
+#               `runtime` (a Prometheus series) with `alert` (a PrometheusRule in the homelab repo).
 
 schema_version: 1
 
@@ -789,3 +796,147 @@ features:
         scenarios_note: "plus the unchanged existing API acceptance lanes"
         measurement: owed
         owner: "DELIVER"
+  external-integration-plugins:
+    jobs: [job-route-project-events-to-chat, job-choose-my-project-emails, job-grant-custom-integration-access]
+    source: docs/feature/external-integration-plugins/feature-delta.md   # "## Wave: DISCUSS / [REF] Outcome KPIs"
+    devops: docs/feature/external-integration-plugins/feature-delta.md   # "## Wave: DEVOPS / [REF] Observability and monitoring contracts"
+    scope: "deliverables A (slices 01-03, Slack) and B (04-05, Matrix, member email). Deliverable C (06-08) moved to integration-webhooks-and-oauth-apps with EIP-KPI-8 and -9"
+    runtime_telemetry: "DDR-22 metrics plus four bounded additions (U-D8): foundry_integration_deliveries_total{kind,event,outcome}, foundry_integration_deliveries_pending{kind}, foundry_integration_deliveries_pending_oldest_seconds, foundry_outbox_undispatched, foundry_outbox_undispatched_oldest_seconds, foundry_integration_delivery_lag_seconds{kind} (histogram, explicit buckets), foundry_integration_connections{kind,state}, foundry_integration_routes{kind,state}, foundry_integration_secrets_degraded, probe_failures_total{probe_name=secrets}. Labels from closed sets only; DB-derived gauges are identical on every replica, so alerts use max()"
+    alerts: "homelab infrastructure/modules/foundry/alerts.tf (hand-off H-5): FoundryIntegrationDispatchStalled, FoundryIntegrationDeliveryBacklog, FoundryIntegrationDeliveryLatency, FoundryIntegrationDeliveryFailures, FoundryIntegrationConnectionLost, FoundryIntegrationSecretsDegraded; FoundryOutboxBacklog retargeted to foundry_outbox_undispatched"
+    lane: "ci-local: FOUNDRY_XTASK_INCLUDE_DOCKER=1 timeout 3h cargo xtask ci (acceptance step must appear in the log; non-zero counts for every EIP tag released, incl. needs-matrix and needs-smtp). Named environments: eip-core-unit, eip-auth-unit, eip-check-arch, eip-store, eip-default-lane, eip-matrix-lane, eip-smtp-lane, eip-replica-lane, eip-restart-lane, eip-metrics-lane, eip-kpi4-bench (manual), eip-slack-live (manual); DISTILL pins the tag strings"
+    ci_github: "baseline 2026-10-21: the six newest ci.yml runs cancelled (incl. 39542602878, 39509214407); only check-arch reaches a verdict, so only the integrations-* rules get a GitHub verdict"
+    test_images:
+      matrix: "matrixdotorg/synapse:v1.163.0 (Hub index digest sha256:e98ab72138d90fa8b8876c6421fe78a9fdb181c0d7cc690ad740e5173e0c65e6, read 2026-10-21, not pulled; DISTILL pins tag@digest). Manual parity run: ghcr.io/continuwuity/continuwuity:v0.5.6 (the clusters' homeserver)"
+      smtp: "axllent/mailpit:v1.31.6 (Hub digest sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387, read 2026-10-21, not pulled)"
+      slack: "recorded-fixture axum double in foundry-acceptance (no image; fixtures under tests/fixtures/slack/)"
+    # DEVOPS (2026-10-21). Nothing built, deployed or pushed. DISTILL links each
+    # acceptance instrument to its scenarios; DELIVER records `measured:`.
+    status: designed
+    kpis:
+      - id: EIP-KPI-1
+        name: Team leads keep a chat route active on the projects they work daily
+        type: north-star
+        target: ">= 1 active route on AUTH and on OPS, still active 30 days after slice 03 ships"
+        baseline: "0 routes (no capability)"
+        instruments:
+          - {kind: store-query, ref: "DEVOPS Q1 on dev at T+30 d: active routes per project from integration_routes JOIN live_projects; pause/resume/delete history from integration_audit_events", oracle: "AUTH and OPS each >= 1 active route, none paused or deleted for longer than a day in the window"}
+          - {kind: runtime, ref: "foundry_integration_routes{kind,state=\"active\"} (trend only; Prometheus retention is shorter than 30 days)", oracle: "context, not the verdict"}
+          - {kind: dogfood, ref: "the user's report"}
+        gate: soft
+        status: owed
+        scenarios: []
+        measurement: owed
+        owner: "the user (dev dogfood), 30 days after slice 03 ships"
+      - id: EIP-KPI-2
+        name: Admins and leads reach the first real message within minutes
+        type: leading
+        target: "<= 5 minutes from Add to Slack (or Connect Matrix) to the first message in the channel; no docs beyond the page; no environment edit after the operator's one-time setup"
+        baseline: "not possible today"
+        instruments:
+          - {kind: acceptance, ref: "eip-default-lane walking skeleton (slice 01): connect, route, first message through the Slack double", oracle: "the message arrives with the instance already configured; no setting changes between steps"}
+          - {kind: dogfood, ref: "DoD 3 on dev, timed by the user from the first click to the first message seen"}
+          - {kind: store-query, ref: "DEVOPS Q2: the connection's audit time to the first delivered finished_at for that workspace", oracle: "cross-checks the reported times"}
+        gate: soft
+        status: owed
+        scenarios: []
+        measurement: owed
+        owner: "the user (dogfood)"
+      - id: EIP-KPI-3
+        name: Routed events arrive in their channel or room
+        type: leading
+        target: ">= 99% within 60 s; 100% delivered or failed with a reason by give_up_at; over 14 days of dogfood"
+        baseline: "n/a"
+        instruments:
+          - {kind: acceptance, ref: "eip-default-lane (NFR-EIP-1 timing with the Slack double), eip-replica-lane (lease takeover, ordering, pacing), eip-restart-lane (US-EIP-02 scenarios 3 and 4)", oracle: "every committed event delivered once per route (same event_id on a retry) or failed by give_up_at; none lost across a SIGKILL restart"}
+          - {kind: store-query, ref: "DEVOPS Q3 over the last 14 days of dev dogfood", oracle: "within_60s >= 0.99 and overdue = 0"}
+          - {kind: runtime, ref: "foundry_integration_delivery_lag_seconds{kind} buckets (le=60 share); foundry_outbox_undispatched_oldest_seconds; foundry_integration_deliveries_pending_oldest_seconds"}
+          - {kind: alert, ref: "FoundryIntegrationDeliveryLatency (delivered within 60 s / (delivered + failed) < 0.99 over 6h with >= 20 deliveries, 1h), the same denominator as Q3, for the 60 s share; FoundryIntegrationDeliveryFailures (> 1% and >= 3 failed in 24h, 1h) for the failed side; FoundryIntegrationDispatchStalled (> 300 s, 5m) and FoundryIntegrationDeliveryBacklog (> 3600 s, 15m) as early warnings"}
+        exclusions: "events written during a rollback and replayed on roll-forward are late by construction; each such window is recorded under measured.excluded_windows ({rolled_back_from, rolled_forward_at}) and excluded from Q3"
+        gate: hard
+        status: owed
+        scenarios: []
+        measurement: owed
+        owner: "DELIVER (lanes); the user (14-day dogfood query)"
+      - id: EIP-KPI-4
+        name: Board actions keep their usual speed with routes active
+        type: guardrail
+        target: "p95 of issue create and move with one route per kind active and every destination unreachable is within 10% of the no-routes p95"
+        baseline: "not yet recorded: T-1 (slice 01, step 1) runs arm A of the bench on unchanged v0.17.0 code and writes baseline_measured below"
+        baseline_measured: null   # T-1 fills: {commit, machine, cores, postgres_image, profile, n, per operation and concurrency: p50, p95, p99}
+        method: "UI-9 adopted: #[ignore]d foundry-acceptance test tests/eip_kpi4_bench.rs; release subprocess on postgres:16-alpine; arm A no routes, arm B Slack + Matrix + email routes black-holed with the worker active; 50 warm-up calls discarded; 500 creates and 500 moves at concurrency 1 and again at 4; arms interleaved in blocks of 50; bootstrap (2,000 resamples, fixed seed) 95% interval on p95(B)/p95(A). PASS if the upper bound <= 1.10; FAIL if the lower bound > 1.10; otherwise INCONCLUSIVE: 3 full repeats, median ratio with the pooled interval"
+        instruments:
+          - {kind: bench, ref: "timeout 90m cargo test -p foundry-acceptance --release --test eip_kpi4_bench -- --ignored --nocapture, one invocation per repeat, each bounded; own postgres:16-alpine container with a 256 MB /dev/shm; output target/eip-kpi4/<sha>.json with a verdict field", oracle: "verdict field PASS (release gate G3 reads the field)"}
+          - {kind: runtime, ref: "Grafana panel on http_request_duration_seconds{quantile=\"0.95\"} for the issue create and state routes (summary series; no alert at homelab traffic)", oracle: "context only"}
+        gate: hard
+        status: owed
+        scenarios: []
+        measurement: owed
+        owner: "DELIVER (T-1 first, then each slice that adds worker load: 01, 03, 04, 05)"
+      - id: EIP-KPI-5
+        name: Every delivery and page leaks nothing
+        type: guardrail
+        target: "0 secrets in logs, pages, API answers, openapi.json, metrics, audit rows; 0 deliveries to another project's route; 0 emails to a recipient without access; 0 pings from user text"
+        baseline: "n/a"
+        instruments:
+          - {kind: acceptance, ref: "composer and encoder proptests (never-sent list, no active mention); eip-default-lane audience and access scenarios", oracle: "no forbidden field or active mention in any generated case; no cross-project delivery"}
+          - {kind: check-arch, ref: "integrations-secret-seam, integrations-pure-core, integrations-outbound-client-seam, integrations-test-seam (proposed) and their gold tests"}
+          - {kind: acceptance, ref: "eip-metrics-lane sentinel scan: planted Slack bot token, client secret, signing secret, Matrix token and secrets key (NDP_SMTP_PASSWORD_SENTINEL precedent) searched in subprocess stdout/stderr, every rendered page, history rows, audit rows and /metrics", oracle: "0 occurrences"}
+          - {kind: dogfood, ref: "after the dev dogfood: kubectl -n foundry logs deploy/foundry searched for the real token values the operator holds", oracle: "0 occurrences"}
+          - {kind: alert, ref: "FoundryIntegrationSecretsDegraded (operability of the sealed store, not a leak signal)"}
+        gate: hard
+        status: owed
+        scenarios: []
+        measurement: owed
+        owner: "DELIVER; the user (dogfood log check)"
+      - id: EIP-KPI-6
+        name: Workspace admins learn that a connection broke
+        type: guardrail
+        target: "100% of connection-level refusals pause routes on the first refusal and email admins within 5 min"
+        baseline: "silent (no capability)"
+        instruments:
+          - {kind: acceptance, ref: "eip-default-lane: Slack token_revoked / invalid_auth refusal and a signed app_uninstalled event; eip-matrix-lane: 401 M_UNKNOWN_TOKEN; eip-replica-lane: two replicas, one email per admin", oracle: "route status 'Paused: connection lost' after the first refusal; the admin email recorded within the bounded poll; exactly one per admin"}
+          - {kind: runtime, ref: "foundry_integration_connections{kind,state=\"lost\"}"}
+          - {kind: alert, ref: "FoundryIntegrationConnectionLost (max by kind > 0 for 30m)"}
+          - {kind: dogfood, ref: "DoD 3 forced uninstall on dev"}
+        gate: hard
+        status: owed
+        scenarios: []
+        measurement: owed
+        owner: "DELIVER; the user (dogfood)"
+      - id: EIP-KPI-7
+        name: Members change what they receive, and stop it
+        type: leading
+        target: "<= 3 actions from any page to a saved change; 100% of project emails carry a working stop link; 0 project emails after a stop, mute or loss of access"
+        baseline: "only the per-workspace mute exists"
+        instruments:
+          - {kind: acceptance, ref: "eip-default-lane US-EIP-10 (scenario 2: 3 actions) and US-EIP-11 (stop, mute, access loss; prefetch-safe GET; one-click POST)", oracle: "saved in 3 actions; no email after each stop condition"}
+          - {kind: acceptance, ref: "eip-smtp-lane through axllent/mailpit:v1.31.6", oracle: "List-Unsubscribe and List-Unsubscribe-Post present on the wire; the one-click URL switches exactly one choice off"}
+          - {kind: dogfood, ref: "Sam's emails on dev through smtp-relay and SES; one stop link used"}
+        gate: hard
+        status: owed
+        scenarios: []
+        measurement: owed
+        owner: "DELIVER (slice 05); the user (dogfood)"
+      - id: EIP-KPI-8
+        name: Integrators connect a custom tool without pasting a machine token
+        type: leading
+        target: "an n8n workflow authorised through OAuth creates an issue and receives a webhook event within 15 minutes of registering the app, at the dogfood"
+        baseline: "machine token pasted by hand; polling"
+        instruments_planned:
+          - {kind: dogfood, ref: "the user's timed report, cross-checked against the audit record and the delivery history (DISCUSS method)"}
+        gate: soft
+        status: deferred
+        deferred_by: "user decision OD-1 (2026-10-21): slices 06-08 and this KPI move to integration-webhooks-and-oauth-apps, whose DEVOPS wave designs the instruments"
+        measurement: "owned by integration-webhooks-and-oauth-apps"
+      - id: EIP-KPI-9
+        name: Workspace admins end a tool's access
+        type: guardrail
+        target: "<= 60 s from revoke to refusal; 100% of grants and revokes audited"
+        baseline: "no grants exist"
+        instruments_planned:
+          - {kind: acceptance, ref: "revoke then call with the granted token; refusal within 60 s"}
+          - {kind: store-query, ref: "audit rows for every grant and revoke"}
+        gate: hard
+        status: deferred
+        deferred_by: "user decision OD-1 (2026-10-21), as EIP-KPI-8"
+        measurement: "owned by integration-webhooks-and-oauth-apps"

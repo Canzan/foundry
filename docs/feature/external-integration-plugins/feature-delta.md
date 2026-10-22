@@ -2620,3 +2620,861 @@ Reviewer: nw-solution-architect-reviewer, 2026-10-21. Maximum two iterations.
 - **Status for handoff:** no critical or high item is known to remain, but the iteration-2 fixes have
   not been re-reviewed. The coordinator may run one confirming review before DISTILL, or accept the
   fix list above.
+
+## Wave: DEVOPS
+
+Platform architect: Apex (nw-platform-architect) | Date: 2026-10-21 | Density: lean, Tier-1 [REF] /
+[WHY] | Mode: orchestrator-dispatched; Decisions 1-9 **carried forward, not re-asked**; DESIGN's
+DD-1..DD-11 are taken **as accepted at their recommendations** | Documentation only: no code,
+workflow, Dockerfile, RELEASING.md, xtask, manifest, CLAUDE.md or infra-repo file is changed by this
+wave. Every edit DELIVER or the user must make is written out below. Scope: deliverables A (slices
+01-03) and B (04-05); C's seams only where they touch the platform. Review: nw-platform-architect-reviewer
+(see [REF] Peer Review).
+
+### [REF] Prior Wave Consultation
+
+| Source | Read | What it settled for DEVOPS |
+|---|---|---|
+| This file, DISCUSS (OD-1..15 and User Decisions, SC-1..10, NFR-EIP-1..7, EIP-KPI-1..9, DoD 1-4, R1-R11) | ✓ | KPIs drive *Monitoring contracts*; SC-10 and the memory rules drive the test environments; DoD 3 is the dogfood |
+| This file, DESIGN (DDR-1..27, DD-1..11, Persistence Model, Earned Trust, check-arch Rules, External Integrations Requiring Contract Tests, DA-1..5, UI-1..10, Wave Decisions handoff) | ✓ | The settings list, the migrations, DDR-22's metrics, the Slack/Matrix contract-test annotation, UI-9 (KPI-4 method) |
+| `slices/slice-01..05-*.md` | ⊘ | Not re-read; DESIGN's per-slice table is the source used. Slices 06-08 belong to `integration-webhooks-and-oauth-apps` |
+| `docs/product/architecture/brief.md` "Project events leave the board" (:817-1031), crate graph (:1032) | ✓ | Worker on every replica; readiness never depends on Slack or Matrix; the For Acceptance Designer test seams |
+| `adr-eip-001..007` | ✓ (004, 005, 006 fully; 002 decisions 1-12; 001, 003, 007 for ops-relevant parts) | 004: key format, degraded start, rotation order; 005: settings, manifest, events endpoint; 006: https-only homeserver, judge, `no_proxy()`; 002: lease ≥ 35 s, poll, give-up |
+| `docs/product/kpi-contracts.yaml` (header, changelog, `api-openapi-document:` entry as the house shape) | ✓ | `external-integration-plugins:` appended; changelog line added |
+| `docs/feature/api-openapi-document/feature-delta.md` `## Wave: DEVOPS` (:1854-2440) | ✓ | Style and platform facts reused; only what this feature touches is re-verified below |
+| `.github/workflows/ci.yml`, `.forgejo/workflows/ci.yml`, `Dockerfile`, `xtask/src/main.rs` (ci, smoke, Docker gating), `xtask/src/check_arch.rs` (header), `deny.toml` | ✓ | See *Platform facts* |
+| `crates/foundry-app/src/main.rs` (env loading, `PROBE_NAMES`, register-at-0, pool poll loop, `doctor` dispatch), `lib.rs` (`readyz`, route templates), `metrics_server.rs`; `crates/foundry-store/src/lib.rs` (`migrate`, `run_migrator_timed`, `probe`) | ✓ | See *Platform facts* |
+| `crates/foundry-acceptance` (`tests/acceptance.rs` tag lanes; `support/{harness,browser_harness,webhook_receiver,notify_recorder,round_robin_proxy}.rs`, `MAX_CONCURRENT_SCENARIOS`) | ✓ | The doubles and container conventions the new lanes reuse |
+| `deploy/k8s/*` (secret example, configmap, deployment) | ✓ | Sample manifests for other operators; DELIVER adds the new keys |
+| `canzan-infrastructure/argocd/apps/foundry/{app,values}.yaml`, `argocd/templates/appproject.yaml` | ✓ (read only) | Live workload, `envFrom` Secret and ConfigMap `foundry`, 1 replica, no NetworkPolicy rendered |
+| homelab `infrastructure/modules/foundry/{main,alerts,variables,settings.generated}.tf`, `modules/cloudflare-tunnel/main.tf`, `modules/continuwuity/{main,variables}.tf`, `modules/mailpit`, `services-state*.tfvars`, `secrets.auto.tfvars.example`, `lat.md/{foundry,gitops-delivery,continuwuity}.md`, foundry Grafana dashboard JSON | ✓ (read only) | Secret ownership, tunnel routing, the real homeserver, alert rules, dashboard queries |
+| Docker Hub tag API for `matrixdotorg/synapse` and `axllent/mailpit` (2026-10-21) | ✓ | Pins below; images **not pulled** (no Docker runs in this wave) |
+| GitHub `ci.yml` runs (`gh run list`, 2026-10-21) | ✓ | Six newest runs `cancelled`, including `39542602878` (2026-10-21) and `39509214407` (v0.17.0) |
+| CodeGraph, dual-graph MCP | ⊘ | Not available to this agent; files read directly |
+| `discuss/`, `design/`, `distill/` sub-directories | ⊘ | Lean single-file layout; DISTILL not yet written |
+
+**Platform facts re-verified against the tree (2026-10-21)**, only those this feature touches:
+
+- **Secrets and config ownership.** The live pods read `envFrom` ConfigMap `foundry` and Secret
+  `foundry` (`canzan-infrastructure/argocd/apps/foundry/values.yaml`, `envFrom`). Both are written by
+  OpenTofu in the homelab repo: `kubernetes_secret.foundry` and `kubernetes_config_map.foundry`
+  (`infrastructure/modules/foundry/main.tf`). Generated secrets are held in Tofu state
+  (`random_password.session_secret`, `tls_private_key.machine_token`); operator-supplied ones are
+  sensitive variables fed from `secrets.auto.tfvars`. A `checksum/platform` pod annotation, passed as
+  Argo CD values (`infrastructure/main.tf:1912`), rolls the pod when the Secret or ConfigMap changes.
+  On prod (`auto_sync = false`) the roll waits for `scripts/gitops-promote.sh` like any other change.
+- **No NetworkPolicy** applies to the `foundry` namespace in either repo (the AppProject only
+  *permits* the kind). Pod egress to the internet is open.
+- **Ingress path.** The Cloudflare tunnel routes the whole hostname `foundry.<domain>` (every path,
+  every method) to Traefik (`modules/cloudflare-tunnel/main.tf:28-53`); Traefik has one
+  cert-manager annotation and no middleware. `FOUNDRY_PUBLIC_URL = https://foundry.<domain>`
+  (`modules/foundry/main.tf`). Cloudflare zone security settings (Bot Fight Mode, WAF, challenges)
+  are dashboard-only and unverified, as in api-openapi-document.
+- **The real homeserver is Continuwuity, not Synapse.** `enable_continuwuity = true` globally
+  (`services-state.tfvars:114`), image `ghcr.io/continuwuity/continuwuity:v0.5.6`
+  (`modules/continuwuity/variables.tf`), public at `https://matrix.<domain>` (tunnel, Cloudflare
+  edge certificate), server name = the apex. Element is enabled too.
+- **Outbound TLS roots are compiled in.** `reqwest` is built with `rustls-tls` (`Cargo.toml:105`),
+  i.e. the bundled webpki roots (`webpki-roots 1.0.10` in `Cargo.lock`); the distroless image's
+  `/etc/ssl/certs` is not consulted. A homeserver behind a private CA cannot be reached.
+- **Readiness.** `/readyz` (`crates/foundry-app/src/lib.rs:866-893`) = `Store::probe()` (`crates/foundry-store/src/lib.rs:234`): `SELECT 1` plus schema-object
+  checks. Liveness `/healthz` is static. `PROBE_NAMES = ["store", "metrics", "machine_token"]`
+  (`main.rs:46`), registered at 0 (`:445`).
+- **Gauges are DB polls on every replica.** The 5 s pool-poll loop (`main.rs:500-540`) refreshes
+  `outbox_pending_jobs` and `bootstrap_tokens_unclaimed` on each replica, so N replicas export N
+  identical series.
+- **Histograms are exported as summaries.** No `set_buckets*` call exists in `foundry-app`
+  (`PrometheusBuilder::new()` in `metrics_server.rs`), so `metrics-exporter-prometheus` renders every
+  histogram as a summary (`{quantile=…}`). The homelab dashboard's
+  `histogram_quantile(0.95, … http_request_duration_seconds_bucket …)` therefore has no data
+  (pre-existing; *Upstream Issues* U-D9).
+- **Migrations.** `Store::migrate` holds a session advisory lock and applies, in order, only the
+  migrations the binary knows (`run_migrator_timed`, `foundry-store/src/lib.rs:3994-4045`). Applied
+  versions the binary does **not** know are ignored, so **an older binary boots on a newer schema**
+  (rollback floor). `sqlx` 0.8.6 honours `-- no-transaction` through `conn.apply`.
+- **No sqlx macros, no `.sqlx` cache.** The Dockerfile builds with `SQLX_OFFLINE=true`; the crate
+  graph uses runtime `sqlx::query` only. A `query!` macro in new code would break the image build.
+- **`ring` 0.17.14 is in the production graph** (`cargo tree -i ring -e normal`: through
+  `jsonwebtoken` → `foundry-auth`, and `rustls`), licence `Apache-2.0 AND ISC`, both on the
+  `deny.toml` allow list.
+- **Acceptance conventions.** One shared `postgres:16-alpine` testcontainer with
+  `max_connections=300` and Docker's default 64 MB `/dev/shm` (`harness.rs:60-90`); scenarios
+  capped at 6 (`MAX_CONCURRENT_SCENARIOS`); in-process doubles bind `127.0.0.1:0`
+  (`webhook_receiver.rs`); container ports are read back from Docker, never bind-and-release
+  (`browser_harness.rs:166-200`, the `0x48` lesson); the in-process harness installs **no** metrics
+  recorder (`metrics_server.rs::install_recorder` doc), so metric assertions need a subprocess
+  `foundry`. `foundry-acceptance` depends on `foundry-app` with `features = ["test-support"]` as a **normal**
+  dependency (`foundry-acceptance/Cargo.toml:24`, under `[dependencies]` at :20). Feature unification
+  therefore puts `test-support` into `target/release/foundry` whenever the acceptance crate is built in
+  the same invocation: `cargo test -p foundry-acceptance`, xtask ci's `cargo build --all --release`, and
+  Forgejo `ci.yml:68`. Only the image build (`-p foundry-app --bin foundry`, `Dockerfile:88`) is
+  free of it. Test seams are safe in production **only because of that one build line** (C-7).
+- **CI baselines (unchanged from api-openapi-document):** GitHub `ci.yml` is cancelled at its
+  45-minute limit before the workspace tests finish (six newest runs, through 2026-10-21); Forgejo
+  `ci.yml` has no Docker socket in build+test and no `check-arch`; neither publish workflow runs
+  tests. The authoritative gate stays `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`, locally.
+
+### [REF] Inherited Commitments
+
+| Origin | Commitment | DDR | Impact |
+|---|---|---|---|
+| Decisions 1-9 (api-openapi-document DEVOPS) | Homelab k8s, Argo CD, rolling 1/0, trunk-based, per-feature mutation ≥ 80% | n/a | Carried forward. Decision 5's "Loki" wording is corrected here: **no log store**; logs are `kubectl logs` |
+| DESIGN constraint "no new infrastructure" | Postgres is the queue; no broker, proxy, vault or sidecar | DDR-3, DDR-9, DDR-14 | Nothing is added to the cluster except Secret/ConfigMap keys and PrometheusRule entries |
+| DESIGN constraint "readiness never depends on Slack or Matrix" | `/readyz` stays the store probe | DDR-10, DD-2 | No integration state enters a probe; degradation is a metric and a log line |
+| DDR-4, ADR-EIP-002 decision 4 | Single-active dispatcher, leased senders on every replica, lease ≥ 35 s | DDR-4 | Multi-replica safe at `replicas: 1` live and 3 in `deploy/k8s`; a lease scenario is in the matrix |
+| DDR-17, ADR-EIP-002 decision 1 | 0028-0029 never rewrite or long-lock `outbox`; `lock_timeout` 5 s; `CREATE INDEX CONCURRENTLY` | DDR-17 | Rolling-upgrade plan below; one hardening for a failed concurrent build (U-D7) |
+| DDR-9, ADR-EIP-004 | `FOUNDRY_SECRETS_KEY` (32 bytes, base64url), `_PREVIOUS`, fixed rotation order, malformed → refuse, missing → degraded | DDR-9, DD-2 | Secret provisioning and rotation runbook; the encoding hand-off (U-D5) |
+| DDR-10, ADR-EIP-005 | Per-instance Slack app; three-or-none settings; manifest page; signed events endpoint | DDR-10, DDR-11, DD-1, DD-9 | Two Slack apps (dev, prod); events endpoint reachable through Cloudflare; operator runbook |
+| DDR-13/14, ADR-EIP-006 | https homeserver; loopback, link-local, metadata always refused; private only via `FOUNDRY_OUTBOUND_ALLOW`; `no_proxy()` | DDR-13, DDR-14 | Use the public `https://matrix.<domain>`; the test lane needs a test-only seam (U-D1) |
+| DDR-22, SC-9, ADR-004 (providers) | Metrics labelled by closed enums only; stall gauges; register at 0 | DDR-22 | Metric contract below, with four bounded additions (U-D8) |
+| SC-3, ADR-006 (providers), EIP-KPI-5 | No secret in any log, page, metric, error | DDR-9 | Sentinel-token scan of subprocess logs in acceptance (NDP precedent) |
+| SC-10, memory "containerised dev dependencies" | Slack HTTP double; pinned homeserver container; no host installs | DDR-10, DDR-13 | Recorded-fixture Slack double (no Pact); Synapse and mailpit pinned by tag and digest |
+| DDR-15, ADR-EIP-007 | Project email through the first `smtp` or `email_api` provider; RFC 8058 headers | DDR-15 | The shipped homelab relay path (`smtp-relay` → SES) is reused; one on-the-wire header lane |
+| UI-9 (DESIGN) | KPI-4: 500 calls at concurrency 1 and 4, bootstrap 95% CI on p95 | n/a | Accepted as the method; harness and verdict rule specified |
+| CLAUDE.md `## Mutation Testing Strategy` | Per-feature, kill rate ≥ 80% on modified files | n/a | Unchanged; scope listed below. CLAUDE.md not edited |
+
+### [REF] Decisions 1-9 (carried forward)
+
+| # | Decision | Value |
+|---|---|---|
+| 1 | Deployment target | On-premise homelab Kubernetes: dev `foundry.unintelligent-design.us` (Image Updater on release tags), prod `foundry.jeffbailey.us` (`auto_sync = false`, promoted by the user) |
+| 2 | Orchestration | Kubernetes via Argo CD from `canzan-infrastructure`; `deploy/k8s/` plain YAML for other operators |
+| 3 | CI/CD | GitHub `ci.yml` (`cargo xtask ci`), `release.yml` (GHCR); Forgejo `build-and-publish.yml` builds the zot image that deploys; local gate `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` |
+| 4 | Existing infrastructure | Yes; extended by Secret/ConfigMap keys and alert rules only |
+| 5 | Observability | Prometheus (ServiceMonitor → kube-prometheus-stack) + Grafana; structured JSON logs via `kubectl logs`; **no log store** (correction of the old "Loki" wording) |
+| 6 | Deployment strategy | Rolling, `maxSurge: 1`, `maxUnavailable: 0`; rollback = re-promote the previous tag |
+| 7 | Continuous learning | None; foundational monitoring only |
+| 8 | Branching | Trunk-based on `main`; local commits; push and tags only on the user's go |
+| 9 | Mutation testing | Per-feature, ≥ 80% (CLAUDE.md, unchanged) |
+
+### [REF] Simplest-solution check (rejected simpler alternatives)
+
+| Alternative | Meets | Why insufficient |
+|---|---|---|
+| No new metrics or alerts; KPIs by store query only | KPI-1, -2, -3 (after the fact) | A stalled dispatcher or a degraded secrets key is silent until someone looks: the board stays green and HTTP stays healthy (the `FoundryOutboxBacklog` lesson). Four bounded gauges and five rules close that for the cost of a 5 s poll |
+| Real Slack in CI | Contract fidelity | Needs a live token and network in every run; cannot script `ratelimited`, HTML 503 or no-answer; SC-10 forbids it. Real Slack stays at the dogfood and in a manual fixture-refresh lane |
+| Egress NetworkPolicy allow-listing `slack.com` and `matrix.<domain>` | Defence in depth | None exists today for any homelab app; Slack's API hosts are CDN-fronted (no stable CIDR), so a DNS-unaware policy would be wrong; the in-app judge already pins user-supplied hosts. Recorded as an optional follow-up, not a gate |
+| One Slack app shared by dev and prod | Fewer operator steps | Slack allows one Events Request URL per app; dev and prod need different ones (ADR-EIP-005). Two apps |
+
+### [REF] Environment matrix (named, for DELIVER Phase 3.5)
+
+Every lane run is bounded with `timeout`, preceded by the P3/P5 checks (another foundry session;
+foreign listeners on 55xxx/56xxx). Tag strings are proposals; DISTILL pins them.
+
+| Environment | Where / command | What of this feature runs there | Preconditions |
+|---|---|---|---|
+| `eip-core-unit` | `timeout 20m cargo test -p foundry-integrations --release` | Pure core: `DispatchPlan`, `compose`, encoders (no-ping proptests), classifiers (fixture tables), `RetryPolicy`, `RouteStatus::derive`, `claimable_head`/`expiry_set`/`cancel_set`/`prune_set`, `judge` | None (no I/O). Mutation hot spot |
+| `eip-auth-unit` | `timeout 20m cargo test -p foundry-auth --release` | `SecretBox` (wrong AAD, wrong key, truncation fail closed), key-id derivation, `ProjectEmailStopToken` | None |
+| `eip-check-arch` | `timeout 20m cargo xtask check-arch` and `cargo test -p xtask` | `integrations-pure-core`, `integrations-store-capability`, `integrations-secret-seam`, `integrations-outbound-client-seam`, the extended write guard, the `deny.toml` wrapper, plus their gold tests; the proposed `integrations-test-seam` rule (below) | None |
+| `eip-store` | `timeout 30m cargo test -p foundry-store --release` (testcontainers Postgres) | Dispatch transaction, fenced claim/record, sweeps' compare-and-set, `Store::probe` objects, board writes **during** 0028/0029 | Docker |
+| `eip-default-lane` | `FOUNDRY_ACCEPTANCE_TAGS=<eip-slice tag> timeout 45m cargo test -p foundry-acceptance --release --test acceptance` | In-process app + **Slack double** + email recorder: US-EIP-01..07 and -10/-11 (except the scenarios in the lanes below). Uniform 404, scripting-off forms, K-copy, history, statuses | Docker (Postgres). P2 warm binary only for subprocess scenarios |
+| `eip-matrix-lane` (`@needs-matrix`) | `FOUNDRY_ACCEPTANCE_TAGS=needs-matrix timeout 45m cargo test -p foundry-acceptance --release --test acceptance` | US-EIP-08/09 against a **pinned Synapse** behind an in-process TLS fault proxy: whoami, alias resolve, invite, join, encrypted room (K-15), kick (403), logged-out token (401), 429 and 5xx (proxy-injected) | Docker; `matrixdotorg/synapse:v1.163.0`; the test-support outbound seam (U-D1) |
+| `eip-smtp-lane` (`@needs-smtp`) | `FOUNDRY_ACCEPTANCE_TAGS=needs-smtp timeout 30m …` | The real `SmtpProvider` as `EmailTransport` to a **pinned mailpit**: `List-Unsubscribe` and `List-Unsubscribe-Post` on the wire, one-click URL, K-12 footer | Docker; `axllent/mailpit:v1.31.6` |
+| `eip-replica-lane` | `FOUNDRY_ACCEPTANCE_TAGS=<eip replica tag> timeout 30m …` (in-process `multi_replica_harness`) | Two replicas on one schema: one active dispatcher; row 2 never overtakes row 1; lease expiry mid-send re-sends with the same `event_id`; a late recorder writes nothing; two routes to one channel paced at 1/s; one connection-lost email per admin | Docker; an **advanceable injected `Clock`** so the 45 s lease is crossed without waiting |
+| `eip-restart-lane` (`@slow`) | `FOUNDRY_ACCEPTANCE_TAGS=<eip restart tag> timeout 30m …` | US-EIP-02 scenario 3: subprocess `foundry` killed (SIGKILL) **between** attempts while the Slack double answers 503, restarted, double healed: exactly one message, same `event_id`; scenario 4 (24 h give-up) with `FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS` shortened | Docker; **P2 warm binary** (rebuild, run 2-3 times until `real 0.00`) |
+| `eip-metrics-lane` | subprocess scenarios that scrape `:METRICS_PORT/metrics` (`metrics_scrape.rs`) | Register-at-0 of every new series; counters move with outcomes; `probe_failures_total{probe_name="secrets"}` and the degraded gauge on a wrong key; no label outside the closed sets; **sentinel scan** of stdout/stderr for planted secrets (KPI-5) | Docker; P2 warm binary |
+| `eip-kpi4-bench` (manual) | `timeout 90m cargo test -p foundry-acceptance --release --test eip_kpi4_bench -- --ignored --nocapture`, **one invocation per repeat** (an INCONCLUSIVE verdict means three more invocations, each under its own `timeout 90m`) | T-1 baseline and the KPI-4 guardrail (*Monitoring contracts*) | Docker; quiet machine; nothing else running (P3). Uses **its own** fresh `postgres:16-alpine` container, not the shared acceptance one, started with a 256 MB `/dev/shm`, so 4-way load does not meet the 64 MB limit. T-1 records the wall-clock time of one invocation so the 90 m bound is checked against reality |
+| `eip-slack-live` (`@manual-trigger`) | run by hand at each dogfood with a real test-workspace token in the environment | Refreshes and diffs the recorded Slack fixtures (`ok`, `error` codes, key sets) against real answers of the six methods; never in CI | A Slack test workspace and its app (hand-off H-3) |
+| `ci-local` | `FOUNDRY_XTASK_INCLUDE_DOCKER=1 timeout 3h cargo xtask ci`, in the background, logged | Everything above except the two manual lanes (`all` = default + `@slow` + `@needs-*`) | Docker forced on (auto-detect skips acceptance and exits 0) |
+| `ci-github` | `ci.yml` | In practice fmt, clippy, `check-arch`. Gives this feature's check-arch rules a verdict; nothing else | Push (user's go) |
+| `ci-forgejo` | `.forgejo/workflows/ci.yml` | Lint; deny; the acceptance job's **default** lane (excludes `@needs-matrix`, `@needs-smtp`, `@slow`) | Mirror |
+| `image-build` | Forgejo `build-and-publish.yml` (zot, deploys), `release.yml` (GHCR) | The new crate compiles into the one binary; no Dockerfile change | Tag (user's go) |
+| `dev` | `foundry.unintelligent-design.us` | DoD 3 dogfood: real Slack (dev app), real Continuwuity `matrix.unintelligent-design.us`, project emails through `smtp-relay` → SES; KPI-1/2/3/6/7 | Hand-offs H-1..H-4 done; a release tag |
+| `prod` | `foundry.jeffbailey.us` | Same checks after promotion; only after deliverable A is complete (gate G4) | Hand-offs H-1..H-4 for prod; `scripts/gitops-promote.sh --yes foundry` |
+
+### [REF] Test environments: decisions and details
+
+**Slack: a recorded-fixture Rust double, not Pact (DEVOPS-2).**
+
+| | Pact (consumer-driven contract) | Recorded-fixture Rust double (chosen) |
+|---|---|---|
+| Provider verification | Impossible: Slack will never run Foundry's pacts, so a pact is a fixture file with extra machinery | Same evidence (recorded real answers), honestly named |
+| Dependencies | `pact_consumer` pulls a large new graph (and usually a broker) into `foundry-acceptance`; cargo-deny review | **Zero new crates**: axum + serde already in the test crate; the `webhook_receiver.rs` pattern |
+| Scripting faults | Awkward for "no answer", HTML 503, slow 200 | Per-scenario script: `ok:false` codes, 429 + `Retry-After`, HTML 503, black-hole, slow answer, signed Events posts (`url_verification`, `app_uninstalled`, `tokens_revoked`, wrong app/team, stale timestamp, bad signature) |
+| Freshness | Same problem | `eip-slack-live` manual lane diffs fixtures against real Slack at each dogfood (hand-off H-3) |
+
+- Fixtures: `crates/foundry-acceptance/tests/fixtures/slack/<method>/<case>.json` (sanitised: team, user,
+  channel ids replaced by stable fakes; no token values), one per answer DESIGN's classifier tables
+  name. Recording uses `curl` from a pinned container (`curlimages/curl:<pinned tag>`), never a host
+  install. The six methods: `oauth.v2.access`, `auth.test`, `conversations.list`,
+  `conversations.info`, `chat.postMessage`, `apps.uninstall`; plus the Events API envelopes.
+- The double serves plain `http://127.0.0.1:<port>` and is reached through `SLACK_API_BASE_URL` and
+  `SLACK_AUTHORIZE_URL`. The config parser must therefore accept an `http` base URL (U-D4).
+- The double also **signs** inbound Events posts with the test `SLACK_SIGNING_SECRET`, so the events
+  endpoint is exercised with real HMAC verification.
+
+**Matrix: a pinned Synapse behind an in-process TLS fault proxy (DEVOPS-3).**
+
+- Image: `matrixdotorg/synapse:v1.163.0` (released 2026-10-14; Docker Hub index digest
+  `sha256:e98ab72138d90fa8b8876c6421fe78a9fdb181c0d7cc690ad740e5173e0c65e6`, read from the Hub API on
+  2026-10-21, **not pulled**). DISTILL pins `tag@digest` after its first pull confirms the digest.
+  Bump deliberately; the pinned version is the contract (DESIGN).
+- Boot: one shared container per run (the `PG_CONTAINER` `OnceCell` pattern), SQLite storage (keeps
+  load off the shared Postgres and its 64 MB `/dev/shm`), config generated at start with
+  `registration_shared_secret` and every `rc_*` rate limit raised (concurrent scenarios must not
+  429 each other). Users and rooms are created per scenario with unique names through the admin
+  registration API. Readiness: poll `GET /_matrix/client/versions` (bounded, never a fixed sleep).
+  Port read back from Docker (`get_host_port_ipv4(8008)`). Removed at the end; containers carry a
+  label (`foundry-acceptance=eip`) so an interrupted run's leftovers can be removed with
+  `docker rm -f $(docker ps -aq --filter label=foundry-acceptance=eip)`.
+- TLS and address: ADR-EIP-006 requires `https` and refuses loopback always, so Foundry cannot reach
+  `http://127.0.0.1:<port>` in a test. The acceptance crate runs an in-process TLS-terminating fault
+  proxy (`tokio-rustls`, already in `Cargo.lock`) with a committed test CA and leaf certificate for
+  `matrix.eip.test` (generated once with `openssl` from a pinned container), forwarding to Synapse.
+  The proxy also injects 429 with `retry_after_ms`, 5xx, black-hole and slow answers per scenario.
+  Foundry trusts the test CA and admits the proxy's loopback address **only through a
+  `test-support` seam** (U-D1), so the production judge stays unconditional.
+- Tag `@needs-matrix`. The default lane (empty tag set) excludes it, exactly as `@needs-browser`;
+  the `all` lane (= `cargo xtask ci`) includes it. One line each in `tests/acceptance.rs`.
+- **Continuwuity check before the dogfood.** The homeserver Foundry will really talk to is
+  Continuwuity v0.5.6. The proxy's upstream image is a parameter
+  (`FOUNDRY_ACCEPTANCE_MATRIX_IMAGE`); one manual run of `@needs-matrix` against
+  `ghcr.io/continuwuity/continuwuity:v0.5.6` before slice 04's dogfood catches divergence in invite
+  state, `m.room.encryption` reads and `errcode`s. Recorded in DELIVER's notes; not a CI lane.
+
+**Email (DEVOPS-4).** Bulk scenarios use an in-process `EmailTransport` recorder (the
+`notify_recorder.rs` pattern, extended with headers). The headers that make KPI-7 true are proved on
+the wire once: `@needs-smtp` sends through the shipped `SmtpProvider` to
+`axllent/mailpit:v1.31.6` (digest
+`sha256:23fe39e81bde596a918000b3135c0f85dc8bb4c9ea6be274b051143f3e300387`, Hub API 2026-10-21, not
+pulled; the homelab pins `v1.27`, so either is a valid choice) with `SMTP_TLS_VERIFY=false`, and
+reads `List-Unsubscribe`, `List-Unsubscribe-Post` and the body through mailpit's HTTP API.
+
+**Multi-replica and lease.** In-process, two `AppState`s on one schema (`multi_replica_harness.rs`),
+each running its worker, with an injected advanceable `Clock` (ADR-EIP-002 decision 11). The
+dispatcher and sweep advisory-lock ids must be **scoped by `search_path`** (the
+`scoped_migration_lock_id` / tombstone-GC precedent), or concurrent scenarios on the shared
+container serialise on one global lock and their latencies interfere (U-D2). Every worker task is
+aborted in the World's `after` hook; a leaked dispatcher polling a dropped schema is a pool and
+log-noise hazard.
+
+**Restart durability.** Subprocess `foundry` from `cargo_bin` (warm-binary hazard P2). The kill is
+**between** attempts (the double answers 503 fast), so no live lease delays the restarted replica;
+the mid-send kill is covered in `eip-replica-lane` with the fake clock. `SIGKILL`, not SIGTERM, so
+graceful shutdown cannot hide a durability bug.
+
+**Machine hazards (all lanes).**
+
+- Ports: in-process doubles and proxies bind `127.0.0.1:0` and keep the listener; containers'
+  ports are read from Docker. Before blaming a lane on `SSLRequest 0x48`, `PortNotExposed` or
+  `PoolTimedOut`: `lsof -nP -iTCP -sTCP:LISTEN | grep -E ':5[56][0-9]{3}'` (canzan-lift, openlore).
+- Shared Postgres `/dev/shm` is 64 MB: keep `FOUNDRY_INTEGRATIONS_POLL_MS` at **200** in acceptance
+  (not lower), keep the 6-scenario cap, keep Synapse on SQLite. If `could not resize shared memory
+  segment` appears, raise the shared container's shm (`testcontainers` request option, DISTILL to
+  confirm the 0.23 API) rather than lowering concurrency silently.
+- Timing: bounded polls on eventual states (status, history, double's inbox), never fixed sleeps.
+- Every run: `timeout`, background, log to the session scratchpad; on a hang, kill the parent shell
+  and remove labelled containers.
+
+### [REF] CI/CD pipeline outline
+
+No workflow file changes. `cargo xtask ci` stays the gate; every new check lands in an existing step.
+
+| New check | Slice | `xtask` step it lands in | `smoke`? | Docker? |
+|---|---|---|---|---|
+| New workspace member `crates/foundry-integrations` (root `Cargo.toml` `members`) | 01 | fmt, clippy, build, workspace tests | yes | no (the crate is pure) |
+| check-arch `integrations-pure-core`, `-store-capability`, `-secret-seam`; extended `project-lifecycle-write-guard`; `deny.toml` `[[bans.deny]] name = "foundry-integrations"`, wrappers `foundry-services`, `foundry-app`, `foundry-acceptance` | 01 | `xtask check-arch` (layer 1 AST, layer 2 `cargo deny check bans`) | yes | no |
+| check-arch CSRF exempt-set pin (unit test in `csrf.rs`) | 03, 05 | workspace tests | yes | no |
+| check-arch `integrations-outbound-client-seam` | 04 | `xtask check-arch` | yes | no |
+| **Proposed** check-arch `integrations-test-seam` (U-D1): every outbound test override is under `#[cfg(feature = "test-support")]`, and the `Dockerfile` builds `-p foundry-app` without `--features` | 04 | `xtask check-arch` | yes | no |
+| Core proptests and tables, `SecretBox` tests | 01-05 | workspace tests | yes | no |
+| Store tests (testcontainers) | 01-05 | workspace tests | yes | **yes, fails loudly** |
+| Acceptance default lane, `@slow`, `@needs-matrix`, `@needs-smtp` | 01-05 | `cargo test -p foundry-acceptance` (all) | no | **yes, silently skipped** without `FOUNDRY_XTASK_INCLUDE_DOCKER=1` |
+| `cargo deny check` (licences, advisories, bans) | 01, 04 | `cargo deny check` | no | no |
+
+- **cargo-deny.** Expected new third-party crates: **0**. `ring` becomes a direct dependency of
+  `foundry-auth` (licence already allowed; no `[[licenses.clarify]]` needed); `ipnet` becomes direct
+  in `foundry-integrations` (MIT OR Apache-2.0). DELIVER records the `Cargo.lock` diff and a green
+  `cargo deny check` at slices 01 and 04. `tokio-rustls` in `foundry-acceptance` (test-only) is
+  already in the lock.
+- **Docker image.** No Dockerfile change: the crate is under `COPY crates`; askama templates and the
+  Slack manifest template compile into the binary; no new static asset (scripting-off forms); TLS
+  roots are compiled in; `readOnlyRootFilesystem` is unaffected (nothing written). The stale-document
+  guard (`xtask openapi --check`) is unaffected (no `/api/v1` change in A or B).
+- **sqlx.** New store code uses runtime `sqlx::query` only. A `query!` macro would fail the image
+  build (`SQLX_OFFLINE=true`, no `.sqlx`). DELIVER constraint C-3.
+- **The known trap** stands: without Docker forced on, `cargo xtask ci` skips every acceptance lane
+  above and exits 0. Every gate here says `FOUNDRY_XTASK_INCLUDE_DOCKER=1`.
+
+| When | Command | Runs |
+|---|---|---|
+| DELIVER edit loop | the slice's crate tests; `cargo xtask check-arch`; its acceptance tag | That slice |
+| Pre-commit | `cargo xtask smoke` + `cargo xtask check-arch` | Unit, store, rules |
+| Pre-push | `FOUNDRY_XTASK_INCLUDE_DOCKER=1 timeout 3h cargo xtask ci 2>&1 \| tee "$SCRATCH/ci-$SHA.log"`; then `grep -c '=== xtask ci :: cargo test -p foundry-acceptance'` = 1 and `grep -c 'skipping @docker-compose'` = 0 | Everything but the manual lanes |
+| Push (user's go) | GitHub `ci.yml` (check-arch verdict only); `release.yml` and Forgejo publish `:main` / `:sha-*` | No deploy |
+| Tag (user's go) | Forgejo → zot → Image Updater rolls **dev**; `release.yml` → GHCR | Gates G1-G6 |
+| Promote prod (user) | `scripts/gitops-promote.sh --yes foundry` (homelab) | After H-1..H-4 for prod |
+
+**Release gates.**
+
+| Gate | Rule |
+|---|---|
+| G1 Full gate, acceptance really ran | One green `ci-local` log on the tagged commit (`$SCRATCH/ci-<sha>.log`) with the acceptance step present, and **non-zero** scenario counts for every EIP tag the release carries, including `needs-matrix` and `needs-smtp` once slices 04/05 are in. The log path and the counts go into DELIVER's notes; these lanes have no automated remote verdict (GitHub never reaches them), so the local log is the evidence |
+| G2 Nothing pending in released slices | `grep -n '@pending' crates/foundry-acceptance/tests/features/external-integration-plugins-0N*.feature` empty for each released slice N |
+| G3 KPI-4 guardrail | `target/eip-kpi4/<sha>.json` for the tagged commit exists and its `verdict` field is `PASS` (checked by `docker run --rm -i mikefarah/yq:4.44.3 -p json -e '.verdict == "PASS"' < target/eip-kpi4/<sha>.json`, the pinned container the house already uses; not by eye); its path and verdict are copied into the release notes |
+| G4 Prod only with deliverable A complete | No prod promotion of a release containing slice 01 or 02 without slice 03 (connection-lost path, disconnect, history). Dev may run any slice for the dogfood |
+| G5 Operator prerequisites on the target | Before promoting: H-1 (key) on that cluster; H-2 (Slack app) only if Slack is to be offered there. A release without them runs with integrations simply not offered (K-2) |
+| G6 CHANGELOG and RELEASING | The notes below under `[Unreleased]`; RELEASING.md edits landed |
+
+**RELEASING.md impact** (DELIVER, slice 01; shown, not applied):
+
+- "Verifying a deployment": add the *Post-deploy verification* block below as a subsection
+  "Integrations".
+- A new short section "Operator settings added in vX.Y.Z": the eleven settings, which are required
+  (none: the feature is off until H-1/H-2), and a pointer to the operator runbook (README or
+  `deploy/k8s/README.md`, DELIVER's choice).
+- Step 1 already forces Docker (api-openapi-document). No other step changes.
+
+**CHANGELOG notes** (each in the slice that makes it true): *Added* Slack connection and project
+routes (01-03), Matrix (04), project emails (05). *Operators*: `FOUNDRY_SECRETS_KEY` must be set
+before any connection is made and backed up **separately** from database dumps; losing it loses the
+stored credentials (admins reconnect), not data. A malformed key refuses start; a missing or wrong
+key starts degraded. Slack needs a per-instance Slack app (setup page `/workspace/integrations/slack/setup`).
+*Upgrade*: migrations 0028-0031 are additive; 0028 takes a brief `ACCESS EXCLUSIVE` lock on `outbox`.
+While that request waits, every later board write that inserts an outbox row queues behind it, so
+board writes can stall for up to `lock_timeout` per attempt (then the migration fails, the new pod
+restarts with Kubernetes' back-off and tries again). Upgrade at a quiet moment. 0029 builds an index
+concurrently. *Rollback*: the previous release runs on the new schema; see the replay note.
+
+### [REF] DORA baseline and effect
+
+| Metric | Today (this project) | Effect of this feature | Measured how |
+|---|---|---|---|
+| Deployment frequency | dev: every release tag (user-gated; about weekly, v0.15-v0.17 in October); prod: each user promotion | Unchanged mechanism. G4 holds prod until deliverable A is complete, so prod gets this feature in one promotion | Tag dates (`git tag --sort=creatordate`); Argo CD sync history |
+| Lead time for changes | commit → local ci → user's push/tag → Forgejo build (minutes) → dev; prod adds the user's promote | Plus the operator's one-time H-1/H-2 per cluster before the feature is *offered* (not before it deploys: without them it is simply off) | Commit date to dev footer change (RELEASING.md footer check) |
+| Change failure rate | Recorded per release in CHANGELOG/RELEASING notes when a tag is rolled back | Risk concentrated in 0028/0029 (lock, CIC) and the worker; mitigated by additive migrations, rollback floor, G1-G6 | Count of rolled-back or hot-fixed tags per quarter |
+| Time to restore | prod: `gitops-promote.sh` to the previous revision (minutes, user-run); dev: Image Updater only moves forward, so restore = a revert commit plus a new tag (user-gated; tens of minutes incl. build). Who acts: the user, on a `FoundryDown`/`FoundryRestarting`/`FoundryHighErrorRate` alert | Unchanged; the degraded-start design means a bad secrets key never needs a restore (board stays up) | DELIVER times the dev revert-tag path once (tag → new footer) and records it in its notes |
+
+### [REF] Migrations 0028-0031 under rolling upgrade, and rollback first
+
+**Rollback first.**
+
+| Layer | Rollback |
+|---|---|
+| Application | Re-promote the previous tag (dev: Image Updater follows the newest tag, so roll back by tagging a revert; prod: `gitops-promote.sh` to the previous revision) |
+| Schema | **No down-migration.** v0.17.0 boots on 0028-0031: `run_migrator_timed` ignores applied versions it does not know; every change is additive; old writers get the new `outbox` defaults. Verified by reading, and DELIVER adds a store test: "the previous release's migrator accepts a database carrying 0028-0031" (gold: the `Store::migrate` of a binary built without them) |
+| Configuration | The new settings are inert to v0.17.0 (unknown env vars are ignored). Leave them in place |
+| Credentials | Untouched by a rollback; the sealed rows stay and work again on roll-forward |
+| Slack | The installed app stays; Slack's Events POSTs get v0.17.0's 404. After a rollback of more than an hour, re-check "Request URL: Verified" in the Slack app's Event Subscriptions after roll-forward (Slack may disable a failing subscription) |
+| Events written during a rollback | v0.17.0 keeps writing `outbox` rows, which get 0028's column defaults (`event_id DEFAULT gen_random_uuid()`, `source_txid DEFAULT pg_current_xact_id()`, `dispatched_at` NULL), so they are non-NULL, above the dispatch start and sit undispatched. On roll-forward the dispatcher **sends them**, late, with a fresh 24 h window (DDR-5's "a stall delays, never drops"). If that replay is unwanted after a long rollback, the operator marks them dispatched before rolling forward (runbook R-6). DESIGN may prefer a replay-age cap (U-D6) |
+
+**Rolling window (old and new replica coexist).** Live: 1 replica, surge 1, unavailable 0, so for
+under a minute an old pod serves while the new pod migrates and starts. `deploy/k8s`: 3 replicas,
+the same, for longer.
+
+| Step | Old replica (≤ v0.17) | New replica | Safe because |
+|---|---|---|---|
+| New pod boots, takes the migration advisory lock | serves; writes `outbox` rows | applies 0028 (nullable columns, `SET DEFAULT`, `lock_timeout 5s`), 0029 (`CREATE INDEX CONCURRENTLY`, no transaction), 0030 (new tables) 0028's `ACCESS EXCLUSIVE` request blocks the old pod's outbox-writing board actions while it waits, **bounded by `lock_timeout`** per attempt, not zero; on timeout the migration fails, the pod restarts with back-off and retries, and the old pod keeps serving (`maxUnavailable: 0`). 0029 (CIC) takes no write-blocking lock |
+| New pod Ready (`Store::probe` sees 0028-0030) | writes rows without `from_state` / deleted `title` / `author_id` | dispatches those rows (they carry the defaults) | ADR-EIP-003 decision 4: the hydrator falls back to `issue_change_events`, "A Foundry member" |
+| Old pod terminated | | sole dispatcher and sender | Advisory lock: one active dispatcher across any number of replicas |
+| Slice 05 release (0031) | knows nothing of email choices | dispatches email deliveries | Additive table only |
+
+**0028 lock budget (U-D12).** DESIGN sets `lock_timeout` 5 s. Recommended: 2 s, since every second of
+waiting is a second of stalled board writes and a retry costs only a pod restart. DELIVER adds an
+`eip-store` test that runs concurrent outbox writers (the old writer's SQL) while 0028 applies and
+records the observed worst write stall; it must not exceed `lock_timeout` plus 1 s.
+
+**0029 failure mode: to be observed, not assumed (U-D7).** A failed `CREATE INDEX CONCURRENTLY`
+leaves an `INVALID` index. What the migration table then holds (no row, or a row the runner refuses as
+`Dirty`, `foundry-store/src/lib.rs:4002-4006`) and how the next boot fails depend on sqlx's
+no-transaction path and have **not** been verified. DELIVER reproduces it on a throwaway database
+(inject a failure during the CIC, e.g. a conflicting unique row or a cancelled backend), records the
+`_sqlx_migrations` state and the boot error, and writes R-7 from that observation. Also: 0029 must be
+one statement (a multi-statement simple query is an implicit transaction, which CIC refuses);
+`IF NOT EXISTS` would skip an invalid index silently, so a boot warn on `pg_index.indisvalid = false`
+is required whichever remedy the reproduction shows (U-D7).
+
+**Capacity.** Pool 10 per replica (`DATABASE_MAX_CONNECTIONS`). The worker holds a connection only
+for its short transactions (never across a send; in-flight sends capped at 4), so its peak is a
+handful of momentary checkouts. Guarded by KPI-4 (measured with the worker active) and the existing
+`db_connections_in_use` gauge. Memory limit 384 Mi and CPU 500m are unchanged; no new resource
+request is proposed (homelab scale: 1,000 events a day).
+
+### [REF] Operator runbook outline: secrets, Slack, Matrix, egress
+
+Where things live (both clusters): Secret `foundry` and ConfigMap `foundry` in namespace `foundry`,
+written by OpenTofu in the homelab repo (`infrastructure/modules/foundry/main.tf`), read by the
+Argo CD Deployment through `envFrom`. Secrets in the Secret, non-secrets in the ConfigMap:
+
+| Setting | Object | Value on dev and prod |
+|---|---|---|
+| `FOUNDRY_SECRETS_KEY` | Secret | 32 random bytes, base64url; **distinct per cluster**; generated once, held in Tofu state (the `SESSION_SECRET` precedent) |
+| `FOUNDRY_SECRETS_KEY_PREVIOUS` | Secret | Empty except during a rotation |
+| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` | Secret (all three together; the id is not secret but keeping the trio in one object avoids a partial set) | From that cluster's own Slack app; all or none |
+| `FOUNDRY_OUTBOUND_ALLOW` | ConfigMap | **Unset** (the homeserver is reached at its public address) |
+| `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL` | n/a | **Never set** in a cluster (test seams; defaults are Slack's) |
+| `FOUNDRY_INTEGRATIONS_POLL_MS`, `_GIVE_UP_SECONDS`, `_LEASE_SECONDS` | n/a | **Unset** (defaults 1000, 86400, 45) |
+
+**R-1 Create the secrets key (once per cluster, before any connection).**
+- Tofu: a `random_bytes` resource (length 32) converted to base64url, or a sensitive variable that
+  overrides it (needed for rotation, R-5). The conversion `replace(replace(trimsuffix(b64, "="), "+", "-"), "/", "_")`
+  is safe for 32 bytes (one padding character); better, the app accepts both padded and unpadded
+  base64url (U-D5).
+- By hand (no install needed; macOS ships LibreSSL):
+  `openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'`.
+- Guard against regeneration: `lifecycle { prevent_destroy = true }` on the `random_bytes` resource
+  (a `moved {}` block for any address change), so a refactor or `-replace` cannot silently mint a
+  new key; DELIVER's hand-off acceptance is a `tofu plan` showing no diff on the key.
+- Tofu state holds the key in plaintext: confirm the state's location and access are as tight as for
+  `SESSION_SECRET` (same exposure today), and keep an **offline copy** in the operator's password
+  manager (Vaultwarden runs on the cluster, so the copy must also exist off-cluster). That copy, not
+  the state file, is the backup, kept apart from `pg_backup` dumps. Losing every copy = admins
+  reconnect Slack and re-enter Matrix tokens; no board data is lost.
+- Apply; dev rolls automatically (checksum annotation), prod after `gitops-promote.sh`.
+- Verify: `probe_failures_total{probe_name="secrets"} == 0`,
+  `foundry_integration_secrets_degraded == 0`, no `health.startup.refused` line in `kubectl logs`.
+
+**R-2 Create the cluster's Slack app (once per instance, per DD-9 / OD-3).**
+1. As a workspace admin on the instance, open `/workspace/integrations/slack/setup`; it renders the
+   manifest with this instance's redirect URL (`https://foundry.<domain>/workspace/integrations/slack/return`),
+   events URL (`https://foundry.<domain>/integrations/slack/events`) and the four bot scopes
+   (`chat:write`, `chat:write.public`, `channels:read`, `groups:read`).
+2. At api.slack.com → Create New App → From a manifest, in the Slack workspace the team uses; paste
+   it. The events URL will show **unverified** at this point: Foundry does not yet know the signing
+   secret. That is expected.
+3. Copy Client ID, Client Secret and Signing Secret from Basic Information into the homelab secret
+   variables for **that** cluster; `tofu apply`; let the pod roll (prod: promote).
+4. Back in the Slack app: Event Subscriptions → Retry. "Verified" proves the whole inbound path
+   (Cloudflare → tunnel → Traefik → Foundry signature check). If it fails with an HTML or 403 answer,
+   a Cloudflare security feature is challenging Slack's POST (see *Egress and ingress*).
+5. If a Foundry workspace will connect a Slack workspace **other** than the app's home workspace,
+   enable Manage Distribution → public distribution (not a directory listing); otherwise Slack
+   refuses the install. For Canzan Labs (one Slack workspace) this is not needed.
+6. Dev and prod each get their **own** app (one Events URL per app). Name them so they are told
+   apart in Slack ("Foundry (dev)", "Foundry").
+
+**R-3 Prepare the Matrix bot (once per homeserver, OD-4).** On Continuwuity
+(`matrix.<domain>`): create `@foundry:<domain>` (registration token, or the admin room's user
+creation command), log in once to obtain an access token, and hand the homeserver URL
+`https://matrix.<domain>` and the token to the workspace admin, who enters them at
+`/workspace/integrations`. Use the **public https URL**: the internal Service address is plain HTTP
+(refused) and private (refused unless allow-listed), and its certificate would not be publicly
+trusted. Invite the bot to each unencrypted room a route will use (K-14, K-15).
+
+**R-4 Email.** Nothing new: project emails use the provider `NOTIFICATION_PROVIDERS` already selects
+(`smtp` on both clusters via `smtp-relay` → SES). Volume at homelab scale is negligible for SES.
+
+**R-5 Rotate the secrets key (ADR-EIP-004 decision 5; order matters).**
+1. Set `FOUNDRY_SECRETS_KEY = <new>` and `FOUNDRY_SECRETS_KEY_PREVIOUS = <old>`; apply; roll every
+   replica (prod: promote). Check `foundry_integration_secrets_degraded == 0` on every replica.
+2. `kubectl -n foundry exec deploy/foundry -- /app/foundry doctor rotate-secrets` (distroless: exec
+   the binary directly; it reads the pod's environment). Expect a count of re-sealed rows and a new
+   canary; a failure changes nothing.
+3. Clear `FOUNDRY_SECRETS_KEY_PREVIOUS`; apply; roll.
+A broken order degrades (a replica cannot open some credentials, deliveries wait as
+`secret_unavailable`); it never marks connections lost or emails admins.
+
+**R-6 Roll forward after a long rollback (optional).** To skip events written while the old release
+ran, before rolling forward, against the foundry database:
+`UPDATE outbox SET dispatched_at = now() WHERE dispatched_at IS NULL AND event_id IS NOT NULL AND created_at < now() - interval '<age>';`
+(via `scripts/pg-exec.sh` in the homelab). Without it they are delivered late (intended default) and
+the window is recorded as a KPI-3 exclusion (*Replay exclusion*). The predicate relies on 0028's
+defaults giving old-writer rows a non-NULL `event_id`; DELIVER covers it with a store test (C-12).
+
+**R-7 Failed 0029.** Placeholder until DELIVER's reproduction (U-D7): expected steps are
+`DROP INDEX CONCURRENTLY <name>;`, then, only if the runner reports `Dirty`, removing that version's
+failed row from `_sqlx_migrations`, then restarting the pod. DELIVER replaces this with the observed
+procedure.
+
+**R-8 Degraded secrets.** `health.degraded probe=secrets` in `kubectl logs` names the missing key
+ids (never a key). Restore the key (or the previous key as `_PREVIOUS`), roll; the affected
+connections recover without admin action. If the key is truly lost: admins reconnect.
+
+**Egress and ingress (must-cover 2).**
+
+| Path | Needed | Verified | Gap / action |
+|---|---|---|---|
+| Pod → `slack.com` (Web API, `oauth.v2.access`) | HTTPS 443 | No NetworkPolicy on `foundry`; public DNS; webpki roots trust Slack | None. Proof: the dogfood's Send test |
+| Pod → `matrix.<domain>` | HTTPS 443 to a **public** address (judge) with a publicly trusted cert | Continuwuity is published through the tunnel with Cloudflare's edge certificate; the name resolves to Cloudflare addresses (public). **Unverified:** the pod is a non-browser client of a Cloudflare zone, so the same zone-security risk as the Slack row applies | Use the public URL (R-3). Proof before slice 04's dogfood (H-7): `pod=$(kubectl -n foundry get pods -l app=foundry -o name | head -1); kubectl -n foundry debug -it "$pod" --image=curlimages/curl:<tag pinned at use> -- curl -sS https://matrix.<domain>/_matrix/client/versions` returns 200 JSON (an ephemeral container in the pod's network namespace; command not yet run against a cluster, so H-7 verifies it once before relying on it). Hairpins out and back through Cloudflare; acceptable at homelab volume |
+| Pod → SMTP relay | unchanged | shipped | None |
+| Slack → `https://foundry.<domain>/integrations/slack/events` (POST) | Public HTTPS, body untouched (HMAC over the raw body) | Tunnel routes all paths and methods of the host to Traefik; Traefik has no middleware; neither rewrites bodies | **Unverified: Cloudflare zone security** (Bot Fight Mode, managed challenge, WAF) could challenge a server-to-server POST. Proof: R-2 step 4 ("Verified") and the curl check below (401, not 403/HTML). Fix if hit: a Cloudflare skip rule for that one path, not a weaker signature check |
+| Browser → Slack → `/workspace/integrations/slack/return` (GET) | Top-level redirect, `SameSite=Lax` session survives | Same route | None |
+| Optional hardening | Egress NetworkPolicy | n/a | Follow-up F-D1 (not a gate; see simplest-solution check) |
+
+### [REF] Observability and monitoring contracts
+
+**Metrics** (SSOT for names: DDR-22; additions marked + are proposed here, U-D8). All register at 0
+over their closed label sets at boot; DB-derived gauges piggyback on the existing 5 s pool-poll loop
+and are identical on every replica, so **alerts aggregate with `max`**.
+
+| Metric | Type | Labels (closed sets) | Series | Source |
+|---|---|---|---|---|
+| `foundry_integration_deliveries_total` | counter | `kind` ∈ {slack, matrix, email}, `event` ∈ {issue.created, issue.moved, issue.deleted, comment.added}, `outcome` ∈ {delivered, retried, failed, skipped} | 48 (C adds `webhook` and two events: ≤ 96) | DDR-22 |
+| `foundry_integration_deliveries_pending` | gauge | `kind` | 3 | DDR-22 (label proposed) |
+| `foundry_integration_deliveries_pending_oldest_seconds` | gauge | none | 1 | DDR-22 |
+| `foundry_outbox_undispatched` | gauge | none | 1 | DDR-22 |
+| `foundry_outbox_undispatched_oldest_seconds` | gauge | none | 1 | DDR-22 |
+| + `foundry_integration_delivery_lag_seconds` | **histogram with explicit buckets** `[1, 2, 5, 10, 30, 60, 300, 900, 3600, 21600, 86400]` (`set_buckets_for_metric`; otherwise it renders as a summary) | `kind` | 3 × 12 buckets | Observed when a delivery is recorded `delivered`; value computed **in SQL** as `now() - occurred_at` (one clock, no pod/DB skew). KPI-3 and NFR-EIP-1 at runtime |
+| + `foundry_integration_connections` | gauge | `kind` ∈ {slack, matrix}, `state` ∈ {connected, lost, disconnected} | 6 | `count(*) GROUP BY kind, state`. KPI-6 |
+| + `foundry_integration_routes` | gauge | `kind`, `state` ∈ {active, paused} | 4 (6 with webhook) | KPI-1 trend (Prometheus retention is short; the store query is authoritative) |
+| + `foundry_integration_secrets_degraded` | gauge, 0/1, per replica | none | 1 | Set at boot by the secrets probe (DD-2); the `probe_failures_total` counter alone stops showing in `increase()` windows after the boot |
+| `probe_failures_total{probe_name="secrets"}` | counter | `probe_name` gains `secrets` | +1 | `PROBE_NAMES` grows (DDR-9 Earned Trust) |
+| `foundry_notification_*{event="integration_connection_lost"}` | shipped families | one new `event` value | +n | D-15 / DDR-23; register-at-0 per shipped convention |
+| `http_requests_total`, `http_request_duration_seconds` | shipped | `path` = route template | new templates only | The new pages and `/integrations/slack/events` appear with no change (bounded by `MatchedPath`; `route_id` is a template parameter, not a label value) |
+
+Never a label: channel, room, destination, route id, project, workspace, URL, person, vendor error
+text. The worker's heartbeat stays a DB row (`integration_worker_heartbeats`), not a metric.
+
+**Logs** (JSON via `RUST_LOG_FORMAT=json`; read with `kubectl logs`). Events: `integrations.dispatch.stalled`
+(warn, oldest undispatched > 5 min), `health.degraded probe=secrets` (warn, key ids only),
+`health.startup.refused probe=secrets|slack|outbound|integrations` (malformed key, partial Slack
+trio, malformed allow-list, lease < 35 s), and one line per delivery attempt with
+`delivery_id`, `kind`, `event`, `outcome`, `reason_code`, `attempt`. Never a token, sealed bytes,
+destination id or label, URL, vendor message, email address or comment text (SC-3, the "Errors and
+logs" rule in brief.md). KPI-5's log scan enforces it.
+
+**Health and readiness with degraded start (DD-2).**
+
+| Condition | `/healthz` | `/readyz` | Rollout effect | Signal |
+|---|---|---|---|---|
+| Key malformed; Slack trio partial; `FOUNDRY_OUTBOUND_ALLOW` malformed; lease < 35 s | process exits | n/a | New pod crash-loops; the old pod keeps serving (`maxUnavailable: 0`); rollout stalls safely | `FoundryRestarting`; `health.startup.refused` |
+| Key missing or cannot open stored credentials | 200 | 200 (board up) | Normal | `foundry_integration_secrets_degraded = 1`; `probe_failures_total{probe_name="secrets"}` +1; affected connections "unavailable" (K-19 proposal) |
+| Slack or homeserver down | 200 | 200 | Normal | Deliveries retry; lag and pending-age gauges rise |
+| Schema missing 0028-0030 | 200 | **503** (`Store::probe`) | Pod never Ready | Existing `FoundryDown` if no other pod |
+| Dispatcher stalled | 200 | 200 | Normal | `foundry_outbox_undispatched_oldest_seconds` > 300; warn log |
+
+**Alert rules** (hand-off H-5, homelab `modules/foundry/alerts.tf`; PrometheusRule with
+`release: kube-prometheus-stack`; job label `foundry`).
+
+| Alert | Expression | For | Severity | KPI |
+|---|---|---|---|---|
+| `FoundryIntegrationDispatchStalled` | `max(foundry_outbox_undispatched_oldest_seconds{job="foundry"}) > 300` | 5m | warning | KPI-3, SC-2 |
+| `FoundryIntegrationDeliveryBacklog` | `max(foundry_integration_deliveries_pending_oldest_seconds{job="foundry"}) > 3600` | 15m | warning | KPI-3 (24 h budget burning; check connections first) |
+| `FoundryIntegrationDeliveryFailures` | `sum(increase(foundry_integration_deliveries_total{job="foundry",outcome="failed"}[24h])) >= 3 and sum(increase(foundry_integration_deliveries_total{job="foundry",outcome="failed"}[24h])) / clamp_min(sum(increase(foundry_integration_deliveries_total{job="foundry",outcome=~"delivered\|failed"}[24h])), 1) > 0.01` (the `\|` is a table escape; the PromQL is `delivered|failed`) | 1h | warning | KPI-3 (99%) |
+| `FoundryIntegrationDeliveryLatency` | `sum(increase(foundry_integration_delivery_lag_seconds_bucket{job="foundry",le="60"}[6h])) / sum(increase(foundry_integration_deliveries_total{job="foundry",outcome=~"delivered\|failed"}[6h])) < 0.99 and sum(increase(foundry_integration_deliveries_total{job="foundry",outcome=~"delivered\|failed"}[6h])) >= 20` (the `\|` is a table escape). Numerator: deliveries delivered within 60 s (the histogram records delivered ones only). Denominator: delivered **plus failed**, the same as Q3, so this one rule is KPI-3's 60 s share; `…DeliveryFailures` stays as the separate failed-share signal. Traffic floor ≥ 20 in 6 h so a quiet window never fires (volume basis below). Only `increase`, `sum` and comparisons: valid on Prometheus 2.x/3.x. DELIVER confirms the rendered `le="60"` string from one scrape | 1h | warning | KPI-3 (60 s share) |
+| `FoundryIntegrationConnectionLost` | `max by (kind) (foundry_integration_connections{job="foundry",state="lost"}) > 0` | 30m | warning | KPI-6 (operator backstop: the admin email rides best-effort `Notifier`) |
+| `FoundryIntegrationSecretsDegraded` | `max(foundry_integration_secrets_degraded{job="foundry"}) > 0` | 5m | warning | KPI-5/OD-12 operability |
+| **Retarget** `FoundryOutboxBacklog` | today `outbox_pending_jobs > 100`; the gauge counts every row with `notified_at IS NULL`, which nothing ever sets, so it measures table size, not a backlog. After this feature ships: `max(foundry_outbox_undispatched{job="foundry"}) > 100` | 15m | warning | U-D3 |
+
+**Volume basis** (used for the floor above): NFR-EIP-7's 1,000 events a day, times about 1-2 matching routes or email choices per event, is roughly 1,000-2,000 deliveries a day, 40-80 an hour on average, concentrated in working hours. Twenty deliveries in 6 h is therefore a low-traffic guard, not a target.
+
+KPI-4 has no runtime alert (homelab traffic is too low for a stable p95). A Grafana panel reads the
+shipped summary: `max by (path, method) (http_request_duration_seconds{job="foundry",method=~"POST|PATCH",quantile="0.95",path=~".+/issues(/\\{(issue_number|number)\\}(/state)?)?"})`
+(quantile label name per `metrics-exporter-prometheus`; verify with one scrape). Dashboard panels
+(hand-off H-6): delivery outcomes by kind, lag p95/p99 from the buckets, pending and undispatched age,
+connections by state, routes active.
+
+**KPI instruments** (SSOT `docs/product/kpi-contracts.yaml` `external-integration-plugins:`).
+
+| KPI | Target | Pre-release instrument | Post-deploy instrument | Alert |
+|---|---|---|---|---|
+| EIP-KPI-1 north star | ≥ 1 active route on AUTH and OPS, 30 days after slice 03 ships | n/a | Store query Q1 on dev at T+30 d; `foundry_integration_routes{state="active"}` trend | none (outcome) |
+| EIP-KPI-2 | ≤ 5 min from Add to Slack / Connect Matrix to the first message | `eip-default-lane` walking skeleton (no environment edit after setup) | The user's timed report, cross-checked by Q2 (audit `connected` time → first `delivered` `finished_at`) | none |
+| EIP-KPI-3 | ≥ 99% within 60 s; 100% delivered or failed by `give_up_at`, over 14 days | `eip-default-lane`, `eip-replica-lane`, `eip-restart-lane` (NFR-EIP-1 smoke, durability) | Q3 over 14 days of dogfood (excluding recorded rollback windows, below); the lag histogram | Dispatch stalled; backlog; latency (60 s share); failures |
+| EIP-KPI-4 guardrail | p95 with routes within 10% of no-routes p95, every destination unreachable | `eip-kpi4-bench` (method below); T-1 baseline | Grafana panel (no alert) | Gate G3 |
+| EIP-KPI-5 guardrail | 0 secrets in logs, pages, API, `openapi.json`; 0 cross-project deliveries; 0 pings | Composer/encoder proptests; check-arch secret seam; `eip-metrics-lane` sentinel scan of subprocess logs and every page and history row; acceptance audience assertions | Dogfood: the all-pods, `--previous`-inclusive log scan in *Post-deploy verification*, with the real token values exported only in the operator's shell = 0 hits | Secrets degraded |
+| EIP-KPI-6 guardrail | 100% of connection refusals pause on the first refusal and email admins within 5 min | `eip-default-lane` (Slack `token_revoked`, `app_uninstalled` event), `eip-matrix-lane` (401), `eip-replica-lane` (one email per admin) | Dogfood forced uninstall (DoD 3) | Connection lost |
+| EIP-KPI-7 | ≤ 3 actions; 100% of project emails carry a working stop link; 0 emails after stop, mute, access loss | `eip-default-lane` (US-EIP-10/11), `eip-smtp-lane` (headers on the wire) | Dogfood (Sam's emails through SES) | none |
+| EIP-KPI-8, -9 | KPI-8: n8n via OAuth creates an issue and receives a webhook within 15 min of registering the app; KPI-9: ≤ 60 s revoke to refusal, 100% of grants and revokes audited | Contracts carried in `kpi-contracts.yaml` (target, baseline, planned instruments) with `status: deferred`, because the user's OD-1 decision (2026-10-21) moved slices 06-08 and these KPIs to `integration-webhooks-and-oauth-apps`, whose DEVOPS wave designs their instruments | n/a | none yet |
+
+**Store queries** (run on the foundry database via the homelab `scripts/pg-exec.sh`; read-only):
+
+```sql
+-- Q1 (KPI-1): active routes per project today, and pause/resume history in the last 30 days.
+SELECT p.key, r.kind, count(*) FILTER (WHERE r.paused_at IS NULL) AS active
+  FROM integration_routes r JOIN live_projects p ON p.id = r.project_id
+ GROUP BY p.key, r.kind ORDER BY p.key;
+SELECT action, subject, created_at FROM integration_audit_events
+ WHERE created_at > now() - interval '30 days' AND action IN ('route_paused','route_resumed','route_deleted')
+ ORDER BY created_at;   -- action names: DELIVER's closed CHECK list
+
+-- Q3 (KPI-3): share within 60 s, and anything overdue, over the last 14 days.
+SELECT count(*) FILTER (WHERE status = 'delivered' AND finished_at - occurred_at <= interval '60 seconds')::numeric
+       / NULLIF(count(*) FILTER (WHERE status IN ('delivered','failed')), 0) AS within_60s,
+       count(*) FILTER (WHERE status = 'pending' AND give_up_at < now() - interval '5 minutes') AS overdue
+  FROM integration_deliveries
+ WHERE route_id IS NOT NULL AND occurred_at > now() - interval '14 days';
+```
+
+**Replay exclusion (KPI-3).** Deliveries of events written during a rollback (R-6 not applied) are
+late by construction and would land above 3600 s in the lag histogram, possibly firing the backlog
+and latency rules. That is expected, not a KPI breach: whoever rolls back records the window
+(`rolled_back_from`, `rolled_forward_at`) under EIP-KPI-3 `measured.excluded_windows` in
+`kpi-contracts.yaml`, and Q3 adds `AND occurred_at NOT BETWEEN <from> AND <to>` for each window. R-6
+is the alternative (skip the replay entirely).
+
+Q2 is Q1's audit read for `connection_connected` joined to the first `delivered` row of that
+workspace. Retention (DD-10, 30 days beyond the newest 100 per route) keeps the 14-day window.
+
+**EIP-KPI-4 method (UI-9, adopted).** An `#[ignore]`d test in `foundry-acceptance`,
+`tests/eip_kpi4_bench.rs`, so it never runs in CI by accident:
+
+1. Boot one release-profile `foundry` subprocess on a fresh testcontainers Postgres (the same
+   `postgres:16-alpine`), seed one workspace, team, project and lanes.
+2. Arm A: no routes. Arm B: one Slack, one Matrix and one email route (an email choice for a second
+   member), every destination **black-holed** (Slack double and Matrix proxy accept and never answer;
+   SMTP to a black-hole listener), worker active, defaults for poll and lease.
+3. Per arm and per concurrency (1, then 4 workers): 50 warm-up calls discarded, then 500 issue
+   creates and 500 lane moves through the web routes. Arms interleave in blocks of 50 (ABAB…) so
+   machine drift hits both.
+4. Statistic: p95 per arm and operation; 2,000-resample bootstrap 95% percentile interval on the
+   **ratio** p95(B)/p95(A), fixed seed.
+5. Verdict: **PASS** if the interval's upper bound ≤ 1.10; **FAIL** if its lower bound > 1.10;
+   otherwise **INCONCLUSIVE**: repeat the whole run 3 times (memory: ≥ 3 per arm against noise) and
+   use the median ratio with the pooled interval.
+6. Output: `target/eip-kpi4/<sha>.json` (raw samples, the ratio interval and a `verdict` field) and a
+   one-line summary. G3 reads the `verdict` field.
+7. **T-1 (slice 01, step 1):** the harness lands first and runs arm A only on the unchanged
+   v0.17.0 code; its p50/p95/p99 per operation and concurrency, n, commit, machine
+   (`sysctl -n hw.model`, cores), Postgres tag and profile go into `kpi-contracts.yaml`
+   `EIP-KPI-4.baseline_measured` and DELIVER's notes (DISCUSS text is not edited). Later runs compare
+   B against the **interleaved** A on the same build (primary verdict) and report the shift against
+   T-1 (the worker's own cost, informational).
+
+### [REF] Post-deploy verification (dev after the tag, prod after promotion)
+
+```sh
+set -euo pipefail
+HOST=https://foundry.unintelligent-design.us        # then https://foundry.jeffbailey.us
+SLACK_CONFIGURED=${SLACK_CONFIGURED:-0}                 # 1 once H-2 is done on this cluster
+S=$(mktemp -d); trap 'rm -rf "$S"' EXIT
+fail() { echo "FAIL: $*" >&2; exit 1; }
+# 0. The rollout landed: the shipped footer check (RELEASING.md "Verifying a deployment").
+# 1. Only where Slack is configured (H-2): the events endpoint is reachable through Cloudflare and
+#    refuses an unsigned POST with 401 (403 or an HTML body means a Cloudflare challenge; 404 means
+#    the old release, or Slack not configured on this host).
+code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST -H 'content-type: application/json' \
+       --data '{"type":"url_verification","challenge":"x"}' "$HOST/integrations/slack/events") \
+  || fail "events endpoint unreachable"
+if [ "$SLACK_CONFIGURED" = 1 ]; then
+  [ "$code" = 401 ] || fail "events endpoint answered $code, expected 401"
+else
+  case "$code" in 401|404) echo "skip: Slack not configured on $HOST (events endpoint $code)";;
+                  *) fail "events endpoint answered $code (403 or HTML = Cloudflare challenge)";; esac
+fi
+# 2. The setup page is not public: the uniform answer for a signed-out caller (not 200).
+code=$(curl -sS -o /dev/null -w '%{http_code}' "$HOST/workspace/integrations/slack/setup") || fail "host unreachable"
+[ "$code" != 200 ] || fail "setup page served to a signed-out caller"
+echo "OK $HOST"
+```
+
+Then, with cluster access (read-only), over **every** pod and its previous container:
+
+```sh
+pods=$(kubectl -n foundry get pods -l app=foundry -o name) || fail "kubectl failed"
+[ -n "$pods" ] || fail "no foundry pods"
+for pod in $pods; do  # the chart's selector label (service.selectorLabels)
+  { kubectl -n foundry logs "$pod"; kubectl -n foundry logs "$pod" --previous 2>/dev/null || true; }
+done > "$S/foundry.log"
+[ -s "$S/foundry.log" ] || fail "empty log capture"
+n=$(grep -cE 'health\.(startup\.refused|degraded)' "$S/foundry.log" || true); [ "$n" = 0 ] || fail "health lines: $n"
+# KPI-5: the operator exports the real values into this shell only (never echoed or written down)
+for v in "${SLACK_BOT_TOKEN:?}" "${MATRIX_BOT_TOKEN:?}"; do
+  n=$(grep -cF -- "$v" "$S/foundry.log" || true); [ "$n" = 0 ] || fail "a credential appears in the logs"
+done
+```
+
+(Run in the same shell as the script above: it reuses `S` and `fail`.) Logs before the newest roll are gone
+(no log store); run this right after the dogfood, before any restart. Then Grafana shows the new series at 0 (or moving), `probe_failures_total{probe_name="secrets"} = 0`.
+Then the DoD 3 dogfood: R-2 step 4 "Verified"; Priya connects; Lena routes AUTH and sends a test;
+Sam sets emails; a forced uninstall in Slack (route reads "Paused: connection lost" and the admin
+email arrives within 5 min); reconnect (queued events drain); Matrix route on Continuwuity
+(unencrypted room). Record each in DELIVER's notes and `kpi-contracts.yaml` `measured:`.
+
+### [REF] Mutation testing strategy
+
+Per-feature, ≥ 80% on modified files (CLAUDE.md). Per slice, after its refactor:
+`git diff <slice-base> > "$SCRATCH/slice.diff"`, then
+`timeout 4h cargo mutants -j 1 --in-diff "$SCRATCH/slice.diff"` (`-j 1`: store and app tests start
+testcontainers). Hot spots, in order: `foundry-integrations` (composer, encoders, classifiers,
+`RetryPolicy`, `RouteStatus::derive`, the plan functions, `judge`), `foundry-auth/src/secret_box.rs`,
+`xtask/src/check_arch.rs` (each new rule's "always pass" mutant needs a gold test),
+`foundry-store/src/integrations.rs` (compare-and-set predicates). A timeout or a connect failure is
+not a kill. Non-Rust artefacts (the Slack manifest template, the email templates) get a hand table of
+seeded faults: drop a scope; add a user-token scope; change the events URL path; drop the
+`List-Unsubscribe-Post` header.
+
+### [REF] Hand-off tasks for the user (infra repos and outside systems; not done by this wave)
+
+| # | Task | Where | When |
+|---|---|---|---|
+| H-1 | Add `FOUNDRY_SECRETS_KEY` (generated, per cluster, base64url, `prevent_destroy`, offline copy per R-1) and an empty-by-default `FOUNDRY_SECRETS_KEY_PREVIOUS` to `kubernetes_secret.foundry`; a sensitive override variable for rotation; mark them withheld in the settings inventory (`settings.generated.tf` is generated: re-run `make settings-inventory`) | homelab `infrastructure/modules/foundry/{main,variables}.tf`, root `variables.tf`/`main.tf` | Before slice 01 reaches dev |
+| H-2 | Create the dev Slack app (R-2), then the prod one; add `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` per cluster (all-or-none, empty = Slack not offered) to the Secret | api.slack.com; homelab module + per-cluster secret values | After slice 01 is on dev (the setup page renders the manifest) |
+| H-3 | A Slack **test** workspace and its app for `eip-slack-live` fixture refreshes (can be the dev app's workspace) | Slack | Before slice 01's DELIVER records fixtures |
+| H-4 | Create `@foundry:<domain>` on each Continuwuity and keep its access token for the workspace admin (R-3) | Continuwuity | Before slice 04's dogfood |
+| H-5 | Add the six alert rules and retarget `FoundryOutboxBacklog` (table above); first check whether `FoundryOutboxBacklog` is firing today (`outbox_pending_jobs` on dev and prod) | homelab `infrastructure/modules/foundry/alerts.tf` | With the release carrying slice 03. The stall gauges exist from slice 01; `foundry_integration_deliveries_total`, the lag histogram with its buckets and the connection gauge arrive with slice 03's delivery metrics (DESIGN Component Decomposition), so the latency, failures and connection-lost rules wait for slice 03 |
+| H-6 | Add the integration panels to `foundry-overview.json`; optionally fix the empty latency panel (U-D9) | homelab `modules/foundry/assets/foundry-overview.json` | With H-5 |
+| H-7 | Confirm Cloudflare challenges neither `POST https://foundry.<domain>/integrations/slack/events` (R-2 step 4) nor the pod's client calls to `https://matrix.<domain>/_matrix/client/*` (the debug-container curl in the egress table), on both zones; add a skip rule for the affected path if either is challenged | Cloudflare dashboard; `kubectl debug` (read-only) | At H-2, and before slice 04's dogfood |
+| H-8 | (Optional, follow-up F-D1) an egress NetworkPolicy for `foundry` | canzan-infrastructure chart or homelab | Not a gate |
+
+`canzan-infrastructure` needs **no** change: `envFrom` already loads every key of the Secret and
+ConfigMap, the Deployment needs no new port, volume or probe, and the AppProject already permits
+what H-8 would add.
+
+### [REF] DELIVER constraints (pre-requisites)
+
+- **C-1 Docker forced**, every ci-local run; **C-2 warm binary** before `eip-restart-lane`,
+  `eip-metrics-lane` and the bench (`CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build --release -p foundry-app --bin foundry`,
+  run it 2-3 times until `real 0.00`); **C-3** runtime `sqlx::query` only; **C-4** every lane under
+  `timeout`, after checking for another foundry session and foreign 55xxx/56xxx listeners.
+- **C-5** Advisory-lock ids of the dispatcher and sweeps scoped by `search_path` (U-D2).
+- **C-6** Register every new series at 0 in `main.rs` beside the slice-8 block; add `secrets` to
+  `PROBE_NAMES`; set buckets for the lag histogram only.
+- **C-7** The test-support outbound seam (U-D1), its check-arch rule, and a scenario with the seam
+  **off** proving a `127.0.0.1` homeserver is refused.
+- **C-8** Update `deploy/k8s/foundry-secret.example.yaml` and `foundry-configmap.yaml` with the new
+  keys (commented, empty), and the operator documentation with R-1..R-8.
+- **C-9** A store test proving the previous release's migrator accepts 0028-0031 (rollback floor).
+- **C-10** Slice 05 needs notification-preferences-ui finished first (DISCUSS D-9), unchanged.
+- **C-11** `foundry doctor rotate-secrets` is designed (DDR-9, DESIGN Driving Ports) but owned by no
+  slice row. It belongs to **slice 01** (the first sealed credential): a new arm in `main.rs`'s
+  `doctor` dispatch; one transaction re-seals every `sealed_credential` and writes the new canary;
+  store test (plaintexts unchanged after open, row count unchanged, a mid-way failure changes
+  nothing); a subprocess scenario in `eip-metrics-lane` running the real CLI against the mixed-key
+  rotation of ADR-EIP-004 decision 5; usage text and CHANGELOG line. R-5 is not usable until it ships.
+- **C-12** A store test that a row written by the pre-0028 writer SQL after 0028 has non-NULL
+  `event_id` and `source_txid` and is dispatched, and that R-6's `UPDATE` marks exactly those rows.
+- **C-13 (strengthens C-7)** The `integrations-test-seam` check-arch rule lands **in the same commit
+  as the seam**, not later, and asserts: (a) every seam item is `#[cfg(feature = "test-support")]`;
+  (b) the Dockerfile's cargo build line is exactly `-p foundry-app --bin foundry` with no
+  `--features`/`--all-features`/`--workspace`/`--all`; (c) the seam carries a unique marker string
+  constant. DELIVER also proposes one Dockerfile line after the build,
+  `! grep -q "<marker>" /usr/local/bin/foundry`, so an image that somehow carries the seam fails to
+  build (binary-level, independent of how features resolved).
+
+### [WHY] Changed Assumptions
+
+1. **"Matrix runs against a pinned Synapse container" (SC-10, DDR-13).** True for CI. The
+   homeserver the dogfood and both clusters use is **Continuwuity v0.5.6**. Synapse remains the
+   reference contract; a manual Continuwuity run of the same lane precedes slice 04's dogfood.
+2. **"`SLACK_API_BASE_URL` seam" and "Matrix pinned container" are enough to test (DESIGN Earned
+   Trust).** Not for Matrix: the https rule and the always-refused loopback make any local
+   homeserver unreachable from a test. A `test-support`-only seam is needed (U-D1).
+3. **Decision 5's "Loki logs"** is corrected to "no log store" (api-openapi-document Changed
+   Assumption 4 asked the next observability-touching wave to do so). Every alert here is
+   metric-based for that reason.
+4. **DDR-22's metric list is sufficient.** It covers stalls; it cannot alert on KPI-3's 60 s share,
+   KPI-6's lost connections, or a degraded key after the boot window. Four bounded additions (U-D8);
+   the lag histogram feeds the `FoundryIntegrationDeliveryLatency` rule.
+5. **DA-4 "the gauge stops growing without bound".** Pre-0028 rows are never dispatched (NULL
+   `event_id`), so DD-10's prune (dispatched rows only) never removes them: `outbox_pending_jobs`
+   keeps a floor equal to the legacy row count. And the homelab `FoundryOutboxBacklog` rule reads that
+   gauge as a backlog (U-D3).
+
+### [WHY] Upstream Issues (DESIGN, DISTILL and the product owner; earlier sections not edited)
+
+- **U-D1 (DESIGN/DISTILL, blocking slice 04's lane):** add a `#[cfg(feature = "test-support")]`
+  constructor for `OutboundHttp` that (a) adds an extra trusted root (the committed test CA) and
+  (b) admits one named loopback socket for a named test host. Production builds cannot contain it
+  (feature off in the image; check-arch `integrations-test-seam`). The judge's own proptests and one
+  seam-off scenario keep the refusal proven.
+- **U-D2 (DESIGN, DELIVER):** the dispatcher and sweep advisory locks must use a
+  `search_path`-scoped lock id, as the migration and tombstone-GC locks do, or the shared-container
+  acceptance suite serialises dispatch across scenarios.
+- **U-D3 (DESIGN, user):** `outbox_pending_jobs` never drains (nothing sets `notified_at`), and
+  legacy rows are never pruned. The homelab alert `outbox_pending_jobs > 100` is therefore a
+  table-size alarm. Proposal: retarget it to `foundry_outbox_undispatched` (H-5); DESIGN may also let
+  the retention sweep prune legacy rows (`event_id IS NULL`) older than 30 days.
+- **U-D4 (DESIGN):** the Slack config must accept an `http://` `SLACK_API_BASE_URL` /
+  `SLACK_AUTHORIZE_URL` (the double), or state that the double serves TLS. Recommended: accept
+  `http` only for these two test seams, documented as such.
+- **U-D5 (DESIGN):** accept `FOUNDRY_SECRETS_KEY` as base64url with **or without** padding (Tofu's
+  `random_bytes` yields padded standard base64; hand conversion is error-prone), still refusing
+  anything that does not decode to exactly 32 bytes.
+- **U-D6 (DESIGN, optional):** events written by an older binary during a rollback are replayed on
+  roll-forward, possibly hours late. Default kept (documented, R-6). Alternative: a replay-age cap at
+  first dispatch.
+- **U-D7 (DESIGN):** 0029 is one `CREATE INDEX CONCURRENTLY` statement (no `IF NOT EXISTS` unless
+  DELIVER's reproduction shows it safe: it would skip an invalid index silently). A boot warn on
+  `pg_index.indisvalid = false` for that index is **required**, and R-7 is written from the
+  reproduced failure, so a failed concurrent build neither crash-loops unexplained nor silently
+  degrades.
+- **U-D8 (DESIGN):** ratify the four metric additions (lag histogram with buckets, connections by
+  state, routes by state, secrets-degraded gauge) and the `kind` label on `…_pending`. All bounded.
+- **U-D9 (pre-existing, not this feature):** no histogram has buckets, so every
+  `http_request_duration_seconds` and `migration_apply_duration_seconds` series is a summary and the
+  dashboard's `histogram_quantile` latency panel is empty. Follow-up: buckets for
+  `http_request_duration_seconds`, or change the panel to the quantile series.
+- **U-D10 (DISTILL):** metric assertions need subprocess scenarios (the in-process harness installs
+  no recorder); the lease scenario needs the advanceable `Clock`; the Synapse and mailpit pins are
+  `tag@digest` after the first pull.
+- **U-D12 (DESIGN):** lower 0028's `lock_timeout` from 5 s to 2 s; the wait blocks outbox-writing
+  board actions, and a retry costs only a pod restart. DELIVER measures the stall (see *0028 lock
+  budget*).
+- **U-D11 (product owner):** EIP-KPI-4's baseline cell asks T-1 to "write the number here"; this
+  wave records it in `kpi-contracts.yaml` instead, because earlier wave sections are not edited.
+
+### [REF] Wave Decisions
+
+- **Key Decisions:**
+  - [DEVOPS-1] Decisions 1-9 carried forward; DD-1..DD-11 taken as accepted; "Loki" corrected to
+    "no log store".
+  - [DEVOPS-2] Slack contract = **recorded-fixture Rust double** in `foundry-acceptance` plus a manual
+    live fixture-refresh lane. Pact rejected (Slack cannot verify a pact; new crate graph).
+  - [DEVOPS-3] Matrix = **`matrixdotorg/synapse:v1.163.0`** (digest pinned by DISTILL) on SQLite,
+    shared per run, behind an in-process TLS fault proxy, tag `@needs-matrix`: excluded from the
+    default lane, included in `all` (so `cargo xtask ci` runs it with Docker forced). A manual run
+    against Continuwuity v0.5.6 before slice 04's dogfood.
+  - [DEVOPS-4] Email = in-process recorder for bulk, **`axllent/mailpit:v1.31.6`** for on-the-wire
+    headers (`@needs-smtp`).
+  - [DEVOPS-5] Secrets in the existing Tofu-managed Secret `foundry`; key generated per cluster in
+    Tofu state; two Slack apps; rotation by the fixed three-step order with `kubectl exec … /app/foundry doctor rotate-secrets`.
+  - [DEVOPS-6] Egress needs no change (no NetworkPolicy; public homeserver URL; webpki roots).
+    Ingress needs no route change; Cloudflare challenge risk covered by Slack's URL verification and
+    a 401 curl check.
+  - [DEVOPS-7] Observability: DDR-22 plus four bounded additions; six new alert rules (one per
+    KPI-3 facet: stall, backlog, 60 s share, failures; plus KPI-6 and secrets) and one retargeted; `max` aggregation for DB-derived gauges; no log-based alerting.
+  - [DEVOPS-8] KPI-4 by an `#[ignore]`d bench with interleaved arms, bootstrap CI on the p95 ratio and
+    a three-way verdict; T-1 recorded in `kpi-contracts.yaml`.
+  - [DEVOPS-9] Release gates G1-G6; prod only with deliverable A complete.
+- **Infrastructure Summary:** unchanged topology. Self-hosted k8s, rolling 1/0 (live 1 replica, sample
+  3); Forgejo-built zot image deploys; Cloudflare tunnel → Traefik → foundry; Prometheus + Grafana;
+  Postgres is the queue. Added: Secret keys (H-1, H-2), alert rules and panels (H-5, H-6).
+- **Constraints:** Docker forced for every gate; warm binary for subprocess lanes; `timeout` on
+  every run; runtime `sqlx::query` only; test seams only under `test-support`; never set the Slack
+  URL seams in a cluster.
+- **Upstream Changes:** U-D1..U-D12 (none reopens a DDR; U-D1 and U-D2 are needed before slices 04
+  and 01 respectively). `kpi-contracts.yaml` gains `external-integration-plugins:` (KPI-1..7 designed,
+  KPI-8/9 deferred to deliverable C).
+
+### [REF] Peer Review
+
+Reviewer: nw-platform-architect-reviewer, 2026-10-21. Maximum two rounds.
+
+- **Round 1: rejected pending revisions** (1 critical, 5 high, 8 medium, 2 low). External validity
+  passed (deployment path, observability, rollback; security gates partial). Strengths noted: the
+  layered rollback table on a verified rollback floor, the rejected simpler alternatives, the
+  summary-not-histogram finding, test seams kept out of the image by its build line, bounded and
+  named test environments, the degraded-start matrix, the KPI-4 method. Addressed:
+  - critical I-01: KPI-3's 60 s share had no alert. Added `FoundryIntegrationDeliveryLatency` on the
+    lag histogram (6 h window, traffic floor ≥ 20, delivered-only denominator, the failed side left to
+    `…DeliveryFailures`), in the alert table, KPI table, H-5 and `kpi-contracts.yaml`;
+  - high I-02: 0028's lock wording corrected (writes stall up to `lock_timeout` per attempt, not
+    zero); U-D12 proposes 2 s; DELIVER measures the stall under old-writer load;
+  - high I-03: 0029's failure mode is no longer asserted; DELIVER reproduces it and rewrites R-7
+    (now a marked placeholder, including the `Dirty` path at `foundry-store/src/lib.rs:4002-4006`);
+  - high I-04: the post-deploy script gates the 401 check on `SLACK_CONFIGURED` and treats 404 as
+    "not configured";
+  - high I-05: `doctor rotate-secrets` had no owner: C-11 puts it in slice 01 with its store test and a
+    real-CLI rotation scenario;
+  - high I-06: the test-seam guard lands with the seam (C-13), asserts the Dockerfile's exact build
+    line, and a marker-string scan of the built binary is proposed for the Dockerfile. The platform
+    fact now states that `foundry-acceptance`'s `test-support` dependency is a **normal** one, so
+    every `--all` build carries the seam and only the image build line keeps it out;
+  - medium: I-07 Matrix egress marked unverified, a debug-container check and H-7 widened; I-08 log
+    scan over every pod and `--previous`, variables defined, `grep -c … || true`; I-09 DORA table
+    added; I-10 replay windows excluded from KPI-3 and recorded in `kpi-contracts.yaml`; I-11
+    `prevent_destroy`, offline key copy, state exposure stated; I-12 KPI-8/9 carry target, baseline
+    and planned instruments, deferred by the user's OD-1; I-13 one bounded invocation per repeat, own
+    Postgres with 256 MB shm, G3 reads the JSON `verdict`;
+  - low: I-14 0028 defaults stated and R-6 covered by C-12; I-15 G1 names the log artefact;
+  - I-16 (citation): the cited span was `crates/foundry-app/src/lib.rs:866-892` (`readyz`), which is
+    correct; both paths are now explicit, with `Store::probe` at `foundry-store/src/lib.rs:234`.
+
+- **Round 2 (final): rejected pending revisions, narrowly** (0 critical, 2 high, 5 low, 1 nit).
+  Round-1 items verified: 14 resolved, I-01 and I-08 partially. Spot checks confirmed the normal
+  `test-support` dependency (`foundry-acceptance/Cargo.toml:20-24`), `readyz` at
+  `foundry-app/src/lib.rs:866`, `Store::probe` at `foundry-store/src/lib.rs:234`, `Dirty` at `:4004`,
+  the `app` selector label, the PromQL precedence and the alert and metric counts. Fixed after the
+  review **without a third review** (max-2 rule), each a text edit:
+  - high N-1: the latency rule's denominator is now delivered **plus failed** (`foundry_integration_deliveries_total`),
+    matching Q3, so the one rule is KPI-3's 60 s share; same change in `kpi-contracts.yaml`;
+  - high N-2: the log scan fails on a kubectl error, an empty pod list or an empty capture; both
+    `curl` calls fail on a network error; the scratch directory is removed on exit;
+  - low: N-3 `kubectl debug` targets a pod and is marked unrun until H-7; N-4 one volume basis
+    stated for the traffic floor; N-5 U-D7 drops `IF NOT EXISTS` and makes the `indisvalid` warn
+    required; N-6 H-5 names slice 03 as the source of the delivery metrics the new rules need;
+    N-7 G3's check is written out (pinned `yq` container); N-8 citation 866-893.
+- **Status for handoff:** no critical or high item is known to remain; the round-2 fixes have not
+  been re-reviewed. Two items stay open by design for DELIVER: U-D7's reproduction (R-7) and the
+  `le="60"` label string from one scrape.
