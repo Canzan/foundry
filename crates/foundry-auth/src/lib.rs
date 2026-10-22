@@ -10,6 +10,8 @@
 #![forbid(unsafe_code)]
 #![deny(clippy::all)]
 
+pub mod secret_box;
+
 use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version};
 use base64::Engine;
 use hmac::{Hmac, Mac};

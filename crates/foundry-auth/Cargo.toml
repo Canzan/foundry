@@ -31,6 +31,8 @@ subtle = { workspace = true }
 rand = { workspace = true }
 base64 = { workspace = true }
 hex = { workspace = true }
+# AES-256-GCM for sealed credentials (ADR-EIP-004); already in the graph via rustls/jsonwebtoken.
+ring = "0.17"
 secrecy = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
