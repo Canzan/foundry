@@ -236,10 +236,9 @@
             "A forged return from Slack connects nothing",
             "Only a workspace admin reaches the workspace's Slack doors",
             "The Slack setup page gives the operator this instance's addresses and nothing secret",
-            "The Slack credential never leaves the server",
             "eip_contract_shapes.rs::audit_rows_carry_no_secret"
           ],
-          "implementation_notes": "Blocked until H-3 fixtures exist. rewire passes the whole spec (DIST-4). DDR-10, U-D4, R-3, R-4. CHANGELOG: Added: Slack connection for workspace admins.",
+          "implementation_notes": "Blocked until H-3 fixtures exist. rewire passes the whole spec (DIST-4). DDR-10, U-D4, R-3, R-4. CHANGELOG: Added: Slack connection for workspace admins. Scenario 7 moved to 01-06 by the coordinator (2026-10-22): its Background creates a route.",
           "lanes": [
             "eip-01"
           ],
@@ -287,9 +286,13 @@
             "CHANGELOG.md",
             "crates/foundry-app/tests/eip_contract_shapes.rs",
             "crates/foundry-integrations/tests/core_properties.rs",
-            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature"
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-connect-slack.feature"
           ],
-          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature",
+          "test_file": [
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-connect-slack.feature (scenario 7)"
+          ],
           "scenario_name": [
             "Lena sees the first new issue arrive in the chosen Slack channel",
             "A test message confirms the route before it is saved",
@@ -303,7 +306,8 @@
             "eip_contract_shapes.rs::seventh_send_test_in_a_minute_is_refused_without_a_vendor_call",
             "eip_contract_shapes.rs::save_never_sends",
             "eip_contract_shapes.rs::refused_destination_check_writes_nothing",
-            "core_properties.rs::route_status_derive_precedence"
+            "core_properties.rs::route_status_derive_precedence",
+            "The Slack credential never leaves the server"
           ],
           "implementation_notes": "ADR-EIP-002; search_path-scoped lock id (C-5). DDR-19, DDR-25, DDR-27. CHANGELOG: Added: project routes to Slack channels, with Send test.",
           "lanes": [
