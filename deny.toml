@@ -131,6 +131,15 @@ wrappers = ["foundry-app"]
 name = "foundry-oidc"
 wrappers = ["foundry-app", "foundry-acceptance"]
 
+# Rule 4 — foundry-integrations is the PURE CORE of external-integration-plugins
+# (DESIGN [REF] check-arch and Dependency Rules 6, ADR-EIP-001 decision 4): the
+# use-cases (foundry-services), the composition root and worker (foundry-app)
+# and the acceptance harness may depend on it; nothing below them may, so a
+# `foundry-core -> foundry-integrations` edge fails the build.
+[[bans.deny]]
+name = "foundry-integrations"
+wrappers = ["foundry-services", "foundry-app", "foundry-acceptance"]
+
 [sources]
 unknown-registry = "deny"
 unknown-git      = "deny"

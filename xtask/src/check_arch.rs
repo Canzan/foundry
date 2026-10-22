@@ -124,6 +124,9 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_team_lifecycle_one_seam(root));
     violations.extend(check_project_lifecycle_one_seam(root));
     violations.extend(check_project_lifecycle_write_guard(root));
+    violations.extend(check_integrations_pure_core(root));
+    violations.extend(check_integrations_store_capability(root));
+    violations.extend(check_integrations_secret_seam(root));
     violations.extend(check_project_lifecycle_live_reads(root));
     violations.extend(check_store_natural_key_scoped(root));
     violations.extend(check_api_openapi_operations(root));
@@ -167,7 +170,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes or change events holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4064,6 +4067,12 @@ mod tests {
                  persistAuthorization: false, withCredentials: false });\n",
             ),
             ("crates/foundry-app/static/vendor/swagger-ui-0/swagger-ui.css", ".a{}\n"),
+            // `check_integrations_pure_core` fails closed on a missing
+            // manifest, so the clean tree carries one with no dependency.
+            (
+                "crates/foundry-integrations/Cargo.toml",
+                "[package]\nname = \"foundry-integrations\"\n\n[dependencies]\n",
+            ),
         ]);
         let clean_args = vec!["--root".to_string(), clean.path().display().to_string()];
         let planted = every_layer_1_rule_violated_tree();
@@ -7383,7 +7392,7 @@ fn check_project_lifecycle_write_guard(root: &Path) -> Vec<String> {
         violations.extend(loose.into_iter().map(|line| {
             format!(
                 "{WRITE_GUARD_ID}: {file}:{line} writes a project's issues, comments, \
-                 attachments, lanes or change events from a literal outside any fn and any \
+                 attachments, lanes, change events, routes or email choices from a literal outside any fn and any \
                  named const or static — the guard rule cannot see which writer runs it \
                  ({WRITE_GUARD_REFERENCE})."
             )
@@ -7402,7 +7411,7 @@ fn check_project_lifecycle_write_guard(root: &Path) -> Vec<String> {
             .map(|function| {
                 format!(
                     "{WRITE_GUARD_ID}: {}:{} fn `{}` writes a project's issues, comments, \
-                     attachments, lanes or change events without lock_live_project( on the \
+                     attachments, lanes, change events, routes or email choices without lock_live_project( on the \
                      transaction that performs the write, before its first write — a write \
                      queued behind a project delete would land under the deleted project \
                      ({WRITE_GUARD_REFERENCE}).",
@@ -7415,12 +7424,19 @@ fn check_project_lifecycle_write_guard(root: &Path) -> Vec<String> {
 
 /// The tables a project's writers write under it; each such write holds the
 /// live-project guard (DDD-7).
-const GUARDED_CHILD_TABLES: [&str; 5] = [
+///
+/// external-integration-plugins rule 4 adds a project's route writers and
+/// (slice 05) its members' email-choice writers (DESIGN [REF] check-arch and
+/// Dependency Rules 4; ADR-EIP-002 decision 3).
+const GUARDED_CHILD_TABLES: [&str; 8] = [
     "issues",
     "comments",
     "issue_attachments",
     "lanes",
     "issue_change_events",
+    "integration_routes",
+    "integration_route_lanes",
+    "integration_email_choices",
 ];
 
 /// Writers allow-listed (DDD-22), each named by file and enclosing item path
@@ -7458,7 +7474,8 @@ const WRITE_GUARD_CALL: &str = "lock_live_project";
 const WRITE_GUARD_ID: &str = "project-lifecycle-write-guard";
 const WRITE_GUARD_STORE_SRC: &str = "crates/foundry-store/src";
 const WRITE_GUARD_REFERENCE: &str =
-    "project-lifecycle DDD-7, DDD-22, ADR-PROJECT-LIFECYCLE-002 decision 2, DIST-10";
+    "project-lifecycle DDD-7, DDD-22, ADR-PROJECT-LIFECYCLE-002 decision 2, DIST-10; \
+     external-integration-plugins rule 4";
 
 /// One `fn` of a store source, as rule 2 reads it: where it stands, whether it
 /// takes a transaction or connection, and the offsets (in its file's
@@ -14505,6 +14522,290 @@ pub fn routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// external-integration-plugins (DESIGN [REF] check-arch and Dependency Rules;
+// ADR-EIP-001 decision 4, DDR-26, ADR-EIP-004). Rule 4 extends
+// `project-lifecycle-write-guard` (GUARDED_CHILD_TABLES); rule 6 is a
+// `deny.toml` ban, read by LAYER 2.
+// ---------------------------------------------------------------------------
+
+const PURE_CORE_ID: &str = "integrations-pure-core";
+const PURE_CORE_MANIFEST: &str = "crates/foundry-integrations/Cargo.toml";
+const PURE_CORE_ALLOWED: [&str; 7] = [
+    "foundry-core",
+    "serde",
+    "serde_json",
+    "async-trait",
+    "uuid",
+    "time",
+    "ipnet",
+];
+const PURE_CORE_REFERENCE: &str = "external-integration-plugins DDR-1, ADR-EIP-001 decision 4";
+
+/// Rule 1 `integrations-pure-core`, an allow-list: every crate the pure core's
+/// `[dependencies]` (or a `[target.….dependencies]` table) names, under its
+/// key or its `package = "…"` rename, is one of [`PURE_CORE_ALLOWED`]. Dev
+/// and build dependencies are out of scope. A missing manifest fails the rule.
+fn check_integrations_pure_core(root: &Path) -> Vec<String> {
+    let Ok(manifest) = std::fs::read_to_string(root.join(PURE_CORE_MANIFEST)) else {
+        return vec![format!(
+            "{PURE_CORE_ID}: cannot read {PURE_CORE_MANIFEST} — the pure core's dependencies \
+             could not be checked ({PURE_CORE_REFERENCE})."
+        )];
+    };
+    manifest_dependencies(&manifest)
+        .into_iter()
+        .filter(|(_, name)| !PURE_CORE_ALLOWED.contains(&name.as_str()))
+        .map(|(line, name)| {
+            format!(
+                "{PURE_CORE_ID}: {PURE_CORE_MANIFEST}:{line} depends on `{name}` — the pure \
+                 core may depend only on {} ({PURE_CORE_REFERENCE}).",
+                PURE_CORE_ALLOWED.join(", ")
+            )
+        })
+        .collect()
+}
+
+/// The 1-based line and crate name of every normal dependency a manifest
+/// declares: a key of a `[dependencies]` / `[target.….dependencies]` table, or
+/// a `[dependencies.<name>]` header; a `package = "…"` rename names the crate.
+fn manifest_dependencies(manifest: &str) -> Vec<(usize, String)> {
+    let mut found: Vec<(usize, String)> = Vec::new();
+    let mut in_table = false;
+    let mut header_entry: Option<usize> = None;
+    for (index, raw) in manifest.lines().enumerate() {
+        let line = raw.split('#').next().unwrap_or_default().trim();
+        if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            let header = header.trim();
+            in_table = header == "dependencies"
+                || (header.starts_with("target.") && header.ends_with(".dependencies"));
+            header_entry = dependency_header_name(header).map(|name| {
+                found.push((index + 1, name));
+                found.len() - 1
+            });
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let key = key.trim().trim_matches('"');
+        if let Some(entry) = header_entry {
+            if key == "package" {
+                found[entry].1 = value.trim().trim_matches('"').to_string();
+            }
+        } else if in_table {
+            let name = package_rename(value).unwrap_or(key);
+            found.push((index + 1, name.to_string()));
+        }
+    }
+    found
+}
+
+/// `reqwest` for a `[dependencies.reqwest]` or `[target.….dependencies.reqwest]`
+/// header.
+fn dependency_header_name(header: &str) -> Option<String> {
+    let name = header.strip_prefix("dependencies.").or_else(|| {
+        let (_, name) = header
+            .strip_prefix("target.")?
+            .split_once(".dependencies.")?;
+        Some(name)
+    })?;
+    Some(name.trim_matches('"').to_string())
+}
+
+/// The crate an inline table's `package = "…"` key renames, if any.
+fn package_rename(value: &str) -> Option<&str> {
+    let at = find_sql_word(value, "package", 0)?;
+    let rest = value[at + "package".len()..]
+        .trim_start()
+        .strip_prefix('=')?;
+    let rest = rest.trim_start().strip_prefix('"')?;
+    rest.split('"').next()
+}
+
+const STORE_CAPABILITY_ID: &str = "integrations-store-capability";
+const STORE_CAPABILITY_REFERENCE: &str = "external-integration-plugins DDR-26";
+/// Each integrations module (as `<module>.rs` or a `<module>/` directory) and
+/// the one file of it allowed to name the store.
+const STORE_CAPABILITY_MODULES: [(&str, &str); 2] = [
+    (
+        "crates/foundry-app/src/integrations",
+        "store_capabilities.rs",
+    ),
+    ("crates/foundry-services/src/integrations", "store_impls.rs"),
+];
+
+/// Rule 1a `integrations-store-capability`: no file of foundry-app's or
+/// foundry-services' integrations module but its capability seam names
+/// `foundry_store::Store` — by path, in a `use` group, through a rename, or by
+/// a glob import of `foundry_store`. Comments and string literals are ignored.
+/// An absent module passes; an unreadable one fails.
+fn check_integrations_store_capability(root: &Path) -> Vec<String> {
+    let mut files = Vec::new();
+    let mut violations = Vec::new();
+    for (module, seam) in STORE_CAPABILITY_MODULES {
+        let single = root.join(format!("{module}.rs"));
+        if single.is_file() {
+            files.push(single);
+        }
+        let dir = root.join(module);
+        if !dir.is_dir() {
+            continue;
+        }
+        let (sources, unreadable) = files_under(&dir, "rs", &|_| false);
+        files.extend(sources.into_iter().filter(|file| *file != dir.join(seam)));
+        violations.extend(unreadable.iter().map(|dir| {
+            format!(
+                "{STORE_CAPABILITY_ID}: cannot list {} ({STORE_CAPABILITY_REFERENCE}).",
+                rel(root, dir)
+            )
+        }));
+    }
+    for file in files {
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            violations.push(format!(
+                "{STORE_CAPABILITY_ID}: cannot read {} ({STORE_CAPABILITY_REFERENCE}).",
+                rel(root, &file)
+            ));
+            continue;
+        };
+        let code = RustSource::scan(&contents).code;
+        violations.extend(store_namings(&code).into_iter().map(|line| {
+            format!(
+                "{STORE_CAPABILITY_ID}: {}:{line} names foundry_store::Store — a worker \
+                 component or use-case holds only its narrow store capability, never the \
+                 Store ({STORE_CAPABILITY_REFERENCE}).",
+                rel(root, &file)
+            )
+        }));
+    }
+    violations
+}
+
+/// The 1-based lines of `code` naming `foundry_store::Store`.
+fn store_namings(code: &str) -> BTreeSet<usize> {
+    let mut lines = BTreeSet::new();
+    for (at, path) in code.match_indices("foundry_store::Store") {
+        let after = code.as_bytes().get(at + path.len()).copied();
+        if !after.is_some_and(|byte| byte.is_ascii_alphanumeric() || byte == b'_') {
+            lines.insert(line_at(code, at));
+        }
+    }
+    for (at, _) in code.match_indices("foundry_store::*") {
+        lines.insert(line_at(code, at));
+    }
+    for (at, _) in code.match_indices("foundry_store::{") {
+        let rest = &code[at..];
+        let open = rest.find('{').unwrap_or_default();
+        let group = &rest[open..=matching_brace(rest.as_bytes(), open).unwrap_or(open)];
+        if find_sql_word(group, "Store", 0).is_some() {
+            lines.insert(line_at(code, at));
+        }
+    }
+    lines
+}
+
+fn line_at(text: &str, offset: usize) -> usize {
+    text[..offset].matches('\n').count() + 1
+}
+
+const SECRET_SEAM_ID: &str = "integrations-secret-seam";
+const SECRET_SEAM_REFERENCE: &str = "external-integration-plugins ADR-EIP-004, DDR-9";
+/// The `SecretBox` definition, whose own tests open what they seal.
+const SECRET_BOX_DEFINITION: &str = "crates/foundry-auth/src/secret_box.rs";
+/// Where a sealed credential may be opened: the integrations adapters and
+/// connect handlers.
+const SECRET_SEAM_MODULE: &str = "crates/foundry-app/src/integrations";
+/// The `doctor rotate-secrets` command, by file and fn.
+const SECRET_SEAM_ROTATION: (&str, &str) =
+    ("crates/foundry-app/src/admin_cli.rs", "rotate_secrets");
+
+/// Rule 2 `integrations-secret-seam`: in every crate's `src`, a file naming
+/// `SealedSecret` or `SecretBox` calls `.open(` / `SecretBox::open` only under
+/// foundry-app's integrations module or inside the doctor rotation command.
+/// The definition file is exempt. Comments and string literals are ignored.
+/// Lexical limit, failing closed: in a file naming those types every `.open(`
+/// counts, whatever its receiver (an `OpenOptions::open` there is flagged).
+fn check_integrations_secret_seam(root: &Path) -> Vec<String> {
+    let crates_dir = root.join("crates");
+    let Ok(entries) = std::fs::read_dir(&crates_dir) else {
+        return vec![format!(
+            "{SECRET_SEAM_ID}: cannot list {} ({SECRET_SEAM_REFERENCE}).",
+            crates_dir.display()
+        )];
+    };
+    let mut crate_dirs: Vec<PathBuf> = entries.flatten().map(|entry| entry.path()).collect();
+    crate_dirs.sort();
+    let module = root.join(SECRET_SEAM_MODULE);
+    let mut violations = Vec::new();
+    for src in crate_dirs
+        .iter()
+        .map(|dir| dir.join("src"))
+        .filter(|src| src.is_dir())
+    {
+        let (sources, unreadable) = files_under(&src, "rs", &|_| false);
+        violations.extend(unreadable.iter().map(|dir| {
+            format!(
+                "{SECRET_SEAM_ID}: cannot list {} ({SECRET_SEAM_REFERENCE}).",
+                rel(root, dir)
+            )
+        }));
+        for file in sources {
+            let file_rel = rel(root, &file);
+            if file_rel == SECRET_BOX_DEFINITION || file.starts_with(&module) {
+                continue;
+            }
+            let Ok(contents) = std::fs::read_to_string(&file) else {
+                violations.push(format!(
+                    "{SECRET_SEAM_ID}: cannot read {file_rel} ({SECRET_SEAM_REFERENCE})."
+                ));
+                continue;
+            };
+            violations.extend(
+                secret_openings(&file_rel, &contents)
+                    .into_iter()
+                    .map(|line| {
+                        format!(
+                    "{SECRET_SEAM_ID}: {file_rel}:{line} opens a sealed credential — only the \
+                     integrations adapters and connect handlers ({SECRET_SEAM_MODULE}/) and the \
+                     doctor rotation command may open one ({SECRET_SEAM_REFERENCE})."
+                )
+                    }),
+            );
+        }
+    }
+    violations
+}
+
+/// The 1-based lines of the openings in one file naming the sealed-secret
+/// types, outside the doctor rotation command.
+fn secret_openings(file_rel: &str, contents: &str) -> BTreeSet<usize> {
+    let code = RustSource::scan(contents).code;
+    let names_the_box = ["SealedSecret", "SecretBox"]
+        .iter()
+        .any(|name| find_sql_word(&code, name, 0).is_some());
+    if !names_the_box {
+        return BTreeSet::new();
+    }
+    let rotation: Vec<(usize, usize)> = fn_spans(&code)
+        .into_iter()
+        .filter(|span| (file_rel, span.name.as_str()) == SECRET_SEAM_ROTATION)
+        .map(|span| span.body)
+        .collect();
+    let mut lines = BTreeSet::new();
+    for call in [".open(", "SecretBox::open"] {
+        for (at, _) in code.match_indices(call) {
+            if !rotation
+                .iter()
+                .any(|&(start, end)| (start..end).contains(&at))
+            {
+                lines.insert(line_at(&code, at));
+            }
+        }
+    }
+    lines
+}
+
 #[cfg(test)]
 mod external_integration_plugins_check_arch_tests {
     //! external-integration-plugins — injected-violation gold tests for the
@@ -14515,6 +14816,358 @@ mod external_integration_plugins_check_arch_tests {
     //! DELIVER lands the rule and replaces the body with a plant on a staged
     //! tree (the `--root` convention of the neighbouring gold tests). Every rule
     //! also gets a "passes on the real tree" test, so an always-pass mutant dies.
+
+    use super::*;
+
+    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("tempdir");
+        for (rel_path, body) in files {
+            let path = dir.path().join(rel_path);
+            std::fs::create_dir_all(path.parent().unwrap()).expect("mkdir");
+            std::fs::write(&path, body).expect("write fixture");
+        }
+        dir
+    }
+
+    // --- Rule 1 `integrations-pure-core` -----------------------------------
+
+    const CORE_MANIFEST: &str = "crates/foundry-integrations/Cargo.toml";
+
+    /// Every allowed dependency, plus dev-dependencies that are out of scope.
+    const CLEAN_CORE_MANIFEST: &str = r#"[package]
+name = "foundry-integrations"
+
+[dependencies]
+foundry-core = { path = "../foundry-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = "0.1"
+uuid = { workspace = true }
+time = { workspace = true }
+ipnet = "2"
+
+[dev-dependencies]
+proptest = "1"
+tokio = { workspace = true }
+
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2"
+
+[build-dependencies]
+cc = "1"
+"#;
+
+    fn core_with(planted: &str) -> tempfile::TempDir {
+        stage(&[(CORE_MANIFEST, &format!("{CLEAN_CORE_MANIFEST}{planted}"))])
+    }
+
+    fn refuses_only(violations: &[String], prefix: &str, named: &str) -> bool {
+        violations.len() == 1 && violations[0].starts_with(prefix) && violations[0].contains(named)
+    }
+
+    #[test]
+    fn pure_core_passes_on_the_tree() {
+        let violations = check_integrations_pure_core(&workspace_root());
+        assert!(violations.is_empty(), "{violations:?}");
+        let violations = check_integrations_pure_core(core_with("").path());
+        assert!(violations.is_empty(), "{violations:?}");
+        let missing = check_integrations_pure_core(stage(&[]).path());
+        assert!(
+            refuses_only(&missing, "integrations-pure-core: ", CORE_MANIFEST),
+            "a missing manifest fails closed: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn pure_core_refuses_a_planted_reqwest() {
+        // The clean manifest is 21 lines; each plant opens with a blank line.
+        for (form, line, planted) in [
+            (
+                "an inline entry",
+                24,
+                "\n[dependencies]\nreqwest = { workspace = true }\n",
+            ),
+            (
+                "a table header",
+                23,
+                "\n[dependencies.reqwest]\nversion = \"0.12\"\n",
+            ),
+            (
+                "a renamed table header",
+                23,
+                "\n[dependencies.http]\nversion = \"0.12\"\npackage = \"reqwest\"\n",
+            ),
+            (
+                "a renamed package",
+                24,
+                "\n[dependencies]\nhttp = { package = \"reqwest\", version = \"0.12\" }\n",
+            ),
+            (
+                "a target table",
+                24,
+                "\n[target.'cfg(unix)'.dependencies]\nreqwest = \"0.12\"\n",
+            ),
+            (
+                "a target table header",
+                23,
+                "\n[target.'cfg(unix)'.dependencies.reqwest]\nversion = \"0.12\"\n",
+            ),
+        ] {
+            let tree = core_with(planted);
+            let violations = check_integrations_pure_core(tree.path());
+            assert!(
+                refuses_only(&violations, "integrations-pure-core: ", "`reqwest`"),
+                "{form}: {violations:?}"
+            );
+            assert!(
+                violations[0].contains(&format!("{CORE_MANIFEST}:{line} ")),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn pure_core_refuses_a_planted_foundry_auth() {
+        let tree = core_with("\n[dependencies]\nfoundry-auth = { path = \"../foundry-auth\" }\n");
+        let violations = check_integrations_pure_core(tree.path());
+        assert!(
+            refuses_only(&violations, "integrations-pure-core: ", "`foundry-auth`"),
+            "{violations:?}"
+        );
+        assert!(violations[0].contains(CORE_MANIFEST), "{violations:?}");
+    }
+
+    // --- Rule 1a `integrations-store-capability` ----------------------------
+
+    const HYDRATOR: &str = "crates/foundry-app/src/integrations/worker.rs";
+    const USE_CASES: &str = "crates/foundry-services/src/integrations.rs";
+
+    /// The two files allowed to name the store, a neighbour outside the
+    /// integrations module, and an integrations file naming only StoreError.
+    fn capability_tree(extra: &[(&'static str, &'static str)]) -> tempfile::TempDir {
+        let mut files = vec![
+            (
+                "crates/foundry-app/src/integrations/store_capabilities.rs",
+                "use foundry_store::Store;\npub struct Reads(std::sync::Arc<Store>);\n",
+            ),
+            (
+                "crates/foundry-services/src/integrations/store_impls.rs",
+                "pub struct Routes<'a>(&'a foundry_store::Store);\n",
+            ),
+            (
+                "crates/foundry-app/src/issues.rs",
+                "use foundry_store::Store;\nfn f(_: &Store) {}\n",
+            ),
+            (
+                "crates/foundry-app/src/integrations/mod.rs",
+                "// a foundry_store::Store must never be held here\nuse foundry_store::StoreError;\nuse foundry_store::{integrations::{ClaimView}, StoreError as E};\nstruct Local(Store);\nconst NOTE: &str = \"foundry_store::Store\";\n",
+            ),
+        ];
+        files.extend_from_slice(extra);
+        stage(&files)
+    }
+
+    #[test]
+    fn store_capability_passes_on_the_tree() {
+        let violations = check_integrations_store_capability(&workspace_root());
+        assert!(violations.is_empty(), "{violations:?}");
+        let violations = check_integrations_store_capability(capability_tree(&[]).path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn store_capability_refuses_arc_store_in_the_hydrator() {
+        for (form, body) in [
+            ("a use", "use foundry_store::Store;\npub struct Hydrator { store: Arc<Store> }\n"),
+            ("a group use", "use foundry_store::{StoreError, Store};\npub struct Hydrator { store: Arc<Store> }\n"),
+            ("a renamed use", "use foundry_store::Store as Db;\npub struct Hydrator { store: Arc<Db> }\n"),
+            (
+                "a group use after a nested group",
+                "use foundry_store::{integrations::{ClaimView}, Store};\npub struct Hydrator { store: Arc<Store> }\n",
+            ),
+            ("a glob use", "use foundry_store::*;\npub struct Hydrator { store: Arc<Store> }\n"),
+            ("a qualified path", "pub struct Hydrator { store: Arc<foundry_store::Store> }\n"),
+        ] {
+            let tree = capability_tree(&[(HYDRATOR, body)]);
+            let violations = check_integrations_store_capability(tree.path());
+            assert!(
+                refuses_only(&violations, "integrations-store-capability: ", HYDRATOR),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn store_capability_refuses_store_in_a_use_case() {
+        for file in [
+            USE_CASES,
+            "crates/foundry-services/src/integrations/routes.rs",
+        ] {
+            let body = "pub async fn create_route(store: &foundry_store::Store) {}\n";
+            let tree = capability_tree(&[(file, body)]);
+            let violations = check_integrations_store_capability(tree.path());
+            assert!(
+                refuses_only(&violations, "integrations-store-capability: ", file),
+                "{file}: {violations:?}"
+            );
+            assert!(
+                violations[0].contains(&format!("{file}:1")),
+                "{violations:?}"
+            );
+        }
+    }
+
+    // --- Rule 2 `integrations-secret-seam` -----------------------------------
+
+    const VIEW_MODULE: &str = "crates/foundry-app/src/views.rs";
+
+    fn secret_tree(extra: &[(&'static str, &'static str)]) -> tempfile::TempDir {
+        let mut files = vec![
+            (
+                "crates/foundry-auth/src/secret_box.rs",
+                "pub struct SealedSecret(Vec<u8>);\nimpl SecretBox { pub fn open(&self, sealed: &SealedSecret) {} }\nfn t(b: &SecretBox, s: &SealedSecret) { b.open(s); }\n",
+            ),
+            (
+                "crates/foundry-app/src/integrations/slack.rs",
+                "use foundry_auth::secret_box::SealedSecret;\nfn token(b: &SecretBox, s: &SealedSecret) { b.open(s, &slot); }\n",
+            ),
+            (
+                "crates/foundry-app/src/admin_cli.rs",
+                "use foundry_auth::secret_box::{SecretBox, SealedSecret};\nfn rotate_secrets(b: &SecretBox, s: &SealedSecret) {\n    let plain = b.open(s, &slot);\n}\n",
+            ),
+            (
+                "crates/foundry-app/src/attachments.rs",
+                "fn read() { let f = std::fs::OpenOptions::new().read(true).open(path); }\n",
+            ),
+        ];
+        files.extend_from_slice(extra);
+        stage(&files)
+    }
+
+    #[test]
+    fn secret_seam_passes_on_the_tree() {
+        let violations = check_integrations_secret_seam(&workspace_root());
+        assert!(violations.is_empty(), "{violations:?}");
+        let violations = check_integrations_secret_seam(secret_tree(&[]).path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn secret_seam_refuses_open_in_a_view_module() {
+        for (file, form, body) in [
+            (
+                VIEW_MODULE,
+                "a method call",
+                "use foundry_auth::secret_box::SealedSecret;\nfn render(b: &SecretBox, s: &SealedSecret) {\n    let token = b.open(s, &slot);\n}\n",
+            ),
+            (
+                VIEW_MODULE,
+                "a path call",
+                "use foundry_auth::secret_box::SecretBox;\nfn render(b: &SecretBox, s: &Sealed) {\n    let token = SecretBox::open(b, s, &slot);\n}\n",
+            ),
+            (
+                "crates/foundry-services/src/integrations.rs",
+                "a use-case",
+                "use foundry_auth::secret_box::SealedSecret;\nfn upsert(b: &Keys, s: SealedSecret) {\n    let token = b.open(&s, &slot);\n}\n",
+            ),
+        ] {
+            let tree = secret_tree(&[(file, body)]);
+            let violations = check_integrations_secret_seam(tree.path());
+            assert!(
+                refuses_only(&violations, "integrations-secret-seam: ", &format!("{file}:3")),
+                "{form}: {violations:?}"
+            );
+        }
+        let outside_rotation = secret_tree(&[(
+            "crates/foundry-app/src/admin_cli.rs",
+            "use foundry_auth::secret_box::SealedSecret;\nfn rotate_secrets() {}\nfn show(b: &SecretBox, s: &SealedSecret) { b.open(s, &slot); }\n",
+        )]);
+        let violations = check_integrations_secret_seam(outside_rotation.path());
+        assert!(
+            refuses_only(
+                &violations,
+                "integrations-secret-seam: ",
+                "crates/foundry-app/src/admin_cli.rs:3"
+            ),
+            "the doctor file outside its rotation command: {violations:?}"
+        );
+    }
+
+    // --- Rule 4 `project-lifecycle-write-guard`, route writers ---------------
+
+    const ROUTE_STORE: &str = "crates/foundry-store/src/integrations.rs";
+
+    #[test]
+    fn write_guard_refuses_a_route_writer_without_the_lock() {
+        let guarded = "pub async fn create_route(&self, route: &NewRoute) -> Result<(), StoreError> {\n    let mut tx = self.pool.begin().await?;\n    if !lock_live_project(&mut tx, route.project_id).await? {\n        return Ok(());\n    }\n    sqlx::query(\"INSERT INTO integration_routes (id) VALUES ($1)\").execute(&mut *tx).await?;\n    sqlx::query(\"INSERT INTO integration_route_lanes (route_id) VALUES ($1)\").execute(&mut *tx).await?;\n    Ok(())\n}\n";
+        let clean = check_project_lifecycle_write_guard(stage(&[(ROUTE_STORE, guarded)]).path());
+        assert!(clean.is_empty(), "{clean:?}");
+        for (form, body) in [
+            (
+                "a route insert",
+                "pub async fn create_route(&self) -> Result<(), StoreError> {\n    let mut tx = self.pool.begin().await?;\n    sqlx::query(\"INSERT INTO integration_routes (id) VALUES ($1)\").execute(&mut *tx).await?;\n    Ok(())\n}\n",
+            ),
+            (
+                "a lane-filter delete",
+                "pub async fn edit_route(&self) -> Result<(), StoreError> {\n    sqlx::query(\"DELETE FROM integration_route_lanes WHERE route_id = $1\").execute(&self.pool).await?;\n    Ok(())\n}\n",
+            ),
+            (
+                "a pause",
+                "pub async fn pause_route(&self) -> Result<(), StoreError> {\n    sqlx::query(\"UPDATE integration_routes SET paused_at = now()\").execute(&self.pool).await?;\n    Ok(())\n}\n",
+            ),
+            (
+                "an email-choice save",
+                "pub async fn save_email_choices(&self) -> Result<(), StoreError> {\n    sqlx::query(\"INSERT INTO integration_email_choices (user_id) VALUES ($1)\").execute(&self.pool).await?;\n    Ok(())\n}\n",
+            ),
+        ] {
+            let tree = stage(&[(ROUTE_STORE, body)]);
+            let violations = check_project_lifecycle_write_guard(tree.path());
+            assert!(
+                refuses_only(&violations, "project-lifecycle-write-guard: ", ROUTE_STORE),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    // --- Rule 6 `deny.toml` wrapper -------------------------------------------
+
+    /// A two-crate workspace under the real `deny.toml`; `core_deps` is
+    /// foundry-core's `[dependencies]` body.
+    fn deny_workspace(core_deps: &str) -> tempfile::TempDir {
+        let deny = std::fs::read_to_string(workspace_root().join("deny.toml")).expect("deny.toml");
+        let package = |name: &str| {
+            format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\nlicense = \"AGPL-3.0-only\"\npublish = false\n")
+        };
+        let core = format!("{}\n[dependencies]\n{core_deps}", package("foundry-core"));
+        let integrations = package("foundry-integrations");
+        stage(&[
+            (
+                "Cargo.toml",
+                "[workspace]\nresolver = \"2\"\nmembers = [\"crates/foundry-core\", \"crates/foundry-integrations\"]\n",
+            ),
+            ("deny.toml", &deny),
+            ("crates/foundry-core/Cargo.toml", &core),
+            ("crates/foundry-core/src/lib.rs", ""),
+            ("crates/foundry-integrations/Cargo.toml", &integrations),
+            ("crates/foundry-integrations/src/lib.rs", ""),
+        ])
+    }
+
+    #[test]
+    fn deny_wrapper_refuses_foundry_integrations_in_core() {
+        let without_the_edge = check_dependency_direction(deny_workspace("").path());
+        assert_eq!(without_the_edge, None, "the staged workspace itself passes");
+        let with_the_edge = check_dependency_direction(
+            deny_workspace("foundry-integrations = { path = \"../foundry-integrations\" }\n")
+                .path(),
+        );
+        assert!(
+            with_the_edge
+                .as_deref()
+                .is_some_and(|v| v.contains("foundry-integrations")),
+            "{with_the_edge:?}"
+        );
+    }
 
     macro_rules! pending_gold {
         ($name:ident, $step:literal, $what:literal) => {
@@ -14532,65 +15185,11 @@ mod external_integration_plugins_check_arch_tests {
         };
     }
 
-    // Rule 1 `integrations-pure-core` (allow-list of dependencies), slice 01.
-    pending_gold!(
-        pure_core_passes_on_the_tree,
-        "01-04",
-        "integrations-pure-core passes on the real foundry-integrations"
-    );
-    pending_gold!(
-        pure_core_refuses_a_planted_reqwest,
-        "01-04",
-        "integrations-pure-core refuses reqwest in [dependencies]"
-    );
-    pending_gold!(
-        pure_core_refuses_a_planted_foundry_auth,
-        "01-04",
-        "integrations-pure-core refuses foundry-auth in [dependencies]"
-    );
-    // Rule 1a `integrations-store-capability`, slice 01.
-    pending_gold!(
-        store_capability_passes_on_the_tree,
-        "01-04",
-        "integrations-store-capability passes on the real tree"
-    );
-    pending_gold!(
-        store_capability_refuses_arc_store_in_the_hydrator,
-        "01-04",
-        "an Arc<Store> planted in the hydrator is refused"
-    );
-    pending_gold!(
-        store_capability_refuses_store_in_a_use_case,
-        "01-04",
-        "a &Store planted in a foundry-services use-case is refused"
-    );
-    // Rule 2 `integrations-secret-seam`, slice 01.
-    pending_gold!(
-        secret_seam_passes_on_the_tree,
-        "01-04",
-        "integrations-secret-seam passes on the real tree"
-    );
-    pending_gold!(
-        secret_seam_refuses_open_in_a_view_module,
-        "01-04",
-        "SealedSecret .open( planted in a view module is refused"
-    );
-    // Rule 4 `project-lifecycle-write-guard` extended, slice 01.
-    pending_gold!(
-        write_guard_refuses_a_route_writer_without_the_lock,
-        "01-04",
-        "a route writer that does not open with lock_live_project is refused"
-    );
+    // Rule 4 `project-lifecycle-write-guard` extended, slice 05 half.
     pending_gold!(
         write_guard_refuses_a_choice_writer_without_the_lock,
         "05-01",
         "an email-choice writer that does not open with lock_live_project is refused"
-    );
-    // Rule 6 `deny.toml` wrapper, slice 01.
-    pending_gold!(
-        deny_wrapper_refuses_foundry_integrations_in_core,
-        "01-04",
-        "foundry-core depending on foundry-integrations fails cargo deny bans"
     );
     // Rule 3 `integrations-outbound-client-seam`, slice 04.
     pending_gold!(

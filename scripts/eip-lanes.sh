@@ -81,13 +81,13 @@ eip_mut() {
   for file in "$@"; do args+=(--file "$file"); done
   (cd "$EIP_ROOT" &&
     timeout "$EIP_MUT_TIMEOUT" cargo mutants --no-shuffle --output "$out" "${args[@]}")
-  local status=$? caught missed
+  local rc=$? caught missed
   caught=$(wc -l <"$out/mutants.out/caught.txt" 2>/dev/null || echo 0)
   missed=$(wc -l <"$out/mutants.out/missed.txt" 2>/dev/null || echo 0)
   if [[ $((caught + missed)) -gt 0 ]]; then
     echo "eip-lanes: kill rate $((100 * caught / (caught + missed)))% ($caught caught, $missed missed)"
   fi
-  return "$status"
+  return "$rc"
 }
 
 # Phase-end regression for the crates a phase touched (default foundry-acceptance).

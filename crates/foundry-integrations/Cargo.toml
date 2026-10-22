@@ -6,14 +6,20 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
-description = "Foundry integrations pure core (DESIGN DDR-1/DDR-2): SCAFFOLD, pending tests only"
+description = "Foundry integrations pure core (DESIGN DDR-1/DDR-2): domain types, port traits and plan functions; no I/O"
 publish = false
 
 [lib]
 path = "src/lib.rs"
 
-# DESIGN rule `integrations-pure-core`: [dependencies] may name only
-# foundry-core, serde, serde_json, async-trait, uuid, time, ipnet. DELIVER adds
-# them (and `proptest = "1"` under [dev-dependencies], already locked) with the
-# code. The scaffold has no dependency at all.
+# DESIGN rule `integrations-pure-core` (check-arch): [dependencies] may name only
+# foundry-core, serde, serde_json, async-trait, uuid, time, ipnet. Anything
+# else — reqwest, sqlx, tokio, any other Foundry crate — fails the build.
 [dependencies]
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+proptest = "1"
