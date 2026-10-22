@@ -11,7 +11,7 @@
     "scenario_ownership_invariant": "131 scenarios (219 rows) and 78 stubs, each owned by one step; 01-11 owns scenario 131 (authored by nw-acceptance-designer, 2026-10-22). Ignored stubs left, in order: 77, 66, 58, 45, 44, 39, 39, 38, 38, 38, 35, 33, 33, 29, 23, 22, 21, 20, 20, 20, 10, 9, 8, 8, 1, 0.",
     "deviations_from_distill": "Steps over about 8 scenarios split; history page (51, 54, 58, 59, 115) moved to 01-09 because 66 and 123 read a route's history; failover is 01-11. See pending_id_remap.",
     "prerequisites": [
-      "H-3 recorded Slack fixtures gate 01-05; 01-06 onward inherit the gate through the dependency chain on 01-05.",
+      "H-3 recorded Slack fixtures: USER DECISION 2026-10-22 — build 01-05 onward against the Slack double's hand-written answers; the gate moves to release time. 01-05 adds an explicit opt-in (FOUNDRY_EIP_HANDWRITTEN_SLACK=1) so the double serves hand-written shapes with a loud notice; without it the double still refuses. No release (tag) of slice 01 until recorded fixtures replace the hand-written shapes and the slice-01..03 scenarios pass on them (gate G-fixtures).",
       "Phases 01 and 02 are slices 01 and 02 wherever a gate names slices."
     ],
     "open_items": [
@@ -26,7 +26,7 @@
         "gate": "Due before phase 03 completes"
       }
     ],
-    "release_gates": "DEVOPS G1-G6. G4: no prod promotion of phases 01-02 (steps 01-01..02-03) without 03-06 and 01-11, which also gates three-replica deployments. Slice 05 is not released while 99 is pending. No push or tag without the user's go.",
+    "release_gates": "DEVOPS G1-G6. G4: no prod promotion of phases 01-02 (steps 01-01..02-03) without 03-06 and 01-11, which also gates three-replica deployments. Slice 05 is not released while 99 is pending. No push or tag without the user's go. G-fixtures (user decision 2026-10-22): no tag of slice 01+ until recorded Slack fixtures (H-3) exist and the Slack scenarios pass against them with FOUNDRY_EIP_HANDWRITTEN_SLACK unset.",
     "standing_rules": "Example-based tests; proptest where a stub names one. Un-pend only in the owning step; never re-author scenarios. Change a remapped stub's id before un-ignoring. Runtime sqlx::query only. Mutation >= 80% on modified Rust. One local commit per step.",
     "lane_preamble": "export FOUNDRY_XTASK_INCLUDE_DOCKER=1 RUST_TEST_THREADS=1; source lane_env. Before every lane run eip_pre (foreign-listener and other-session check); run every lane under timeout. Before eip-restart, eip-metrics and the bench, warm the release foundry binary (eip_warm, CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false). Each step runs its stubs' crate tests and eip_lane for each tag in its lanes; then git add -N and eip_mut on its mutation_targets, gate >= 80% kill rate. lane_common at each phase end. Until 01-01 creates scripts/eip-lanes.sh, 01-01 uses the inline equivalents.",
     "lane_env": "scripts/eip-lanes.sh (eip_pre, eip_warm, eip_lane, eip_mut; created by 01-01)",
