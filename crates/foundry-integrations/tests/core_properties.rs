@@ -6,8 +6,9 @@
 //! (`proptest = "1"`, already locked) or a table test.
 
 use foundry_integrations::{
-    claimable_head, expiry_set, ChannelKind, ConnectionState, ContentLevel, DispatchPlan,
-    EventKind, OutboxRow, QueuedDelivery, RouteSpec,
+    claimable_head, expiry_set, Attention, ChannelKind, ConnectionState, ContentLevel,
+    DispatchPlan, EventKind, FinishedDelivery, OutboxRow, QueuedDelivery, ReasonCode, RouteFacts,
+    RouteSpec, RouteStatus,
 };
 use proptest::prelude::*;
 use std::collections::BTreeSet;
@@ -82,12 +83,6 @@ pending!(
     classify_matrix_recorded_answers,
     "04-02",
     "table over recorded Matrix answers (401, 403, 429 retry_after_ms, 5xx, unknown errcode)"
-);
-// route status (DDR-19).
-pending!(
-    route_status_derive_precedence,
-    "01-06",
-    "table: every precedence pair of DDR-19's eight rules"
 );
 // plan functions (claim and sweeps).
 pending!(
@@ -336,5 +331,151 @@ proptest! {
 
         prop_assert_eq!(chosen.len(), as_set.len(), "no id twice");
         prop_assert_eq!(as_set, expected);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 01-06: route status (DDR-19), every precedence pair of the eight rules.
+// ---------------------------------------------------------------------------
+
+/// A route that matches no rule but the last: connected, never paused, nothing
+/// wrong, last delivered at 14:02.
+fn delivering() -> RouteFacts {
+    RouteFacts {
+        kind: ChannelKind::Slack,
+        paused: false,
+        connection_state: Some(ConnectionState::Connected),
+        problem: None,
+        missing_lane: None,
+        newest_finished: Some(FinishedDelivery::Other),
+        head_failed: None,
+        last_delivered_at: Some(time::macros::datetime!(2026-10-21 14:02 UTC)),
+    }
+}
+
+/// Rule `n` (1-7) made true on `facts`.
+fn with_rule(mut facts: RouteFacts, n: usize) -> RouteFacts {
+    match n {
+        1 => facts.paused = true,
+        2 => facts.connection_state = Some(ConnectionState::Disconnected),
+        3 => facts.connection_state = Some(ConnectionState::Lost),
+        4 => facts.problem = Some(ReasonCode::NotInChannel),
+        5 => facts.missing_lane = Some("QA".to_string()),
+        6 => {
+            facts.newest_finished = Some(FinishedDelivery::GaveUp {
+                issue_key: "AUTH-12".to_string(),
+            })
+        }
+        7 => facts.head_failed = Some(Some(ReasonCode::SlackNoAnswer)),
+        _ => {}
+    }
+    facts
+}
+
+/// What rule `n` gives, in K-9's words for #auth-dev.
+fn expected(n: usize) -> (RouteStatus, &'static str) {
+    match n {
+        1 => (RouteStatus::Paused, "Paused"),
+        2 => (
+            RouteStatus::Disconnected(ChannelKind::Slack),
+            "Paused: Slack was disconnected",
+        ),
+        3 => (RouteStatus::ConnectionLost, "Paused: connection lost"),
+        4 => (
+            RouteStatus::NeedsAttention(Attention::Problem(ReasonCode::NotInChannel)),
+            "Needs attention: Foundry is no longer in #auth-dev. Invite @Foundry back, then Resume.",
+        ),
+        5 => (
+            RouteStatus::NeedsAttention(Attention::LaneMissing {
+                label: "QA".to_string(),
+            }),
+            "Needs attention: the lane QA no longer exists. Choose lanes again.",
+        ),
+        6 => (
+            RouteStatus::NeedsAttention(Attention::GaveUp {
+                issue_key: "AUTH-12".to_string(),
+            }),
+            "Needs attention: AUTH-12's message could not be delivered within 24 hours",
+        ),
+        7 => (
+            RouteStatus::Retrying(Some(ReasonCode::SlackNoAnswer)),
+            "Retrying: Slack did not answer",
+        ),
+        _ => (
+            RouteStatus::Delivering {
+                last_delivery: Some(time::macros::datetime!(2026-10-21 14:02 UTC)),
+            },
+            "Delivering · last delivery 14:02",
+        ),
+    }
+}
+
+/// bypass: a precedence table is a finite, exhaustive table, not a property
+/// over generated inputs: every pair of rules (and each rule alone) is listed.
+#[test]
+fn route_status_derive_precedence() {
+    for higher in 1..=8 {
+        for lower in higher..=8 {
+            // Rules 2 and 3 are two states of one connection: never both.
+            if (higher, lower) == (2, 3) {
+                continue;
+            }
+            let facts = with_rule(with_rule(delivering(), lower), higher);
+            let (status, words) = expected(higher);
+            let derived = RouteStatus::derive(&facts);
+            assert_eq!(
+                derived, status,
+                "rule {higher} over rule {lower}: {facts:?}"
+            );
+            assert_eq!(
+                derived.words("#auth-dev"),
+                words,
+                "rule {higher} over rule {lower}"
+            );
+        }
+    }
+    // A webhook route has no connection: rules 2 and 3 never apply to it.
+    let webhook = RouteFacts {
+        kind: ChannelKind::Webhook,
+        connection_state: None,
+        ..delivering()
+    };
+    assert_eq!(RouteStatus::derive(&webhook), expected(8).0);
+    // Never delivered, nothing wrong: "Delivering" without a time; a head that
+    // failed without a recorded reason: "Retrying".
+    let fresh = RouteFacts {
+        last_delivered_at: None,
+        newest_finished: None,
+        ..delivering()
+    };
+    assert_eq!(RouteStatus::derive(&fresh).words("#auth-dev"), "Delivering");
+    let unexplained = RouteFacts {
+        head_failed: Some(None),
+        ..delivering()
+    };
+    assert_eq!(
+        RouteStatus::derive(&unexplained).words("#auth-dev"),
+        "Retrying"
+    );
+    // A finished delivery is a give-up only when it failed for gave_up_24h.
+    for (status, reason, key, gave_up) in [
+        ("failed", Some("gave_up_24h"), Some("AUTH-12"), true),
+        ("failed", Some("not_in_channel"), Some("AUTH-12"), false),
+        ("skipped", Some("gave_up_24h"), Some("AUTH-12"), false),
+        ("delivered", None, Some("AUTH-12"), false),
+        ("failed", Some("gave_up_24h"), None, false),
+    ] {
+        let read = FinishedDelivery::read(status, reason, key);
+        assert_eq!(
+            read,
+            if gave_up {
+                FinishedDelivery::GaveUp {
+                    issue_key: "AUTH-12".to_string(),
+                }
+            } else {
+                FinishedDelivery::Other
+            },
+            "{status} {reason:?} {key:?}"
+        );
     }
 }

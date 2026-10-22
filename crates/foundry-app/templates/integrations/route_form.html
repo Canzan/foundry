@@ -1,0 +1,35 @@
+{% extends "app_shell.html" %}
+{% block title %}New route · {{ project_name }}{% endblock %}
+{% block app_content %}
+<h1>New Slack route for {{ project_name }}</h1>
+{% if let Some(notice) = notice %}<p class="notice" role="status" data-route-notice>{{ notice }}</p>{% endif %}
+{% if no_connection %}
+<p data-no-connection>{{ no_chat_connection }}</p>
+{% else %}
+<form method="post" action="{{ routes_path }}">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <input type="hidden" name="kind" value="slack">
+  <p>
+    <label for="route-destination">Channel</label>
+    <select id="route-destination" name="destination">
+      {% for channel in channels %}<option value="{{ channel.value }}"{% if channel.chosen %} selected{% endif %}>{{ channel.label }}</option>{% endfor %}
+    </select>
+  </p>
+  <p>{{ private_channels }}</p>
+  <fieldset>
+    <legend>Events</legend>
+    {% for event in events %}<label><input type="checkbox" name="events" value="{{ event.value }}"{% if event.chosen %} checked{% endif %}> {{ event.label }}</label>
+    {% endfor %}
+  </fieldset>
+  <fieldset>
+    <legend>What messages carry</legend>
+    {% for level in levels %}<label><input type="radio" name="content_level" value="{{ level.value }}"{% if level.chosen %} checked{% endif %}> {{ level.label }}</label>
+    {% endfor %}
+  </fieldset>
+  <p>
+    <button type="submit" formaction="{{ test_path }}">Send test</button>
+    <button type="submit">Save route</button>
+  </p>
+</form>
+{% endif %}
+{% endblock %}

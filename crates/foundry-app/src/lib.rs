@@ -838,6 +838,20 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/project/{project_slug}/integrations",
             get(integrations::handlers::show_project),
         )
+        // DDR-25: the route form, Send test (one K-7 message, no row) and the
+        // route save (no send), three doors. Manage only.
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations/routes/new",
+            get(integrations::handlers::show_new_route),
+        )
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations/routes/test",
+            post(integrations::handlers::send_test),
+        )
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations/routes",
+            post(integrations::handlers::create_route),
+        )
         .route("/", get(signin::dashboard_root))
         // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO
         // route is refused with the SAME uniform `resource_not_found_page()` the
@@ -986,11 +1000,17 @@ pub mod test_support {
         /// dropped; the listener's connection would otherwise log
         /// noisily on the way down).
         pub listener_task: Option<tokio::task::JoinHandle<()>>,
+        /// The integrations delivery worker, built as `main.rs` builds it; it
+        /// idles until the scenario installs integrations that run one.
+        pub worker_task: Option<tokio::task::JoinHandle<()>>,
     }
 
     impl Drop for TestApp {
         fn drop(&mut self) {
-            if let Some(task) = self.listener_task.take() {
+            for task in [self.listener_task.take(), self.worker_task.take()]
+                .into_iter()
+                .flatten()
+            {
                 task.abort();
             }
         }
@@ -1029,11 +1049,18 @@ pub mod test_support {
                 .await
                 .ok();
         });
+        let worker_task = integrations::worker::IntegrationsWorker::new(
+            integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
+            state.integrations.clone(),
+            state.clock.clone(),
+        )
+        .spawn();
         Ok(TestApp {
             addr,
             state,
             shutdown: tx,
             listener_task: None,
+            worker_task: Some(worker_task),
         })
     }
 

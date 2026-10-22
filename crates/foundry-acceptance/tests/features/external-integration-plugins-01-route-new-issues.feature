@@ -43,7 +43,7 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     And it is 14:02 on 21 Oct 2026
     And the instance has the Foundry Slack app set up
 
-  @pending @walking_skeleton @driving_port @kpi @contract-shape:bounded-change
+  @walking_skeleton @driving_port @kpi @contract-shape:bounded-change
   Scenario: Lena sees the first new issue arrive in the chosen Slack channel
     Given Priya has connected Canzan Labs to Slack
     And Lena has routed New issue on Identity Platform to #auth-dev
@@ -52,7 +52,7 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     And Open in Foundry opens AUTH-12 for Sam and gives Marco the same not-found page any unknown address gets
     And Lena's route to #auth-dev reads "Delivering" with the time of that delivery
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: A test message confirms the route before it is saved
     Given Priya has connected Canzan Labs to Slack
     And Lena is creating a Slack route from Identity Platform to #auth-dev
@@ -60,7 +60,7 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     Then #auth-dev shows "Test message from Foundry for Identity Platform (AUTH). This route will post here."
     And Identity Platform still has no route
 
-  @pending @edge @contract-shape:bounded-change
+  @edge @contract-shape:bounded-change
   Scenario: Saving a route sends nothing and puts it on record
     Given Priya has connected Canzan Labs to Slack
     And Lena is creating a Slack route from Identity Platform to #auth-dev
@@ -69,7 +69,7 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     And Slack has received no message for #auth-dev
     And the workspace's integration activity gains the line "21 Oct 2026 · Lena Park created the route to #auth-dev"
 
-  @pending @edge @contract-shape:bounded-change
+  @edge @contract-shape:bounded-change
   Scenario: Test messages are limited to six a minute for each person
     Given Priya has connected Canzan Labs to Slack
     And Lena is creating a Slack route from Identity Platform to #auth-dev
@@ -118,13 +118,13 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     When Slack answers again
     Then nothing is posted to #auth-dev within 10 seconds
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: A lead without a chat connection is told who can add one
     Given Canzan Labs has no Slack or Matrix connection
     When Lena chooses New route on Identity Platform's integrations page
     Then Lena reads "This workspace has no chat connection yet. Ask a workspace admin to connect Slack or Matrix."
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: Only the team's leads and workspace admins configure a project's routes
     Given Priya has connected Canzan Labs to Slack
     When <person> <attempt> on <project>
@@ -142,7 +142,7 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
       | Lena                 | opens the integrations page             | Homelab Ops       | Priya |
       | Lena                 | submits a new route to #ops-alerts      | Homelab Ops       | Priya |
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: A workspace admin configures routes on any project of the workspace
     Given Priya has connected Canzan Labs to Slack
     And Priya is creating a Slack route from Homelab Ops to #ops-alerts
@@ -164,7 +164,7 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     When Lena saves the route
     Then nothing is posted to #auth-dev within 10 seconds
 
-  @pending @edge @contract-shape:pure-function
+  @edge @contract-shape:pure-function
   Scenario Outline: The channel picker lists the channels Foundry can post to
     Given Priya has connected Canzan Labs to Slack
     And Foundry <membership> the private channel #backend-private

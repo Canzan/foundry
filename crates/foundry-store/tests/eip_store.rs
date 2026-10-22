@@ -295,6 +295,7 @@ impl Lab {
             }],
             created_by: self.lena,
             created_via: "web".to_string(),
+            created_at: time::OffsetDateTime::now_utc(),
         }
     }
 

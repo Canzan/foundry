@@ -5,13 +5,15 @@
 //! settings in the acceptance harness), so both read the same names the same
 //! way. A malformed secrets key or a partial Slack trio refuses start naming
 //! the setting; a missing secrets key is not an error (integrations are simply
-//! not offered: DD-2, R-3). The delivery worker's settings (give-up, lease,
-//! poll) are read where the worker is built.
+//! not offered: DD-2, R-3). The delivery worker's settings (poll, lease,
+//! give-up, on/off) are read here too, so the acceptance harness hands them to
+//! the in-process worker the same way (ADR-EIP-002 decisions 4 and 11).
 
 use foundry_auth::secret_box::{
     SecretBox, SecretBoxError, SECRETS_KEY_PREVIOUS_SETTING, SECRETS_KEY_SETTING,
 };
 use secrecy::SecretString;
+use std::time::Duration;
 
 pub const SLACK_CLIENT_ID: &str = "SLACK_CLIENT_ID";
 pub const SLACK_CLIENT_SECRET: &str = "SLACK_CLIENT_SECRET";
@@ -19,6 +21,19 @@ pub const SLACK_SIGNING_SECRET: &str = "SLACK_SIGNING_SECRET";
 pub const SLACK_API_BASE_URL: &str = "SLACK_API_BASE_URL";
 pub const SLACK_AUTHORIZE_URL: &str = "SLACK_AUTHORIZE_URL";
 pub const PUBLIC_URL: &str = "FOUNDRY_PUBLIC_URL";
+
+pub const POLL_MS: &str = "FOUNDRY_INTEGRATIONS_POLL_MS";
+pub const LEASE_SECONDS: &str = "FOUNDRY_INTEGRATIONS_LEASE_SECONDS";
+pub const GIVE_UP_SECONDS: &str = "FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS";
+/// `off` stops this process's delivery worker (another process sends).
+pub const WORKER: &str = "FOUNDRY_INTEGRATIONS_WORKER";
+
+pub const DEFAULT_POLL_MS: u64 = 1_000;
+pub const DEFAULT_LEASE_SECONDS: u64 = 45;
+pub const DEFAULT_GIVE_UP_SECONDS: u64 = 86_400;
+/// The worst-case claim-to-record path (resolve 5 s, pre-send read 10 s, send
+/// 10 s) plus 10 s: a shorter lease could expire under a live send.
+pub const MIN_LEASE_SECONDS: u64 = 35;
 
 pub const DEFAULT_SLACK_API_BASE_URL: &str = "https://slack.com/api";
 pub const DEFAULT_SLACK_AUTHORIZE_URL: &str = "https://slack.com/oauth/v2/authorize";
@@ -30,6 +45,52 @@ pub enum ConfigError {
     PartialSlack { missing: &'static str },
     #[error(transparent)]
     SecretsKey(#[from] SecretBoxError),
+    #[error("{setting} is not a whole number")]
+    NotANumber { setting: &'static str },
+    #[error("FOUNDRY_INTEGRATIONS_LEASE_SECONDS is under {MIN_LEASE_SECONDS}: a delivery's lease could expire during its send")]
+    LeaseTooShort,
+}
+
+/// The delivery worker's settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkerSettings {
+    /// Whether this process runs the dispatcher and a sender.
+    pub enabled: bool,
+    pub poll: Duration,
+    pub lease: Duration,
+    pub give_up_after: Duration,
+}
+
+impl WorkerSettings {
+    /// No worker (what a harness starts with).
+    pub fn off() -> Self {
+        Self {
+            enabled: false,
+            poll: Duration::from_millis(DEFAULT_POLL_MS),
+            lease: Duration::from_secs(DEFAULT_LEASE_SECONDS),
+            give_up_after: Duration::from_secs(DEFAULT_GIVE_UP_SECONDS),
+        }
+    }
+
+    fn read(get: &impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError> {
+        let number = |setting: &'static str, default: u64| match get(setting) {
+            None => Ok(default),
+            Some(raw) => raw
+                .trim()
+                .parse::<u64>()
+                .map_err(|_| ConfigError::NotANumber { setting }),
+        };
+        let lease = number(LEASE_SECONDS, DEFAULT_LEASE_SECONDS)?;
+        if lease < MIN_LEASE_SECONDS {
+            return Err(ConfigError::LeaseTooShort);
+        }
+        Ok(Self {
+            enabled: get(WORKER).is_none_or(|v| !v.trim().eq_ignore_ascii_case("off")),
+            poll: Duration::from_millis(number(POLL_MS, DEFAULT_POLL_MS)?.max(1)),
+            lease: Duration::from_secs(lease),
+            give_up_after: Duration::from_secs(number(GIVE_UP_SECONDS, DEFAULT_GIVE_UP_SECONDS)?),
+        })
+    }
 }
 
 /// The Foundry Slack app this instance runs (OD-3): all three settings.
@@ -49,6 +110,7 @@ pub struct IntegrationSettings {
     pub slack: Option<SlackSettings>,
     /// `None` when `FOUNDRY_SECRETS_KEY` is not set (DD-2: integrations off).
     pub secrets: Option<SecretBox>,
+    pub worker: WorkerSettings,
 }
 
 impl IntegrationSettings {
@@ -72,6 +134,7 @@ impl IntegrationSettings {
             public_url,
             slack: slack_settings(&get)?,
             secrets: secrets(&get)?,
+            worker: WorkerSettings::read(&get)?,
         })
     }
 
@@ -81,6 +144,7 @@ impl IntegrationSettings {
             public_url: public_url.trim_end_matches('/').to_string(),
             slack: None,
             secrets: None,
+            worker: WorkerSettings::off(),
         }
     }
 }

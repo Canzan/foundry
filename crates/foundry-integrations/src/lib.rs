@@ -8,7 +8,11 @@
 //!   the deliveries to queue (DDR-7, DDR-8, DDR-27);
 //! - [`claimable_head`] chooses the one delivery a sender may claim on a
 //!   route, and [`expiry_set`] the deliveries the expiry sweep fails
-//!   (ADR-EIP-002 decisions 4 and 9).
+//!   (ADR-EIP-002 decisions 4 and 9);
+//! - [`compose`] decides a message's lines and [`encode_slack`] places them
+//!   (D-3, DDR-12); [`classify_slack`] reads Slack's answer;
+//! - [`RetryPolicy::next`] schedules a retry, never past the give-up time;
+//! - [`RouteStatus::derive`] gives a route's K-9 status (DDR-19).
 //!
 //! The driven ports a channel kind implements are [`DeliveryChannel`]
 //! (write-only), [`DestinationCatalog`] (read-only), [`DestinationEnrolment`]
@@ -18,20 +22,31 @@
 
 #![forbid(unsafe_code)]
 
+mod classify;
 mod dispatch;
 mod event;
 mod kinds;
+mod message;
 mod ports;
 mod queue;
+mod retry;
 mod route;
+mod status;
+mod wire;
 
+pub use classify::classify_slack;
 pub use dispatch::{DispatchPlan, OutboxRow, PlannedDelivery};
 pub use event::EventKind;
 pub use kinds::{ChannelKind, ChannelOutcome, ConnectionState, ContentLevel, ReasonCode};
+pub use message::{
+    compose, encode_slack, escape_slack, test_message, EventView, MessageLines, OPEN_IN_FOUNDRY,
+};
 pub use ports::{
     DeliveryChannel, DeliveryKey, Destination, DestinationCatalog, DestinationCheck,
     DestinationEnrolment, DestinationRef, EmailTransport, EmailTransportError, EncodedMessage,
     OutboundEmail,
 };
 pub use queue::{claimable_head, expiry_set, QueuedDelivery};
+pub use retry::{RetryPolicy, Settlement};
 pub use route::RouteSpec;
+pub use status::{Attention, FinishedDelivery, RouteFacts, RouteStatus};

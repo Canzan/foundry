@@ -1,12 +1,19 @@
-//! The Slack adapter for the install flow (ADR-EIP-005 decisions 1-4): the
+//! The Slack adapter (ADR-EIP-005 decisions 1-4): the install flow (the
 //! approval address, the session-held install state, `oauth.v2.access`,
-//! `auth.test`, and the app manifest the setup page renders (DD-9).
+//! `auth.test`, the app manifest the setup page renders, DD-9), and
+//! [`SlackBot`], one workspace's bot posting with `chat.postMessage` and
+//! listing channels with `conversations.list` / `conversations.info`.
 //!
 //! The client follows no redirect and keeps the bot token inside a
 //! [`SecretString`]; no error carries Slack's own text or a credential.
 
 use super::config::SlackSettings;
+use async_trait::async_trait;
 use base64::Engine;
+use foundry_integrations::{
+    classify_slack, ChannelKind, ChannelOutcome, DeliveryChannel, DeliveryKey, Destination,
+    DestinationCatalog, DestinationCheck, DestinationRef, EncodedMessage, ReasonCode,
+};
 use rand::RngCore;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
@@ -179,6 +186,161 @@ impl SlackApp {
             Some(false) => Err(SlackError::Refused),
             None => Err(SlackError::Unreadable),
         }
+    }
+}
+
+/// The Foundry Slack app acting as one workspace's bot: the opened bot token
+/// stays inside it (ADR-EIP-004). It posts (`DeliveryChannel`, write-only)
+/// and lists and checks channels (`DestinationCatalog`, read-only).
+pub struct SlackBot {
+    http: reqwest::Client,
+    api_base_url: String,
+    token: SecretString,
+}
+
+impl SlackBot {
+    pub(crate) fn new(app: &SlackApp, token: SecretString) -> Self {
+        Self {
+            http: app.http.clone(),
+            api_base_url: app.api_base_url.clone(),
+            token,
+        }
+    }
+
+    fn method(&self, name: &str) -> String {
+        format!("{}/{name}", self.api_base_url)
+    }
+
+    /// One read call; Slack's `ok` field decides.
+    async fn read(&self, name: &str, query: &[(&str, &str)]) -> Result<Value, ReasonCode> {
+        let response = self
+            .http
+            .get(self.method(name))
+            .query(query)
+            .bearer_auth(self.token.expose_secret())
+            .send()
+            .await
+            .map_err(|_| ReasonCode::SlackNoAnswer)?;
+        let body = response.json::<Value>().await.ok();
+        match classify_slack(body.as_ref()) {
+            ChannelOutcome::Delivered => Ok(body.unwrap_or_default()),
+            ChannelOutcome::Transient { reason, .. }
+            | ChannelOutcome::RouteRefused { reason }
+            | ChannelOutcome::ConnectionRefused { reason } => Err(reason),
+        }
+    }
+}
+
+/// A channel Foundry can post to: public (`chat:write.public`), or private
+/// with the app a member; never archived.
+fn postable(channel: &Value) -> Option<Destination> {
+    let private = channel["is_private"].as_bool().unwrap_or(false);
+    let member = channel["is_member"].as_bool().unwrap_or(false);
+    let archived = channel["is_archived"].as_bool().unwrap_or(false);
+    if archived || (private && !member) {
+        return None;
+    }
+    Some(Destination {
+        reference: DestinationRef(channel["id"].as_str()?.to_string()),
+        label: format!("#{}", channel["name"].as_str()?),
+    })
+}
+
+/// The most pages of `conversations.list` one listing reads.
+const MAX_LIST_PAGES: usize = 10;
+
+#[async_trait]
+impl DeliveryChannel for SlackBot {
+    fn kind(&self) -> ChannelKind {
+        ChannelKind::Slack
+    }
+
+    async fn deliver(
+        &self,
+        destination: &DestinationRef,
+        message: &EncodedMessage,
+        _key: DeliveryKey,
+    ) -> ChannelOutcome {
+        let mut body = message.0.clone();
+        body["channel"] = Value::String(destination.0.clone());
+        let sent = self
+            .http
+            .post(self.method("chat.postMessage"))
+            .bearer_auth(self.token.expose_secret())
+            .json(&body)
+            .send()
+            .await;
+        let Ok(response) = sent else {
+            return classify_slack(None);
+        };
+        let answer = response.json::<Value>().await.ok();
+        classify_slack(answer.as_ref())
+    }
+
+    async fn probe(&self) -> ChannelOutcome {
+        match self.read("auth.test", &[]).await {
+            Ok(_) => ChannelOutcome::Delivered,
+            Err(reason) => ChannelOutcome::Transient {
+                reason,
+                retry_after: None,
+            },
+        }
+    }
+}
+
+#[async_trait]
+impl DestinationCatalog for SlackBot {
+    async fn verify_connection(&self) -> Result<(), ReasonCode> {
+        self.read("auth.test", &[]).await.map(|_| ())
+    }
+
+    async fn list_destinations(&self) -> Result<Vec<Destination>, ReasonCode> {
+        let mut destinations = Vec::new();
+        let mut cursor = String::new();
+        for _ in 0..MAX_LIST_PAGES {
+            let page = self
+                .read(
+                    "conversations.list",
+                    &[
+                        ("types", "public_channel,private_channel"),
+                        ("exclude_archived", "true"),
+                        ("limit", "200"),
+                        ("cursor", cursor.as_str()),
+                    ],
+                )
+                .await?;
+            destinations.extend(
+                page["channels"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(postable),
+            );
+            cursor = page["response_metadata"]["next_cursor"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            if cursor.is_empty() {
+                break;
+            }
+        }
+        destinations.sort_by(|a, b| a.label.cmp(&b.label));
+        Ok(destinations)
+    }
+
+    async fn check_destination(
+        &self,
+        destination: &DestinationRef,
+    ) -> Result<DestinationCheck, ReasonCode> {
+        let answer = self
+            .read("conversations.info", &[("channel", destination.0.as_str())])
+            .await?;
+        let channel = &answer["channel"];
+        Ok(DestinationCheck {
+            can_post: postable(channel).is_some(),
+            shared_with_another_organisation: channel["is_ext_shared"].as_bool().unwrap_or(false),
+            encrypted: false,
+        })
     }
 }
 

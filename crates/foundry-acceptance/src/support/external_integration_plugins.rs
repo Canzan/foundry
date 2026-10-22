@@ -1124,7 +1124,12 @@ pub fn instance_env(world: &FoundryWorld) -> Vec<(&'static str, String)> {
 pub async fn rewire(world: &mut FoundryWorld) {
     use foundry_app::integrations::config::IntegrationSettings;
     use foundry_app::integrations::Integrations;
-    let env = instance_env(world);
+    let mut env = instance_env(world);
+    // Subprocess and replica scenarios: the in-process app runs no delivery
+    // worker of its own on the shared schema.
+    if !world.eip.spec.in_process_worker {
+        env.push(("FOUNDRY_INTEGRATIONS_WORKER", "off".to_string()));
+    }
     let harness = tm::harness(world);
     let lookup = |name: &str| {
         env.iter()

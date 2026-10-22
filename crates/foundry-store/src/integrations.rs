@@ -229,6 +229,8 @@ pub struct NewRoute {
     pub lanes: Vec<RouteLane>,
     pub created_by: Uuid,
     pub created_via: String,
+    /// The injected clock's time of the save (the audit record's date).
+    pub created_at: OffsetDateTime,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -522,10 +524,11 @@ impl Store {
         })
     }
 
-    /// Save a route and its lane filter (ADR-EIP-002 decision 3). Opens with
-    /// `lock_live_project`, so a project delete in flight makes it wait and a
-    /// deleted project refuses it ([`RouteWriteOutcome::ProjectDeleted`]).
-    /// `receives_from` is the transaction's `now()`.
+    /// Save a route, its lane filter and its audit record (ADR-EIP-002
+    /// decision 3, DDR-21), one transaction. Opens with `lock_live_project`, so
+    /// a project delete in flight makes it wait and a deleted project refuses
+    /// it ([`RouteWriteOutcome::ProjectDeleted`]). `receives_from` is the
+    /// transaction's `now()`; the audit record is dated `created_at`.
     pub async fn create_route(&self, route: &NewRoute) -> Result<RouteWriteOutcome, StoreError> {
         let mut tx = self.pool.begin().await?;
         if !lock_live_project(&mut tx, route.project_id).await? {
@@ -565,6 +568,21 @@ impl Store {
             .execute(&mut *tx)
             .await?;
         }
+        sqlx::query(
+            "INSERT INTO integration_audit_events
+                    (id, workspace_id, project_id, actor_id, via, action, kind, subject, created_at)
+             VALUES ($1, $2, $3, $4, $5, 'route_created', $6, $7, $8)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(route.workspace_id)
+        .bind(route.project_id)
+        .bind(route.created_by)
+        .bind(&route.created_via)
+        .bind(&route.kind)
+        .bind(&route.destination_label)
+        .bind(route.created_at)
+        .execute(&mut *tx)
+        .await?;
         tx.commit().await?;
         Ok(RouteWriteOutcome::Created(id))
     }
@@ -749,13 +767,154 @@ pub struct AuditRow {
     pub subject: String,
 }
 
-/// A route as a project's integrations page lists it.
+/// A route as a project's integrations page lists it, with the facts its
+/// status is derived from (DDR-19).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProjectRoute {
     pub id: Uuid,
     pub kind: String,
     pub destination_label: String,
+    pub paused: bool,
+    /// `integration_connections.state`; `None` for a webhook route.
+    pub connection_state: Option<String>,
+    pub problem_reason: Option<String>,
+    /// The label at save of a filter lane the project no longer has.
+    pub missing_lane: Option<String>,
+    pub newest_finished: Option<FinishedDeliveryRow>,
+    /// The head pending delivery, when it has failed at least once, and the
+    /// vendor's latest reason for it.
+    pub head_failed: Option<Option<String>>,
+    pub last_delivered_at: Option<OffsetDateTime>,
 }
+
+/// The newest finished delivery of a route.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FinishedDeliveryRow {
+    pub status: String,
+    pub final_reason: Option<String>,
+    pub issue_key: Option<String>,
+}
+
+/// A project's routes with their status facts, oldest first.
+const PROJECT_ROUTES_SQL: &str = "
+    SELECT r.id, r.kind, r.destination_label, r.paused_at IS NOT NULL AS paused,
+           c.state AS connection_state, r.problem_reason,
+           (SELECT l.label_at_save FROM integration_route_lanes l
+             WHERE l.route_id = r.id
+               AND NOT EXISTS (SELECT 1 FROM lanes x
+                                WHERE x.id = l.lane_id AND x.project_id = r.project_id)
+             ORDER BY l.label_at_save LIMIT 1) AS missing_lane,
+           f.status AS finished_status, f.final_reason, f.issue_key,
+           h.id IS NOT NULL AND (h.next_attempt_at IS NOT NULL
+                                 OR h.last_vendor_reason IS NOT NULL) AS head_failed,
+           h.last_vendor_reason,
+           (SELECT max(d.finished_at) FROM integration_deliveries d
+             WHERE d.route_id = r.id AND d.status = 'delivered') AS last_delivered_at
+      FROM integration_routes r
+      LEFT JOIN integration_connections c ON c.id = r.connection_id
+      LEFT JOIN LATERAL (
+            SELECT d.status, d.final_reason, d.issue_key FROM integration_deliveries d
+             WHERE d.route_id = r.id AND d.status <> 'pending'
+             ORDER BY d.finished_at DESC, d.id DESC LIMIT 1) f ON TRUE
+      LEFT JOIN LATERAL (
+            SELECT d.id, d.next_attempt_at, d.last_vendor_reason FROM integration_deliveries d
+             WHERE d.route_id = r.id AND d.status = 'pending'
+             ORDER BY d.id LIMIT 1) h ON TRUE
+     WHERE r.project_id = $1
+     ORDER BY r.created_at, r.id";
+
+fn project_route(row: &sqlx::postgres::PgRow) -> Result<ProjectRoute, sqlx::Error> {
+    use sqlx::Row;
+    let finished_status: Option<String> = row.try_get("finished_status")?;
+    let head_failed: bool = row.try_get("head_failed")?;
+    let head_reason: Option<String> = row.try_get("last_vendor_reason")?;
+    Ok(ProjectRoute {
+        id: row.try_get("id")?,
+        kind: row.try_get("kind")?,
+        destination_label: row.try_get("destination_label")?,
+        paused: row.try_get("paused")?,
+        connection_state: row.try_get("connection_state")?,
+        problem_reason: row.try_get("problem_reason")?,
+        missing_lane: row.try_get("missing_lane")?,
+        newest_finished: match finished_status {
+            Some(status) => Some(FinishedDeliveryRow {
+                status,
+                final_reason: row.try_get("final_reason")?,
+                issue_key: row.try_get("issue_key")?,
+            }),
+            None => None,
+        },
+        head_failed: head_failed.then_some(head_reason),
+        last_delivered_at: row.try_get("last_delivered_at")?,
+    })
+}
+
+/// A workspace's connection of one kind with its sealed credential, for the
+/// adapters that open it (route form, Send test, route save).
+#[derive(Clone, PartialEq, Eq)]
+pub struct SealedConnection {
+    pub id: Uuid,
+    pub state: String,
+    /// `None` only for a disconnected connection.
+    pub sealed_credential: Option<Vec<u8>>,
+}
+
+impl std::fmt::Debug for SealedConnection {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SealedConnection")
+            .field("id", &self.id)
+            .field("state", &self.state)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What a sender needs to attempt one claimed delivery, read at send time
+/// (ADR-EIP-002 decision 8). The event's issue facts are `None` when the issue
+/// is gone; the project's when it was deleted.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveryContext {
+    pub delivery_id: i64,
+    pub event_kind: String,
+    pub give_up_at: OffsetDateTime,
+    pub route_kind: String,
+    pub content_level: String,
+    pub route_paused: bool,
+    pub connection_id: Option<Uuid>,
+    pub connection_state: Option<String>,
+    pub destination_ref: String,
+    pub project: Option<DeliveryProject>,
+    pub issue: Option<DeliveryIssue>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveryProject {
+    pub name: String,
+    pub key_prefix: String,
+    pub slug: String,
+    pub team_slug: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveryIssue {
+    pub number: i32,
+    pub title: String,
+    pub lane_label: String,
+    pub author_name: Option<String>,
+}
+
+const DELIVERY_CONTEXT_SQL: &str = "
+    SELECT d.event_kind, d.give_up_at, r.kind, r.content_level,
+           r.paused_at IS NOT NULL, r.connection_id, c.state, r.destination_ref,
+           d.project_id, p.name, p.key_prefix, p.slug, t.slug,
+           i.number, i.title, i.state, u.display_name
+      FROM integration_deliveries d
+      JOIN integration_routes r ON r.id = d.route_id
+      LEFT JOIN integration_connections c ON c.id = r.connection_id
+      LEFT JOIN live_projects p ON p.id = d.project_id
+      LEFT JOIN teams t ON t.id = p.team_id
+      LEFT JOIN issues i ON i.id = d.issue_id AND i.project_id = d.project_id
+      LEFT JOIN users u ON u.id = i.author_id
+     WHERE d.id = $1";
 
 /// `workspace_connections`' row as Postgres answers it.
 type ConnectionTuple = (
@@ -916,23 +1075,133 @@ impl Store {
             .collect())
     }
 
-    /// A project's routes, oldest first.
+    /// A project's routes with their status facts, oldest first.
     pub async fn project_routes(&self, project_id: Uuid) -> Result<Vec<ProjectRoute>, StoreError> {
-        let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
-            "SELECT id, kind, destination_label FROM integration_routes
-              WHERE project_id = $1 ORDER BY created_at, id",
-        )
-        .bind(project_id)
-        .fetch_all(&self.pool)
-        .await?;
+        let rows = sqlx::query(PROJECT_ROUTES_SQL)
+            .bind(project_id)
+            .fetch_all(&self.pool)
+            .await?;
         Ok(rows
-            .into_iter()
-            .map(|(id, kind, destination_label)| ProjectRoute {
-                id,
-                kind,
-                destination_label,
-            })
-            .collect())
+            .iter()
+            .map(project_route)
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// The workspace's connection of `kind` with its sealed credential.
+    pub async fn sealed_connection(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+    ) -> Result<Option<SealedConnection>, StoreError> {
+        let row: Option<(Uuid, String, Option<Vec<u8>>)> = sqlx::query_as(
+            "SELECT id, state, sealed_credential FROM integration_connections
+              WHERE workspace_id = $1 AND kind = $2",
+        )
+        .bind(workspace_id)
+        .bind(kind)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(|(id, state, sealed_credential)| SealedConnection {
+            id,
+            state,
+            sealed_credential,
+        }))
+    }
+
+    /// The sealed credential of the connection `connection_id` (none once
+    /// disconnected).
+    pub async fn sealed_credential(
+        &self,
+        connection_id: Uuid,
+    ) -> Result<Option<Vec<u8>>, StoreError> {
+        Ok(sqlx::query_scalar::<_, Option<Vec<u8>>>(
+            "SELECT sealed_credential FROM integration_connections WHERE id = $1",
+        )
+        .bind(connection_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .flatten())
+    }
+
+    /// The routes with a pending delivery, the oldest pending first (the
+    /// senders' candidates; each is claimed under its own lock).
+    pub async fn routes_with_pending_deliveries(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<Uuid>, StoreError> {
+        Ok(sqlx::query_scalar(
+            "SELECT route_id FROM integration_deliveries
+              WHERE status = 'pending' AND route_id IS NOT NULL
+              GROUP BY route_id ORDER BY min(id) LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?)
+    }
+
+    /// What a sender needs to attempt `delivery_id`, read now: the route, its
+    /// connection, the project (through `live_projects`) and the issue.
+    pub async fn delivery_context(
+        &self,
+        delivery_id: i64,
+    ) -> Result<Option<DeliveryContext>, StoreError> {
+        use sqlx::Row;
+        let Some(row) = sqlx::query(DELIVERY_CONTEXT_SQL)
+            .bind(delivery_id)
+            .fetch_optional(&self.pool)
+            .await?
+        else {
+            return Ok(None);
+        };
+        let project_id: Uuid = row.try_get(8)?;
+        let project_name: Option<String> = row.try_get(9)?;
+        let key_prefix: Option<String> = row.try_get(10)?;
+        let project_slug: Option<String> = row.try_get(11)?;
+        let team_slug: Option<String> = row.try_get(12)?;
+        let number: Option<i32> = row.try_get(13)?;
+        let title: Option<String> = row.try_get(14)?;
+        let state: Option<String> = row.try_get(15)?;
+        let author_name: Option<String> = row.try_get(16)?;
+        let project = match (project_name, key_prefix, project_slug) {
+            (Some(name), Some(key_prefix), Some(slug)) => Some(DeliveryProject {
+                name,
+                key_prefix,
+                slug,
+                team_slug,
+            }),
+            _ => None,
+        };
+        let issue = match (number, title, state) {
+            (Some(number), Some(title), Some(state)) => {
+                let lane_label: Option<String> = sqlx::query_scalar(
+                    "SELECT label FROM lanes WHERE project_id = $1 AND slug = $2",
+                )
+                .bind(project_id)
+                .bind(&state)
+                .fetch_optional(&self.pool)
+                .await?;
+                Some(DeliveryIssue {
+                    number,
+                    title,
+                    lane_label: lane_label.unwrap_or(state),
+                    author_name,
+                })
+            }
+            _ => None,
+        };
+        Ok(Some(DeliveryContext {
+            delivery_id,
+            event_kind: row.try_get(0)?,
+            give_up_at: row.try_get(1)?,
+            route_kind: row.try_get(2)?,
+            content_level: row.try_get(3)?,
+            route_paused: row.try_get(4)?,
+            connection_id: row.try_get(5)?,
+            connection_state: row.try_get(6)?,
+            destination_ref: row.try_get(7)?,
+            project,
+            issue,
+        }))
     }
 }
 

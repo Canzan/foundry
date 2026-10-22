@@ -425,6 +425,29 @@ impl Services {
         integrations::project_view(&*self.store, principal, team_slug, project_slug).await
     }
 
+    /// external-integration-plugins — what a route door acts on (Manage).
+    pub async fn route_target(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<integrations::RouteTarget, integrations::IntegrationError> {
+        integrations::route_target(&*self.store, principal, team_slug, project_slug).await
+    }
+
+    /// external-integration-plugins — save a checked Slack route (Manage).
+    pub async fn create_route(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        draft: integrations::RouteDraft,
+        now: time::OffsetDateTime,
+    ) -> Result<uuid::Uuid, integrations::IntegrationError> {
+        integrations::create_route(&*self.store, principal, team_slug, project_slug, draft, now)
+            .await
+    }
+
     /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — provision a NEW
     /// isolated workspace + its first admin, gated by the INSTANCE super-admin
     /// authority. Delegates to [`provisioning::provision_workspace`].

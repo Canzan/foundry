@@ -7,6 +7,11 @@
 //!   and one audit row. It receives the credential already sealed: no
 //!   plaintext crosses a use-case (ADR-EIP-004).
 //! - [`project_view`]: a project's integrations page (Manage only).
+//! - [`route_target`]: what the route form, Send test and the route save
+//!   act on (Manage only): the project and the workspace's Slack connection,
+//!   its credential still sealed (the adapters open it, ADR-EIP-004).
+//! - [`create_route`]: a route the destination check accepted becomes one
+//!   route row, its lane rows and one audit row (DDR-25: saving never sends).
 //!
 //! Every refusal is [`IntegrationError::NotFound`], which each door answers
 //! with its uniform 404. The use-cases read and write through
@@ -19,8 +24,10 @@ use crate::Principal;
 use foundry_auth::secret_box::SealedSecret;
 use foundry_core::TeamAccess;
 use foundry_store::integrations::{
-    AuditRow, ConnectionRow, ConnectionWriteOutcome, NewConnection, ProjectRoute,
+    AuditRow, ConnectionRow, ConnectionWriteOutcome, NewConnection, NewRoute, ProjectRoute,
+    RouteLane, RouteWriteOutcome, SealedConnection,
 };
+use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
 use foundry_store::{ProjectRow, StoreError};
 use time::OffsetDateTime;
@@ -62,7 +69,25 @@ pub(crate) trait IntegrationRecords: Sync {
         project_slug: &str,
     ) -> Result<Option<ProjectRow>, StoreError>;
     async fn project_routes(&self, project_id: Uuid) -> Result<Vec<ProjectRoute>, StoreError>;
+    async fn sealed_connection(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+    ) -> Result<Option<SealedConnection>, StoreError>;
+    async fn project_lanes(&self, project_id: Uuid) -> Result<Vec<LaneRow>, StoreError>;
+    async fn create_route(&self, route: &NewRoute) -> Result<RouteWriteOutcome, StoreError>;
 }
+
+/// The events a chat route may choose (D-2).
+pub const CHAT_EVENTS: [&str; 4] = [
+    "issue.created",
+    "issue.moved",
+    "comment.added",
+    "issue.deleted",
+];
+
+/// The content levels (D-3).
+pub const CONTENT_LEVELS: [&str; 3] = ["link_only", "summary", "summary_with_comment"];
 
 #[derive(Debug, thiserror::Error)]
 pub enum IntegrationError {
@@ -97,6 +122,30 @@ pub struct SlackInstall {
 pub struct ProjectIntegrations {
     pub project_name: String,
     pub routes: Vec<ProjectRoute>,
+}
+
+/// What a route door acts on: a project the caller manages and the
+/// workspace's Slack connection, if it has one that is not disconnected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteTarget {
+    pub workspace_id: Uuid,
+    pub project_id: Uuid,
+    pub project_name: String,
+    pub key_prefix: String,
+    pub connection: Option<SealedConnection>,
+}
+
+/// A route as its form submitted it, its destination already checked and
+/// labelled by the destination catalogue.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteDraft {
+    pub destination_ref: String,
+    pub destination_label: String,
+    pub events: Vec<String>,
+    pub content_level: String,
+    /// Lane slugs Issue moved is limited to (empty: any lane).
+    pub lanes: Vec<String>,
+    pub shared_confirmed: bool,
 }
 
 /// Admins only, else [`IntegrationError::NotFound`].
@@ -174,13 +223,14 @@ pub(crate) async fn connect_slack(
     Ok(records.upsert_connection(&connection).await?)
 }
 
-/// Manage only (a workspace admin or a lead of the project's team).
-pub(crate) async fn project_view(
+/// The live project `team_slug`/`project_slug` when the caller may Manage it
+/// (a workspace admin or a lead of the project's team), else not found.
+async fn managed_project(
     records: &impl IntegrationRecords,
     principal: &Principal,
     team_slug: &str,
     project_slug: &str,
-) -> Result<ProjectIntegrations, IntegrationError> {
+) -> Result<ProjectRow, IntegrationError> {
     let facts = records
         .team_access(principal.workspace_id(), team_slug, principal.user_id())
         .await?
@@ -188,15 +238,103 @@ pub(crate) async fn project_view(
     if !TeamAccess::of(facts.is_workspace_admin, facts.role).can_manage() {
         return Err(IntegrationError::NotFound);
     }
-    let project = records
+    records
         .live_project(facts.team_id, project_slug)
         .await?
-        .ok_or(IntegrationError::NotFound)?;
+        .ok_or(IntegrationError::NotFound)
+}
+
+/// Manage only.
+pub(crate) async fn project_view(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+) -> Result<ProjectIntegrations, IntegrationError> {
+    let project = managed_project(records, principal, team_slug, project_slug).await?;
     let routes = records.project_routes(project.id).await?;
     Ok(ProjectIntegrations {
         project_name: project.name,
         routes,
     })
+}
+
+/// Manage only: the project and its workspace's usable Slack connection.
+pub(crate) async fn route_target(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+) -> Result<RouteTarget, IntegrationError> {
+    let project = managed_project(records, principal, team_slug, project_slug).await?;
+    let connection = records
+        .sealed_connection(principal.workspace_id(), SLACK)
+        .await?
+        .filter(|c| c.state != "disconnected");
+    Ok(RouteTarget {
+        workspace_id: principal.workspace_id(),
+        project_id: project.id,
+        project_name: project.name,
+        key_prefix: project.key_prefix,
+        connection,
+    })
+}
+
+/// Save a Slack route (Manage only): its events within the chat events and at
+/// least one, a known content level, lanes of the project; else not found
+/// and nothing written.
+pub(crate) async fn create_route(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    draft: RouteDraft,
+    now: OffsetDateTime,
+) -> Result<Uuid, IntegrationError> {
+    let target = route_target(records, principal, team_slug, project_slug).await?;
+    let connection = target.connection.ok_or(IntegrationError::NotFound)?;
+    let events_ok = !draft.events.is_empty()
+        && draft
+            .events
+            .iter()
+            .all(|event| CHAT_EVENTS.contains(&event.as_str()));
+    if !events_ok || !CONTENT_LEVELS.contains(&draft.content_level.as_str()) {
+        return Err(IntegrationError::NotFound);
+    }
+    let project_lanes = records.project_lanes(target.project_id).await?;
+    let lanes = draft
+        .lanes
+        .iter()
+        .map(|slug| {
+            project_lanes
+                .iter()
+                .find(|lane| &lane.slug == slug)
+                .map(|lane| RouteLane {
+                    lane_id: lane.id,
+                    label_at_save: lane.label.clone(),
+                })
+                .ok_or(IntegrationError::NotFound)
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let route = NewRoute {
+        workspace_id: target.workspace_id,
+        project_id: target.project_id,
+        connection_id: Some(connection.id),
+        kind: SLACK.to_string(),
+        destination_ref: draft.destination_ref,
+        destination_label: draft.destination_label,
+        events: draft.events,
+        content_level: draft.content_level,
+        shared_confirmed: draft.shared_confirmed,
+        lanes,
+        created_by: principal.user_id(),
+        created_via: "web".to_string(),
+        created_at: now,
+    };
+    match records.create_route(&route).await? {
+        RouteWriteOutcome::Created(id) => Ok(id),
+        RouteWriteOutcome::ProjectDeleted => Err(IntegrationError::NotFound),
+    }
 }
 
 /// K-1: "Connected to {slack_team} ({slack_domain}) · by {admin_name} · {date}".

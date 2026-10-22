@@ -97,6 +97,11 @@ pub const DEFAULT_REVOKE_BUCKET_MAX_PRINCIPALS: usize = 10_000;
 /// becomes a concern; the shipped contract is not broken to anticipate it.
 pub const TOKEN_MUTATIONS_METRIC: &str = "foundry_token_mutations_total";
 
+/// Send test (external-integration-plugins DDR-25, R-5): six test messages a
+/// minute per person, in this module's bucket shape (capacity six, refilled
+/// over a minute).
+pub const TEST_MESSAGES_PER_MINUTE: u32 = 6;
+
 /// The outcome of a guardrail check for one revoke attempt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RateDecision {
@@ -149,6 +154,14 @@ impl Default for RevokeRateLimiter {
 }
 
 impl RevokeRateLimiter {
+    /// The Send test limit: [`TEST_MESSAGES_PER_MINUTE`] per person.
+    pub fn test_messages() -> Self {
+        Self::new(
+            TEST_MESSAGES_PER_MINUTE,
+            f64::from(TEST_MESSAGES_PER_MINUTE) / 60.0,
+        )
+    }
+
     /// Build a limiter with an explicit capacity `C` and refill rate `R`, using
     /// the default LRU size cap `N` ([`DEFAULT_REVOKE_BUCKET_MAX_PRINCIPALS`]).
     pub fn new(capacity: u32, refill_per_sec: f64) -> Self {

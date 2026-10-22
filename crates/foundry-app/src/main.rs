@@ -699,6 +699,18 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    // external-integration-plugins (ADR-EIP-002): the delivery worker — the
+    // dispatcher and this replica's sender — beside the other background
+    // loops, with their shutdown semantics (dropped when the runtime stops).
+    // It runs while the integration settings say so and the secrets key is
+    // set; it holds only the store capabilities, never the store.
+    let _integrations_worker = foundry_app::integrations::worker::IntegrationsWorker::new(
+        foundry_app::integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
+        state.integrations.clone(),
+        state.clock.clone(),
+    )
+    .spawn();
+
     // Slice 8 (ADR-019 / D5) — hold a Store handle for the `store`
     // startup probe before `state` moves into the router.
     let store_for_probe = state.store.clone();

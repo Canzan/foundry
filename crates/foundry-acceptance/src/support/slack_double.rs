@@ -725,10 +725,28 @@ async fn auth_test(State(double): State<Arc<SlackDouble>>, headers: HeaderMap) -
     }))
 }
 
-async fn conversations_list(State(double): State<Arc<SlackDouble>>) -> Response {
+/// Slack's answer to a call without the bot token it issued: `not_authed`
+/// when none is given, `invalid_auth` when it is not one Slack issued.
+fn unauthorised(double: &SlackDouble, headers: &HeaderMap) -> Option<Response> {
+    match bearer(headers) {
+        None => Some(refuse("not_authed")),
+        Some(token) if !double.ledger.lock().unwrap().tokens.contains_key(&token) => {
+            Some(refuse("invalid_auth"))
+        }
+        Some(_) => None,
+    }
+}
+
+async fn conversations_list(
+    State(double): State<Arc<SlackDouble>>,
+    headers: HeaderMap,
+) -> Response {
     double.record_call("conversations.list");
     if let Some(code) = removed_code(&double) {
         return refuse(&code);
+    }
+    if let Some(refusal) = unauthorised(&double, &headers) {
+        return refusal;
     }
     let channels: Vec<Value> = double
         .channels
@@ -783,7 +801,11 @@ async fn conversations_info(
     }
 }
 
-async fn post_message(State(double): State<Arc<SlackDouble>>, body: String) -> Response {
+async fn post_message(
+    State(double): State<Arc<SlackDouble>>,
+    headers: HeaderMap,
+    body: String,
+) -> Response {
     double.record_call("chat.postMessage");
     let json: Value = serde_json::from_str(&body).unwrap_or_else(|_| {
         // Form-encoded posts are recorded too (the reader is the same).
@@ -854,6 +876,10 @@ async fn post_message(State(double): State<Arc<SlackDouble>>, body: String) -> R
             ok(v)
         }
         Mood::Answers => {
+            if let Some(refusal) = unauthorised(&double, &headers) {
+                record(false);
+                return refusal;
+            }
             let state = double
                 .channels
                 .lock()

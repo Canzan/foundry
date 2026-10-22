@@ -3,8 +3,10 @@
 
 use super::IntegrationRecords;
 use foundry_store::integrations::{
-    AuditRow, ConnectionRow, ConnectionWriteOutcome, NewConnection, ProjectRoute,
+    AuditRow, ConnectionRow, ConnectionWriteOutcome, NewConnection, NewRoute, ProjectRoute,
+    RouteWriteOutcome, SealedConnection,
 };
+use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
 use foundry_store::{ProjectRow, Store, StoreError};
 use uuid::Uuid;
@@ -61,5 +63,21 @@ impl IntegrationRecords for Store {
 
     async fn project_routes(&self, project_id: Uuid) -> Result<Vec<ProjectRoute>, StoreError> {
         Store::project_routes(self, project_id).await
+    }
+
+    async fn sealed_connection(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+    ) -> Result<Option<SealedConnection>, StoreError> {
+        Store::sealed_connection(self, workspace_id, kind).await
+    }
+
+    async fn project_lanes(&self, project_id: Uuid) -> Result<Vec<LaneRow>, StoreError> {
+        self.list_project_lanes(project_id).await
+    }
+
+    async fn create_route(&self, route: &NewRoute) -> Result<RouteWriteOutcome, StoreError> {
+        Store::create_route(self, route).await
     }
 }

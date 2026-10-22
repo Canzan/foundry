@@ -10,9 +10,14 @@
 pub mod config;
 pub mod handlers;
 pub mod slack;
+pub mod store_capabilities;
+pub mod worker;
 
+use crate::rate_limit::RevokeRateLimiter;
 use config::IntegrationSettings;
-use slack::SlackApp;
+use foundry_auth::secret_box::{SealedSecret, SecretSlot};
+use secrecy::SecretString;
+use slack::{SlackApp, SlackBot};
 use std::sync::{Arc, RwLock};
 
 /// What `/workspace/integrations` may offer for Slack.
@@ -57,15 +62,56 @@ impl Integrations {
     pub fn slack_return_url(&self) -> String {
         format!("{}{}", self.settings.public_url, slack::RETURN_PATH)
     }
+
+    /// Whether this process delivers: its worker is on and it holds the
+    /// secrets key the credentials are sealed with (DD-2).
+    pub fn runs_worker(&self) -> bool {
+        self.settings.worker.enabled && self.settings.secrets.is_some()
+    }
+
+    /// The connection's bot token, when this Foundry's keys open it for that
+    /// row (ADR-EIP-004: the row-bound slot).
+    fn open_credential(&self, connection_id: uuid::Uuid, sealed: Vec<u8>) -> Option<SecretString> {
+        let slot = SecretSlot::new(
+            "integration_connections",
+            &connection_id.to_string(),
+            "sealed_credential",
+        );
+        self.settings
+            .secrets
+            .as_ref()?
+            .open(&SealedSecret::from_bytes(sealed), &slot)
+            .ok()
+    }
+
+    /// The Slack bot of a connection, when Slack is set up and this Foundry
+    /// can open the connection's credential.
+    pub(crate) fn slack_bot(&self, connection_id: uuid::Uuid, sealed: Vec<u8>) -> Option<SlackBot> {
+        let app = self.slack()?;
+        let token = self.open_credential(connection_id, sealed)?;
+        Some(SlackBot::new(app, token))
+    }
 }
 
-/// The shared, replaceable [`Integrations`] (cloning shares it).
+/// The shared, replaceable [`Integrations`] (cloning shares it), and the
+/// Send test limit that outlives a replacement.
 #[derive(Clone)]
-pub struct IntegrationsHandle(Arc<RwLock<Arc<Integrations>>>);
+pub struct IntegrationsHandle {
+    current: Arc<RwLock<Arc<Integrations>>>,
+    test_messages: Arc<RevokeRateLimiter>,
+}
 
 impl IntegrationsHandle {
     pub fn new(integrations: Integrations) -> Self {
-        Self(Arc::new(RwLock::new(Arc::new(integrations))))
+        Self {
+            current: Arc::new(RwLock::new(Arc::new(integrations))),
+            test_messages: Arc::new(RevokeRateLimiter::test_messages()),
+        }
+    }
+
+    /// Send test's per-person limit (DDR-25, R-5).
+    pub fn test_messages(&self) -> &RevokeRateLimiter {
+        &self.test_messages
     }
 
     /// No Slack app, no secrets key: integrations are not offered.
@@ -75,7 +121,7 @@ impl IntegrationsHandle {
 
     /// The integrations as they are now.
     pub fn current(&self) -> Arc<Integrations> {
-        match self.0.read() {
+        match self.current.read() {
             Ok(guard) => guard.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         }
@@ -84,7 +130,7 @@ impl IntegrationsHandle {
     /// Replace the integrations every later request reads.
     pub fn install(&self, integrations: Integrations) {
         let next = Arc::new(integrations);
-        match self.0.write() {
+        match self.current.write() {
             Ok(mut guard) => *guard = next,
             Err(poisoned) => *poisoned.into_inner() = next,
         }

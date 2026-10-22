@@ -101,7 +101,7 @@ Feature: A workspace admin connects the workspace's Slack in one approval
     And it asks Slack only for the bot permissions slices 01 to 03 need
     And no Slack credential appears on it
 
-  @pending @error @kpi @contract-shape:unbounded-preservation
+  @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: The Slack credential never leaves the server
     Given Priya has connected Canzan Labs to Slack
     And Lena has routed New issue on Identity Platform to #auth-dev

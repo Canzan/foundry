@@ -32,6 +32,7 @@ foundry-oidc = { path = "../foundry-oidc" }
 foundry-services = { path = "../foundry-services" }
 foundry-api = { path = "../foundry-api" }
 foundry-realtime = { path = "../foundry-realtime" }
+foundry-integrations = { path = "../foundry-integrations" }
 
 axum = { workspace = true, features = ["multipart"] }
 # Template engine (ADR-B01 / design/template-engine.md). `askama` is the

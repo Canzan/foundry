@@ -21,6 +21,21 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` (all three or none, else Foundry refuses to
   start), `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL`, `FOUNDRY_SECRETS_KEY` (+`_PREVIOUS`; a
   malformed key refuses start, a missing one leaves Slack unoffered).
+- **Project routes to Slack channels, with Send test**: on a project's integrations page a team
+  lead or workspace admin chooses **New route**, picks a channel (the picker lists the public
+  channels and the private channels Foundry was invited to) and the events, and can **Send test**
+  first: one "Test message from Foundry for {project} ({key})" lands in the channel and nothing is
+  saved (six test messages a minute per person; the seventh reads "Too many test messages. Try
+  again in a minute."). Saving sends nothing, lists the route as "Delivering" and adds "{date} ·
+  {person} created the route to {channel}" to the workspace's integration activity. From then on
+  each new issue of the project posts "{key} {title}" / "New issue in {project} by {person} ·
+  {lane}" with **Open in Foundry**, delivered after the issue is saved (filing an issue never
+  waits on Slack), retried every 30 seconds and given up after a day; the route shows its last
+  delivery time or why it is retrying. Without a chat connection a lead reads "This workspace has
+  no chat connection yet. Ask a workspace admin to connect Slack or Matrix." New settings:
+  `FOUNDRY_INTEGRATIONS_POLL_MS` (1000), `FOUNDRY_INTEGRATIONS_LEASE_SECONDS` (45; under 35
+  refuses start), `FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS` (86400), and
+  `FOUNDRY_INTEGRATIONS_WORKER=off` to run a process without the delivery worker.
 
 ## [v0.17.0] - 2026-10-20
 

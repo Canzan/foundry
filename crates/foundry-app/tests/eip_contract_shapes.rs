@@ -28,26 +28,6 @@ pending!(
     "DDR-25: routes/preview re-renders compose output; no vendor call, no integration_* row"
 );
 pending!(
-    send_test_posts_once_and_writes_no_row,
-    "01-06",
-    "DDR-25: routes/test sends exactly one K-7 message and changes no integration_* row"
-);
-pending!(
-    seventh_send_test_in_a_minute_is_refused_without_a_vendor_call,
-    "01-06",
-    "6 per minute per user (the RevokeRateLimiter shape)"
-);
-pending!(
-    save_never_sends,
-    "01-06",
-    "routes POST writes the route and its audit row and calls no DeliveryChannel"
-);
-pending!(
-    refused_destination_check_writes_nothing,
-    "01-06",
-    "route create: a refused catalogue check or enrolment writes no route, lane or audit row"
-);
-pending!(
     reconnect_to_another_slack_team_changes_nothing,
     "03-02",
     "connection upsert: a different team id on the return leaves the row and audit untouched"
@@ -341,5 +321,443 @@ mod audit {
                 rows[0]
             );
         }
+    }
+}
+
+// DDR-25 (01-06): Send test, its per-person limit, and the route save, through
+// the router over a real Postgres. The only double is a local Slack answering
+// `conversations.list` and `chat.postMessage` (the driven ports), recording
+// every call. The universe each test compares is every integration_* row.
+mod routes {
+    use axum::body::Body;
+    use axum::extract::State;
+    use axum::http::{header, Request, StatusCode};
+    use axum::routing::{get, post};
+    use axum::Router;
+    use foundry_app::integrations::config::IntegrationSettings;
+    use foundry_app::integrations::{Integrations, IntegrationsHandle};
+    use foundry_app::{build_router, AppState, Notifier, SystemClock};
+    use foundry_auth::secret_box::SecretSlot;
+    use foundry_store::integrations::NewConnection;
+    use foundry_store::{run_migrations, Store};
+    use secrecy::SecretString;
+    use serde_json::{json, Value};
+    use sqlx::postgres::PgPoolOptions;
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+    use testcontainers_modules::postgres::Postgres;
+    use testcontainers_modules::testcontainers::runners::AsyncRunner;
+    use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
+    use tower::ServiceExt;
+    use uuid::Uuid;
+
+    const CSRF: &str = "eip-routes-csrf-token";
+    const PASSWORD: &str = "eip-routes-password-long-enough";
+    const LEAD: &str = "lena.park@canzan.dev";
+    const TOKEN: &str = "xoxb-eip-routes-sentinel-token";
+    const SECRETS_KEY: &str = "ZWlwLXNlbnRpbmVsLXNlY3JldHMta2V5LTMyYnl0ZXM";
+    const AUTH_DEV: &str = "C0AUTHDEV";
+    const PAGE: &str = "/team/backend/project/identity-platform/integrations";
+    const K7: &str =
+        "Test message from Foundry for Identity Platform (AUTH). This route will post here.";
+
+    /// Slack's calls as the double received them: (method, body).
+    type Calls = Arc<Mutex<Vec<(String, Value)>>>;
+
+    async fn slack() -> (String, Calls) {
+        let calls: Calls = Arc::default();
+        let app = Router::new()
+            .route(
+                "/conversations.list",
+                get(|State(calls): State<Calls>| async move {
+                    calls
+                        .lock()
+                        .unwrap()
+                        .push(("conversations.list".into(), Value::Null));
+                    axum::Json(json!({
+                        "ok": true,
+                        "channels": [{ "id": AUTH_DEV, "name": "auth-dev", "is_private": false,
+                                       "is_member": true, "is_archived": false }],
+                        "response_metadata": { "next_cursor": "" }
+                    }))
+                }),
+            )
+            .route(
+                "/chat.postMessage",
+                post(|State(calls): State<Calls>, body: String| async move {
+                    let body: Value = serde_json::from_str(&body).unwrap_or_default();
+                    calls
+                        .lock()
+                        .unwrap()
+                        .push(("chat.postMessage".into(), body));
+                    axum::Json(
+                        json!({ "ok": true, "channel": AUTH_DEV, "ts": "1761055320.000100" }),
+                    )
+                }),
+            )
+            .with_state(calls.clone());
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        (format!("http://{addr}"), calls)
+    }
+
+    fn settings(slack: &str) -> IntegrationSettings {
+        let env = [
+            ("SLACK_CLIENT_ID", "4100000000.eipclientid".to_string()),
+            (
+                "SLACK_CLIENT_SECRET",
+                "eip-routes-client-secret".to_string(),
+            ),
+            (
+                "SLACK_SIGNING_SECRET",
+                "eip-routes-signing-secret".to_string(),
+            ),
+            ("SLACK_API_BASE_URL", slack.to_string()),
+            ("SLACK_AUTHORIZE_URL", format!("{slack}/oauth/v2/authorize")),
+            ("FOUNDRY_SECRETS_KEY", SECRETS_KEY.to_string()),
+            ("FOUNDRY_INTEGRATIONS_WORKER", "off".to_string()),
+        ];
+        IntegrationSettings::from_lookup(
+            |name| env.iter().find(|(k, _)| *k == name).map(|(_, v)| v.clone()),
+            "http://foundry.test",
+        )
+        .expect("complete settings")
+    }
+
+    async fn exec(store: &Store, sql: &str, ids: &[Uuid]) {
+        let mut query = sqlx::query(sql);
+        for id in ids {
+            query = query.bind(*id);
+        }
+        query.execute(store.pool()).await.expect(sql);
+    }
+
+    /// Lena leads Backend, whose Identity Platform (AUTH) has a Backlog lane;
+    /// Canzan Labs is connected to Slack (a precondition, sealed for its row).
+    async fn seed(store: &Store, settings: &IntegrationSettings) {
+        let (ws, lena, team, project, connection) = (
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+            Uuid::now_v7(),
+        );
+        let hash = foundry_auth::hash_password(&SecretString::new(PASSWORD.into()))
+            .await
+            .expect("hash");
+        exec(
+            store,
+            "INSERT INTO workspaces (id, name) VALUES ($1, 'Canzan Labs')",
+            &[ws],
+        )
+        .await;
+        sqlx::query(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+                  VALUES ($1, $2, $2, 'Lena Park', $3)",
+        )
+        .bind(lena)
+        .bind(LEAD)
+        .bind(&hash)
+        .execute(store.pool())
+        .await
+        .expect("seed user");
+        exec(
+            store,
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, 'member')",
+            &[ws, lena],
+        )
+        .await;
+        exec(
+            store,
+            "INSERT INTO teams (id, workspace_id, name, slug) VALUES ($1, $2, 'Backend', 'backend')",
+            &[team, ws],
+        )
+        .await;
+        exec(
+            store,
+            "INSERT INTO team_memberships (team_id, user_id, role) VALUES ($1, $2, 'lead')",
+            &[team, lena],
+        )
+        .await;
+        exec(
+            store,
+            "INSERT INTO projects (id, team_id, workspace_id, name, slug, key_prefix)
+                  VALUES ($1, $2, $3, 'Identity Platform', 'identity-platform', 'AUTH')",
+            &[project, team, ws],
+        )
+        .await;
+        exec(
+            store,
+            "INSERT INTO lanes (id, project_id, workspace_id, slug, label, position)
+                  VALUES (gen_random_uuid(), $1, $2, 'backlog', 'Backlog', 0)",
+            &[project, ws],
+        )
+        .await;
+        let slot = SecretSlot::new(
+            "integration_connections",
+            &connection.to_string(),
+            "sealed_credential",
+        );
+        let sealed = settings
+            .secrets
+            .as_ref()
+            .expect("the secrets key")
+            .seal(&SecretString::from(TOKEN), &slot)
+            .expect("seal");
+        store
+            .upsert_connection(&NewConnection {
+                id: connection,
+                workspace_id: ws,
+                kind: "slack".into(),
+                external_id: "T0CANZANLABS".into(),
+                app_id: Some("A0EIPFOUNDRY".into()),
+                bot_user_id: Some("U0FOUNDRYBOT".into()),
+                label: "Canzan Labs".into(),
+                detail: Some("canzanlabs.slack.com".into()),
+                sealed_credential: sealed.as_bytes().to_vec(),
+                connected_by: lena,
+                connected_at: time::OffsetDateTime::now_utc(),
+            })
+            .await
+            .expect("seed the Slack connection");
+    }
+
+    struct Lab {
+        _pg: ContainerAsync<Postgres>,
+        store: Arc<Store>,
+        router: Router,
+        cookie: String,
+        calls: Calls,
+    }
+
+    impl Lab {
+        async fn start() -> Self {
+            let pg = Postgres::default()
+                .with_tag("16-alpine")
+                .start()
+                .await
+                .expect("start postgres container");
+            let url = format!(
+                "postgres://postgres:postgres@{}:{}/postgres",
+                pg.get_host().await.expect("host"),
+                pg.get_host_port_ipv4(5432).await.expect("port")
+            );
+            let pool = PgPoolOptions::new()
+                .max_connections(8)
+                .acquire_timeout(Duration::from_secs(10))
+                .connect(&url)
+                .await
+                .expect("connect pool");
+            run_migrations(&pool).await.expect("run migrations");
+            let store = Arc::new(Store::from_pool(pool));
+            let (slack, calls) = slack().await;
+            let settings = settings(&slack);
+            seed(&store, &settings).await;
+            let state = AppState {
+                oidc: None,
+                store: store.clone(),
+                session_secret: Arc::new(SecretString::new(
+                    "eip-routes-secret-thirty-two-bytes-or-more-yes-please".into(),
+                )),
+                machine_token_verifier: Arc::new(
+                    foundry_auth::MachineTokenVerifier::from_public_keys(&[
+                        "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\n-----END PUBLIC KEY-----\n"
+                            .to_string(),
+                    ])
+                    .expect("fixed test public key is valid"),
+                ),
+                machine_token_signer: None,
+                session_cookie_secure: false,
+                db_schema: "public".into(),
+                public_url: "http://foundry.test".into(),
+                clock: Arc::new(SystemClock),
+                integrations: IntegrationsHandle::new(Integrations::new(settings)),
+                notifier: Arc::new(Notifier::new(vec![])),
+                revoke_rate_limiter: Arc::new(
+                    foundry_app::rate_limit::RevokeRateLimiter::default(),
+                ),
+                realtime_tx: foundry_realtime::build_broadcast(),
+                sse_heartbeat_ms: foundry_app::DEFAULT_SSE_HEARTBEAT_MS,
+                file_upload_max_mb: foundry_app::DEFAULT_FILE_UPLOAD_MAX_MB,
+                db_unreachable: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                force_board_render_failure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+                test_migrations_dir: None,
+                applied_migrations: Arc::new(std::sync::Mutex::new(
+                    foundry_store::MigrationReport::default(),
+                )),
+                test_migration_delay_ms: 0,
+            };
+            let router = build_router(state);
+            let signed_in = router
+                .clone()
+                .oneshot(form(
+                    "/sign-in",
+                    &format!("foundry_csrf={CSRF}"),
+                    &[("email", LEAD), ("password", PASSWORD)],
+                ))
+                .await
+                .expect("sign in");
+            assert_eq!(signed_in.status(), StatusCode::SEE_OTHER, "Lena signs in");
+            let mut jar: Vec<String> = signed_in
+                .headers()
+                .get_all(header::SET_COOKIE)
+                .iter()
+                .filter_map(|v| v.to_str().ok()?.split(';').next().map(str::to_string))
+                .collect();
+            jar.push(format!("foundry_csrf={CSRF}"));
+            Lab {
+                _pg: pg,
+                store,
+                router,
+                cookie: jar.join("; "),
+                calls,
+            }
+        }
+
+        /// POST the route form to `door` (`routes` or `routes/test`).
+        async fn submit(&self, door: &str, destination: &str) -> (StatusCode, String) {
+            let response = self
+                .router
+                .clone()
+                .oneshot(form(
+                    &format!("{PAGE}/{door}"),
+                    &self.cookie,
+                    &[
+                        ("kind", "slack"),
+                        ("destination", destination),
+                        ("events", "issue.created"),
+                        ("content_level", "summary"),
+                    ],
+                ))
+                .await
+                .expect("response");
+            let status = response.status();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            (status, String::from_utf8_lossy(&body).into_owned())
+        }
+
+        fn posts(&self) -> Vec<Value> {
+            self.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(method, _)| method == "chat.postMessage")
+                .map(|(_, body)| body.clone())
+                .collect()
+        }
+
+        /// Every integration_* row, as JSON, table by table.
+        async fn universe(&self) -> Vec<String> {
+            let mut rows = Vec::new();
+            for table in [
+                "integration_connections",
+                "integration_routes",
+                "integration_route_lanes",
+                "integration_deliveries",
+                "integration_destination_pacing",
+                "integration_audit_events",
+            ] {
+                let json: Vec<String> = sqlx::query_scalar(&format!(
+                    "SELECT row_to_json(t)::text FROM {table} t ORDER BY 1"
+                ))
+                .fetch_all(self.store.pool())
+                .await
+                .expect("read the universe");
+                rows.extend(json.into_iter().map(|row| format!("{table}: {row}")));
+            }
+            rows
+        }
+    }
+
+    fn form(uri: &str, cookie: &str, fields: &[(&str, &str)]) -> Request<Body> {
+        let mut all = vec![("_csrf", CSRF)];
+        all.extend_from_slice(fields);
+        Request::builder()
+            .method("POST")
+            .uri(uri)
+            .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+            .header(header::COOKIE, cookie)
+            .body(Body::from(serde_urlencoded::to_string(all).expect("form")))
+            .expect("request")
+    }
+
+    fn texts(post: &Value) -> String {
+        post.to_string()
+    }
+
+    #[tokio::test]
+    async fn send_test_posts_once_and_writes_no_row() {
+        let lab = Lab::start().await;
+        let before = lab.universe().await;
+        let (status, page) = lab.submit("routes/test", AUTH_DEV).await;
+        assert_eq!(status, StatusCode::OK, "{page}");
+        let posts = lab.posts();
+        assert_eq!(posts.len(), 1, "exactly one message: {posts:?}");
+        assert_eq!(posts[0]["channel"], AUTH_DEV);
+        assert!(texts(&posts[0]).contains(K7), "{}", posts[0]);
+        assert_eq!(lab.universe().await, before, "no integration_* row changed");
+    }
+
+    #[tokio::test]
+    async fn seventh_send_test_in_a_minute_is_refused_without_a_vendor_call() {
+        let lab = Lab::start().await;
+        for n in 1..=6 {
+            let (status, page) = lab.submit("routes/test", AUTH_DEV).await;
+            assert_eq!(status, StatusCode::OK, "test {n}: {page}");
+        }
+        let before = lab.universe().await;
+        let (status, page) = lab.submit("routes/test", AUTH_DEV).await;
+        assert_eq!(status, StatusCode::TOO_MANY_REQUESTS);
+        assert!(
+            page.contains("Too many test messages. Try again in a minute."),
+            "{page}"
+        );
+        assert_eq!(lab.posts().len(), 6, "the seventh asks Slack nothing");
+        assert_eq!(lab.universe().await, before, "no integration_* row changed");
+    }
+
+    #[tokio::test]
+    async fn save_never_sends() {
+        let lab = Lab::start().await;
+        let before = lab.universe().await;
+        let (status, page) = lab.submit("routes", AUTH_DEV).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "{page}");
+        assert!(lab.posts().is_empty(), "saving sends nothing");
+        let after = lab.universe().await;
+        let added: Vec<&String> = after.iter().filter(|row| !before.contains(row)).collect();
+        assert_eq!(
+            added.len(),
+            2,
+            "one route row and one audit row: {added:#?}"
+        );
+        assert!(added
+            .iter()
+            .any(|row| row.starts_with("integration_routes: ")
+                && row.contains("\"destination_label\":\"#auth-dev\"")));
+        assert!(added
+            .iter()
+            .any(|row| row.starts_with("integration_audit_events: ")
+                && row.contains("route_created")));
+        assert!(
+            before.iter().all(|row| after.contains(row)),
+            "nothing else changed"
+        );
+    }
+
+    #[tokio::test]
+    async fn refused_destination_check_writes_nothing() {
+        let lab = Lab::start().await;
+        let before = lab.universe().await;
+        let (status, page) = lab.submit("routes", "C0NOTLISTED").await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{page}");
+        assert!(lab.posts().is_empty(), "a refused check sends nothing");
+        assert_eq!(lab.universe().await, before, "no route, lane or audit row");
     }
 }

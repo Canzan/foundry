@@ -11,7 +11,15 @@
 //!   (single use), and only for a matching, fresh state exchanges the code,
 //!   seals the bot token for its connection row and saves the connection.
 //!   Anything else shows K-3 and stores nothing.
-//! - `GET /team/{t}/project/{p}/integrations`: the project's routes (Manage).
+//! - `GET /team/{t}/project/{p}/integrations`: the project's routes with their
+//!   K-9 status (Manage).
+//! - `GET …/integrations/routes/new?kind=slack`: the route form, its channel
+//!   picker listing the channels Foundry can post to, or K-4 without a
+//!   connection (Manage).
+//! - `POST …/integrations/routes/test`: exactly one K-7 message to the entered
+//!   channel, no row written, six a minute per person (DDR-25, R-5).
+//! - `POST …/integrations/routes`: checks the channel with Slack, then saves
+//!   the route and its audit record; sends nothing (DDR-25).
 
 use super::slack::{self, InstallState, SlackGrant};
 use super::{Integrations, SlackOffer};
@@ -23,9 +31,16 @@ use askama::Template;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
+use axum::Form;
 use foundry_auth::secret_box::SecretSlot;
+use foundry_integrations::{
+    encode_slack, test_message, ChannelKind, ChannelOutcome, ConnectionState, DeliveryChannel,
+    DeliveryKey, Destination, DestinationCatalog, DestinationRef, FinishedDelivery, ReasonCode,
+    RouteFacts, RouteStatus,
+};
 use foundry_services::integrations::{
-    IntegrationError, ProjectIntegrations, SlackInstall, WorkspaceIntegrations,
+    IntegrationError, ProjectIntegrations, RouteDraft, RouteTarget, SlackInstall,
+    WorkspaceIntegrations,
 };
 use foundry_services::{Principal, Services};
 use foundry_store::integrations::{ConnectionWriteOutcome, ProjectRoute};
@@ -39,6 +54,16 @@ pub const RETURN_PATH: &str = slack::RETURN_PATH;
 
 /// K-3.
 pub const NOT_CONNECTED: &str = "Slack was not connected. Nothing changed.";
+/// K-4.
+pub const NO_CHAT_CONNECTION: &str =
+    "This workspace has no chat connection yet. Ask a workspace admin to connect Slack or Matrix.";
+/// R-5.
+pub const TOO_MANY_TESTS: &str = "Too many test messages. Try again in a minute.";
+/// The channel picker's note on private channels (US-EIP-02 example 2).
+pub const PRIVATE_CHANNELS: &str =
+    "Private channels appear here after someone runs /invite @Foundry in them.";
+pub const TEST_SENT: &str = "Test message sent.";
+pub const CANNOT_POST: &str = "Foundry cannot post to that channel. Choose another.";
 
 #[derive(Template)]
 #[template(path = "integrations/workspace.html")]
@@ -63,7 +88,99 @@ struct SetupPage {
 struct ProjectPage {
     nav: crate::nav::NavContext,
     project_name: String,
-    routes: Vec<ProjectRoute>,
+    new_route_path: String,
+    routes: Vec<RouteLine>,
+}
+
+/// One route as the project page lists it.
+struct RouteLine {
+    id: uuid::Uuid,
+    destination_label: String,
+    status: String,
+}
+
+#[derive(Template)]
+#[template(path = "integrations/route_form.html")]
+struct RouteFormPage {
+    nav: crate::nav::NavContext,
+    csrf: String,
+    project_name: String,
+    routes_path: String,
+    test_path: String,
+    notice: Option<String>,
+    no_connection: bool,
+    channels: Vec<Choice>,
+    events: Vec<Choice>,
+    levels: Vec<Choice>,
+    private_channels: &'static str,
+    no_chat_connection: &'static str,
+}
+
+/// One option of the form: its value, its label, and whether it is chosen.
+struct Choice {
+    value: String,
+    label: String,
+    chosen: bool,
+}
+
+/// The chat events (D-2), as the form offers them.
+const EVENT_CHOICES: [(&str, &str); 4] = [
+    ("issue.created", "New issue"),
+    ("issue.moved", "Issue moved"),
+    ("comment.added", "New comment"),
+    ("issue.deleted", "Issue deleted"),
+];
+
+/// The content levels (D-3); Summary is the default (OD-6).
+const LEVEL_CHOICES: [(&str, &str); 3] = [
+    ("link_only", "Link only"),
+    ("summary", "Summary"),
+    ("summary_with_comment", "Summary with comment text"),
+];
+
+/// What the route form submitted.
+#[derive(Debug, Clone, Default)]
+struct RouteForm {
+    destination: String,
+    events: Vec<String>,
+    content_level: String,
+    lanes: Vec<String>,
+    shared_confirmed: bool,
+}
+
+impl RouteForm {
+    fn read(fields: &[(String, String)]) -> Self {
+        let mut form = RouteForm {
+            content_level: "summary".to_string(),
+            ..RouteForm::default()
+        };
+        for (name, value) in fields {
+            match name.as_str() {
+                "destination" => form.destination = value.clone(),
+                "events" => form.events.push(value.clone()),
+                "content_level" => form.content_level = value.clone(),
+                "lanes" => form.lanes.push(value.clone()),
+                "shared_confirmed" => form.shared_confirmed = true,
+                _ => {}
+            }
+        }
+        form
+    }
+
+    /// A fresh form: New issue at Summary, for `destination`.
+    fn new(destination: Option<String>) -> Self {
+        RouteForm {
+            destination: destination.unwrap_or_default(),
+            events: vec!["issue.created".to_string()],
+            content_level: "summary".to_string(),
+            ..RouteForm::default()
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+pub struct NewRouteQuery {
+    destination: Option<String>,
 }
 
 /// Slack's return: a code and our state, or Slack's `error`.
@@ -237,9 +354,307 @@ pub async fn show_project(
     let page = ProjectPage {
         nav: caller.nav(&state, csrf).await,
         project_name,
-        routes,
+        new_route_path: format!(
+            "{}/routes/new?kind=slack",
+            base_path(&team_slug, &project_slug)
+        ),
+        routes: routes.iter().map(route_line).collect(),
     };
     render(page.render(), set_cookie)
+}
+
+pub async fn show_new_route(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+    Query(query): Query<NewRouteQuery>,
+) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let door = match RouteDoor::open(&state, &caller, &team_slug, &project_slug).await {
+        Ok(door) => door,
+        Err(response) => return response,
+    };
+    door.form(
+        &state,
+        &caller,
+        &headers,
+        &RouteForm::new(query.destination),
+        None,
+        StatusCode::OK,
+    )
+    .await
+}
+
+pub async fn send_test(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+    Form(fields): Form<Vec<(String, String)>>,
+) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let door = match RouteDoor::open(&state, &caller, &team_slug, &project_slug).await {
+        Ok(door) => door,
+        Err(response) => return response,
+    };
+    let form = RouteForm::read(&fields);
+    let allowed = state
+        .integrations
+        .test_messages()
+        .consume(caller.user.user_id, state.clock.now())
+        .is_allowed();
+    if !allowed {
+        return door
+            .form(
+                &state,
+                &caller,
+                &headers,
+                &form,
+                Some(TOO_MANY_TESTS),
+                StatusCode::TOO_MANY_REQUESTS,
+            )
+            .await;
+    }
+    let Some(bot) = door.bot.as_ref() else {
+        return door
+            .form(&state, &caller, &headers, &form, None, StatusCode::OK)
+            .await;
+    };
+    let message = encode_slack(&test_message(
+        &door.target.project_name,
+        &door.target.key_prefix,
+    ));
+    // A test is no delivery: its key is recorded nowhere (DDR-25).
+    let outcome = bot
+        .deliver(
+            &DestinationRef(form.destination.clone()),
+            &message,
+            DeliveryKey(0),
+        )
+        .await;
+    let (notice, status) = match outcome {
+        ChannelOutcome::Delivered => (TEST_SENT.to_string(), StatusCode::OK),
+        ChannelOutcome::Transient { reason, .. }
+        | ChannelOutcome::RouteRefused { reason }
+        | ChannelOutcome::ConnectionRefused { reason } => (
+            format!(
+                "The test message was not delivered: {}.",
+                reason.words("the channel")
+            ),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        ),
+    };
+    door.form(&state, &caller, &headers, &form, Some(&notice), status)
+        .await
+}
+
+pub async fn create_route(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+    Form(fields): Form<Vec<(String, String)>>,
+) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let door = match RouteDoor::open(&state, &caller, &team_slug, &project_slug).await {
+        Ok(door) => door,
+        Err(response) => return response,
+    };
+    let form = RouteForm::read(&fields);
+    let checked = match door.bot.as_ref() {
+        Some(bot) => postable_destination(bot, &form.destination).await,
+        None => None,
+    };
+    let Some(destination) = checked else {
+        return door
+            .form(
+                &state,
+                &caller,
+                &headers,
+                &form,
+                Some(CANNOT_POST),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            )
+            .await;
+    };
+    let draft = RouteDraft {
+        destination_ref: destination.reference.0,
+        destination_label: destination.label,
+        events: form.events,
+        content_level: form.content_level,
+        lanes: form.lanes,
+        shared_confirmed: form.shared_confirmed,
+    };
+    match caller
+        .services
+        .create_route(
+            &caller.principal(),
+            &team_slug,
+            &project_slug,
+            draft,
+            state.clock.now(),
+        )
+        .await
+    {
+        Ok(_) => Redirect::to(&base_path(&team_slug, &project_slug)).into_response(),
+        Err(err) => refusal(err),
+    }
+}
+
+/// The channel the form names, when Slack lists it among those Foundry can
+/// post to (the destination check before any write).
+async fn postable_destination(
+    catalog: &dyn DestinationCatalog,
+    reference: &str,
+) -> Option<Destination> {
+    catalog
+        .list_destinations()
+        .await
+        .ok()?
+        .into_iter()
+        .find(|destination| destination.reference.0 == reference)
+}
+
+/// A route door's target (Manage, else the uniform 404) and the workspace's
+/// Slack bot, when there is a connection this Foundry can open.
+struct RouteDoor {
+    target: RouteTarget,
+    bot: Option<super::slack::SlackBot>,
+    routes_path: String,
+}
+
+impl RouteDoor {
+    async fn open(
+        state: &AppState,
+        caller: &Caller,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<Self, Response> {
+        let target = caller
+            .services
+            .route_target(&caller.principal(), team_slug, project_slug)
+            .await
+            .map_err(refusal)?;
+        let bot = target.connection.as_ref().and_then(|connection| {
+            let sealed = connection.sealed_credential.clone()?;
+            state
+                .integrations
+                .current()
+                .slack_bot(connection.id, sealed)
+        });
+        Ok(Self {
+            target,
+            bot,
+            routes_path: format!("{}/routes", base_path(team_slug, project_slug)),
+        })
+    }
+
+    /// The route form for `form`, with `notice`; K-4 without a usable
+    /// connection.
+    async fn form(
+        &self,
+        state: &AppState,
+        caller: &Caller,
+        headers: &HeaderMap,
+        form: &RouteForm,
+        notice: Option<&str>,
+        status: StatusCode,
+    ) -> Response {
+        let channels = match &self.bot {
+            Some(bot) => bot.list_destinations().await.unwrap_or_default(),
+            None => Vec::new(),
+        };
+        let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+        let page = RouteFormPage {
+            nav: caller.nav(state, csrf.clone()).await,
+            csrf,
+            project_name: self.target.project_name.clone(),
+            routes_path: self.routes_path.clone(),
+            test_path: format!("{}/test", self.routes_path),
+            notice: notice.map(str::to_string),
+            no_connection: self.bot.is_none(),
+            channels: channels
+                .into_iter()
+                .map(|c| Choice {
+                    chosen: c.reference.0 == form.destination,
+                    value: c.reference.0,
+                    label: c.label,
+                })
+                .collect(),
+            events: choices(&EVENT_CHOICES, |value| {
+                form.events.iter().any(|e| e == value)
+            }),
+            levels: choices(&LEVEL_CHOICES, |value| form.content_level == value),
+            private_channels: PRIVATE_CHANNELS,
+            no_chat_connection: NO_CHAT_CONNECTION,
+        };
+        match page.render() {
+            Ok(html) => {
+                response_with_optional_cookie(status, Html(html).into_response(), set_cookie)
+            }
+            Err(err) => {
+                tracing::error!(error = %err, "integrations: render failed");
+                (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+            }
+        }
+    }
+}
+
+fn choices(table: &[(&str, &str)], chosen: impl Fn(&str) -> bool) -> Vec<Choice> {
+    table
+        .iter()
+        .map(|(value, label)| Choice {
+            value: value.to_string(),
+            label: label.to_string(),
+            chosen: chosen(value),
+        })
+        .collect()
+}
+
+/// `/team/{t}/project/{p}/integrations`.
+fn base_path(team_slug: &str, project_slug: &str) -> String {
+    format!("/team/{team_slug}/project/{project_slug}/integrations")
+}
+
+/// A stored route and its K-9 status, derived (DDR-19).
+fn route_line(route: &ProjectRoute) -> RouteLine {
+    let facts = RouteFacts {
+        kind: ChannelKind::from_wire_name(&route.kind).unwrap_or(ChannelKind::Slack),
+        paused: route.paused,
+        connection_state: route
+            .connection_state
+            .as_deref()
+            .and_then(ConnectionState::from_wire_name),
+        problem: route
+            .problem_reason
+            .as_deref()
+            .and_then(ReasonCode::from_wire_name),
+        missing_lane: route.missing_lane.clone(),
+        newest_finished: route.newest_finished.as_ref().map(|finished| {
+            FinishedDelivery::read(
+                &finished.status,
+                finished.final_reason.as_deref(),
+                finished.issue_key.as_deref(),
+            )
+        }),
+        head_failed: route
+            .head_failed
+            .as_ref()
+            .map(|reason| reason.as_deref().and_then(ReasonCode::from_wire_name)),
+        last_delivered_at: route.last_delivered_at,
+    };
+    RouteLine {
+        id: route.id,
+        destination_label: route.destination_label.clone(),
+        status: RouteStatus::derive(&facts).words(&route.destination_label),
+    }
 }
 
 /// Exchange the code, read the domain, seal the token for its row, save.
