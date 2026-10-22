@@ -1,0 +1,1407 @@
+{
+  "roadmap": {
+    "project_id": "external-integration-plugins",
+    "created_at": "2026-10-22T00:00:00Z",
+    "total_steps": 26,
+    "goal": "Slack and Matrix routes for chosen project events with durable, never-pinging delivery, and project emails stoppable in one click (deliverables A and B).",
+    "sources": [
+      "docs/feature/external-integration-plugins/feature-delta.md",
+      "docs/feature/external-integration-plugins/distill/red-classification.md"
+    ],
+    "scenario_ownership_invariant": "130 scenarios (218 rows) and 78 stubs, each owned by one step; 01-11 adds a 131st scenario. Ignored stubs left, in order: 77, 66, 58, 45, 44, 39, 39, 38, 38, 38, 35, 33, 33, 29, 23, 22, 21, 20, 20, 20, 10, 9, 8, 8, 1, 0.",
+    "deviations_from_distill": "Steps over about 8 scenarios split; history page (51, 54, 58, 59, 115) moved to 01-09 because 66 and 123 read a route's history; failover is 01-11. See pending_id_remap.",
+    "prerequisites": [
+      "H-3 recorded Slack fixtures gate 01-05; 01-06 onward inherit the gate through the dependency chain on 01-05.",
+      "Phases 01 and 02 are slices 01 and 02 wherever a gate names slices."
+    ],
+    "open_items": [
+      {
+        "item": "Matrix disconnect door has no scenario",
+        "owners": "nw-acceptance-designer (scenario), product owner (scope)",
+        "gate": "Decided before 04-04 starts; not built until then"
+      },
+      {
+        "item": "Matrix track (04-01..04-04) blocked on failover scenario authoring (01-11)",
+        "owners": "nw-acceptance-designer",
+        "gate": "Due before phase 03 completes"
+      }
+    ],
+    "release_gates": "DEVOPS G1-G6. G4: no prod promotion of phases 01-02 (steps 01-01..02-03) without 03-06 and 01-11, which also gates three-replica deployments. Slice 05 is not released while 99 is pending. No push or tag without the user's go.",
+    "standing_rules": "Example-based tests; proptest where a stub names one. Un-pend only in the owning step; never re-author scenarios. Change a remapped stub's id before un-ignoring. Runtime sqlx::query only. Mutation >= 80% on modified Rust. One local commit per step.",
+    "lane_preamble": "export FOUNDRY_XTASK_INCLUDE_DOCKER=1 RUST_TEST_THREADS=1; source lane_env. Before every lane run eip_pre (foreign-listener and other-session check); run every lane under timeout. Before eip-restart, eip-metrics and the bench, warm the release foundry binary (eip_warm, CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false). Each step runs its stubs' crate tests and eip_lane for each tag in its lanes; then git add -N and eip_mut on its mutation_targets, gate >= 80% kill rate. lane_common at each phase end. Until 01-01 creates scripts/eip-lanes.sh, 01-01 uses the inline equivalents.",
+    "lane_env": "scripts/eip-lanes.sh (eip_pre, eip_warm, eip_lane, eip_mut; created by 01-01)",
+    "lane_common": "scripts/eip-lanes.sh lane_common"
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Slack connection, first route, durable delivery",
+      "phase_end": "lane_common",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "KPI-4 bench harness and T-1 baseline",
+          "type": "infrastructure",
+          "description": "Bench harness and lane script; arm A on unchanged v0.17.0 records T-1. Un-ignores 1 stub; no production code.",
+          "criteria": [
+            "The no-routes latency baseline is recorded per operation and concurrency",
+            "Each bench run yields a PASS, FAIL or INCONCLUSIVE verdict",
+            "The bench never runs in CI"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "scripts/eip-lanes.sh",
+            "crates/foundry-acceptance/tests/eip_kpi4_bench.rs",
+            "docs/product/kpi-contracts.yaml"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/eip_kpi4_bench.rs",
+          "scenario_name": [
+            "eip_kpi4_bench.rs::eip_kpi4_bench"
+          ],
+          "implementation_notes": "Before any production change (KPI-4 method). Baseline, with the arm-A commit sha pinned, into kpi-contracts.yaml (U-D11). Reruns (INCONCLUSIVE: three more) each under timeout. Mutation testing N/A: no production Rust.",
+          "lanes": [],
+          "mutation_targets": []
+        },
+        {
+          "id": "01-02",
+          "name": "Migrations 0028-0030, store dispatch and fenced claims",
+          "sizing_review_needed": true,
+          "description": "Migrations 0028-0030, dispatch transaction, fenced claim and record, expiry sweep, live-project lock, readiness probe. Un-ignores 11 stubs.",
+          "criteria": [
+            "Board writes keep flowing during the upgrade",
+            "Pre-upgrade or rolled-back events are never delivered; redispatch delivers once",
+            "An un-migrated replica reports not ready; a broken index is reported"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0028_outbox_dispatch.sql",
+            "crates/foundry-store/migrations/0029_outbox_dispatch_index.sql",
+            "crates/foundry-store/migrations/0030_integrations.sql",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/tests/eip_store.rs"
+          ],
+          "test_file": "crates/foundry-store/tests/eip_store.rs",
+          "scenario_name": [
+            "eip_store.rs::board_writes_continue_while_0028_applies",
+            "eip_store.rs::rows_from_before_0028_are_never_dispatched",
+            "eip_store.rs::old_writer_rows_after_0028_get_event_and_txid",
+            "eip_store.rs::probe_refuses_a_schema_without_0028_to_0030",
+            "eip_store.rs::invalid_0029_index_is_reported_at_boot",
+            "eip_store.rs::rolled_back_board_transaction_yields_no_delivery",
+            "eip_store.rs::dispatch_rerun_is_a_no_op",
+            "eip_store.rs::dispatch_never_splits_a_source_transaction",
+            "eip_store.rs::claim_compare_and_set_misses_a_changed_row",
+            "eip_store.rs::late_recorder_writes_nothing",
+            "eip_store.rs::route_and_choice_writers_take_the_live_project_lock"
+          ],
+          "implementation_notes": "lock_timeout 2 s (U-D12, accepted by the coordinator with the other DEVOPS recommendations, 2026-10-22). U-D7 reproduction feeds R-7. C-12.",
+          "lanes": [],
+          "mutation_targets": [
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-store/src/lib.rs"
+          ]
+        },
+        {
+          "id": "01-03",
+          "name": "SecretBox sealing with key ids and row binding",
+          "description": "SecretBox on ring AES-256-GCM: key ids, row-bound data, previous-key opening, flexible base64url. Un-ignores 8 stubs.",
+          "criteria": [
+            "Stored credentials read back unchanged under the current or previous key",
+            "Moved, altered or foreign-key credentials are refused without naming a key",
+            "Malformed keys are refused unechoed; sealed values cannot be printed"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-auth/src/secret_box.rs",
+            "crates/foundry-auth/src/lib.rs",
+            "crates/foundry-auth/Cargo.toml",
+            "Cargo.lock",
+            "crates/foundry-auth/tests/eip_secret_box.rs"
+          ],
+          "test_file": "crates/foundry-auth/tests/eip_secret_box.rs",
+          "scenario_name": [
+            "eip_secret_box.rs::sealed_secret_opens_to_the_same_plaintext",
+            "eip_secret_box.rs::open_with_the_wrong_row_fails_closed",
+            "eip_secret_box.rs::open_with_the_wrong_key_fails_closed",
+            "eip_secret_box.rs::truncated_or_altered_ciphertext_fails_closed",
+            "eip_secret_box.rs::previous_key_opens_during_a_rotation",
+            "eip_secret_box.rs::key_accepts_base64url_with_or_without_padding",
+            "eip_secret_box.rs::malformed_key_is_refused_without_echoing_it",
+            "eip_secret_box.rs::sealed_secret_has_no_debug_display_or_serialize"
+          ],
+          "implementation_notes": "DDR-9, ADR-EIP-004, U-D5. Record Cargo.lock diff and cargo deny.",
+          "lanes": [],
+          "mutation_targets": [
+            "crates/foundry-auth/src/secret_box.rs",
+            "crates/foundry-auth/src/lib.rs"
+          ]
+        },
+        {
+          "id": "01-04",
+          "name": "Pure integrations core and its architecture rules",
+          "sizing_review_needed": true,
+          "description": "Slice-01 pure core and port traits replace the scaffold; check-arch rules 1, 1a, 2, 4 and the deny wrapper land. Un-ignores 13 stubs.",
+          "criteria": [
+            "Another project's events never become a route's deliveries",
+            "Only a route's oldest free delivery is sent; overdue free ones fail",
+            "Planted network, credential or store access fails the build; the real tree passes"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-integrations/Cargo.toml",
+            "xtask/src/check_arch.rs",
+            "deny.toml",
+            "Cargo.lock",
+            "crates/foundry-integrations/tests/core_properties.rs"
+          ],
+          "test_file": "crates/foundry-integrations/tests/core_properties.rs",
+          "scenario_name": [
+            "core_properties.rs::dispatch_plan_never_matches_another_project",
+            "core_properties.rs::claimable_head_takes_the_head_only_without_a_live_lease",
+            "core_properties.rs::expiry_set_is_exactly_past_give_up_and_unleased",
+            "check_arch.rs::pure_core_passes_on_the_tree",
+            "check_arch.rs::pure_core_refuses_a_planted_reqwest",
+            "check_arch.rs::pure_core_refuses_a_planted_foundry_auth",
+            "check_arch.rs::store_capability_passes_on_the_tree",
+            "check_arch.rs::store_capability_refuses_arc_store_in_the_hydrator",
+            "check_arch.rs::store_capability_refuses_store_in_a_use_case",
+            "check_arch.rs::secret_seam_passes_on_the_tree",
+            "check_arch.rs::secret_seam_refuses_open_in_a_view_module",
+            "check_arch.rs::write_guard_refuses_a_route_writer_without_the_lock",
+            "check_arch.rs::deny_wrapper_refuses_foundry_integrations_in_core"
+          ],
+          "implementation_notes": "DDR-1/2/26; check-arch Rules 1, 1a, 2, 4, 6. Deliberate deviation: DESIGN puts the route-writer guard (rule 4) in slice 03; it lands here because 01-06 writes routes, as DISTILL's stub assignment does. Remove SCAFFOLD: true. DISTILL says 11 xtask stubs; the module holds 10.",
+          "lanes": [],
+          "mutation_targets": [
+            "crates/foundry-integrations/src/lib.rs",
+            "xtask/src/check_arch.rs"
+          ]
+        },
+        {
+          "id": "01-05",
+          "name": "Integration settings, harness rewire, Slack connect and setup",
+          "sizing_review_needed": true,
+          "description": "Settings, rewire consuming the whole InstanceSpec, workspace integrations page, Slack install and return, sealed connection, setup page, audit. Un-pends 1-7 (19 rows); un-ignores 1 stub.",
+          "criteria": [
+            "An admin approves once and sees the Slack connection",
+            "Missing settings, bad returns or non-admins connect nothing, with the locked copy",
+            "No Slack credential reaches any page, answer or audit record"
+          ],
+          "estimate": "2.5 days",
+          "dependencies": [
+            "01-02",
+            "01-03",
+            "01-04",
+            "external: recorded Slack fixtures (H-3, user)"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/src/support/external_integration_plugins.rs",
+            "crates/foundry-acceptance/tests/fixtures/slack/",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/config.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/store_capabilities.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-app/Cargo.toml",
+            "crates/foundry-app/templates/integrations/workspace.html",
+            "crates/foundry-app/templates/integrations/slack_setup.html",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-services/src/integrations/store_impls.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-services/Cargo.toml",
+            "crates/foundry-store/src/integrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-app/tests/eip_contract_shapes.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-connect-slack.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-01-connect-slack.feature",
+          "scenario_name": [
+            "A workspace admin connects Slack and sees the connection",
+            "An instance that cannot hold a Slack connection says what is missing",
+            "A cancelled approval connects nothing",
+            "A forged return from Slack connects nothing",
+            "Only a workspace admin reaches the workspace's Slack doors",
+            "The Slack setup page gives the operator this instance's addresses and nothing secret",
+            "The Slack credential never leaves the server",
+            "eip_contract_shapes.rs::audit_rows_carry_no_secret"
+          ],
+          "implementation_notes": "Blocked until H-3 fixtures exist. rewire passes the whole spec (DIST-4). DDR-10, U-D4, R-3, R-4. CHANGELOG: Added: Slack connection for workspace admins.",
+          "lanes": [
+            "eip-01"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/config.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/store_capabilities.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-services/src/integrations/store_impls.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        },
+        {
+          "id": "01-06",
+          "name": "Project routes, Send test and the Slack walking skeleton",
+          "sizing_review_needed": true,
+          "description": "Project integrations page, route form, Send test with limit, route create, and the worker delivering New issue. Skeleton 8 first. Un-pends 8 scenarios (15 rows); un-ignores 5 stubs.",
+          "criteria": [
+            "The next issue filed after saving a route appears in the channel",
+            "Send test posts once and saves nothing; a seventh per minute is refused",
+            "Only leads and admins configure routes; the picker lists postable channels"
+          ],
+          "estimate": "2.5 days",
+          "dependencies": [
+            "01-05"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/store_capabilities.rs",
+            "crates/foundry-app/src/rate_limit.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-app/templates/integrations/project.html",
+            "crates/foundry-app/templates/integrations/route_form.html",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "CHANGELOG.md",
+            "crates/foundry-app/tests/eip_contract_shapes.rs",
+            "crates/foundry-integrations/tests/core_properties.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature",
+          "scenario_name": [
+            "Lena sees the first new issue arrive in the chosen Slack channel",
+            "A test message confirms the route before it is saved",
+            "Saving a route sends nothing and puts it on record",
+            "Test messages are limited to six a minute for each person",
+            "A lead without a chat connection is told who can add one",
+            "Only the team's leads and workspace admins configure a project's routes",
+            "A workspace admin configures routes on any project of the workspace",
+            "The channel picker lists the channels Foundry can post to",
+            "eip_contract_shapes.rs::send_test_posts_once_and_writes_no_row",
+            "eip_contract_shapes.rs::seventh_send_test_in_a_minute_is_refused_without_a_vendor_call",
+            "eip_contract_shapes.rs::save_never_sends",
+            "eip_contract_shapes.rs::refused_destination_check_writes_nothing",
+            "core_properties.rs::route_status_derive_precedence"
+          ],
+          "implementation_notes": "ADR-EIP-002; search_path-scoped lock id (C-5). DDR-19, DDR-25, DDR-27. CHANGELOG: Added: project routes to Slack channels, with Send test.",
+          "lanes": [
+            "eip-01"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/store_capabilities.rs",
+            "crates/foundry-app/src/rate_limit.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-integrations/src/lib.rs"
+          ]
+        },
+        {
+          "id": "01-07",
+          "name": "Delivery isolation, 24-hour give-up and stall gauges",
+          "description": "Give-up and its status, board actions never slowed, project and time isolation, stall gauges. Un-pends 12, 14, 15, 19, 20 (5 rows).",
+          "criteria": [
+            "Filing an issue while Slack is down answers within 2 seconds",
+            "A message unaccepted for a day is flagged and never posted later",
+            "Other projects' and earlier events never reach a route"
+          ],
+          "estimate": "1.5 days",
+          "dependencies": [
+            "01-06"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/templates/integrations/project.html",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "CHANGELOG.md",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature",
+          "scenario_name": [
+            "Filing an issue is never slowed or refused by chat delivery",
+            "A message Slack never accepts within a day is flagged on the route",
+            "A message given up on is never posted later",
+            "Another project's issues never reach the route",
+            "A route carries only what happens after it is saved"
+          ],
+          "implementation_notes": "DDR-5 (fixed 30 s), DDR-22, C-6. 14, 15 on the MockClock. The route page and handler render the give-up flag. CHANGELOG: Operators: outbox stall gauges; Added: a route is flagged after 24 hours undelivered.",
+          "lanes": [
+            "eip-01"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-integrations/src/lib.rs"
+          ]
+        },
+        {
+          "id": "01-08",
+          "name": "Restart durability, secrets operations and rotate-secrets",
+          "description": "SIGKILL durability, start refusals, degraded start, doctor rotate-secrets, operator docs, RELEASING edits. Un-pends 13, 60-63, 122 (8 rows); un-ignores 1 stub.",
+          "criteria": [
+            "A waiting message survives a SIGKILL and arrives once",
+            "Impossible settings stop Foundry by name; a missing key keeps the board up",
+            "Rotation needs no reconnect, and logs never show a credential"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "01-07"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-app/src/integrations/config.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "RELEASING.md",
+            "deploy/k8s/README.md",
+            "deploy/k8s/foundry-secret.example.yaml",
+            "deploy/k8s/foundry-configmap.yaml",
+            "CHANGELOG.md",
+            "crates/foundry-store/tests/eip_store.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature"
+          ],
+          "test_file": [
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-route-new-issues.feature (scenario 13)"
+          ],
+          "scenario_name": [
+            "A message waiting for Slack survives a restart of Foundry",
+            "No credential appears in anything Foundry writes to its logs",
+            "A missing secrets key keeps the board up and says what it cannot open",
+            "A setting that cannot be right stops Foundry from starting, and says which",
+            "The operator rotates the secrets key without anyone reconnecting",
+            "After a rotation Foundry opens the connection with only the new key",
+            "eip_store.rs::rotate_secrets_reseals_every_credential_or_nothing"
+          ],
+          "implementation_notes": "Warm binary (C-2). DD-2, C-8, C-11, U-D8. CHANGELOG: Operators: FOUNDRY_SECRETS_KEY, degraded start, doctor rotate-secrets; Upgrade: migrations 0028-0030; Rollback: the previous release runs on the new schema.",
+          "lanes": [
+            "eip-restart",
+            "eip-metrics"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-app/src/integrations/config.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        },
+        {
+          "id": "01-09",
+          "name": "Route history page",
+          "description": "Route history in Foundry's words, give-up entry, Manage-only access, sign-in redirects. Un-pends 51, 54, 58, 59, 115 (10 rows).",
+          "criteria": [
+            "Every delivery is listed with its outcome, including 24-hour give-ups",
+            "History shows no raw Slack text or credential",
+            "Only route managers see it; signed-out visitors are sent to sign in"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-08"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/route_history.html",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-history-and-retries.feature",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-signed-out.feature"
+          ],
+          "test_file": [
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-history-and-retries.feature",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-signed-out.feature (scenario 115)"
+          ],
+          "scenario_name": [
+            "Every delivery is listed with its outcome",
+            "After 24 hours of failure Foundry stops and says so",
+            "History speaks Foundry's words, never Slack's",
+            "Only those who manage the route see its history",
+            "A signed-out visitor is sent to sign in from every integration page"
+          ],
+          "implementation_notes": "DIST-14. UI-7 reasons unasserted. CHANGELOG: Added: route delivery history.",
+          "lanes": [
+            "eip-03",
+            "eip-01"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        },
+        {
+          "id": "01-10",
+          "name": "Two-replica delivery verification",
+          "type": "verification",
+          "description": "Declared verification step with its own commit. Un-pends 65, 66, 123, 124 (4 rows) and proves each fails under a seeded worker fault, reverted before commit.",
+          "criteria": [
+            "Two replicas deliver each event once, in order, including bursts",
+            "A stopped sender's message, or a late answer, is delivered and recorded once",
+            "All four fail under a seeded worker fault absent from the commit"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-09"
+          ],
+          "files_to_modify": [
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature",
+          "scenario_name": [
+            "Two replicas deliver each event once, in the order it happened",
+            "A message whose sender stopped in the middle of a send is not lost",
+            "A late answer from a replica whose claim expired is recorded once",
+            "Two replicas deliver a burst of events once each"
+          ],
+          "implementation_notes": "Seed a dropped claim fence in worker.rs; keep both runs' logs as evidence.",
+          "verification_exemption": "Declared verification step (type: verification): adds no production code by design; proof is each of its four scenarios failing under a seeded worker fault, reverted before its own commit.",
+          "lanes": [
+            "eip-replica"
+          ],
+          "mutation_targets": []
+        },
+        {
+          "id": "01-11",
+          "name": "Single-replica failover seam (gates G4)",
+          "release_gate": [
+            "G4"
+          ],
+          "description": "Test-support seam naming a delivery's claimant, plus the integrations-test-seam rule. Blocked on the scenario. Un-ignores 3 xtask stubs.",
+          "criteria": [
+            "With only the claimant stopped, the survivor delivers after the lease, once",
+            "A build with test-support features enabled reaching a production image, or a changed Dockerfile build line, fails the build"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-10",
+            "external: failover scenario authored by nw-acceptance-designer (coordinator dispatches before 01-11)"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/Cargo.toml",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/src/support/multi_replica_harness.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature",
+          "scenario_name": [
+            "TBD (131st scenario): single-replica failover, authored by nw-acceptance-designer",
+            "check_arch.rs::test_seam_refuses_an_item_outside_test_support",
+            "check_arch.rs::test_seam_refuses_a_dockerfile_build_with_features",
+            "check_arch.rs::test_seam_requires_its_marker_constant"
+          ],
+          "implementation_notes": "DIST-22, C-13. Never self-author the scenario. Gates G4.",
+          "lanes": [
+            "eip-replica"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/worker.rs",
+            "xtask/src/check_arch.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Chosen events and message content",
+      "phase_end": "lane_common",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "All four chat events, payload enrichment and bursts",
+          "description": "Moved, deleted and comment events, enriched payloads, no reorder events, burst grouping. Un-pends 31-35, 39, 40 (13 rows); un-ignores 2 stubs.",
+          "criteria": [
+            "Each chosen event posts once; reorders and comment edits post nothing",
+            "A route needs at least one offered event",
+            "Large bursts from one action post one message"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "01-07"
+          ],
+          "files_to_modify": [
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-store/src/issue_delete.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-services/src/lanes.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/templates/integrations/route_form.html",
+            "CHANGELOG.md",
+            "crates/foundry-integrations/tests/core_properties.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-02-events.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-02-events.feature",
+          "scenario_name": [
+            "Each chosen event posts its own message",
+            "Reordering cards within a lane posts nothing",
+            "Editing or deleting a comment posts nothing",
+            "The route form offers exactly the chat events Foundry announces",
+            "A route with no event chosen is not saved",
+            "One action that deletes many cards posts one message once there are more than five",
+            "Deleting a lane that moves its cards posts one message for the move",
+            "core_properties.rs::dispatch_plan_has_no_reorder_event",
+            "core_properties.rs::dispatch_plan_bursts_more_than_five_per_source_transaction"
+          ],
+          "implementation_notes": "DDR-6/7/8, ADR-EIP-003, DA-2, R-10. CHANGELOG: Added: issue moved, issue deleted and comment events on routes.",
+          "lanes": [
+            "eip-02"
+          ],
+          "mutation_targets": [
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/src/lanes.rs",
+            "crates/foundry-store/src/issue_delete.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-services/src/issues.rs",
+            "crates/foundry-services/src/lanes.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/worker.rs"
+          ]
+        },
+        {
+          "id": "02-02",
+          "name": "Lane filters that follow renames",
+          "description": "Lane-limited routes follow renames and need attention when a lane is deleted. Un-pends 30, 36-38 (4 rows).",
+          "criteria": [
+            "A lane-limited route posts only moves into its lanes, across renames",
+            "A deleted chosen lane flags the route and stops its move messages"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/templates/integrations/route_form.html",
+            "CHANGELOG.md",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-02-events.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-02-events.feature",
+          "scenario_name": [
+            "A route limited to one lane posts only moves into that lane",
+            "A lane filter follows its lane through a rename",
+            "A route whose filtered lane is gone asks to be fixed",
+            "A route whose filtered lane is gone posts no moves until it is edited"
+          ],
+          "implementation_notes": "No FK to lanes (Persistence Model). DDR-19 rule 5. CHANGELOG: Added: lane filters on routes.",
+          "lanes": [
+            "eip-02"
+          ],
+          "mutation_targets": [
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/handlers.rs"
+          ]
+        },
+        {
+          "id": "02-03",
+          "name": "Content levels, preview and shared-channel confirmation",
+          "sizing_review_needed": true,
+          "description": "Content levels, pure preview, audience notice, shared-channel confirmation, never-ping and never-leak. Un-pends 22-29, 125 (21 rows); un-ignores 4 stubs.",
+          "criteria": [
+            "The preview matches the message exactly, without asking Slack or saving",
+            "Comment text is sent only when chosen, cut at 300 characters",
+            "People's text never pings; no private detail or credential is sent; shared channels need confirmation"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/route_form.html",
+            "CHANGELOG.md",
+            "crates/foundry-integrations/tests/core_properties.rs",
+            "crates/foundry-app/tests/eip_contract_shapes.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-02-content.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-02-content.feature",
+          "scenario_name": [
+            "Lena sees exactly what the channel will receive before saving",
+            "A new route reveals a summary unless the lead chooses otherwise",
+            "Comment text is sent only when chosen",
+            "Comment text is cut at 300 characters",
+            "Text from people can never ping a channel",
+            "Descriptions, attachments and email addresses are never sent",
+            "A channel shared with another organisation asks for confirmation",
+            "A route to a shared channel is saved only once its sharing is confirmed",
+            "No message carries a Foundry or Slack credential",
+            "core_properties.rs::compose_never_sends_description_attachment_email_or_internal_id",
+            "core_properties.rs::compose_cuts_comment_text_at_300_characters_with_ellipsis",
+            "core_properties.rs::encode_slack_never_leaves_a_live_mention",
+            "eip_contract_shapes.rs::preview_calls_no_port_and_writes_nothing"
+          ],
+          "implementation_notes": "D-3, DDR-12, DDR-25, K-5, K-6; scripting off works. CHANGELOG: Added: content levels and message preview.",
+          "lanes": [
+            "eip-02"
+          ],
+          "mutation_targets": [
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/lib.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "Retries, broken connections, lifecycle",
+      "phase_end": "lane_common",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Backoff, retry-after, Slack answer classes and retention",
+          "description": "Backoff, retry-after, pacing, ordering, Slack answer classes, per-route channel refusals, retention. Un-pends 52, 53, 55-57, 116 (14 rows); un-ignores 6 stubs.",
+          "criteria": [
+            "Rate-limited or delayed messages arrive later, in order",
+            "Each Slack answer has its documented outcome; unreadable ones are retried",
+            "A missing channel stops only its route; history keeps 30 days beyond the newest 100"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "01-09"
+          ],
+          "files_to_modify": [
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-integrations/tests/core_properties.rs",
+            "crates/foundry-store/tests/eip_store.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-history-and-retries.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-03-history-and-retries.feature",
+          "scenario_name": [
+            "A rate-limited delivery waits and then arrives",
+            "Messages delayed by an outage arrive in the order they happened",
+            "What Foundry does with each answer Slack can give",
+            "Answers Foundry cannot read are retried, never treated as final",
+            "A channel Slack cannot find stops that route only",
+            "Beyond the newest 100, the history keeps a delivery for 30 days",
+            "core_properties.rs::retry_policy_never_schedules_past_give_up",
+            "core_properties.rs::retry_policy_honours_a_larger_retry_after",
+            "core_properties.rs::retry_policy_is_monotone_in_attempts",
+            "core_properties.rs::classify_slack_recorded_answers",
+            "core_properties.rs::prune_set_keeps_the_newest_100_and_referenced_outbox_rows",
+            "eip_store.rs::sweeps_apply_exactly_the_plan_ids"
+          ],
+          "implementation_notes": "DDR-5, DD-10. Store sweeps take given ids; cancel_set lands in 03-03. CHANGELOG: Changed: retries back off and honour Slack's retry-after.",
+          "lanes": [
+            "eip-03"
+          ],
+          "mutation_targets": [
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        },
+        {
+          "id": "03-02",
+          "name": "Connection lost, Slack events endpoint, admin email",
+          "description": "Refusals and signed uninstall events mark Slack lost once, pause routes and email unmuted admins once; signed events endpoint. Un-pends 41-45, 50, 67 (11 rows); un-ignores 1 stub.",
+          "criteria": [
+            "A removed Slack app pauses routes at once and tells admins once",
+            "Unsigned, stale or foreign event posts change nothing",
+            "A muted admin gets no email, but the page says what broke"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "03-01",
+            "01-10"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/csrf.rs",
+            "crates/foundry-app/src/notify.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-app/templates/integrations/workspace.html",
+            "crates/foundry-store/src/integrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-app/tests/eip_contract_shapes.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-broken-connection.feature",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature"
+          ],
+          "test_file": [
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-broken-connection.feature",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature (scenario 67)"
+          ],
+          "scenario_name": [
+            "A removed Slack app pauses the routes and tells the workspace admins",
+            "Slack telling Foundry the app was uninstalled pauses the routes at once",
+            "Messages to Foundry's Slack events address that are not Slack's change nothing",
+            "Slack telling Foundry twice still sends one email",
+            "Slack can confirm Foundry's events address",
+            "A muted workspace admin is not emailed, and the page still says what broke",
+            "Two replicas email each workspace admin once when the connection is lost",
+            "eip_contract_shapes.rs::connection_lost_event_is_registered_at_zero"
+          ],
+          "implementation_notes": "DDR-11, DDR-23, D-15, R-10. Exact CSRF pin is 05-02's. CHANGELOG: Added: a lost Slack connection pauses routes and emails workspace admins.",
+          "lanes": [
+            "eip-03",
+            "eip-replica"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/csrf.rs",
+            "crates/foundry-app/src/notify.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        },
+        {
+          "id": "03-03",
+          "name": "Pause, resume, edit and delete a route",
+          "sizing_review_needed": true,
+          "description": "Pause, resume, edit and confirmed delete, each audited. Un-pends 69-75, 82 (9 rows); un-ignores 1 stub.",
+          "criteria": [
+            "A paused route drops waiting messages and never sends skipped events",
+            "Resumed and edited routes act on what follows",
+            "Delete asks first and leaves Slack's messages; repeated requests change nothing"
+          ],
+          "estimate": "1.5 days",
+          "dependencies": [
+            "03-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/project.html",
+            "crates/foundry-app/templates/integrations/route_form.html",
+            "crates/foundry-app/templates/integrations/route_delete.html",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "CHANGELOG.md",
+            "crates/foundry-integrations/tests/core_properties.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-route-lifecycle.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-03-route-lifecycle.feature",
+          "scenario_name": [
+            "Pausing a route shows it paused",
+            "A paused route skips events and does not send them later",
+            "A resumed route carries what happens after the resume",
+            "Pausing a route that waits for Slack drops what it was waiting to send",
+            "Editing a route's events takes effect on the next event",
+            "Deleting a route asks first",
+            "Confirming the delete removes the route and leaves Slack's messages alone",
+            "Asking for what is already so changes nothing",
+            "core_properties.rs::cancel_set_is_exactly_the_targets_unleased_non_terminal_rows"
+          ],
+          "implementation_notes": "DD-8, DDR-18/27, R-4. CHANGELOG: Added: pause, resume, edit and delete a route.",
+          "lanes": [
+            "eip-03"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-integrations/src/lib.rs"
+          ]
+        },
+        {
+          "id": "03-04",
+          "name": "Reconnect, wrong workspace and per-channel problems",
+          "description": "Same-workspace reconnect resumes and drains; another workspace changes nothing; channel problems stay local. Un-pends 46-49 (6 rows); un-ignores 1 stub.",
+          "criteria": [
+            "Reconnecting delivers what was missed",
+            "Reconnecting to another workspace changes nothing",
+            "A channel problem affects only its route; resume rechecks it"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "03-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-app/tests/eip_contract_shapes.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-broken-connection.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-03-broken-connection.feature",
+          "scenario_name": [
+            "Reconnecting resumes the routes and delivers what was missed",
+            "Reconnecting to the wrong Slack workspace changes nothing",
+            "A problem with one channel affects only its own route",
+            "Resuming a route checks its channel again",
+            "eip_contract_shapes.rs::reconnect_to_another_slack_team_changes_nothing"
+          ],
+          "implementation_notes": "D-8. After 03-03: 49 resumes. CHANGELOG: Changed: reconnecting delivers what was missed.",
+          "lanes": [
+            "eip-03"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        },
+        {
+          "id": "03-05",
+          "name": "Disconnect, project lifecycle, audit and authority",
+          "sizing_review_needed": true,
+          "description": "Confirmed disconnect, project restore and delete, full audit, authority and forged-form refusal. Un-pends 76-81, 83, 84 (17 rows).",
+          "criteria": [
+            "Disconnect asks first, then pauses routes and removes access; nothing queued is sent later",
+            "Restored projects post again; deleted projects' queues never send",
+            "Every change is on record; wrong people and forged forms change nothing"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "03-04"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/slack_disconnect.html",
+            "crates/foundry-app/templates/integrations/workspace.html",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-route-lifecycle.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-03-route-lifecycle.feature",
+          "scenario_name": [
+            "Disconnecting Slack asks first and counts what stops",
+            "Confirming the disconnect pauses the routes and removes Foundry's access",
+            "What happens while Slack is disconnected is not sent after reconnecting",
+            "A restored project's routes post again",
+            "What was waiting when a project was deleted is never sent",
+            "Every route and connection change is on record",
+            "Only the right people change routes and connections",
+            "A change sent from outside the page is turned away"
+          ],
+          "implementation_notes": "DDR-18/21, R-9, D-16. CHANGELOG: Added: disconnect Slack.",
+          "lanes": [
+            "eip-03"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        },
+        {
+          "id": "03-06",
+          "name": "Delivery metrics and destination pacing (gate G4)",
+          "release_gate": [
+            "G4"
+          ],
+          "description": "Delivery counters, lag histogram, connection and route gauges, per-destination pacing. Un-pends 64, 68 (2 rows). Completes deliverable A with 01-11.",
+          "criteria": [
+            "Delivery counters start at zero and count each outcome",
+            "One channel never gets more than one post a second",
+            "No metric label names a person, place or address"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "03-05"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature",
+          "scenario_name": [
+            "The operator's delivery counters start at zero and count each outcome",
+            "Two routes to one channel never post more than once a second"
+          ],
+          "implementation_notes": "DDR-22, U-D8, C-6. G4 with 01-11; G1-G3 before tagging. G2: grep -n @pending on the 01-*, 02-* and 03-* feature files must be empty. CHANGELOG: Operators: delivery metrics.",
+          "lanes": [
+            "eip-metrics",
+            "eip-replica"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "Matrix",
+      "phase_end": "lane_common",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Outbound address policy, test seam and proxy TLS",
+          "description": "Judging outbound client, core judge, allow-list, U-D1 test seam, rule 3, fault-proxy TLS. Un-ignores 10 stubs; un-pends none.",
+          "criteria": [
+            "Reserved addresses are refused; private ones need the allow-list",
+            "Rebinding, proxies and redirects never reach a refused target",
+            "With the seam off loopback is refused; stray clients fail the build"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "03-06",
+            "01-11"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/outbound.rs",
+            "crates/foundry-app/src/integrations/config.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/Cargo.toml",
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-integrations/Cargo.toml",
+            "Cargo.lock",
+            "xtask/src/check_arch.rs",
+            "Dockerfile",
+            "crates/foundry-acceptance/src/support/matrix_homeserver.rs",
+            "crates/foundry-acceptance/tests/fixtures/tls/",
+            "CHANGELOG.md",
+            "crates/foundry-integrations/tests/core_properties.rs",
+            "crates/foundry-app/tests/eip_contract_shapes.rs"
+          ],
+          "test_file": "crates/foundry-app/tests/eip_contract_shapes.rs",
+          "scenario_name": [
+            "core_properties.rs::judge_refuses_every_reserved_range_and_mapped_form",
+            "eip_contract_shapes.rs::outbound_refuses_a_name_that_rebinds_to_loopback",
+            "eip_contract_shapes.rs::outbound_ignores_an_https_proxy_pointed_at_metadata",
+            "eip_contract_shapes.rs::outbound_follows_no_redirect_to_metadata",
+            "eip_contract_shapes.rs::outbound_without_the_test_seam_refuses_loopback",
+            "check_arch.rs::outbound_seam_passes_on_the_tree",
+            "check_arch.rs::outbound_seam_refuses_a_stray_client",
+            "check_arch.rs::outbound_seam_refuses_a_removed_redirect_policy",
+            "check_arch.rs::outbound_seam_refuses_a_removed_no_proxy",
+            "check_arch.rs::outbound_seam_refuses_a_slack_client_that_follows_redirects"
+          ],
+          "implementation_notes": "DDR-14, ADR-EIP-006, C-7, C-13: needs 01-11's seam rule (dependency accepted by the coordinator). CHANGELOG: Operators: FOUNDRY_OUTBOUND_ALLOW.",
+          "lanes": [],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/outbound.rs",
+            "crates/foundry-app/src/integrations/config.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "xtask/src/check_arch.rs"
+          ]
+        },
+        {
+          "id": "04-02",
+          "name": "Matrix connect, room routes and Matrix walking skeleton",
+          "sizing_review_needed": true,
+          "description": "Connect Matrix with address refusal, Matrix adapter, encoder, route form and test. Skeleton 89 first. Un-pends 85-92, 127 (13 rows); un-ignores 1 stub.",
+          "criteria": [
+            "A new issue appears in the room as a formatted notice",
+            "Only admins connect; unverifiable or local homeservers are refused untouched",
+            "Saving brings the bot in; unusable rooms are explained and not saved"
+          ],
+          "estimate": "2.5 days",
+          "dependencies": [
+            "04-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/matrix.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/workspace.html",
+            "crates/foundry-app/templates/integrations/route_form.html",
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-integrations/tests/core_properties.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-04-matrix.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-04-matrix.feature",
+          "scenario_name": [
+            "A new issue appears in the Matrix room as a formatted notice",
+            "A workspace admin connects the Matrix bot and sees who it is",
+            "A Matrix connection that cannot be checked is not saved",
+            "A homeserver on this machine is refused before it is contacted",
+            "Only a workspace admin connects Matrix",
+            "Saving a Matrix route brings the bot into the room and says so",
+            "A room Foundry's bot cannot use is explained and no route is saved",
+            "A saved Matrix route sends its test message",
+            "A Matrix route form names the room's audience",
+            "core_properties.rs::encode_matrix_never_mentions_the_room_or_a_user"
+          ],
+          "implementation_notes": "Needs 04-01's seam and TLS. DDR-13, R-1, R-7. Manual Continuwuity run before dogfood. CHANGELOG: Added: Matrix connection and room routes.",
+          "lanes": [
+            "needs-matrix"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/matrix.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        },
+        {
+          "id": "04-03",
+          "name": "Matrix refusals, connection health and content",
+          "description": "Kicks, encrypted rooms, logged-out bots, new tokens, content levels, never-ping. Un-pends 93-97, 126, 128 (11 rows); un-ignores 1 stub.",
+          "criteria": [
+            "Kicked or now-encrypted rooms flag the route and get nothing in clear",
+            "A logged-out bot pauses routes; a new token resumes and drains them",
+            "Notices never ping, carry no credential, and show comments only when chosen"
+          ],
+          "estimate": "1.5 days",
+          "dependencies": [
+            "04-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/matrix.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "CHANGELOG.md",
+            "crates/foundry-integrations/tests/core_properties.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-04-matrix.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-04-matrix.feature",
+          "scenario_name": [
+            "A bot removed from the room flags the route",
+            "A room that became encrypted after the route was saved receives nothing in the clear",
+            "A logged-out bot pauses the Matrix routes",
+            "A new token resumes the Matrix routes and delivers what waited",
+            "Text from people can never ping a Matrix room",
+            "No notice carries the bot's access token or the secrets key",
+            "A Matrix notice reveals comment text only when chosen",
+            "core_properties.rs::classify_matrix_recorded_answers"
+          ],
+          "implementation_notes": "R-8, R-10; reuses 03-02's lost path. CHANGELOG: Added: Matrix connection loss and content levels.",
+          "lanes": [
+            "needs-matrix"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/matrix.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-integrations/src/lib.rs"
+          ]
+        },
+        {
+          "id": "04-04",
+          "name": "Matrix route history, edit, pause, delete and retries",
+          "description": "Matrix history, edit, pause, delete leaving the room, and retries. Un-pends 117-121, 129, 130 (8 rows). Matrix disconnect is not covered (open item).",
+          "criteria": [
+            "Matrix deliveries are in history; edits apply; paused routes never catch up",
+            "Deleting the last route takes the bot out",
+            "Unreachable, waiting or failing homeservers are retried, honouring long waits"
+          ],
+          "estimate": "1.5 days",
+          "dependencies": [
+            "04-03",
+            "external: Matrix disconnect decision (open item)"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/matrix.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "CHANGELOG.md",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-04-matrix.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-04-matrix.feature",
+          "scenario_name": [
+            "Every Matrix delivery is in the route's history",
+            "A Matrix route carries an event added by editing it",
+            "A paused Matrix route skips events and does not send them later",
+            "Deleting a Matrix route takes the bot out of the room",
+            "A notice waiting for an unreachable homeserver arrives when it answers again",
+            "A homeserver that asks Foundry to wait, or fails, is retried",
+            "A homeserver's request to wait longer than Foundry's own backoff is honoured"
+          ],
+          "implementation_notes": "Proxy faults are one-shot (DIST B4). CHANGELOG: Added: Matrix route lifecycle and retries.",
+          "lanes": [
+            "needs-matrix"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/matrix.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-services/src/integrations/mod.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "Project emails",
+      "phase_end": "lane_common",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "Project email choices, EmailTransport, email walking skeleton",
+          "sizing_review_needed": true,
+          "description": "Migration 0031, Project emails section, EmailTransport, email encoder, stop token, send-time checks, choice-writer guard, rollback floor. Skeleton 98 first. Un-pends 98-106 (16 rows); un-ignores 7 stubs.",
+          "criteria": [
+            "A member chooses an event and gets the email it describes",
+            "Only openable projects are listed; own actions, mutes or forged choices send nothing",
+            "The previous release still boots on the new schema"
+          ],
+          "estimate": "2.5 days",
+          "dependencies": [
+            "03-06",
+            "external: notification-preferences-ui Settings link (product owner)"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0031_integration_email_choices.sql",
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-auth/src/stop_token.rs",
+            "crates/foundry-auth/src/lib.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-app/src/notify.rs",
+            "crates/foundry-app/src/integrations/project_emails.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/settings.html",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "xtask/src/check_arch.rs",
+            "CHANGELOG.md",
+            "crates/foundry-store/tests/eip_store.rs",
+            "crates/foundry-auth/tests/eip_secret_box.rs",
+            "crates/foundry-integrations/tests/core_properties.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-05-project-emails.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-05-project-emails.feature",
+          "scenario_name": [
+            "A member chooses an event for a project and gets the email it describes",
+            "Saving shows exactly what will be emailed, three steps from the board",
+            "A member sees only projects they can open, with nothing chosen for them",
+            "Each chosen event emails what happened and why",
+            "\"Issues I created or commented on\" means exactly that",
+            "A member is not emailed about their own actions",
+            "A muted workspace sends no project email",
+            "An instance that cannot send email says so",
+            "A choice for a project the member cannot open is refused",
+            "eip_store.rs::previous_release_migrator_accepts_0028_to_0031",
+            "eip_secret_box.rs::stop_token_binds_member_project_and_event",
+            "eip_secret_box.rs::stop_token_with_an_altered_signature_is_refused",
+            "eip_secret_box.rs::stop_token_never_expires",
+            "eip_secret_box.rs::stop_token_is_not_an_unsubscribe_token",
+            "core_properties.rs::encode_email_carries_user_text_as_plain_text",
+            "check_arch.rs::write_guard_refuses_a_choice_writer_without_the_lock"
+          ],
+          "implementation_notes": "Scenario 99 needs the notification-preferences-ui Settings link; slice 05 is not released with 99 pending. DDR-15, ADR-EIP-007. CHANGELOG: Added: project email choices; Upgrade: migration 0031.",
+          "lanes": [
+            "eip-05"
+          ],
+          "mutation_targets": [
+            "crates/foundry-store/src/integrations.rs",
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-auth/src/stop_token.rs",
+            "crates/foundry-auth/src/lib.rs",
+            "crates/foundry-integrations/src/lib.rs",
+            "crates/foundry-app/src/notify.rs",
+            "crates/foundry-app/src/integrations/project_emails.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "xtask/src/check_arch.rs"
+          ]
+        },
+        {
+          "id": "05-02",
+          "name": "Stop links, one-click unsubscribe and the SMTP lane",
+          "release_gate": [
+            "G2"
+          ],
+          "sizing_review_needed": true,
+          "description": "Confirmed stop links, signed one-click POST, unsubscribe headers, access-loss stops, mailpit wire check, CSRF exempt pin. Un-pends 107-114 (12 rows); un-ignores 1 stub.",
+          "criteria": [
+            "A member stops one kind of email from the email and gets no more",
+            "Opening or tampering with a link changes and reveals nothing",
+            "One-click and access loss stop emails; security emails continue; only three paths skip CSRF"
+          ],
+          "estimate": "2 days",
+          "dependencies": [
+            "05-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/email_stop.rs",
+            "crates/foundry-app/src/csrf.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/notify.rs",
+            "crates/foundry-app/templates/email_stop.html",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs",
+            "CHANGELOG.md",
+            "crates/foundry-app/tests/eip_contract_shapes.rs",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-05-project-emails.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-05-project-emails.feature",
+          "scenario_name": [
+            "A member stops one kind of email from the email itself",
+            "A stopped choice sends no more emails",
+            "Merely opening a stop link changes nothing",
+            "A mail client's one-click unsubscribe stops the same choice",
+            "Losing access stops the emails without any setting changing",
+            "A tampered stop link changes nothing and reveals nothing",
+            "Stopping project emails never stops security emails",
+            "A project email sent through the relay carries its one-click stop link",
+            "eip_contract_shapes.rs::csrf_exempt_set_is_exactly_three_paths"
+          ],
+          "implementation_notes": "DDR-16, R-11. 114 in needs-smtp. Final: cargo xtask ci with Docker forced. G2: grep -n @pending on the 04-* and 05-* feature files must be empty. CHANGELOG: Added: one-click stop links for project emails.",
+          "lanes": [
+            "eip-05",
+            "needs-smtp"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/email_stop.rs",
+            "crates/foundry-app/src/csrf.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/notify.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-store/src/integrations.rs"
+          ]
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-integrations/",
+      "crates/foundry-auth/src/",
+      "crates/foundry-store/",
+      "crates/foundry-services/src/",
+      "crates/foundry-app/",
+      "xtask/src/",
+      "deny.toml",
+      "Dockerfile",
+      "deploy/k8s/",
+      "scripts/eip-lanes.sh"
+    ],
+    "test_directories": [
+      "crates/foundry-integrations/tests/",
+      "crates/foundry-auth/tests/",
+      "crates/foundry-store/tests/",
+      "crates/foundry-app/tests/",
+      "crates/foundry-acceptance/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**"
+    ],
+    "migrations": {
+      "0028, 0029, 0030": "01-02",
+      "0031": "05-01"
+    },
+    "check_arch_rules": {
+      "1, 1a, 2, 4 (routes), 6 deny wrapper": "01-04",
+      "integrations-test-seam": "01-11",
+      "3 outbound client seam": "04-01",
+      "4 (choices)": "05-01",
+      "5 CSRF exempt pin": "05-02"
+    },
+    "metrics": {
+      "stall gauges": "01-07",
+      "secrets degraded": "01-08",
+      "connection-lost series": "03-02",
+      "delivery counters, lag, gauges": "03-06"
+    },
+    "settings": {
+      "secrets keys": "01-03, 01-08",
+      "Slack trio and URL seams, worker timings": "01-05",
+      "FOUNDRY_OUTBOUND_ALLOW": "04-01"
+    },
+    "pending_id_remap": {
+      "gold_stubs": [
+        "01-02 -> 05-01: eip_store.rs::previous_release_migrator_accepts_0028_to_0031",
+        "01-07 -> 01-08: eip_store.rs::rotate_secrets_reseals_every_credential_or_nothing",
+        "02-02 -> 02-03: core_properties.rs::compose_never_sends_description_attachment_email_or_internal_id",
+        "02-02 -> 02-03: core_properties.rs::compose_cuts_comment_text_at_300_characters_with_ellipsis",
+        "02-02 -> 02-03: core_properties.rs::encode_slack_never_leaves_a_live_mention",
+        "02-02 -> 02-03: eip_contract_shapes.rs::preview_calls_no_port_and_writes_nothing",
+        "03-02 -> 03-04: eip_contract_shapes.rs::reconnect_to_another_slack_team_changes_nothing",
+        "03-02 -> 05-02: eip_contract_shapes.rs::csrf_exempt_set_is_exactly_three_paths",
+        "04-01 -> 01-11: check_arch.rs::test_seam_refuses_an_item_outside_test_support",
+        "04-01 -> 01-11: check_arch.rs::test_seam_refuses_a_dockerfile_build_with_features",
+        "04-01 -> 01-11: check_arch.rs::test_seam_requires_its_marker_constant",
+        "04-02 -> 04-03: core_properties.rs::classify_matrix_recorded_answers"
+      ],
+      "steps": [
+        "01-06 -> 01-06 + 01-07; 01-07 -> 01-08 + 01-10; 01-08 -> 01-11",
+        "03-01 -> 01-09 + 03-01; 02-01 -> 02-01 + 02-02; 02-02 -> 02-03",
+        "03-02 -> 03-02 + 03-04; 03-03 -> 03-03 + 03-05; 03-04 -> 03-06",
+        "04-02 -> 04-02 + 04-03 + 04-04; scenario 87 to 04-02"
+      ]
+    }
+  },
+  "validation": {
+    "status": "approved_by_coordinator_after_review_2",
+    "house_tier": "26 steps, cap 4,500 words; coordinator, 2026-10-22",
+    "quality_gate_self_check": {
+      "criteria": "outcomes only, 2-3 per step",
+      "decomposition_ratio": "26 / 49 = 0.53",
+      "distill_linkage": "130 scenarios and 78 stubs mapped once; orphans 0; one TBD in 01-11",
+      "sizing": "reviewer rule (8+ scenarios): 01-06, 02-03, 03-03, 03-05, 04-02, 05-01, 05-02; also rows > 15 or stubs > 10: 01-02, 01-04, 01-05",
+      "changelog": "every step with CHANGELOG.md in files_to_modify names 'CHANGELOG: <section>: <line>' in its notes; 01-01..01-04, 01-10, 01-11 change nothing user-visible and do not touch CHANGELOG.md",
+      "decisions": "U-D12 lock_timeout 2 s accepted by the coordinator, 2026-10-22",
+      "lanes_and_mutation": "every step carries lanes and mutation_targets; [] for 01-01 (bench, no production Rust) and 01-10 (verification)"
+    },
+    "review_record": "Reviewer iteration 2 listed only R1-R8; all applied. No third review (coordinator verifies mechanically)."
+  }
+}
