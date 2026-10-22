@@ -4655,6 +4655,48 @@ pub async fn stop_sending_replica(world: &mut FoundryWorld) {
     world.eip.replicas = Some(MultiReplicaHarness::spawn_sharing_schema(1, h, now(world)).await);
 }
 
+/// "the replica sending AUTH-12's message stopped before hearing back, and the
+/// other replica kept running": once Slack has been asked, only the replica
+/// holding AUTH-12's claim stops (its delivery worker with it); no fresh
+/// replica starts, so the survivor must take the delivery over after the lease.
+pub async fn stop_claiming_replica_only(world: &mut FoundryWorld, key: &str) {
+    let double = slack(world);
+    eventually(
+        DELIVERY_BUDGET,
+        "a replica has sent the message to Slack",
+        || {
+            let double = double.clone();
+            async move {
+                if double.posts_to("#auth-dev").is_empty() {
+                    Err("no post".into())
+                } else {
+                    Ok(())
+                }
+            }
+        },
+    )
+    .await;
+    let claimant = claiming_replica(world, key);
+    let replicas = world
+        .eip
+        .replicas
+        .as_mut()
+        .expect("Foundry runs as two replicas");
+    replicas.stop_replica(claimant);
+}
+
+/// Which replica holds `key`'s delivery claim. The harness cannot tell yet,
+/// and `MultiReplicaHarness::stop_replica` stops a replica's HTTP serving but
+/// not its delivery worker: both are DELIVER 01-11's seam (DIST-22).
+fn claiming_replica(world: &FoundryWorld, key: &str) -> usize {
+    let running = world.eip.replicas.as_ref().map_or(0, |r| r.replicas.len());
+    panic!(
+        "missing seam (DELIVER 01-11): the multi-replica harness cannot name which of its \
+         {running} replicas holds {key}'s delivery claim, nor stop that replica's delivery \
+         worker alone"
+    )
+}
+
 pub async fn file_many(world: &mut FoundryWorld, who: &str, n: usize, project: &str) {
     capture_before(world).await;
     let mut futures = Vec::new();

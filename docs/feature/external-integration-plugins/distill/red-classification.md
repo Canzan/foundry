@@ -38,6 +38,41 @@ operations 14, 03 route-lifecycle 26, 04 matrix 32, 05 project-emails 28.
 
 **Verdict: PASS.** Zero BROKEN, zero false GREEN.
 
+### Addendum: scenario 131, single-replica failover (2026-10-22)
+
+Scenario 131, "The replica that kept running delivers a message its stopped
+partner was sending" (`03-operations`, `@us-eip-02 @eip-01 @eip-replica @error
+@kpi @contract-shape:bounded-change`), owned by DELIVER 01-11 (DIST-22, gate
+G4). **Preflight**: no other foundry cargo or test process; a canzan-lift
+acceptance run was active (its own containers), and of the 55xxx/56xxx
+listeners one was canzan-lift's test server and one a desktop app's (neither
+a foundry container). `@pending` stripped from the working copy of
+`03-operations` only (byte-exact copy in the scratchpad, restored by an EXIT
+trap and compared with `cmp`: clean), then
+`timeout 900 env CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false
+FOUNDRY_EIP_DISTILL_CLASSIFICATION=1 FOUNDRY_ACCEPTANCE_TAGS=eip-replica cargo
+test -p foundry-acceptance --release --test acceptance`:
+
+| Lane | Rows | Result |
+|---|---|---|
+| `eip-replica` (65-68, 123, 124, 131) | 7 | 7 RED (MISSING_FUNCTIONALITY) |
+
+`7 scenarios (7 failed)`, `42 steps (35 passed, 7 failed)`, 0 skipped, 0
+undefined or ambiguous. Every row, 131 included, stops at "Priya has connected
+Canzan Labs to Slack": `/workspace/integrations/slack/install` answers 404 (the
+right reason, as for the other 138 rows stopping there). Every expanded step of
+131 matches exactly one step definition (checked by script). Its new Given,
+"the replica sending AUTH-12's message stopped before hearing back, and the
+other replica kept running", is not reached today; when it is, it fails with
+"missing seam (DELIVER 01-11): the multi-replica harness cannot name which of
+its 2 replicas holds AUTH-12's delivery claim, nor stop that replica's delivery
+worker alone" until 01-11 builds the seam (`MultiReplicaHarness::stop_replica`
+stops a replica's HTTP serving but not its worker).
+
+**Totals with the addendum: 219 rows (131 declarations) = 219 RED, 0
+GREEN_ALREADY, 0 BROKEN**; rows by file: 03 operations 15; rows stopping at the
+Slack install 139.
+
 Two edits landed after this run and were not re-run, because no lifted row
 reaches them (every row of both scenarios stops in its Background at "Priya has
 connected Canzan Labs to Slack"): the 03-broken-connection outline's third Then
@@ -124,7 +159,7 @@ external-integration-plugins NN-NN …`.
 
 ## Committed state
 
-Every scenario carries `@pending` (130 of 130) and every stub is `#[ignore]`d,
+Every scenario carries `@pending` (131 of 131) and every stub is `#[ignore]`d,
 so every committed lane selects none of them: the hand-off is green by
 construction. `cargo clippy -D warnings` on the touched crates' targets, `cargo fmt --check`,
 `cargo xtask check-arch` (PASSED) and `cargo deny check bans` (ok) are clean.

@@ -165,3 +165,24 @@ Feature: The operator keeps integrations safe and observable
     And Lena has routed New issue on Identity Platform to #auth-dev
     When Sam files 5 issues in Identity Platform at once
     Then #auth-dev shows each of AUTH-12, AUTH-13, AUTH-14, AUTH-15 and AUTH-16 exactly once
+
+  # Single-replica failover (DIST-22, DELIVER 01-11, gate G4): only the replica
+  # holding AUTH-12's claim stops, without hearing Slack's answer; the replica
+  # that kept running takes the delivery over once the 45-second lease lapses.
+  # Scenario 66 stops every replica and 123 keeps both running; this one is
+  # the survivor taking over. The seam that names the claiming replica is
+  # DELIVER 01-11's to build.
+  @pending @us-eip-02 @eip-01 @eip-replica @error @kpi @contract-shape:bounded-change
+  Scenario: The replica that kept running delivers a message its stopped partner was sending
+    Given Foundry runs as two replicas on one database with the Foundry Slack app set up
+    And Priya has connected Canzan Labs to Slack
+    And Lena has routed New issue on Identity Platform to #auth-dev
+    And Slack holds Foundry's post without answering
+    And Sam has filed "Rotate LLDAP bind password" in Identity Platform
+    And the replica sending AUTH-12's message stopped before hearing back, and the other replica kept running
+    And Slack answers again
+    When 45 seconds pass
+    Then #auth-dev shows AUTH-12's message exactly once
+    And both of Slack's posts for AUTH-12 carried the same message
+    And the history of the route to #auth-dev reads "New issue · AUTH-12 · Delivered after 2 attempts"
+    And the history of the route to #auth-dev lists AUTH-12 exactly once

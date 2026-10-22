@@ -1288,6 +1288,13 @@ async fn stop_replica(world: &mut FoundryWorld, _key: String) {
     eip::stop_sending_replica(world).await;
 }
 
+#[given(
+    regex = r"^the replica sending (AUTH-\d+)'s message stopped before hearing back, and the other replica kept running$"
+)]
+async fn stop_claimant_only(world: &mut FoundryWorld, key: String) {
+    eip::stop_claiming_replica_only(world, &key).await;
+}
+
 // =========================================================================== Matrix
 
 #[given(

@@ -8,7 +8,7 @@
       "docs/feature/external-integration-plugins/feature-delta.md",
       "docs/feature/external-integration-plugins/distill/red-classification.md"
     ],
-    "scenario_ownership_invariant": "130 scenarios (218 rows) and 78 stubs, each owned by one step; 01-11 adds a 131st scenario. Ignored stubs left, in order: 77, 66, 58, 45, 44, 39, 39, 38, 38, 38, 35, 33, 33, 29, 23, 22, 21, 20, 20, 20, 10, 9, 8, 8, 1, 0.",
+    "scenario_ownership_invariant": "131 scenarios (219 rows) and 78 stubs, each owned by one step; 01-11 owns scenario 131 (authored by nw-acceptance-designer, 2026-10-22). Ignored stubs left, in order: 77, 66, 58, 45, 44, 39, 39, 38, 38, 38, 35, 33, 33, 29, 23, 22, 21, 20, 20, 20, 10, 9, 8, 8, 1, 0.",
     "deviations_from_distill": "Steps over about 8 scenarios split; history page (51, 54, 58, 59, 115) moved to 01-09 because 66 and 123 read a route's history; failover is 01-11. See pending_id_remap.",
     "prerequisites": [
       "H-3 recorded Slack fixtures gate 01-05; 01-06 onward inherit the gate through the dependency chain on 01-05.",
@@ -21,7 +21,7 @@
         "gate": "Decided before 04-04 starts; not built until then"
       },
       {
-        "item": "Matrix track (04-01..04-04) blocked on failover scenario authoring (01-11)",
+        "item": "Matrix track (04-01..04-04) blocked on failover scenario authoring (01-11): resolved 2026-10-22, scenario 131 authored",
         "owners": "nw-acceptance-designer",
         "gate": "Due before phase 03 completes"
       }
@@ -500,7 +500,7 @@
           "release_gate": [
             "G4"
           ],
-          "description": "Test-support seam naming a delivery's claimant, plus the integrations-test-seam rule. Blocked on the scenario. Un-ignores 3 xtask stubs.",
+          "description": "Test-support seam naming a delivery's claimant, plus the integrations-test-seam rule. Un-pends scenario 131 (1 row). Un-ignores 3 xtask stubs.",
           "criteria": [
             "With only the claimant stopped, the survivor delivers after the lease, once",
             "A build with test-support features enabled reaching a production image, or a changed Dockerfile build line, fails the build"
@@ -508,7 +508,7 @@
           "estimate": "1 day",
           "dependencies": [
             "01-10",
-            "external: failover scenario authored by nw-acceptance-designer (coordinator dispatches before 01-11)"
+            "external: failover scenario 131 authored by nw-acceptance-designer (done, 2026-10-22)"
           ],
           "files_to_modify": [
             "crates/foundry-app/src/integrations/worker.rs",
@@ -519,7 +519,7 @@
           ],
           "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature",
           "scenario_name": [
-            "TBD (131st scenario): single-replica failover, authored by nw-acceptance-designer",
+            "The replica that kept running delivers a message its stopped partner was sending",
             "check_arch.rs::test_seam_refuses_an_item_outside_test_support",
             "check_arch.rs::test_seam_refuses_a_dockerfile_build_with_features",
             "check_arch.rs::test_seam_requires_its_marker_constant"
@@ -1396,7 +1396,7 @@
     "quality_gate_self_check": {
       "criteria": "outcomes only, 2-3 per step",
       "decomposition_ratio": "26 / 49 = 0.53",
-      "distill_linkage": "130 scenarios and 78 stubs mapped once; orphans 0; one TBD in 01-11",
+      "distill_linkage": "131 scenarios and 78 stubs mapped once; orphans 0; no TBD (01-11 owns scenario 131)",
       "sizing": "reviewer rule (8+ scenarios): 01-06, 02-03, 03-03, 03-05, 04-02, 05-01, 05-02; also rows > 15 or stubs > 10: 01-02, 01-04, 01-05",
       "changelog": "every step with CHANGELOG.md in files_to_modify names 'CHANGELOG: <section>: <line>' in its notes; 01-01..01-04, 01-10, 01-11 change nothing user-visible and do not touch CHANGELOG.md",
       "decisions": "U-D12 lock_timeout 2 s accepted by the coordinator, 2026-10-22",
