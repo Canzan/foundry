@@ -379,6 +379,8 @@ pub struct FoundryWorld {
 
     // ---- api-openapi-document (US-AOD-01..06) ----
     pub aod: crate::support::api_openapi_document::AodState,
+    /// external-integration-plugins (DISTILL 2026-10-21): the driver's state.
+    pub eip: crate::support::external_integration_plugins::EipState,
 
     // ---- US-05+ in-process harness ----
     pub harness: Option<InProcHarness>,

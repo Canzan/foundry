@@ -14504,3 +14504,134 @@ pub fn routes<S: Clone + Send + Sync + 'static>() -> Router<S> {
         );
     }
 }
+
+#[cfg(test)]
+mod external_integration_plugins_check_arch_tests {
+    //! external-integration-plugins — injected-violation gold tests for the
+    //! DESIGN check-arch rules (feature-delta DESIGN [REF] check-arch and
+    //! Dependency Rules 1-6; DEVOPS C-13 `integrations-test-seam`). Pending
+    //! stubs written by DISTILL 2026-10-21 (ADR-025 scaffolded RED): each is
+    //! `#[ignore]`d with its DELIVER step id and panics with the RED marker until
+    //! DELIVER lands the rule and replaces the body with a plant on a staged
+    //! tree (the `--root` convention of the neighbouring gold tests). Every rule
+    //! also gets a "passes on the real tree" test, so an always-pass mutant dies.
+
+    macro_rules! pending_gold {
+        ($name:ident, $step:literal, $what:literal) => {
+            #[test]
+            #[ignore = concat!("pending: external-integration-plugins ", $step, " ", $what)]
+            fn $name() {
+                panic!(concat!(
+                    "Not yet implemented -- RED scaffold (external-integration-plugins ",
+                    $step,
+                    ": ",
+                    $what,
+                    ")"
+                ));
+            }
+        };
+    }
+
+    // Rule 1 `integrations-pure-core` (allow-list of dependencies), slice 01.
+    pending_gold!(
+        pure_core_passes_on_the_tree,
+        "01-04",
+        "integrations-pure-core passes on the real foundry-integrations"
+    );
+    pending_gold!(
+        pure_core_refuses_a_planted_reqwest,
+        "01-04",
+        "integrations-pure-core refuses reqwest in [dependencies]"
+    );
+    pending_gold!(
+        pure_core_refuses_a_planted_foundry_auth,
+        "01-04",
+        "integrations-pure-core refuses foundry-auth in [dependencies]"
+    );
+    // Rule 1a `integrations-store-capability`, slice 01.
+    pending_gold!(
+        store_capability_passes_on_the_tree,
+        "01-04",
+        "integrations-store-capability passes on the real tree"
+    );
+    pending_gold!(
+        store_capability_refuses_arc_store_in_the_hydrator,
+        "01-04",
+        "an Arc<Store> planted in the hydrator is refused"
+    );
+    pending_gold!(
+        store_capability_refuses_store_in_a_use_case,
+        "01-04",
+        "a &Store planted in a foundry-services use-case is refused"
+    );
+    // Rule 2 `integrations-secret-seam`, slice 01.
+    pending_gold!(
+        secret_seam_passes_on_the_tree,
+        "01-04",
+        "integrations-secret-seam passes on the real tree"
+    );
+    pending_gold!(
+        secret_seam_refuses_open_in_a_view_module,
+        "01-04",
+        "SealedSecret .open( planted in a view module is refused"
+    );
+    // Rule 4 `project-lifecycle-write-guard` extended, slice 01.
+    pending_gold!(
+        write_guard_refuses_a_route_writer_without_the_lock,
+        "01-04",
+        "a route writer that does not open with lock_live_project is refused"
+    );
+    pending_gold!(
+        write_guard_refuses_a_choice_writer_without_the_lock,
+        "05-01",
+        "an email-choice writer that does not open with lock_live_project is refused"
+    );
+    // Rule 6 `deny.toml` wrapper, slice 01.
+    pending_gold!(
+        deny_wrapper_refuses_foundry_integrations_in_core,
+        "01-04",
+        "foundry-core depending on foundry-integrations fails cargo deny bans"
+    );
+    // Rule 3 `integrations-outbound-client-seam`, slice 04.
+    pending_gold!(
+        outbound_seam_passes_on_the_tree,
+        "04-01",
+        "integrations-outbound-client-seam passes on the real tree"
+    );
+    pending_gold!(
+        outbound_seam_refuses_a_stray_client,
+        "04-01",
+        "a reqwest::Client::builder under integrations/ outside OutboundHttp is refused"
+    );
+    pending_gold!(
+        outbound_seam_refuses_a_removed_redirect_policy,
+        "04-01",
+        "OutboundHttp without redirect::Policy::none() is refused"
+    );
+    pending_gold!(
+        outbound_seam_refuses_a_removed_no_proxy,
+        "04-01",
+        "OutboundHttp without no_proxy() is refused"
+    );
+    pending_gold!(
+        outbound_seam_refuses_a_slack_client_that_follows_redirects,
+        "04-01",
+        "the fixed-host Slack client without redirect::Policy::none() is refused"
+    );
+    // DEVOPS C-13 `integrations-test-seam`, slice 04 (lands with the seam).
+    pending_gold!(
+        test_seam_refuses_an_item_outside_test_support,
+        "04-01",
+        "a seam item without #[cfg(feature = \"test-support\")] is refused"
+    );
+    pending_gold!(
+        test_seam_refuses_a_dockerfile_build_with_features,
+        "04-01",
+        "a Dockerfile cargo build line other than -p foundry-app --bin foundry is refused"
+    );
+    pending_gold!(
+        test_seam_requires_its_marker_constant,
+        "04-01",
+        "the seam's unique marker string constant is present"
+    );
+}

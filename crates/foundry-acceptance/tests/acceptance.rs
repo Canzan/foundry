@@ -58,6 +58,8 @@ use foundry_acceptance::steps::feature_card_ranking_within_status as _feature_ca
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_dashboard_enhancements as _feature_dashboard;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_external_integration_plugins as _feature_eip;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_fix_comment_delete_csrf as _feature_fix_comment_delete_csrf;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_fix_hide_unreachable_boards as _feature_fix_hide_unreachable_boards;
@@ -275,7 +277,25 @@ async fn main() {
                     let has = |t: &str| {
                         scenario.tags.iter().any(|x| x == t) || feat.tags.iter().any(|x| x == t)
                     };
+                    // external-integration-plugins: an eip selection applies the
+                    // default lane's container and lane exclusions unless the
+                    // requested tag is itself one of them (other features keep
+                    // the shipped single-tag behaviour, e.g. aod-01's @slow drift).
+                    const EIP_LANES: [&str; 6] = [
+                        "slow",
+                        "needs-matrix",
+                        "needs-smtp",
+                        "eip-replica",
+                        "eip-metrics",
+                        "eip-restart",
+                    ];
+                    let eip_selection =
+                        wanted == "external-integration-plugins" || wanted.starts_with("eip-");
+                    let lane_requested = EIP_LANES.contains(&wanted.as_str());
+                    let skip_lane =
+                        eip_selection && !lane_requested && EIP_LANES.iter().any(|t| has(t));
                     has(wanted.as_str())
+                        && !skip_lane
                         && !has("manual")
                         && !has("manual-trigger")
                         && !has("pending")
@@ -326,6 +346,17 @@ async fn main() {
                         // it exists to catch — a suite green over an absent
                         // client keyboard layer, because it never presses a key.
                         && !has("needs-browser")
+                        // external-integration-plugins (DEVOPS-3/-4): the pinned
+                        // Synapse homeserver and the pinned mailpit relay are
+                        // containers the quickstart should not require. Excluded
+                        // HERE ONLY, exactly as @needs-browser; the `all` lane
+                        // (= `cargo xtask ci`) and a single-tag selection run them.
+                        && !has("needs-matrix")
+                        && !has("needs-smtp")
+                        // The replica and metrics lanes need two replicas or the
+                        // warm prebuilt binary (DEVOPS C-2); run them by name.
+                        && !has("eip-replica")
+                        && !has("eip-metrics")
                         // @pending: production mechanism is an OPEN upstream
                         // decision (rate-guardrail OD-TMA-1). DELIVER unskips.
                         && !has("pending")
@@ -348,6 +379,10 @@ async fn main() {
     // stay ABOVE the failure panic below so a red run cleans up too.
     harness::shutdown_postgres().await;
     pg_backup::shutdown_restore_target().await;
+    // external-integration-plugins: the run's Synapse homeserver (@needs-matrix);
+    // a no-op when no Matrix scenario ran.
+    foundry_acceptance::support::matrix_homeserver::shutdown_synapse().await;
+    foundry_acceptance::support::matrix_homeserver::shutdown_mailpit().await;
 
     // Same reasoning, one layer down: the `@needs-browser` lane's chromedriver
     // is a raw `Command::spawn` child, and `std::process::Child` does NOT kill

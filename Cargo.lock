@@ -1358,6 +1358,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "foundry-integrations"
+version = "0.17.0"
+
+[[package]]
 name = "foundry-oidc"
 version = "0.17.0"
 dependencies = [

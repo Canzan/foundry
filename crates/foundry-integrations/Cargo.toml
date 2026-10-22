@@ -1,0 +1,19 @@
+[package]
+name = "foundry-integrations"
+version = "0.17.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+description = "Foundry integrations pure core (DESIGN DDR-1/DDR-2): SCAFFOLD, pending tests only"
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+# DESIGN rule `integrations-pure-core`: [dependencies] may name only
+# foundry-core, serde, serde_json, async-trait, uuid, time, ipnet. DELIVER adds
+# them (and `proptest = "1"` under [dev-dependencies], already locked) with the
+# code. The scaffold has no dependency at all.
+[dependencies]

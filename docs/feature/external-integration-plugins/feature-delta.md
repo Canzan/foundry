@@ -3478,3 +3478,425 @@ Reviewer: nw-platform-architect-reviewer, 2026-10-21. Maximum two rounds.
 - **Status for handoff:** no critical or high item is known to remain; the round-2 fixes have not
   been re-reviewed. Two items stay open by design for DELIVER: U-D7's reproduction (R-7) and the
   `le="60"` label string from one scrape.
+
+## Wave: DISTILL
+
+Acceptance designer: Quinn (nw-acceptance-designer) | Date: 2026-10-21, revised 2026-10-22 (cycle 3, with the user's ratification) | Language: Rust (`[lang-mode] rust`, cucumber-rs 0.21; the production router in process on testcontainers `postgres:16-alpine`; the Slack HTTP double in process; the pinned Synapse and mailpit containers for `@needs-matrix` / `@needs-smtp`; the prebuilt `foundry` binary as a subprocess for `@eip-metrics` / `@eip-restart`; two in-process replicas for `@eip-replica`) | Rigor: `adr-025-scaffolded-red` (every scenario `@pending`, the walking skeletons included; every new non-acceptance gold test an `#[ignore = "pending: external-integration-plugins NN-NN …"]` panic stub; each classified by lifting it and running it; DELIVER only un-pends) | Scope: deliverables A (slices 01-03, US-EIP-01..07) and B (slices 04-05, US-EIP-08..11); deliverable C (US-EIP-12..16) is out of scope (OD-1) | Density: lean, Tier-1 [REF] only | Policy: inherit (`docs/architecture/atdd-infrastructure-policy.md`; one Driving, two Driven-internal and three Driven-external rows appended) | State-delta port: the driver's typed universe read only through doors (`support::external_integration_plugins::{Universe, Change, assert_state_delta}`), the repo's Rust reading of Mandate 8 | `[policy-mode] inherit` `[port-mode] inherited`. Skills loaded: nw-distill, nw-test-design-mandates, nw-bdd-methodology, nw-tdd-methodology, nw-property-based-testing, nw-at-completeness-check, nw-ad-critique-dimensions.
+
+### [REF] Prior Wave Consultation and reconciliation
+
+| Artifact | Status |
+|---|---|
+| This file: DISCUSS (D-1..D-16, OD-1..15 and User Decisions, K-1..K-17, SC-1..10, NFR-EIP-1..7, EIP-KPI-1..9, US-EIP-01..11 with UAT scenarios and ACs, DoD, R1-R11, CA-1..5), DESIGN (DDR-1..27, DD-1..11 taken at their recommendations, Driving Ports, Driven Ports and Contract Shapes, Persistence Model, Route and Delivery Status, check-arch Rules, Earned Trust, DA-1..5, UI-1..10), DEVOPS (environment matrix `eip-*`, test environments, machine hazards, C-1..C-13, U-D1..U-D12, KPI instruments) | + read in full; US-EIP-12..16 read for the model only (out of scope) |
+| `slices/slice-01..05-*.md` | + read (06-08 not used: deliverable C) |
+| `docs/product/journeys/journey-external-integration-plugins.yaml` (journeys 1 and 2, every step's `failure_modes` and Gherkin) | + read; every failure mode of journeys 1-2 has a scenario (Completeness); journey 3 is deliverable C |
+| `docs/product/architecture/brief.md` "Project events leave the board" and "For Acceptance Designer (external-integration-plugins)" | + read; doubles, time seams, observable outcomes and the preview/test/save shapes followed |
+| `docs/product/architecture/adr-eip-001..007` | + read (decisions and enforcement sections) |
+| `docs/product/kpi-contracts.yaml` `external-integration-plugins:` | + read; **not edited**; tag → KPI links under [REF] KPI links |
+| `docs/architecture/atdd-infrastructure-policy.md` | + read; rows appended for the new ports |
+| House precedent: api-openapi-document and project-lifecycle DISTILL (shape, `red-classification.md`, `#[ignore]` stubs), team-membership driver (roster, sessions, page readers, forged-form oracle), `handler_instrumentation::FoundrySubprocess`, `multi_replica_harness`, `notify_recorder`, `webhook_receiver` | + read and reused |
+| `docs/feature/external-integration-plugins/{discuss,design,devops}/wave-decisions.md` | - not present (lean single-file layout; decisions live in this file) |
+| `docs/feature/external-integration-plugins/spike/` | - not present (no spike) |
+
+**Reconciliation: 0 unresolved contradictions that change behaviour.** Every DISCUSS decision was checked against DESIGN and DEVOPS. Where DESIGN amends DISCUSS it has already said so and DISTILL follows DESIGN: stop links never expire (UI-2, DD-7: no "expired link" row); a route receives only what happens after it is saved or resumed (UI-10, DDR-27: scenarios 20, 70, 71); `chat:write.public` is among the bot permissions (DA-3, DD-3: scenario 6); the from-lane comes from the payload (DA-2); the homeserver the dogfood uses is Continuwuity while the CI contract is Synapse (DEVOPS Changed Assumption 1). DESIGN's proposed copy that the scenarios assert (UI-1, UI-3, UI-5, UI-6) and the behaviours DISTILL asked about were ratified by the user on 2026-10-22 ([REF] User ratification, R-1..R-11); the copy still unlocked (UI-4's subjects, UI-7's unquoted reasons) is not asserted.
+
+### [REF] Scenario list
+
+Eleven feature files under `crates/foundry-acceptance/tests/features/`, `external-integration-plugins-0N-*.feature`, grouped by slice. Every feature carries `@external-integration-plugins @real-io` and its slice tag `@eip-0N` (the operations file puts the slice tag on each scenario and carries `@cross-cutting`, mapped to stories per scenario); story tags `@us-eip-NN` sit on the feature (04 matrix carries `@us-eip-08 @us-eip-09`, 05 `@us-eip-10 @us-eip-11`) and on each scenario of the operations file. Every scenario carries `@pending` and a `@contract-shape:` tag and has exactly one `When`; the copy and behaviour the user ratified on 2026-10-22 are listed under [REF] User ratification (no tag marks them). **130 scenarios, 218 rows** with outline rows expanded. Numbering: 1-114 in slice order; 115 (signed-out file), 116-121 (Sentinel round 1), 122-129 (revision cycle 1) and 130 (cycle 3) are appended so earlier numbers stay stable. Walking skeletons: **8** (Slack, slice 01), **89** (Matrix, slice 04), **98** (project email, slice 05), each `@walking_skeleton @driving_port`.
+
+| File | Scenarios | Rows | `@error` scenarios | `@error` rows | error + edge scenarios |
+|---|---|---|---|---|---|
+| 01 connect-slack (US-EIP-01) | 7 | 19 | 5 | 17 | 6 |
+| 01 route-new-issues (US-EIP-02) | 14 | 21 | 7 | 13 | 11 |
+| 02 content (US-EIP-04) | 9 | 21 | 5 | 11 | 6 |
+| 02 events (US-EIP-03) | 11 | 17 | 5 | 6 | 6 |
+| 03 broken-connection (US-EIP-06) | 10 | 16 | 6 | 12 | 9 |
+| 03 history-and-retries (US-EIP-05) | 10 | 19 | 8 | 16 | 9 |
+| 03 operations (cross-cutting; US-EIP-01, -02, -05, -06) | 12 | 14 | 6 | 8 | 7 |
+| 03 route-lifecycle (US-EIP-07) | 16 | 26 | 5 | 12 | 9 |
+| 04 matrix (US-EIP-08, -09; `@needs-matrix`) | 23 | 32 | 12 | 19 | 12 |
+| 05 project-emails (US-EIP-10, -11) | 17 | 28 | 8 | 14 | 9 |
+| 01 signed-out (US-EIP-01, -02, -05) | 1 | 5 | 1 | 5 | 1 |
+| **All** | **130** | **218** | **68 (52%)** | **133 (61%)** | **85 (65%)** |
+
+**Lane tags, pinned here** (the DEVOPS environment matrix left the strings to DISTILL; its section is not edited): slice tags `@eip-01`..`@eip-05` are `eip-default-lane`'s selections; `@needs-matrix` (23 scenarios, 32 rows), `@needs-smtp` (114), `@eip-replica` (65-68, 123, 124), `@eip-metrics` (60-64, 122) and `@eip-restart @slow` (13) are the matrix, smtp, replica, metrics and restart lanes. The no-argument default lane excludes `needs-matrix`, `needs-smtp`, `eip-replica`, `eip-metrics` and `slow`. A single-tag selection of `external-integration-plugins` or any `eip-0N` applies the same lane exclusions unless the requested tag is itself a lane tag (`FOUNDRY_ACCEPTANCE_TAGS=needs-matrix`, `eip-replica`, `eip-metrics`, `eip-restart`, `needs-smtp` run their lane); other features keep the shipped single-tag behaviour (api-openapi-document's `aod-01` relies on it including `@slow`). The restart lane carries only scenario 13; the 24-hour give-up rows (14, 15, 54) run in process on the `MockClock`, not with `FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS` (DEVOPS review issue 7: the DEVOPS matrix text listed scenario 4 under restart; DISTILL places it in process, and the subprocess setting stays available to DELIVER).
+
+| # | File | Scenario | Tags (besides `@pending` and the feature tags) | Rows |
+|---|---|---|---|---|
+| 1 | 01 connect-slack | A workspace admin connects Slack and sees the connection | @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 2 | 01 connect-slack | An instance that cannot hold a Slack connection says what is missing | @error @contract-shape:unbounded-preservation | 2 |
+| 3 | 01 connect-slack | A cancelled approval connects nothing | @error @contract-shape:unbounded-preservation | 1 |
+| 4 | 01 connect-slack | A forged return from Slack connects nothing | @error @contract-shape:unbounded-preservation | 4 |
+| 5 | 01 connect-slack | Only a workspace admin reaches the workspace's Slack doors | @error @contract-shape:unbounded-preservation | 6 |
+| 6 | 01 connect-slack | The Slack setup page gives the operator this instance's addresses and nothing secret | @edge @contract-shape:pure-function | 1 |
+| 7 | 01 connect-slack | The Slack credential never leaves the server | @error @kpi @contract-shape:unbounded-preservation | 4 |
+| 8 | 01 route-new-issues | Lena sees the first new issue arrive in the chosen Slack channel | @walking_skeleton @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 9 | 01 route-new-issues | A test message confirms the route before it is saved | @contract-shape:bounded-change | 1 |
+| 10 | 01 route-new-issues | Saving a route sends nothing and puts it on record | @edge @contract-shape:bounded-change | 1 |
+| 11 | 01 route-new-issues | Test messages are limited to six a minute for each person | @edge @contract-shape:bounded-change | 1 |
+| 12 | 01 route-new-issues | Filing an issue is never slowed or refused by chat delivery | @error @kpi @contract-shape:bounded-change | 1 |
+| 13 | 01 route-new-issues | A message waiting for Slack survives a restart of Foundry | @error @slow @eip-restart @kpi @contract-shape:bounded-change | 1 |
+| 14 | 01 route-new-issues | A message Slack never accepts within a day is flagged on the route | @error @contract-shape:bounded-change | 1 |
+| 15 | 01 route-new-issues | A message given up on is never posted later | @error @contract-shape:unbounded-preservation | 1 |
+| 16 | 01 route-new-issues | A lead without a chat connection is told who can add one | @error @contract-shape:unbounded-preservation | 1 |
+| 17 | 01 route-new-issues | Only the team's leads and workspace admins configure a project's routes | @error @contract-shape:unbounded-preservation | 7 |
+| 18 | 01 route-new-issues | A workspace admin configures routes on any project of the workspace | @contract-shape:bounded-change | 1 |
+| 19 | 01 route-new-issues | Another project's issues never reach the route | @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 20 | 01 route-new-issues | A route carries only what happens after it is saved | @edge @contract-shape:unbounded-preservation | 1 |
+| 21 | 01 route-new-issues | The channel picker lists the channels Foundry can post to | @edge @contract-shape:pure-function | 2 |
+| 22 | 02 content | Lena sees exactly what the channel will receive before saving | @contract-shape:pure-function | 2 |
+| 23 | 02 content | A new route reveals a summary unless the lead chooses otherwise | @contract-shape:pure-function | 1 |
+| 24 | 02 content | Comment text is sent only when chosen | @kpi @contract-shape:bounded-change | 3 |
+| 25 | 02 content | Comment text is cut at 300 characters | @edge @contract-shape:bounded-change | 4 |
+| 26 | 02 content | Text from people can never ping a channel | @error @kpi @contract-shape:bounded-change | 4 |
+| 27 | 02 content | Descriptions, attachments and email addresses are never sent | @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 28 | 02 content | A channel shared with another organisation asks for confirmation | @error @contract-shape:unbounded-preservation | 1 |
+| 29 | 02 content | A route to a shared channel is saved only once its sharing is confirmed | @error @contract-shape:bounded-change | 2 |
+| 30 | 02 events | A route limited to one lane posts only moves into that lane | @kpi @contract-shape:bounded-change | 1 |
+| 31 | 02 events | Each chosen event posts its own message | @kpi @contract-shape:bounded-change | 4 |
+| 32 | 02 events | Reordering cards within a lane posts nothing | @error @contract-shape:unbounded-preservation | 1 |
+| 33 | 02 events | Editing or deleting a comment posts nothing | @error @contract-shape:unbounded-preservation | 2 |
+| 34 | 02 events | The route form offers exactly the chat events Foundry announces | @edge @contract-shape:pure-function | 1 |
+| 35 | 02 events | A route with no event chosen is not saved | @error @contract-shape:unbounded-preservation | 1 |
+| 36 | 02 events | A lane filter follows its lane through a rename | @contract-shape:bounded-change | 1 |
+| 37 | 02 events | A route whose filtered lane is gone asks to be fixed | @error @contract-shape:bounded-change | 1 |
+| 38 | 02 events | A route whose filtered lane is gone posts no moves until it is edited | @error @contract-shape:unbounded-preservation | 1 |
+| 39 | 02 events | One action that deletes many cards posts one message once there are more than five | @contract-shape:bounded-change | 3 |
+| 40 | 02 events | Deleting a lane that moves its cards posts one message for the move | @contract-shape:bounded-change | 1 |
+| 41 | 03 broken-connection | A removed Slack app pauses the routes and tells the workspace admins | @error @kpi @contract-shape:bounded-change | 1 |
+| 42 | 03 broken-connection | Slack telling Foundry the app was uninstalled pauses the routes at once | @error @kpi @contract-shape:bounded-change | 1 |
+| 43 | 03 broken-connection | Messages to Foundry's Slack events address that are not Slack's change nothing | @error @contract-shape:unbounded-preservation | 5 |
+| 44 | 03 broken-connection | Slack telling Foundry twice still sends one email | @edge @contract-shape:bounded-change | 1 |
+| 45 | 03 broken-connection | Slack can confirm Foundry's events address | @edge @contract-shape:pure-function | 1 |
+| 46 | 03 broken-connection | Reconnecting resumes the routes and delivers what was missed | @kpi @contract-shape:bounded-change | 1 |
+| 47 | 03 broken-connection | Reconnecting to the wrong Slack workspace changes nothing | @error @contract-shape:unbounded-preservation | 1 |
+| 48 | 03 broken-connection | A problem with one channel affects only its own route | @error @contract-shape:bounded-change | 2 |
+| 49 | 03 broken-connection | Resuming a route checks its channel again | @error @contract-shape:bounded-change | 2 |
+| 50 | 03 broken-connection | A muted workspace admin is not emailed, and the page still says what broke | @edge @contract-shape:bounded-change | 1 |
+| 51 | 03 history-and-retries | Every delivery is listed with its outcome | @kpi @contract-shape:pure-function | 1 |
+| 52 | 03 history-and-retries | A rate-limited delivery waits and then arrives | @error @kpi @contract-shape:bounded-change | 1 |
+| 53 | 03 history-and-retries | Messages delayed by an outage arrive in the order they happened | @error @contract-shape:bounded-change | 1 |
+| 54 | 03 history-and-retries | After 24 hours of failure Foundry stops and says so | @error @contract-shape:pure-function | 1 |
+| 55 | 03 history-and-retries | What Foundry does with each answer Slack can give | @error @contract-shape:bounded-change | 7 |
+| 56 | 03 history-and-retries | Answers Foundry cannot read are retried, never treated as final | @error @contract-shape:bounded-change | 2 |
+| 57 | 03 history-and-retries | A channel Slack cannot find stops that route only | @error @contract-shape:bounded-change | 1 |
+| 58 | 03 history-and-retries | History speaks Foundry's words, never Slack's | @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 59 | 03 history-and-retries | Only those who manage the route see its history | @error @contract-shape:unbounded-preservation | 2 |
+| 60 | 03 operations | No credential appears in anything Foundry writes to its logs | @us-eip-01 @eip-01 @eip-metrics @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 61 | 03 operations | A missing secrets key keeps the board up and says what it cannot open | @us-eip-01 @eip-01 @eip-metrics @error @contract-shape:unbounded-preservation | 1 |
+| 62 | 03 operations | A setting that cannot be right stops Foundry from starting, and says which | @us-eip-01 @eip-01 @eip-metrics @error @contract-shape:unbounded-preservation | 3 |
+| 63 | 03 operations | The operator rotates the secrets key without anyone reconnecting | @us-eip-01 @eip-01 @eip-metrics @driving_port @contract-shape:bounded-change | 1 |
+| 64 | 03 operations | The operator's delivery counters start at zero and count each outcome | @us-eip-05 @eip-03 @eip-metrics @kpi @contract-shape:bounded-change | 1 |
+| 65 | 03 operations | Two replicas deliver each event once, in the order it happened | @us-eip-02 @eip-01 @eip-replica @kpi @contract-shape:bounded-change | 1 |
+| 66 | 03 operations | A message whose sender stopped in the middle of a send is not lost | @us-eip-02 @eip-01 @eip-replica @error @kpi @contract-shape:bounded-change | 1 |
+| 67 | 03 operations | Two replicas email each workspace admin once when the connection is lost | @us-eip-06 @eip-03 @eip-replica @error @kpi @contract-shape:bounded-change | 1 |
+| 68 | 03 operations | Two routes to one channel never post more than once a second | @us-eip-05 @eip-03 @eip-replica @edge @contract-shape:bounded-change | 1 |
+| 69 | 03 route-lifecycle | Pausing a route shows it paused | @contract-shape:bounded-change | 1 |
+| 70 | 03 route-lifecycle | A paused route skips events and does not send them later | @contract-shape:unbounded-preservation | 1 |
+| 71 | 03 route-lifecycle | A resumed route carries what happens after the resume | @contract-shape:bounded-change | 1 |
+| 72 | 03 route-lifecycle | Pausing a route that waits for Slack drops what it was waiting to send | @edge @contract-shape:unbounded-preservation | 1 |
+| 73 | 03 route-lifecycle | Editing a route's events takes effect on the next event | @contract-shape:bounded-change | 1 |
+| 74 | 03 route-lifecycle | Deleting a route asks first | @error @contract-shape:unbounded-preservation | 1 |
+| 75 | 03 route-lifecycle | Confirming the delete removes the route and leaves Slack's messages alone | @contract-shape:bounded-change | 1 |
+| 76 | 03 route-lifecycle | Disconnecting Slack asks first and counts what stops | @error @contract-shape:unbounded-preservation | 1 |
+| 77 | 03 route-lifecycle | Confirming the disconnect pauses the routes and removes Foundry's access | @contract-shape:bounded-change | 1 |
+| 78 | 03 route-lifecycle | What happens while Slack is disconnected is not sent after reconnecting | @edge @contract-shape:unbounded-preservation | 1 |
+| 79 | 03 route-lifecycle | A restored project's routes post again | @contract-shape:bounded-change | 1 |
+| 80 | 03 route-lifecycle | What was waiting when a project was deleted is never sent | @error @contract-shape:unbounded-preservation | 1 |
+| 81 | 03 route-lifecycle | Every route and connection change is on record | @edge @contract-shape:bounded-change | 3 |
+| 82 | 03 route-lifecycle | Asking for what is already so changes nothing | @edge @contract-shape:unbounded-preservation | 2 |
+| 83 | 03 route-lifecycle | Only the right people change routes and connections | @error @contract-shape:unbounded-preservation | 6 |
+| 84 | 03 route-lifecycle | A change sent from outside the page is turned away | @error @contract-shape:unbounded-preservation | 3 |
+| 85 | 04 matrix | A workspace admin connects the Matrix bot and sees who it is | @us-eip-08 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 86 | 04 matrix | A Matrix connection that cannot be checked is not saved | @us-eip-08 @error @contract-shape:unbounded-preservation | 2 |
+| 87 | 04 matrix | A homeserver on this machine is refused before it is contacted | @us-eip-08 @error @kpi @contract-shape:unbounded-preservation | 2 |
+| 88 | 04 matrix | Only a workspace admin connects Matrix | @us-eip-08 @error @contract-shape:unbounded-preservation | 2 |
+| 89 | 04 matrix | A new issue appears in the Matrix room as a formatted notice | @us-eip-09 @walking_skeleton @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 90 | 04 matrix | Saving a Matrix route brings the bot into the room and says so | @us-eip-09 @contract-shape:bounded-change | 1 |
+| 91 | 04 matrix | A room Foundry's bot cannot use is explained and no route is saved | @us-eip-09 @error @contract-shape:unbounded-preservation | 2 |
+| 92 | 04 matrix | A saved Matrix route sends its test message | @us-eip-09 @contract-shape:bounded-change | 1 |
+| 93 | 04 matrix | A bot removed from the room flags the route | @us-eip-09 @error @contract-shape:bounded-change | 1 |
+| 94 | 04 matrix | A room that became encrypted after the route was saved receives nothing in the clear | @us-eip-09 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 95 | 04 matrix | A logged-out bot pauses the Matrix routes | @us-eip-08 @error @kpi @contract-shape:bounded-change | 1 |
+| 96 | 04 matrix | A new token resumes the Matrix routes and delivers what waited | @us-eip-08 @kpi @contract-shape:bounded-change | 1 |
+| 97 | 04 matrix | Text from people can never ping a Matrix room | @us-eip-09 @error @kpi @contract-shape:bounded-change | 3 |
+| 98 | 05 project-emails | A member chooses an event for a project and gets the email it describes | @us-eip-10 @walking_skeleton @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 99 | 05 project-emails | Saving shows exactly what will be emailed, three steps from the board | @us-eip-10 @driving_port @kpi @contract-shape:bounded-change | 1 |
+| 100 | 05 project-emails | A member sees only projects they can open, with nothing chosen for them | @us-eip-10 @contract-shape:pure-function | 1 |
+| 101 | 05 project-emails | Each chosen event emails what happened and why | @us-eip-10 @kpi @contract-shape:bounded-change | 4 |
+| 102 | 05 project-emails | "Issues I created or commented on" means exactly that | @us-eip-10 @edge @contract-shape:bounded-change | 3 |
+| 103 | 05 project-emails | A member is not emailed about their own actions | @us-eip-10 @error @contract-shape:unbounded-preservation | 3 |
+| 104 | 05 project-emails | A muted workspace sends no project email | @us-eip-10 @error @contract-shape:unbounded-preservation | 1 |
+| 105 | 05 project-emails | An instance that cannot send email says so | @us-eip-10 @error @contract-shape:unbounded-preservation | 1 |
+| 106 | 05 project-emails | A choice for a project the member cannot open is refused | @us-eip-10 @error @contract-shape:unbounded-preservation | 1 |
+| 107 | 05 project-emails | A member stops one kind of email from the email itself | @us-eip-11 @kpi @contract-shape:bounded-change | 1 |
+| 108 | 05 project-emails | A stopped choice sends no more emails | @us-eip-11 @kpi @contract-shape:unbounded-preservation | 1 |
+| 109 | 05 project-emails | Merely opening a stop link changes nothing | @us-eip-11 @error @contract-shape:unbounded-preservation | 1 |
+| 110 | 05 project-emails | A mail client's one-click unsubscribe stops the same choice | @us-eip-11 @kpi @contract-shape:bounded-change | 1 |
+| 111 | 05 project-emails | Losing access stops the emails without any setting changing | @us-eip-11 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 112 | 05 project-emails | A tampered stop link changes nothing and reveals nothing | @us-eip-11 @error @contract-shape:unbounded-preservation | 5 |
+| 113 | 05 project-emails | Stopping project emails never stops security emails | @us-eip-11 @error @contract-shape:unbounded-preservation | 1 |
+| 114 | 05 project-emails | A project email sent through the relay carries its one-click stop link | @us-eip-11 @needs-smtp @adapter-integration @kpi @contract-shape:bounded-change | 1 |
+| 115 | 01 signed-out | A signed-out visitor is sent to sign in from every integration page | @error @contract-shape:unbounded-preservation | 5 |
+| 116 | 03 history-and-retries | Beyond the newest 100, the history keeps a delivery for 30 days | @edge @contract-shape:bounded-change | 2 |
+| 117 | 04 matrix | Every Matrix delivery is in the route's history | @us-eip-09 @contract-shape:bounded-change | 1 |
+| 118 | 04 matrix | A Matrix route carries an event added by editing it | @us-eip-09 @contract-shape:bounded-change | 1 |
+| 119 | 04 matrix | A paused Matrix route skips events and does not send them later | @us-eip-09 @contract-shape:unbounded-preservation | 1 |
+| 120 | 04 matrix | Deleting a Matrix route takes the bot out of the room | @us-eip-09 @contract-shape:bounded-change | 1 |
+| 121 | 04 matrix | A notice waiting for an unreachable homeserver arrives when it answers again | @us-eip-09 @error @contract-shape:bounded-change | 1 |
+| 122 | 03 operations | After a rotation Foundry opens the connection with only the new key | @us-eip-01 @eip-01 @eip-metrics @driving_port @contract-shape:bounded-change | 1 |
+| 123 | 03 operations | A late answer from a replica whose claim expired is recorded once | @us-eip-02 @eip-01 @eip-replica @error @contract-shape:bounded-change | 1 |
+| 124 | 03 operations | Two replicas deliver a burst of events once each | @us-eip-02 @eip-01 @eip-replica @kpi @contract-shape:bounded-change | 1 |
+| 125 | 02 content | No message carries a Foundry or Slack credential | @error @kpi @contract-shape:unbounded-preservation | 3 |
+| 126 | 04 matrix | No notice carries the bot's access token or the secrets key | @us-eip-09 @error @kpi @contract-shape:unbounded-preservation | 1 |
+| 127 | 04 matrix | A Matrix route form names the room's audience | @us-eip-09 @contract-shape:unbounded-preservation | 1 |
+| 128 | 04 matrix | A Matrix notice reveals comment text only when chosen | @us-eip-09 @kpi @contract-shape:bounded-change | 3 |
+| 129 | 04 matrix | A homeserver that asks Foundry to wait, or fails, is retried | @us-eip-09 @error @contract-shape:bounded-change | 2 |
+| 130 | 04 matrix | A homeserver's request to wait longer than Foundry's own backoff is honoured | @us-eip-09 @error @contract-shape:unbounded-preservation | 1 |
+
+**Coverage, AC by AC.** US-EIP-01: AC 1 → 1; AC 2 → 2; AC 3 → 3, 4; AC 4 → 5, 115; AC 5 → 7, 60, 125, 126; AC 6 → 1. US-EIP-02: AC 1 → 8; AC 2 → 9 (and 10, 11: save never sends, the rate limit); AC 3 → 12, 13, 14, 15; AC 4 → 16; AC 5 → 17, 18, 115; AC 6 → 19; AC 7 → 10. US-EIP-03: AC 1 → 30, 34, 35; AC 2 → 31 (comment row); AC 3 → 32, 33; AC 4 → 36, 37, 38; AC 5 → 39, 40. US-EIP-04: AC 1 → 22, 23; AC 2 → 22 with 31 (the preview's lines are the message's lines, string for string); AC 3 → 24, 25; AC 4 → 26; AC 5 → 27, 7, 125; AC 6 → 23, 127 (K-5 on the Matrix form), 28, 29. US-EIP-05: AC 1 → 51, 54, 116; AC 2 → 52, 55, 56; AC 3 → 53, 65, 124; AC 4 → 59, 115; AC 5 → 58 (vendor text, token and URL secret never shown). US-EIP-06: AC 1 → 41, 42 (and 67 across replicas); AC 2 → 46; AC 3 → 48, 57; AC 4 → 47; AC 5 → 41, 50. US-EIP-07: AC 1 → 69-72; AC 2 → 73; AC 3 → 74-77, 84; AC 4 → 77, 78; AC 5 → 79, 80; AC 6 → 75, 81. US-EIP-08: AC 1 → 85; AC 2 → 86; AC 3 → 85; AC 4 → 95, 96; AC 5 → 88. US-EIP-09: AC 1 → 90; AC 2 → 89; AC 3 → 91; AC 4 → 93, 94; AC 5 → 97; AC 6 → 92, 117 (history), 118 (edit), 119 (pause), 120 (delete), 121, 129 and 130 (retries: unreachable, 429 with `retry_after_ms`, 5xx; a wait longer than the backoff honoured), 128 (content levels, formatted and plain bodies), 126 (no credential in a notice). US-EIP-10: AC 1 → 100; AC 2 → 99; AC 3 → 98, 101; AC 4 → 103; AC 5 → 104, 113; AC 6 → 105; AC 7 → 102; and 106 (a forged choice). US-EIP-11: AC 1 → 98, 110, 114; AC 2 → 109; AC 3 → 111; AC 4 → 112 (tampered only; R-11, ratified 2026-10-22: stop links never expire (DD-7, UI-2), and AC 4 reads "A tampered link"; DISCUSS not edited); AC 5 → 113; and 107, 108. Journey failure modes (journeys 1-2): K-2 → 2; K-3 → 3, 4; uniform 404 → 5, 17, 59, 83, 88, 106 (and sign-in for a signed-out visitor, 115); token in logs or source → 7, 60; K-4 → 16; K-6 → 28, 29; preview differs → 22 with 31; description, address or secret sent → 27; ping → 26, 97; slowed or failed create → 12; lost on restart → 13; cross-project → 19; routes say Delivering while failing → 41, 55; one email, not many → 44, 67; channel problem pauses everything → 48, 57; wrong workspace → 47; missed or duplicated → 46, 13, 66; K-14, K-15 → 91; kicked, encrypted later → 93, 94; `@room` → 97; K-13 → 105; foreign project listed → 100; on by default → 100; own action → 103; muted → 104; footer mismatch → 98, 101; prefetch → 109; stop silences security mail → 113; removed member → 111.
+
+### [REF] WS strategy
+
+Architecture of Reference (project-level, unchanged): driving ports real (the in-process axum router with real sessions and double-submit CSRF; the prebuilt `foundry` binary as a subprocess; two in-process replicas behind the round-robin proxy; `foundry doctor` through `assert_cmd`), driven-internal real (Postgres 16 per-scenario schema; the real delivery worker; the shipped `Notifier`; `SecretBox`), driven-external faked over a real socket (the Slack double; the pinned Synapse behind the fault proxy; the email recorder and, for one scenario, the pinned mailpit relay; the `MockClock`). **Walking skeletons: 8, 89, 98**, each a user goal with a user-visible outcome (a message in `#auth-dev`, a notice in `#auth:canzan.dev`, an email in Sam's inbox), entered through the real pages.
+
+**How the skeletons are handled at hand-off: `@pending` and RED, not GREEN** (house precedent: api-openapi-document DIST-1, notification-preferences-ui, team-membership). Each needs production code DISTILL does not write; DELIVER's first steps un-pend and green them. The hand-off is green by construction: every scenario is `@pending`, and every committed lane selects 0 of them.
+
+### [REF] Adapter coverage
+
+| Adapter | `@real-io` scenario | Covered by |
+|---|---|---|
+| Slack adapter (`oauth.v2.access`, `auth.test`, `conversations.list`/`info`, `chat.postMessage`, `apps.uninstall`) over a real socket to the double | YES | 1, 8, 21, 28, 31, 55, 77 |
+| Slack events endpoint (`POST /integrations/slack/events`, real `v0` HMAC) | YES | 42, 43, 44, 45 |
+| Outbox dispatch, deliveries queue, fenced senders, sweeps (Postgres) | YES | every delivery scenario; 13 (restart), 14-15 (give-up), 53 (order), 65-68 (replicas, lease, pacing) |
+| `SecretBox` (seal on connect, open on send, rotation) | YES | 1, 8, 61, 63 |
+| `OutboundHttp` + the Matrix adapter + pinned Synapse | YES | 85-97 |
+| `EmailTransport` (recorder) / the shipped `SmtpProvider` to mailpit | YES | 98-113 / 114 (`@adapter-integration`) |
+| Shipped `Notifier` (the connection-lost admin email, D-15) | YES | 41, 42, 44, 50, 67, 95 |
+| Metrics exporter and logs (subprocess) | YES | 60, 62, 64 |
+| `foundry doctor rotate-secrets`, `restore-project` (real binary) | YES | 63; 79, 80 |
+| Board writers with payload enrichment (`from_state`, deleted `title`/`author_id`) | YES | 30-40 |
+
+No "NO — MISSING" row. In-memory doubles: none (the recorder and the Slack double are external-port fakes the policy names). What the doubles cannot model: Slack's real rate-limit tiers and its real uninstall timing (refreshed at the dogfood and by `eip-slack-live`); Continuwuity's divergences from Synapse (manual run before slice 04's dogfood); a real relay's bounce after acceptance (DESIGN documents it as Delivered).
+
+### [REF] Driving adapter coverage
+
+| Door (DESIGN Driving Ports) | Scenarios |
+|---|---|
+| `GET /workspace/integrations` | 1, 2, 5, 7, 41, 42, 50, 61, 85, 115 |
+| `GET /workspace/integrations/slack/setup` | 5, 6, 7, 115 |
+| `GET /workspace/integrations/slack/install`, `…/return` | 1, 3, 4, 5, 46, 47, 78 |
+| `GET`+`POST /workspace/integrations/slack/disconnect` | 76, 77, 78, 81, 83, 84 |
+| `POST /workspace/integrations/matrix` | 85, 86, 87, 88, 96 |
+| `POST /integrations/slack/events` (public, signed, CSRF-exempt) | 42, 43, 44, 45, 50 |
+| `GET /team/{t}/project/{p}/integrations` | 10, 16, 17, 18, 115, and every status Then |
+| `…/routes/new` | 17, 21, 23, 28, 34 |
+| `…/routes/preview` | 22 |
+| `…/routes/test` (Slack unsaved, Matrix saved) | 9, 11; 92 |
+| `POST …/routes` | 10, 17, 18, 20, 29, 35, 90, 91, and every "has routed" Given |
+| `…/routes/{id}/edit` | 73, 81, 83 |
+| `…/routes/{id}/pause`, `/resume` | 49, 69-72, 81-84 |
+| `…/routes/{id}/delete` | 74, 75, 83, 84 |
+| `…/routes/{id}/history` | 51, 52, 54, 58, 59, 66, 115, 116, 117 |
+| `/account/settings` (Project emails), `/account/settings/project-emails` | 99, 100, 104, 105, 106, and every "has chosen" Given |
+| `GET`+`POST /email/stop` | 107, 108, 109, 112 |
+| `POST /email/stop/one-click` | 110, 112, 114 |
+| `foundry doctor rotate-secrets` | 63 |
+| Board writers (file, move, reorder, comment, comment edit/delete, issue delete, lane rename/delete, project delete) | 8, 12, 19, 30-40, 79, 80, 98-103 |
+
+### [REF] Scaffolds (Mandate 7)
+
+**One scaffold crate, no production code.** `crates/foundry-integrations` (new workspace member, `SCAFFOLD: true` in its `lib.rs`, an empty library with `#![forbid(unsafe_code)]` and no dependency) exists only to hold the pure core's pending tests; DELIVER 01-04 writes the code. `cargo xtask check-arch` PASSED and `cargo deny check bans` is ok with it. No other production file was touched. New test support (all in `crates/foundry-acceptance`): `src/support/slack_double.rs` (routes under `/slack-web/`, not `/api/`, because the shipped `api-openapi-operations` rule reserves `/api`; it announces once per run when it serves hand-written Slack shapes), `src/support/matrix_homeserver.rs` (Synapse and mailpit pinned by tag@digest; the fault proxy carries `SCAFFOLD: true`: an HTTP reverse proxy with a connection counter, a per-path request counter, silent and forwarding modes, and one armed 429 (`retry_after_ms` 30000) or 502 answer given to the next complete send request on any connection and recorded as given; TLS termination comes with U-D1; a decoy listener on a fresh port per scenario for the on-this-machine rows; the mailpit test certificate under `tests/fixtures/tls/`), `src/support/external_integration_plugins.rs` (the driver), `src/steps/feature_external_integration_plugins.rs`, a `World` field `eip`, and in `tests/acceptance.rs` the force-link, the lane rules above and the Synapse and mailpit shutdown. `cargo clippy -D warnings` (all targets) and `cargo fmt --check` are clean on the touched crates.
+
+**Gold-test stubs: 78, each a scaffold with an unconditional marker** (`panic!("Not yet implemented -- RED scaffold (external-integration-plugins NN-NN: …)")`, `#[ignore = "pending: external-integration-plugins NN-NN …"]`): they are RED because they always panic, not because they probe behaviour; DELIVER replaces each body.
+
+| File | Stubs | DELIVER steps |
+|---|---|---|
+| `crates/foundry-integrations/tests/core_properties.rs` | 19 (compose ×2, encoders ×3, dispatch plan ×3, retry policy ×3, classifiers ×2, route status, plan functions ×4, judge) | 01-04, 01-06, 02-01, 02-02, 03-01, 03-03, 04-01, 04-02, 05-01 |
+| `crates/foundry-auth/tests/eip_secret_box.rs` | 12 (SecretBox 8, stop token 4) | 01-03, 05-01 |
+| `crates/foundry-store/tests/eip_store.rs` | 14 | 01-02, 01-07, 03-01 |
+| `crates/foundry-app/tests/eip_contract_shapes.rs` | 13 | 01-05, 01-06, 02-02, 03-02, 04-01 |
+| `xtask/src/check_arch.rs` `mod external_integration_plugins_check_arch_tests` | 19 | 01-04, 04-01, 05-01 |
+| `crates/foundry-acceptance/tests/eip_kpi4_bench.rs` | 1 (the EIP-KPI-4 bench; T-1 first) | 01-01 |
+
+**Contract-test level (SA F6, recorded decision):** the use-case contract shapes DESIGN lists (route create, connection upsert, preview, test, save, audit) are stubbed at the router level in `eip_contract_shapes.rs` (through `foundry_app::build_router`, the house's `api_docs_page.rs` level), not as `foundry-services` unit stubs: the router is the door DESIGN names for each, and the services traits do not exist yet. DELIVER may add services-level tests beside them.
+
+**The universe oracle's planted-violation controls** (SA F2 / H-5) are real tests, not stubs: `support::external_integration_plugins::universe_oracle_tests` (`an_unreadable_page_fails_the_universe`, `a_page_without_its_seams_fails_the_universe`, `a_declared_change_that_did_not_happen_fails`, `an_undeclared_route_change_fails_and_a_declared_one_passes`), run with `cargo test -p foundry-acceptance --lib universe_oracle` on 2026-10-22: **4 passed**.
+
+### [REF] Test placement
+
+- Acceptance: the eleven `.feature` files; 234 step definitions in `src/steps/feature_external_integration_plugins.rs`, each one call into the driver `src/support/external_integration_plugins.rs`, registered in `src/lib.rs` and force-linked in `tests/acceptance.rs`; one `World` field `eip: EipState`. The driver builds on the team-membership driver (roster, sessions, page readers) and reuses one shipped step ("the answer is turned away as a forged form"). Phrase uniqueness: every step line of these eleven files (outline rows expanded) matches exactly one definition suite-wide, and none of the new regexes matches a step of any other feature (checked by script against every step module and feature file).
+- Gold tests: the stubs above, in their crates' `tests/` directories (and the check-arch module).
+- Tag selection: see the lane paragraph under [REF] Scenario list; `@pending` is excluded everywhere until DELIVER removes it.
+
+### [REF] Pre-requisites
+
+- **DESIGN seams the scenarios rely on**: the paths of [REF] Driving Ports; the K-copy of D-13; the reason words UI-7 quotes; `SLACK_API_BASE_URL`/`SLACK_AUTHORIZE_URL` accepting `http` (U-D4); `FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS`/`_POLL_MS`/`_LEASE_SECONDS`; the injected `Clock` for every time comparison, shared by the replicas of a scenario (ADR-EIP-002 decision 11); `FOUNDRY_PUBLIC_URL` = `https://foundry.canzan.dev` in acceptance.
+- **DISTILL-pinned seams** (DELIVER may change them together with the driver): page markers `data-connection="slack|matrix"`, `data-integration-activity` (an `li` per line), `data-route-destination` + `data-route-id`, `data-delivery`, `data-route-preview`, `data-lane-filter`, `data-project-emails`; route form fields `kind`, `destination`, `events`, `lanes`, `content_level` (`link_only|summary|summary_with_comment`), `shared_confirmed`; `…/routes/new?kind=slack|matrix&destination=<id>` re-renders with the destination's notices (scripting off); Matrix connect fields `homeserver`, `access_token`; the saved-route test posts `route_id`; email choices `input[name=choice]` valued `<project_id>:<event>:<all|mine>`; the stop link contains `/email/stop`, `List-Unsubscribe` names `/email/stop/one-click`; `foundry doctor rotate-secrets` prints "<n> credential(s)"; startup refusals print `health.startup.refused` with the setting's name.
+- **The harness seam** `rewire(world)`: hands the WHOLE `InstanceSpec` to the in-process app as `instance_env` spells it (Slack trio and URL seams, secrets keys, email transport including `NOTIFICATION_PROVIDERS=smtp`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` and `SMTP_TLS_VERIFY=false` for the relay, give-up, lease, poll, worker on/off). A no-op until DELIVER slice 01 step 1; when it lands it must consume the spec, not a subset (DEVOPS issue 4).
+- **Tracked dependencies (owner, state):**
+  | Dependency | Blocks | Owner | State (2026-10-21) |
+  |---|---|---|---|
+  | U-D1 test-support outbound seam + the fault proxy's TLS (committed test CA and leaf for `matrix.canzan.dev`, generated with `openssl` from a pinned container) | every `@needs-matrix` scenario past Connect Matrix; slice 04's lane | DESIGN to ratify, DELIVER 04-01 to build (with `integrations-test-seam`, C-13) | not built; the proxy's HTTP faults are written as plain HTTP and get wrapped |
+  | notification-preferences-ui finished, including the board sidebar's Settings link (D-9, C-10) | scenario 99 and slice 05 | notification-preferences-ui DELIVER (product owner schedules) | 12 scenarios still `@pending`; the board has no Settings link today (observed in the RED run) |
+  | Recorded Slack fixtures under `tests/fixtures/slack/<method>/<case>.json` (DEVOPS H-3, the user's Slack test workspace) | **un-pending any slice 01 scenario** | the user (H-3), then DELIVER | absent. Every required directory (`oauth.v2.access`, `auth.test`, `conversations.list`, `conversations.info`, `chat.postMessage`, `apps.uninstall`, `events`) must hold a recorded answer; until then the double refuses to start (the scenario fails) unless `FOUNDRY_EIP_DISTILL_CLASSIFICATION=1`, which only DISTILL's classification sets. Record with `curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777` |
+  | The KPI-4 bench (`eip_kpi4_bench`) with its own container: label `foundry-acceptance=eip`, 256 MB `/dev/shm` | gate G3 | DELIVER 01-01 | stub |
+  | Single-replica failover (a seam naming the claiming replica, so a scenario can stop the claimant alone and watch the survivor take over after the lease) | gate G4 (prod promotion) and any deployment with three replicas | DELIVER **01-08** | not built; 66 stops every replica, 123 covers the late answer |
+- **Mailpit TLS** (`@needs-smtp`, 114): the shipped `SmtpProvider` requires STARTTLS (`starttls_relay` in `foundry-services/src/notify.rs`; `SMTP_TLS_VERIFY=false` only skips verification), so mailpit starts with the committed test certificate `crates/foundry-acceptance/tests/fixtures/tls/mailpit-test.{crt,key}` mounted at `/tls` and `MP_SMTP_TLS_CERT=/tls/mailpit-test.crt`, `MP_SMTP_TLS_KEY=/tls/mailpit-test.key`, `MP_SMTP_REQUIRE_STARTTLS=true`.
+- **Lane accounting**: `eip-core-unit` runs 0 tests until DELIVER (all 19 are `#[ignore]`d) and must not be counted as coverage; every gold stub's RED is classified with `-- --include-ignored`.
+- **Environment**: Docker for every lane. The warm `foundry` binary before `@eip-metrics`, `@eip-restart` and the bench: `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false cargo build --release -p foundry-app --bin foundry`, then `target/release/foundry --help` until `real 0.00` (C-2; this preflight preceded every DISTILL run). Every run under `timeout`, after checking for another foundry session and foreign 55xxx/56xxx listeners. `ci-local` (`FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci`, the `all` lane) covers these scenarios only after DELIVER un-pends them; until then it selects none.
+
+### [REF] RED classification
+
+`docs/feature/external-integration-plugins/distill/red-classification.md`. **Final run (revision cycle 3, 2026-10-22; every file lifted, one invocation per lane with `FOUNDRY_EIP_DISTILL_CLASSIFICATION=1`: `external-integration-plugins`, `needs-matrix`, `needs-smtp`, `eip-replica`, `eip-metrics`, `eip-restart`): 218 rows (130 declarations), 218 RED (MISSING_FUNCTIONALITY), 0 GREEN_ALREADY, 0 BROKEN**, 0 parsing or hook errors, 0 undefined or ambiguous steps (per lane: 170, 32, 1, 6, 8, 1). The pinned Synapse and mailpit images (mailpit with STARTTLS required) were started, so their rows were classified by running. Rows stop at their first missing door: 138 at the Slack install, 25 at Connect Matrix, 24 at the project-email save, 20 at the strict universe read (the When's snapshot of a page that does not exist yet), 3 at held Slack returns, 3 at the operator's start refusals, 3 at the missing integrations page, 1 at the counter series, and 1 at notification-preferences-ui's missing Settings link. Fixture-gate control: scenario 13 un-pended alone and run without `FOUNDRY_EIP_DISTILL_CLASSIFICATION` fails at the Slack double ("no recorded Slack fixtures …"). Gold-test stubs: **78, all RED with `-- --include-ignored` (unconditional markers)**. The universe Thens are unverified end to end at DISTILL; the oracle itself is proven by the four tests above.
+
+### [REF] Mandate compliance and completeness
+
+- **CM-A (Mandate 1)**: steps enter only through the product's doors (HTTP pages and forms, the public events address, the real binary, the replicas) and observe only through doors (pages, what the Slack double was asked, a Matrix room's timeline, the email recorder or relay, the metrics endpoint, the process's output). SQL **writes seed preconditions only, in Given steps** (workspace, teams, people, projects, lanes, the next issue number); the only reads are id look-ups an operator or a form would hold (a project's id for the restore CLI and the email-choice form value). No scenario reads an `integration_*` table or the outbox.
+- **CM-B (Pillar 1)**: business language for admins, leads, members and the operator; channel and room names, issue keys and the locked copy are the domain's own words. No step names a table, a type, a status code or a selector; those live in the driver. The operator scenarios speak of "delivery counters" and "health signals"; metric names live in the steps' driver functions only.
+- **CM-C (Mandate 3)**: 3 walking skeletons + 127 focused scenarios; `@driving_port` on 1, 8 (WS), 63, 85, 89 (WS), 98 (WS), 99, 122.
+- **CM-D (Mandate 4)**: every content, escaping, classification, retry, status and plan decision is a pure function in DESIGN's core (named above); the acceptance scenarios exercise them through the doors with key examples only.
+- **CM-E (Mandate 8)**: every `When` captures the universe first (`capture_before`), and the universe fails outright if any page it reads is not 200 or lacks a seam it reads (`[data-connection]`, `[data-integration-activity]`, `[data-routes]`), since an unreadable universe would make every delta vacuous; every declared change must actually hold; state-changing Thens are written as outcome assertions plus explicit fail-closed universe checks where a scenario promises "nothing else changed" (1, 3, 4, 5); the universe holds only port-exposed names (Priya's view of the connection lines, activity and every route's status; what each channel shows; Slack-side removals; emails per person). The universe Thens are unverified at DISTILL (every lifted scenario stops earlier; first exercised in DELIVER).
+- **CM-F / CM-H (Mandates 9, 11)**: layer 3, example-only; every sad path is a named row (forged returns, foreign event posts, each Slack answer, tampered links, refused addresses, refused settings). No PBT machinery in the acceptance crate; the generative coverage is the core proptests above (layer 1).
+- **CM-G (Mandate 10)**: no Tier B. Journey 1 chains more than three scenarios over rich text, but the generative exploration belongs to the pure plan functions (`claimable_head`, `RouteStatus::derive`, `DispatchPlan`, the encoders), which DESIGN made property-testable without a runtime; the house has no in-memory composition root, and an in-memory double of the worker would test the double.
+- **Pillar 2**: 14 → 15 (24 hours, then Slack answers), 37 → 38 (the lane gone, then a move), 69 → 70 → 71 (pause, skip, resume), 74 → 75 (dialog, confirm), 76 → 77 → 78 (dialog, confirm, reconnect), 95 → 96 (logged out, new token), 107 → 108 (stop, then no email), each Given reusing the step methods of the previous When.
+- **Pillar 3**: the production router via `InProcHarness`, the production binary, the shipped multi-replica harness; only Slack, Matrix, the mail relay and the clock are substituted.
+- **Mandate 12 (Rust reading)**: (1) the typed vocabulary lives in the driver (`InstanceSpec`, `SlackAppSetup`, `EmailSetup`, `Kind`, `EventChoice`, `ContentLevel`, `Scope`, `Route`, `SlackAnswer`, `WorkspaceDoor`, `RouteAttempt`, `HeldReturn`, `BoardAction`, `Universe`, `Change`, `ReceivedEmail`, `EipState`; the double's `SlackTeam`, `Approval`, `Mood`); (2) the driver's functions take those types; (3) every step body is one call into the driver after parsing its words, no control flow (three small branches moved into the driver during review; checked by script over all 234 bodies); (4) **step-reuse ratio (informational): 715 step lines over 234 step definitions = 3.06×** (step lines = `Given/When/Then/And/But` lines in the eleven files as written: each Background counted once, outline steps once, rows not expanded; definitions = `#[given|when|then]` attributes) (Backgrounds counted once per file; outline rows not expanded), the natural ceiling for a feature with nine doors and three outside systems; readable Gherkin was kept over parameterising further.
+- **Elevator-pitch trace** (pitch verb → scenario name; the deviation is closed: 8 is now "Lena sees the first new issue arrive in the chosen Slack channel", 22 "Lena sees exactly what the channel will receive before saving"): connects Slack in one approval → 1; sends new issues to a channel and sees the first arrive → 8; chooses which events a route carries → 30, 31; decides how much a message reveals and sees it before saving → 22, 24; sees every delivery, transient failures fix themselves → 51, 52; a broken connection is flagged and fixed with one reconnect → 41, 46; pauses, edits, deletes, disconnects safely → 69-77; connects Foundry's Matrix bot → 85; sends events to a Matrix room → 89; chooses which project events are emailed → 98; emails stop the moment they should → 107, 111.
+- **Dimension 8 Check B (environments): waiver ACCEPTED by the coordinator** (revision cycle 1, as in api-openapi-document; the DEVOPS lanes are the environment matrix): the DEVOPS matrix defines lanes, not install / pre-commit / stale-config preconditions a Given could take. The lanes a Given does take (the operator's process, two replicas, an SMTP relay, a missing or malformed key, partial Slack settings) are scenarios 13, 60-68, 114.
+- **AT-completeness (15 items, advisory): 15 of 15, COMPLETE.** C1a (a route with no event 35; no choices 100; nothing posted 15, 19, 20, 32) · C1b (comment 299/300/301/450 in 25; burst 5/6/7 in 39; return state older than 10 minutes in 4; the seventh test in a minute 11; lease shorter than 35 s in 62; the 24-hour give-up 14, 54) · C2a (state diagram in the driver's module doc) · C2b (an illegal event from each state: lost → wrong workspace 47; disconnected → reconnect sends nothing 78; paused → pause again 82; needs attention → resume while still not invited 49; deleted project → restore sends nothing 80; stop link opened but not confirmed 109; forged and replayed returns 4) · C3 (0/1/3 routes 17, 8, 41; 0/1/many emails 103, 98, 111; 5/6/7 cards 39) · C4a (pause or resume twice 82; the uninstall event twice 44; a used return 4) · C4b (resume a route that was never paused 82) · C5a (level × event 22, 24; scope × involvement 102; Slack app none / no key 2; shared ticked / blank 29; kind Slack / Matrix 8, 89) · C5b (preview, test and save are orthogonal: 22 asks Slack nothing, 9 writes no route, 10 sends nothing) · C6a (forged returns 4, foreign events 43, tampered links 112, refused tokens and addresses 86, 87, malformed settings 62) · C6b (every locked refusal string K-2, K-3, K-4, K-6, K-10, K-13, K-14, K-15 and each reason row of 55) · C6c (answers Foundry cannot read stay transient, never final 56; a wait longer than the backoff is honoured 130) · C7a (Slack down 12, homeserver unreachable 86, no email transport 105, missing secrets key 61) · C7b (SIGKILL between attempts 13; a replica stopping mid-send 66) · C7c (two replicas 65, 67; two routes on one channel 68). **Documented gaps (AT_GAP_IN_DELIVERY_SCOPE, LOW)**: project-email retries after a relay failure (store and transport tests cover OD-7 for email); one replica failing over to a surviving one mid-send (66 proves recovery by a fresh replica, 123 that a late answer is recorded once; failover needs a seam that names the claiming replica: the named DELIVER step 01-08, which gates G4 and any three-replica deployment); reconnect is exercised at 2 hours only, not at the 24-hour edge; disconnect's "forgets the credential" is observed only as Slack's `apps.uninstall` call and the paused routes; a banned (rather than kicked) bot. No SPECIFICATION_AMBIGUITY blocks a scenario; the open copy items are listed below.
+- **Completeness audit log**: (external-integration-plugins, C1..C7, 0 open findings), (external-integration-plugins, C4/C5/C7, 5 findings, LOW: the rows above).
+- **Absence checks (SA F3, partly done)**: no Then moves the clock any more (time moves only in named Given/When steps: "2 minutes pass", "45 seconds have passed", the rotation and restart Givens); exact-count Thens first wait for a positive observable (the message, the count reaching its floor) and then check the count as final; the never-sent Then first waits for the When's message in every routed channel. Pure absences with no positive observable at a door ("nothing is posted to #auth-dev", "receives no email about …") still wait a full window before checking (10 s, the positive budget; 45 s once Slack or the homeserver has been silent in the scenario, cycle 3 B12): no door exposes "dispatched"; DELIVER may replace the window with the `foundry_outbox_undispatched` gauge in subprocess scenarios.
+- **Slack's approval inside one When** (Sentinel M-4): "Priya chooses Add to Slack and approves Foundry …" is one user action spanning Foundry and Slack's own screen; accepted by the coordinator.
+
+### [REF] Self-review checklist
+
+- [x] WS strategy declared (this section); [x] every feature `@real-io`; [x] every driven adapter has a real-I/O scenario; [x] no in-memory doubles; [x] containers: testcontainers Postgres, Synapse, mailpit (policy rows); [x] no production module imported by a step, so no production scaffold (Mandate 7 items 6-8 N/A; the gold stubs and the fault proxy carry the marker); [x] RED, not BROKEN (classification below); [x] every driving adapter in DESIGN has a scenario through its protocol (HTTP, the signed events POST, the binary); [x] `@adapter-integration` on the on-the-wire email (114); [x] no timing assertion under 200 ms (the shortest bound is 2 s); [x] phrases checked against every other feature's steps (0 cross-matches).
+
+### [REF] KPI links (for the coordinator to apply to `kpi-contracts.yaml`; DISTILL did not edit it)
+
+| KPI | Scenarios | Lane |
+|---|---|---|
+| EIP-KPI-1 (north star; store query) | none (measured at the dogfood); 8, 18 are its preconditions | — |
+| EIP-KPI-2 (≤ 5 min from Add to Slack / Connect Matrix to the first message) | 1, 8, 85, 89 (the timed dogfood replays them) | `eip-01`, `needs-matrix` |
+| EIP-KPI-3 (≥ 99% within 60 s; 100% delivered or failed in 24 h) | 8, 13, 14, 15, 46, 51-55, 64, 65, 66 | `eip-01`, `eip-03`, `eip-restart`, `eip-replica`, `eip-metrics` |
+| EIP-KPI-4 (guardrail: action latency) | 12 (the 2 s acceptance bound); the bench stub `eip_kpi4_bench` (gate G3) | `eip-01`; `eip-kpi4-bench` |
+| EIP-KPI-5 (leak nothing) | 7, 19, 26, 27, 58, 60, 62, 87, 94, 97 | `eip-01`, `eip-02`, `eip-03`, `eip-metrics`, `needs-matrix` |
+| EIP-KPI-6 (connection refusals pause and alert) | 41, 42, 67, 95 | `eip-03`, `eip-replica`, `needs-matrix` |
+| EIP-KPI-7 (≤ 3 actions; working stop link; 0 emails after stop, mute, access loss) | 98, 99, 101, 107, 108, 110, 111, 114 | `eip-05`, `needs-smtp` |
+| EIP-KPI-8, -9 | deferred with deliverable C | — |
+
+### [REF] DISTILL decisions
+
+| ID | Decision | Why |
+|---|---|---|
+| DIST-1 | The three walking skeletons (8, 89, 98) are `@pending` and RED at hand-off; DELIVER greens them first in their slices. | They need production code; house precedent (api-openapi-document DIST-1). |
+| DIST-2 | Lane tags pinned: `@eip-01`..`@eip-05`, `@needs-matrix`, `@needs-smtp`, `@eip-replica`, `@eip-metrics`, `@eip-restart` (+ `@slow`). Two default-lane exclusions in `tests/acceptance.rs` (`needs-matrix`, `needs-smtp`, as `needs-browser`). | DEVOPS left the strings to DISTILL; the default lane must not require the two containers. |
+| DIST-3 | The universe is read only through doors; SQL only seeds preconditions. | Stronger than the house U2 exception; every outcome here is visible somewhere a person or Slack looks. |
+| DIST-4 | Harness seam `rewire(world)`: the scenario's `InstanceSpec` (Slack trio pointed at the double, secrets key on/off/rotated, email transport none/recorder/SMTP, give-up, lease, poll, in-process worker on/off) reaches the in-process app after the Background seeded people. A no-op today. | Setups vary per scenario after a shared Background; the app has no integration settings yet (DELIVER slice 01 step 1). |
+| DIST-5 | Page seams pinned (`data-*` markers, form field names, the choice value format, the stop link paths). | Assertions read structure, never layout; DELIVER may change both sides together. |
+| DIST-6 | The Matrix test host is named `matrix.canzan.dev` (DEVOPS proposed `matrix.eip.test`); the test CA's leaf and the U-D1 seam use that name. | K-lines then read exactly as DISCUSS wrote them ("on matrix.canzan.dev"). |
+| DIST-7 | Matrix users and rooms are unique per scenario on one shared homeserver; the driver maps real names back to the scenario's. | Concurrent scenarios share one Synapse (DEVOPS-3). |
+| DIST-8 | "Slack does not answer" drops new connections and hangs pooled requests; a status reached only after Foundry's client timeout is polled for up to 45 s. | Both faces of "no answer"; no fixed sleeps. |
+| DIST-9 | The core property tests are named, not stubbed. | Their crate does not exist; creating it is a production scaffold. |
+| DIST-10 | Copy policy: locked strings and the ratified copy (R-1..R-11, K-18..K-20, the R-4 activity pattern) asserted exactly, every activity line and the seventh Send test included; outcome-only where no string exists (a route with no event); unlocked subjects (UI-4) never asserted. | Asserting an unlocked string would freeze it without the product owner; the user ratified the rest on 2026-10-22. |
+| DIST-11 | Scenario 66: "the replica sending AUTH-12's message has stopped" stops every running replica (the claim holder among them) and starts one fresh replica on the schema. | The driver cannot tell which replica claimed; the observable promise (a restarted pod recovers the message after the lease) is the same. |
+| DIST-12 | The Matrix room has five people, so the bot's arrival makes the "6 members" of DISCUSS's example. | The count shown is after the bot joins (it joins on save, DESIGN). |
+| DIST-13 | Scenario 99: following Settings from the board's sidebar is the Given; ticking and saving is the one When; the Thens assert the saved line and the saved choice. EIP-KPI-7's "≤ 3 actions" is measured at the dogfood; the driver keeps no tally. | Sentinel B1 / H-2, SA F4. |
+| DIST-14 | A signed-out visitor is sent to sign in from every integration page (115); the uniform not-found is asserted only for signed-in people without the right. | The shipped app redirects a signed-out visitor from every session page (`redirect_to("/sign-in")`); DESIGN's "uniform 404" is for callers without the right. Found while classifying. |
+| DIST-15 | Refusal rows that already answer what they assert today carry a control that the door exists for its owner (5, 17, 59, 83, 106 and the "no connection" rows). | Without it they pass before the feature exists (106 did, observed). |
+| DIST-16 | Sentinel round 1 (needs_revision: 3 blockers, 4 high) answered: the action tally removed (B1); retention 116 (B2); Matrix parity 117-121 (B3); scenario 66 renamed to what the driver does, failover recorded as a gap (H2); the CSRF and challenge wording replaced by outcomes (H4); the Check B waiver and the pitch deviation recorded (H1, H3). | Review record. |
+| DIST-17 | Revision cycle 1 (all four reviewers needs_revision; coordinator rulings applied): see [WHY] Revision cycle 1 below. Check B waiver accepted by the coordinator; pitch deviation closed by renaming 8 and 22. | Review record. |
+| DIST-18 | `crates/foundry-integrations` exists as a scaffold crate holding only the core's 19 pending tests. The rules that guard it, the `deny.toml` wrapper (rule 6: `foundry-core` must not depend on `foundry-integrations`) and `integrations-pure-core` (rule 1: the dependency allow-list), are **DELIVER 01-04 items**, stubbed in the check-arch module (`deny_wrapper_refuses_foundry_integrations_in_core`, `pure_core_*`). check-arch and cargo-deny passing today shows only that the empty crate breaks nothing; it is not evidence that either rule exists. | PA issue 1 / SA F5: every named core test needs a RED home. |
+| DIST-19 | The Slack double serves under `/slack-web/` and announces hand-written shapes; slice 01 is not un-pended until recorded fixtures exist. | The shipped `api-openapi-operations` rule reserves `/api`; PA issue 6. |
+| DIST-20 | Single-tag eip selections apply the lane exclusions unless the tag is itself a lane; the default lane also excludes `eip-replica` and `eip-metrics`. | PA issues 2 and 3, without changing other features' single-tag behaviour. |
+| DIST-21 | Revision cycle 3 with the user's ratification (2026-10-22): see [WHY] Revision cycle 3. Scenario 123 asserts "recorded once" (one history entry, both Slack posts identical) instead of a Slack-side exactly-once. | Under at-least-once delivery (ADR-EIP-002) a held post and its retry both reach Slack; a Slack-side exactly-once Then could never pass. |
+| DIST-22 | Single-replica failover is the named DELIVER step 01-08 and gates G4 and any three-replica deployment. | It needs a seam naming the claiming replica; 66 and 123 do not prove a survivor takes over. |
+
+### [REF] User ratification (2026-10-22)
+
+The user approved R-1..R-10 as proposed and added R-11. The scenarios assert each item exactly as below; no tag marks them any more, and DELIVER treats them as decided.
+
+| # | Item | Ratified wording or rule (as asserted) | Scenarios |
+|---|---|---|---|
+| R-1 | K-16's second sentence for a refused Matrix homeserver (DESIGN UI-6) | "Foundry will not send to this address. An instance operator can allow it." | 87 |
+| R-2 | K-19, a saved connection the secrets key cannot open (DESIGN UI-1, DD-2), with `{kind}` for Matrix | "Slack is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key." | 61 |
+| R-3 | A missing secrets key gets its own line, **K-20**, not K-2 (DESIGN UI-1, DD-6) | "Slack cannot be connected on this Foundry yet: an instance operator needs to set the secrets key." | 2 (row 2) |
+| R-4 | One pattern for every activity line: `{date} · {actor} connected {kind} ({subject})`, `{date} · {actor} disconnected {kind} ({subject})`, `{date} · {actor} created / edited / paused / resumed / deleted the route to {destination}` | "21 Oct 2026 · Priya Raman connected Slack (Canzan Labs)"; "21 Oct 2026 · Lena Park created the route to #auth-dev"; "… paused the route to #auth-dev"; "… edited the route to #auth-dev"; "… deleted the route to #auth-dev"; "21 Oct 2026 · Priya Raman disconnected Slack (Canzan Labs)"; "21 Oct 2026 · Priya Raman connected Matrix (matrix.canzan.dev)" | 1, 10, 75, 81 (three rows, each exact), 85 |
+| R-5 | Send test is limited to six a minute per person (DESIGN DDR-25); the seventh is refused and sends nothing | "Too many test messages. Try again in a minute." | 11 |
+| R-6 | "Its usual time" for filing an issue while Slack is down is a 2 s acceptance bound; the guardrail is EIP-KPI-4's bench (p95 within 10%, gate G3), not this scenario | the answer arrives within 2 s and the issue is on the board | 12 |
+| R-7 | Matrix homeserver addresses on loopback, link-local, metadata or private ranges are refused at Connect Matrix before any connection (OD-13 extended to the homeserver, DESIGN ADR-EIP-006) | refused, nothing saved, nothing reached | 87 (loopback and IPv4-mapped rows); the other ranges in the judge's property test |
+| R-8 | A room that becomes encrypted after the route is saved receives nothing in the clear | "Needs attention: {room} is now end-to-end encrypted. Foundry's bot cannot post to encrypted rooms yet." | 94 |
+| R-9 | A deliberate disconnect is a stop: what was queued is dropped and nothing filed while disconnected is sent after reconnecting | as stated | 78 (the ratified rule). Connection loss queues up to 24 h and delivers on reconnect: scenario 46, which traces to DISCUSS D-8 and needed no ratification |
+| R-10 | DESIGN's burst-of-moves line (UI-3) and connection-lost email subjects (UI-5) | "7 issues moved to Todo in Identity Platform by Lena Park"; "Foundry lost its Slack connection for Canzan Labs"; "Foundry lost its Matrix connection for Canzan Labs" | 40; 41, 42, 44, 50, 67; 95 |
+| R-11 | Stop links never expire (DESIGN DD-7, UI-2); US-EIP-11 AC 4 reads "A tampered link" | a tampered link changes nothing and reveals nothing; no expired-link row exists | 112 |
+
+**US-EIP-11 AC 4 → R-11**: AC 4 is covered by 112 (tampered links) only; R-11 is why there is no expiry row.
+
+**Copy added by ratification** (beyond DISCUSS D-13, which is not edited; DELIVER uses these strings as locked):
+- K-18 "Matrix is not set up on this Foundry yet. An instance operator sets it up once."
+- K-19 "{Kind} is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key."
+- K-20 "Slack cannot be connected on this Foundry yet: an instance operator needs to set the secrets key."
+- R-5 "Too many test messages. Try again in a minute."
+- R-8 "Needs attention: {room} is now end-to-end encrypted. Foundry's bot cannot post to encrypted rooms yet."
+- R-10 "{n} issues moved to {lane} in {project} by {actor}"; "Foundry lost its {Kind} connection for {workspace}"
+- R-4 activity lines: `{date} · {actor} connected {kind} ({subject})`, `{date} · {actor} disconnected {kind} ({subject})`, `{date} · {actor} created the route to {destination}`, and the same with edited, paused, resumed and deleted.
+
+### [WHY] Revision cycle 1 (coordinator dispatch, 2026-10-21)
+
+All four reviewers returned needs_revision. Item by item (numbers are the coordinator's):
+1. Wire vocabulary out of Thens: the manifest scopes are asserted by the step body (`BOT_SCOPES`); "no Slack credential appears anywhere in what Priya or Lena receives"; the relay Then reads "carrying Foundry's one-click stop link" (header names in the step body). 2. 116 now fixes 101 deliveries and decides the 30-day arm (29 days listed, 31 days not). 3. 99's sidebar follow is a Given. 4. The Matrix outline has a homeserver-state column bound to the existing Given; the token-string branch is deleted. 5. Status prefixes are quoted ("Needs attention: ", "Retrying: "); the events Then names its observable (401, or an acknowledgement that changes nothing). 6. Docs reconciled (this section, red-classification.md regenerated from the final run). 7. 107's confirm text moved to a Then. 8. "nothing was asked of any homeserver" counts proxy connections and a decoy on 127.0.0.1:8448. 9. The universe fails on any non-200 read; two planted-violation tests run and pass. 10. No Then moves the clock; exact counts wait on a positive observable first (see Absence checks). 11. The action tally and its helpers are deleted. 12. The no-ping Then checks readability (every word of four letters or more survives); the never-sent Then waits for the key's message (positive) and checks no other issue key. 13. Counters: each of the 48 expected series is registered and 0. 14. Router-level contract stubs recorded as the accepted level. 15. 125 (Slack) and 126 (Matrix): no credential in any message or notice. 16. 127: K-5 on the Matrix form. 17. 128: Matrix content levels across both bodies. 18. Story tags on 04, 05 and every operations scenario (`@cross-cutting` + mapping note). 19. 58 also asserts no Slack credential in the history. 20. Dependencies tracked with owner and state (Pre-requisites). 21. US-EIP-11 AC 4 note: expiry removed by UI-2. 22. `crates/foundry-integrations` scaffold crate with 19 stubs; check-arch PASSED, deny bans ok. 23-24. Lane rules (DIST-20) and the pinned tag strings. 25. `SMTP_*`, `SMTP_TLS_VERIFY=false`, `NOTIFICATION_PROVIDERS=smtp` bound for the relay; `rewire` must consume the whole spec. 26. 129: Matrix 429 with `retry_after_ms` and 5xx (one-shot proxy answers). 27. Fixtures gate before slice 01 and the double's stderr notice. 28. Restart lane = 13 only; give-up rows in process. 29. 123 (late answer after the lease changes nothing, history lists the delivery once, delivered after 2 attempts = same delivery identity) and 124 (a burst of five, each exactly once across two replicas: one effective dispatcher); 66 renamed to what the driver does. 30. Synapse and mailpit pinned by tag@digest in code. 31. TLS CA/leaf as a slice-04 precondition, bench label and shm, warm-binary preflight, ci-local note (Pre-requisites); mailpit containers removed beside the homeserver at the end of `main`.
+Also: the scenario rename for 14 ("flagged on the route"), 45 ("Slack can confirm Foundry's events address"), 84 ("from outside the page"). Not done: single-replica failover (needs a seam naming the claiming replica; recorded gap).
+
+### [WHY] Revision cycle 3 (coordinator dispatch with the user's ratification, 2026-10-22)
+
+Item by item (the coordinator's letters and numbers):
+- **A. Ratification.** [REF] User ratification replaces the proposal table; the tag that marked the open items and every note that called that copy open are gone from the feature files (their headers now cite R-1..R-11). R-3: scenario 2 row 2 asserts K-20. R-5: scenario 11 asserts the refusal string. R-8: scenario 94 asserts the reason. R-4: every activity row is exact (10, 75, 81's three rows, 85). R-9 cites only 78; 46 traces to D-8. R-11 and the US-EIP-11 AC 4 note are recorded (cycle 1 claimed that note but it was missing from the record; it is there now).
+- **B1. Replica clock.** `advance` moves the clock the replicas use (`MultiReplicaHarness::fake_clock`) as well as the single harness's; the branch that did nothing for replicas is gone, so 66 and 123 cross the 45 s lease for real.
+- **B2. Decoy.** The listener binds a fresh ephemeral port per scenario, lives for the scenario and stops on drop; a failed bind fails the scenario. The "nothing reached" Then checks only what can be seen: connections to the proxy and to that decoy. The link-local, private and port-less rows moved to the judge's property-test stub (`judge_refuses_every_reserved_range_and_mapped_form`, which now names them): nothing listens there, so a scenario could not see a refusal. Scenario 87 is now "A homeserver on this machine is refused before it is contacted" (2 rows).
+- **B3. Universe.** `universe_from_pages` fails when a 200 page lacks a seam it needs (`[data-connection]` and `[data-integration-activity]` on the workspace page, `[data-routes]` on a project's page); `delta_violation` requires every declared change to have happened, as well as forbidding undeclared ones. Oracle tests: 4 (an unreadable page, a page without its seams (the planted missing-seam control), a declared change that did not happen, an undeclared change plus a declared one that passes): **4 passed**.
+- **B4. Matrix faults.** The proxy gives its armed answer to the next complete send request on any connection, then forwards; it records that the answer was given, and "the homeserver gave the answer it was set to give" fails if it was not. 129 keeps 429 and 5xx; the new **130** "A homeserver's request to wait longer than Foundry's own backoff is honoured" asks to wait 30 s (`retry_after_ms` 30000, against DDR-5's first backoff of 10 s), moves the clock 20 s and asserts exactly one send.
+- **B5. Mailpit TLS.** The inference was **correct**. `foundry-services/src/notify.rs` builds `SmtpProvider` with `starttls_relay`, so STARTTLS is required; `SMTP_TLS_VERIFY=false` only drops certificate verification. Mailpit (v1.31.6, pinned) now starts with a committed self-signed test certificate (`crates/foundry-acceptance/tests/fixtures/tls/mailpit-test.{crt,key}`, CN 127.0.0.1, made with OpenSSL; no new crate) mounted at `/tls`, and `MP_SMTP_TLS_CERT`, `MP_SMTP_TLS_KEY`, `MP_SMTP_REQUIRE_STARTTLS=true`. One bounded run showed mailpit log "(STARTTLS required)".
+- **B6. Wire vocabulary.** The raw vendor text is a driver constant used in the step body; 58's Then reads "the history shows none of the raw Slack text and no Slack credential", and it first checks that the history opened and lists AUTH-12's delivery, so the absences are not vacuous. 125 and the two log Thens read "any Slack credential or the secrets key".
+- **B7. Fixture gate.** `answers_are_recorded` requires a non-empty directory for every method slice 01 uses (`oauth.v2.access`, `auth.test`, `conversations.list`, `conversations.info`, `chat.postMessage`, `apps.uninstall`) and for the Events envelopes (`events`). Without them, the double refuses to start an un-pended scenario (it panics, so the scenario fails) unless `FOUNDRY_EIP_DISTILL_CLASSIFICATION=1` is set, which only DISTILL's classification runs set. Recording uses `curlimages/curl:8.22.0@sha256:58adaa4e8dca9c988bae2aba4ab3434a0bb2da16bbe3f92dec39ec7785166777` (index digest, read from Docker Hub on 2026-10-22).
+- **B8. Lane accounting.** `eip-core-unit` (`cargo test -p foundry-integrations`) runs **0 tests** until DELIVER: its 19 tests are `#[ignore]`d, so a green run there proves nothing and must not be counted. The RED classification of every gold stub runs with `-- --include-ignored`. DEVOPS correction (DEVOPS section not edited): the `eip-restart-lane` row describes "scenario 3" with Slack answering 503 and also lists the 24-hour give-up; in DISTILL the restart lane carries only scenario 13, Slack does not answer at all (silence, not 503), "same `event_id`" is observed as "exactly once" in `#auth-dev`, and the give-up rows (14, 15, 54) run in process on the `MockClock`.
+- **B9. 123 and 124.** 123 is renamed "A late answer from a replica whose claim expired is recorded once". **Deviation from the dispatch:** a Slack-side exactly-once check cannot hold. Under at-least-once delivery (ADR-EIP-002) both the held post and the retry reach Slack, so Slack sees two posts. 123 asserts instead that the history lists one delivery ("Delivered after 2 attempts", exactly once) and that both posts Slack received carried the same message: the same event, the same identity. 124 is "Two replicas deliver a burst of events once each": it waits for all five messages, then waits a settle window before the exact count, and it no longer claims there is a single active dispatcher. Failover from a crashed claimant to a surviving replica stays a gap. It is the named DELIVER step **01-08** (below), which gates prod promotion (G4) and any deployment with three replicas.
+- **B10. Matrix never-ping.** Same readability check as Slack (every word of four letters or more survives in the plain body); it fails if the When recorded no user text.
+- **B11.** DIST-18 is reworded: the deny / check-arch wrapper rule is a DELIVER 01-04 item.
+- **B12. Absence windows.** After Slack or the homeserver has been silent in a scenario, every "nothing is posted … within 10 seconds" and "shows no further message" waits `STATUS_BUDGET` (45 s), because Foundry's client timeout comes first. Otherwise it waits 10 s. Matrix's "shows no notice … about" uses the same window. Every absence row was checked: 15, 72 and 80 follow a silent Slack and wait 45 s; 19, 20, 32, 33, 38, 70, 78 (Slack) and 94, 119 (Matrix) have no silence before them and wait 10 s.
+- **B13. Small items.** 05:51 "ticks … and saves" is one form submit, accepted as one When (DIST-13). 99 carries `@driving_port`. 03-broken-connection:60 pins one observable: the workspace page still reads "Connected to Canzan Labs". 125 carries a comment explaining why each level is a row: each level builds a different message body (Link only has no summary block; Summary with comment text adds the excerpt), so a credential could slip into any one of them alone. 122's When is the rotation itself. The scenario 12 bound of 2 s is ratified (R-6) as an acceptance bound, and the bench (EIP-KPI-4, G3) is the guardrail. 127 rechecked as `unbounded-preservation`: choosing a destination saves nothing, and the Then reads only the notice. `@sizing-review-needed` is not a tag in any feature file; it appears as an informational column in the un-pend table only.
+
+### [WHY] Upstream Issues (earlier sections not edited)
+
+- **DIST-U1 (routes_to: the user, via the coordinator): CLOSED 2026-10-22.** The user ratified R-1..R-11 ([REF] User ratification). UI-4's subjects and UI-7's unquoted reasons (`channel_not_found`, unknown codes: 56, 57) are still deliberately not asserted.
+- **DIST-U3 (copy, routes_to: product owner)**: no string exists for a route saved with no event (35); asserted by outcome.
+- **DIST-U4 (DISCUSS wording, routes_to: product owner)**: US-EIP-09's pitch shows "Foundry is in #auth:canzan.dev (room …, 6 members)" when Lena enters the room; DESIGN checks read-only on entry and joins on save, so 90 asserts it after save.
+- **DIST-U6 (routes_to: DESIGN; blocking the `@needs-matrix` lane)**: DEVOPS U-D1, tracked under [REF] Pre-requisites.
+- **DIST-U7 (routes_to: DESIGN, then DELIVER)**: the in-process app needs its integration settings settable per scenario after start (`rewire`, DIST-4), and the email recorder needs the email's headers for the one-click rows (110, 112(row 5)) and the relay row (114).
+- **DIST-U8 (routes_to: DEVOPS, informational)**: the Matrix test host name `matrix.canzan.dev` (DIST-6); the lane tag strings and the restart-lane placement pinned under [REF] Scenario list.
+- **DIST-U9 (routes_to: product owner / notification-preferences-ui)**: scenario 99 needs the board's sidebar Settings link, tracked under [REF] Pre-requisites.
+
+### [REF] Recommended un-pend order (handoff to DELIVER)
+
+Step ids are shared by the gold stubs' `#[ignore]` reasons and their panic messages; DELIVER's roadmap may renumber (keep a `pending_id_remap`, project-lifecycle precedent). The last column is informational only (`@sizing-review-needed` is not a tag in any feature file): a step marked there carries more scenarios than one DELIVER step usually does, and DELIVER's roadmap may split it.
+
+| # | Step | What | Scenarios and stubs | `@sizing-review-needed` (informational) |
+|---|---|---|---|---|
+| 1 | 01-01 | T-1: the KPI-4 bench (`eip_kpi4_bench`), arm A on unchanged code; baseline into `kpi-contracts.yaml` | bench stub | |
+| 2 | 01-02 | migrations 0028-0030, store dispatch and claims, `Store::probe` | 14 store stubs minus 03-01's | |
+| 3 | 01-03 | `SecretBox` | 8 auth stubs | |
+| 4 | 01-04 | `foundry-integrations` (the pure core; its 19 stubs in `tests/core_properties.rs` by their step ids), check-arch rules 1, 1a, 2, 4 and the `deny.toml` wrapper (rule 6) | 11 xtask stubs | |
+| 5 | **Gate: recorded Slack fixtures exist (H-3).** 01-05 | the harness `rewire` seam and integration settings; Slack config, install, return, setup page | 1-7 | |
+| 6 | 01-06 | routes (create, list, test with its limit), the worker, Slack delivery, fixed-interval retry, give-up | **8 (walking skeleton) first**, then 9-12, 14-21 | yes (13 scenarios) |
+| 7 | 01-07 | restart durability, `doctor rotate-secrets` (C-11), the replica lane | 13, 60-63, 122, 65, 66, 123, 124 | |
+| 8 | 01-08 | single-replica failover: a seam naming the claiming replica, a scenario that stops the claimant alone and sees the survivor deliver after the lease. **Gates G4 (prod promotion) and any deployment with three replicas** | new scenario written with the seam | |
+| 9 | 02-01 | all four events, lane filters, bursts, payload enrichment | 30-40 | |
+| 10 | 02-02 | content levels, preview, K-5/K-6, encoders | 22-29, 125 | |
+| 11 | 03-01 | history, backoff, `retry_after`, classifiers, sweeps, retention | 51-59, 116, then 115 (its last row needs the history page) | |
+| 12 | 03-02 | connection lost, events endpoint, reconnect, admin email, CSRF exempt pin | 41-50, 67 | |
+| 13 | 03-03 | pause, resume, edit, delete, disconnect, project lifecycle, audit | 69-84 | yes (16 scenarios) |
+| 14 | 03-04 | delivery metrics, pacing. **Gate G4: no prod promotion of slices 01-02 without 03 and 01-08.** | 64, 68 | |
+| 15 | 04-01 | `OutboundHttp`, `judge`, the U-D1 seam with `integrations-test-seam` and the fault proxy's TLS | 87; 8 xtask stubs, 4 app stubs | |
+| 16 | 04-02 | Matrix connect and routes | **89 (walking skeleton) first**, then 85, 86, 88, 90-97, 117-121, 126-130 | yes (22 scenarios) |
+| 17 | 05-01 | email choices, `EmailTransport`, stop token | **98 (walking skeleton) first**, then 99-106; 4 auth stubs, 1 xtask stub | |
+| 18 | 05-02 | stop links, one-click, the SMTP lane | 107-114 | |

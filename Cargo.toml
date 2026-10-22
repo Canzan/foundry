@@ -11,6 +11,9 @@ members = [
     # foundry-app or the binary), so they compile independently and leave the
     # existing acceptance suite green. DELIVER fleshes them out and wires them in.
     "crates/foundry-services",
+    # external-integration-plugins: SCAFFOLD crate (DISTILL 2026-10-21) holding
+    # only the pure core's pending RED test stubs; DELIVER 01-04 adds the code.
+    "crates/foundry-integrations",
     "crates/foundry-api",
     "crates/foundry-app",
     "crates/foundry-acceptance",
