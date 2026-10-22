@@ -1,0 +1,14 @@
+{% extends "app_shell.html" %}
+{% block title %}Set up Slack{% endblock %}
+{% block app_content %}
+<h1>Set up Slack</h1>
+<p>Each Foundry runs its own Slack app. An instance operator creates it once:</p>
+<ol>
+  <li>In Slack, create a new app from a manifest and choose the Slack workspace it belongs to.</li>
+  <li>Paste the manifest below. It names this Foundry's Slack return address and Slack events address.</li>
+  <li>From the app's Basic Information, set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET on this Foundry, together with FOUNDRY_SECRETS_KEY.</li>
+  <li>Restart Foundry. A workspace admin can then choose Add to Slack on the workspace integrations page.</li>
+</ol>
+<pre data-slack-manifest>{{ manifest }}</pre>
+<p><a href="/workspace/integrations">Back to integrations</a></p>
+{% endblock %}

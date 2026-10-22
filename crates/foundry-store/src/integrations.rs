@@ -15,7 +15,9 @@
 //!   destination pacing row, and claims the delivery the choice names only if
 //!   that row is unchanged (fresh `claim_id`, `attempts + 1`, lease, pacing);
 //! - [`Store::record_delivery`]: the fenced record, `WHERE claim_id = <claim>`;
-//! - [`Store::create_route`]: a route writer, opening with `lock_live_project`.
+//! - [`Store::create_route`]: a route writer, opening with `lock_live_project`;
+//! - [`Store::upsert_connection`]: a connection and its audit record, one
+//!   transaction (ADR-EIP-005 decision 4).
 //!
 //! All project reads go through `live_projects`; `outbox.notified_at` is never
 //! touched.
@@ -695,6 +697,242 @@ fn pending_delivery(row: PendingRow) -> PendingDelivery {
         claim_id,
         lease_until,
         give_up_at,
+    }
+}
+
+/// A connection as the connect use-case saves it (ADR-EIP-005 decision 4).
+/// `sealed_credential` was sealed for the row `id` (row-bound AAD), so the
+/// write refuses a different row.
+pub struct NewConnection {
+    pub id: Uuid,
+    pub workspace_id: Uuid,
+    pub kind: String,
+    pub external_id: String,
+    pub app_id: Option<String>,
+    pub bot_user_id: Option<String>,
+    pub label: String,
+    pub detail: Option<String>,
+    pub sealed_credential: Vec<u8>,
+    pub connected_by: Uuid,
+    pub connected_at: OffsetDateTime,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionWriteOutcome {
+    /// No connection of the kind existed: one row and its audit row.
+    Connected,
+    /// The workspace's connection of the kind was replaced in place.
+    Reconnected,
+    /// The workspace's connection of the kind is another row than the one the
+    /// credential was sealed for; nothing was written.
+    StaleRow,
+}
+
+/// A workspace's connection as its pages show it. Never the credential.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionRow {
+    pub kind: String,
+    pub state: String,
+    pub label: String,
+    pub detail: Option<String>,
+    pub connected_by_name: Option<String>,
+    pub connected_at: OffsetDateTime,
+}
+
+/// One integration audit record as the activity list shows it (DDR-21).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AuditRow {
+    pub created_at: OffsetDateTime,
+    pub actor_name: Option<String>,
+    pub action: String,
+    pub kind: String,
+    pub subject: String,
+}
+
+/// A route as a project's integrations page lists it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectRoute {
+    pub id: Uuid,
+    pub kind: String,
+    pub destination_label: String,
+}
+
+/// `workspace_connections`' row as Postgres answers it.
+type ConnectionTuple = (
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    OffsetDateTime,
+);
+
+impl Store {
+    /// The id of the workspace's connection of `kind`, if one exists.
+    pub async fn connection_id(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+    ) -> Result<Option<Uuid>, StoreError> {
+        Ok(sqlx::query_scalar(
+            "SELECT id FROM integration_connections WHERE workspace_id = $1 AND kind = $2",
+        )
+        .bind(workspace_id)
+        .bind(kind)
+        .fetch_optional(&self.pool)
+        .await?)
+    }
+
+    /// Save a connection and its audit record in one transaction: insert the
+    /// workspace's first connection of the kind, or replace the existing row
+    /// in place when it is the row the credential was sealed for.
+    pub async fn upsert_connection(
+        &self,
+        connection: &NewConnection,
+    ) -> Result<ConnectionWriteOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let existing: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM integration_connections
+              WHERE workspace_id = $1 AND kind = $2 FOR UPDATE",
+        )
+        .bind(connection.workspace_id)
+        .bind(&connection.kind)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let outcome = match existing {
+            Some(id) if id != connection.id => {
+                tx.rollback().await?;
+                return Ok(ConnectionWriteOutcome::StaleRow);
+            }
+            Some(_) => ConnectionWriteOutcome::Reconnected,
+            None => ConnectionWriteOutcome::Connected,
+        };
+        sqlx::query(
+            "INSERT INTO integration_connections
+                    (id, workspace_id, kind, state, external_id, app_id, bot_user_id, label,
+                     detail, sealed_credential, credential_saved_at, connected_by, connected_at)
+             VALUES ($1, $2, $3, 'connected', $4, $5, $6, $7, $8, $9, $10, $11, $10)
+             ON CONFLICT (workspace_id, kind) DO UPDATE
+                SET state = 'connected', external_id = EXCLUDED.external_id,
+                    app_id = EXCLUDED.app_id, bot_user_id = EXCLUDED.bot_user_id,
+                    label = EXCLUDED.label, detail = EXCLUDED.detail,
+                    sealed_credential = EXCLUDED.sealed_credential,
+                    credential_saved_at = EXCLUDED.credential_saved_at,
+                    lost_reason = NULL, lost_at = NULL,
+                    connected_by = EXCLUDED.connected_by, connected_at = EXCLUDED.connected_at",
+        )
+        .bind(connection.id)
+        .bind(connection.workspace_id)
+        .bind(&connection.kind)
+        .bind(&connection.external_id)
+        .bind(&connection.app_id)
+        .bind(&connection.bot_user_id)
+        .bind(&connection.label)
+        .bind(&connection.detail)
+        .bind(&connection.sealed_credential)
+        .bind(connection.connected_at)
+        .bind(connection.connected_by)
+        .execute(&mut *tx)
+        .await?;
+        let action = match outcome {
+            ConnectionWriteOutcome::Reconnected => "connection_reconnected",
+            _ => "connection_connected",
+        };
+        sqlx::query(
+            "INSERT INTO integration_audit_events
+                    (id, workspace_id, project_id, actor_id, via, action, kind, subject, created_at)
+             VALUES ($1, $2, NULL, $3, 'web', $4, $5, $6, $7)",
+        )
+        .bind(Uuid::now_v7())
+        .bind(connection.workspace_id)
+        .bind(connection.connected_by)
+        .bind(action)
+        .bind(&connection.kind)
+        .bind(&connection.label)
+        .bind(connection.connected_at)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(outcome)
+    }
+
+    /// The workspace's connections, oldest kind first. Never the credential.
+    pub async fn workspace_connections(
+        &self,
+        workspace_id: Uuid,
+    ) -> Result<Vec<ConnectionRow>, StoreError> {
+        let rows: Vec<ConnectionTuple> = sqlx::query_as(
+            "SELECT c.kind, c.state, c.label, c.detail, u.display_name, c.connected_at
+                   FROM integration_connections c
+                   LEFT JOIN users u ON u.id = c.connected_by
+                  WHERE c.workspace_id = $1
+                  ORDER BY c.kind",
+        )
+        .bind(workspace_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(kind, state, label, detail, connected_by_name, connected_at)| ConnectionRow {
+                    kind,
+                    state,
+                    label,
+                    detail,
+                    connected_by_name,
+                    connected_at,
+                },
+            )
+            .collect())
+    }
+
+    /// The workspace's latest integration audit records, newest first.
+    pub async fn integration_activity(
+        &self,
+        workspace_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<AuditRow>, StoreError> {
+        let rows: Vec<(OffsetDateTime, Option<String>, String, String, String)> = sqlx::query_as(
+            "SELECT a.created_at, u.display_name, a.action, a.kind, a.subject
+               FROM integration_audit_events a
+               LEFT JOIN users u ON u.id = a.actor_id
+              WHERE a.workspace_id = $1
+              ORDER BY a.created_at DESC, a.id DESC
+              LIMIT $2",
+        )
+        .bind(workspace_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(created_at, actor_name, action, kind, subject)| AuditRow {
+                created_at,
+                actor_name,
+                action,
+                kind,
+                subject,
+            })
+            .collect())
+    }
+
+    /// A project's routes, oldest first.
+    pub async fn project_routes(&self, project_id: Uuid) -> Result<Vec<ProjectRoute>, StoreError> {
+        let rows: Vec<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT id, kind, destination_label FROM integration_routes
+              WHERE project_id = $1 ORDER BY created_at, id",
+        )
+        .bind(project_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(id, kind, destination_label)| ProjectRoute {
+                id,
+                kind,
+                destination_label,
+            })
+            .collect())
     }
 }
 

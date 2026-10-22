@@ -53,6 +53,7 @@ fn app_state(store: Arc<Store>) -> AppState {
         db_schema: "public".into(),
         public_url: "http://foundry.test".into(),
         clock: Arc::new(SystemClock),
+        integrations: Default::default(),
         notifier: Arc::new(Notifier::new(vec![])),
         revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
         realtime_tx: foundry_realtime::build_broadcast(),

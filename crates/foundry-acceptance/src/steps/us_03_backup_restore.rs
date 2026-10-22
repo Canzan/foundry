@@ -997,6 +997,7 @@ async fn point_replica_at_restored(world: &mut FoundryWorld) {
         db_schema: schema.clone(),
         public_url: "http://localhost".into(),
         clock: fake_clock.clone(),
+        integrations: Default::default(),
         notifier: notifier_from_recorder(&fake_email, &[ProviderKind::Log]),
         revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
         realtime_tx,

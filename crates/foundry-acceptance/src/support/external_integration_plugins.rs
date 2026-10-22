@@ -51,11 +51,10 @@
 //! `shared_confirmed`. Project emails: the section `[data-project-emails]`, one
 //! `input[name=choice]` per `(project_id, event, scope)` checkbox.
 //!
-//! Harness seam DISTILL pins for DELIVER slice 01 step 1: [`rewire`] hands the
-//! scenario's [`InstanceSpec`] (Slack settings pointed at the double, secrets
-//! key, email transport, give-up window, lease, worker on/off) to the
-//! in-process app. Until AppState carries integration settings it is a no-op,
-//! and every scenario stops RED at the first door that does not exist.
+//! Harness seam (DELIVER 01-05): [`rewire`] installs the scenario's
+//! [`InstanceSpec`] (Slack settings pointed at the double, secrets key, and
+//! every other setting [`instance_env`] spells) into the in-process app's
+//! `AppState::integrations`, read through the binary's own settings reader.
 //!
 //! The states this feature drives (AT-completeness C2a):
 //!
@@ -1116,17 +1115,29 @@ pub fn instance_env(world: &FoundryWorld) -> Vec<(&'static str, String)> {
 }
 
 /// Hand the scenario's [`InstanceSpec`] to the in-process app — ALL of it,
-/// as [`instance_env`] spells it (Slack trio and URL seams, secrets keys, the
-/// email transport including `SMTP_*` and `SMTP_TLS_VERIFY=false` for the
-/// relay, give-up, lease, poll, worker on/off). When DELIVER lands the seam it
-/// must consume this spec, not a subset (DEVOPS review issue 4).
-///
-/// Hand the scenario's [`InstanceSpec`] to the in-process app (DISTILL-pinned
-/// harness seam, DELIVER slice 01 step 1: `InProcHarness::rewire_integrations`
-/// over the integration settings AppState gains). Until then it changes
-/// nothing, and the first new door a scenario uses answers not-found (RED).
+/// as [`instance_env`] spells it, through the same
+/// `IntegrationSettings::from_lookup` the binary reads its environment with,
+/// so every setting the app reads reaches it (today the Slack trio and URL
+/// seams, the secrets keys and the public URL; the worker and email settings
+/// as their readers land). The app reads the installed integrations per
+/// request, so this takes effect at once.
 pub async fn rewire(world: &mut FoundryWorld) {
-    let _env = instance_env(world);
+    use foundry_app::integrations::config::IntegrationSettings;
+    use foundry_app::integrations::Integrations;
+    let env = instance_env(world);
+    let harness = tm::harness(world);
+    let lookup = |name: &str| {
+        env.iter()
+            .find(|(setting, _)| *setting == name)
+            .map(|(_, value)| value.clone())
+    };
+    let settings = IntegrationSettings::from_lookup(lookup, &harness.base_url())
+        .unwrap_or_else(|err| panic!("the in-process app refuses the scenario's settings: {err}"));
+    harness
+        .app
+        .state
+        .integrations
+        .install(Integrations::new(settings));
 }
 
 // ===========================================================================

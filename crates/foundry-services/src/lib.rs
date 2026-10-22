@@ -376,6 +376,55 @@ impl Services {
         projects::restore_project(&self.store, project_id).await
     }
 
+    /// external-integration-plugins — admins only, else
+    /// [`integrations::IntegrationError::NotFound`].
+    pub async fn require_workspace_admin(
+        &self,
+        principal: &Principal,
+    ) -> Result<(), integrations::IntegrationError> {
+        integrations::require_admin(&*self.store, principal).await
+    }
+
+    /// external-integration-plugins — the workspace integrations page.
+    pub async fn workspace_integrations(
+        &self,
+        principal: &Principal,
+    ) -> Result<integrations::WorkspaceIntegrations, integrations::IntegrationError> {
+        integrations::workspace_view(&*self.store, principal).await
+    }
+
+    /// external-integration-plugins — the row a new Slack credential is sealed for.
+    pub async fn slack_connection_id(
+        &self,
+        principal: &Principal,
+    ) -> Result<uuid::Uuid, integrations::IntegrationError> {
+        integrations::slack_connection_id(&*self.store, principal).await
+    }
+
+    /// external-integration-plugins — save a completed Slack install.
+    pub async fn connect_slack(
+        &self,
+        principal: &Principal,
+        install: integrations::SlackInstall,
+        connection_id: uuid::Uuid,
+        sealed: foundry_auth::secret_box::SealedSecret,
+        now: time::OffsetDateTime,
+    ) -> Result<foundry_store::integrations::ConnectionWriteOutcome, integrations::IntegrationError>
+    {
+        integrations::connect_slack(&*self.store, principal, install, connection_id, sealed, now)
+            .await
+    }
+
+    /// external-integration-plugins — a project's integrations page.
+    pub async fn project_integrations(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<integrations::ProjectIntegrations, integrations::IntegrationError> {
+        integrations::project_view(&*self.store, principal, team_slug, project_slug).await
+    }
+
     /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — provision a NEW
     /// isolated workspace + its first admin, gated by the INSTANCE super-admin
     /// authority. Delegates to [`provisioning::provision_workspace`].
@@ -804,6 +853,7 @@ pub mod board {
 }
 
 pub mod comments;
+pub mod integrations;
 pub mod issues;
 pub mod lanes;
 pub mod projects;

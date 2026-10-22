@@ -7,6 +7,21 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Added
+
+- **Slack connection for workspace admins**: `/workspace/integrations` lets a workspace admin
+  connect the workspace's Slack in one approval (Add to Slack), then shows "Connected to {team}
+  ({domain}) · by {admin} · {date}" and an activity list ("21 Oct 2026 · Priya Raman connected
+  Slack (Canzan Labs)"). A cancelled, forged, replayed, expired (over 10 minutes) or
+  other-session return connects nothing and reads "Slack was not connected. Nothing changed.";
+  anyone but a workspace admin gets the usual not-found page. The bot token is sealed with
+  `FOUNDRY_SECRETS_KEY` before it is stored and appears on no page or activity line.
+  `/workspace/integrations/slack/setup` gives the operator this instance's Slack app manifest
+  (return and events addresses, four bot scopes). New settings: `SLACK_CLIENT_ID`,
+  `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` (all three or none, else Foundry refuses to
+  start), `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL`, `FOUNDRY_SECRETS_KEY` (+`_PREVIOUS`; a
+  malformed key refuses start, a missing one leaves Slack unoffered).
+
 ## [v0.17.0] - 2026-10-20
 
 ### Added

@@ -31,7 +31,7 @@ Feature: A workspace admin connects the workspace's Slack in one approval
     And Identity Platform (AUTH) belongs to Backend and Homelab Ops (OPS) belongs to Ops
     And it is 14:02 on 21 Oct 2026
 
-  @pending @driving_port @kpi @contract-shape:bounded-change
+  @driving_port @kpi @contract-shape:bounded-change
   Scenario: A workspace admin connects Slack and sees the connection
     Given the instance has the Foundry Slack app set up
     And Canzan Labs has no Slack connection
@@ -40,7 +40,7 @@ Feature: A workspace admin connects the workspace's Slack in one approval
     And the workspace's integration activity reads "21 Oct 2026 · Priya Raman connected Slack (Canzan Labs)"
     And nothing changed for Canzan Labs except its Slack connection and one activity line
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: An instance that cannot hold a Slack connection says what is missing
     Given the instance has <setup>
     When Priya opens the workspace integrations page
@@ -52,7 +52,7 @@ Feature: A workspace admin connects the workspace's Slack in one approval
       | no Foundry Slack app set up                     | Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once. How to set up Slack |
       | the Foundry Slack app set up but no secrets key | Slack cannot be connected on this Foundry yet: an instance operator needs to set the secrets key.        |
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: A cancelled approval connects nothing
     Given the instance has the Foundry Slack app set up
     And Canzan Labs has no Slack connection
@@ -60,7 +60,7 @@ Feature: A workspace admin connects the workspace's Slack in one approval
     Then Priya reads "Slack was not connected. Nothing changed."
     And nothing changed for Canzan Labs
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: A forged return from Slack connects nothing
     Given the instance has the Foundry Slack app set up
     And Priya holds a Slack return address with <state>
@@ -76,7 +76,7 @@ Feature: A workspace admin connects the workspace's Slack in one approval
       | a state older than 10 minutes       |
       | a state issued to another session   |
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: Only a workspace admin reaches the workspace's Slack doors
     Given the instance has the Foundry Slack app set up
     When <person> opens <door>
@@ -93,7 +93,7 @@ Feature: A workspace admin connects the workspace's Slack in one approval
       | Marco                 | the workspace integrations page     |
       | Marco                 | Add to Slack                        |
 
-  @pending @edge @contract-shape:pure-function
+  @edge @contract-shape:pure-function
   Scenario: The Slack setup page gives the operator this instance's addresses and nothing secret
     Given the instance has the Foundry Slack app set up
     When Priya opens the Slack setup page

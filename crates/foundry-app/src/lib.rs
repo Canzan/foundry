@@ -22,6 +22,7 @@ pub mod comments;
 pub mod csrf;
 pub mod events;
 pub mod instance_admin;
+pub mod integrations;
 pub mod invites_accept;
 pub mod issues;
 pub mod keyboard;
@@ -112,6 +113,11 @@ pub struct AppState {
     pub db_schema: String,
     pub public_url: String,
     pub clock: Arc<dyn Clock>,
+    /// external-integration-plugins — the integration settings and adapters
+    /// (Slack app, secrets key), read per request. Installed at boot from the
+    /// environment; the acceptance harness installs a scenario's settings
+    /// after start (DISTILL DIST-4).
+    pub integrations: integrations::IntegrationsHandle,
     /// The config-selected notification fan-out dispatcher (ADR-001/003).
     /// Replaces the single hard-wired `email` sender: a member action builds one
     /// structured [`notify::Notification`] and calls `notifier.notify(&n)`, which
@@ -806,6 +812,31 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/team/{team_slug}/delete",
             get(teams::show_delete).post(teams::submit_delete),
+        )
+        // external-integration-plugins (DESIGN [REF] Driving Ports): the
+        // workspace integrations doors (workspace admins) and a project's
+        // integrations page (Manage). All under csrf_middleware + session_layer;
+        // every refusal is the uniform 404. Slack's return is a GET whose
+        // session-held `state` is its request-forgery defence (ADR-EIP-005).
+        .route(
+            integrations::handlers::WORKSPACE_PATH,
+            get(integrations::handlers::show_workspace),
+        )
+        .route(
+            integrations::handlers::SETUP_PATH,
+            get(integrations::handlers::show_slack_setup),
+        )
+        .route(
+            integrations::handlers::INSTALL_PATH,
+            get(integrations::handlers::start_slack_install),
+        )
+        .route(
+            integrations::handlers::RETURN_PATH,
+            get(integrations::handlers::finish_slack_install),
+        )
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations",
+            get(integrations::handlers::show_project),
         )
         .route("/", get(signin::dashboard_root))
         // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO

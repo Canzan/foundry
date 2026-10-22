@@ -919,19 +919,30 @@ pub const REQUIRED_FIXTURES: &[&str] = &[
 
 /// The fixture gate: without recorded answers the double REFUSES to start, so
 /// an un-pended slice-01 run fails instead of passing on hand-written shapes.
-/// DISTILL's RED classification (every scenario still `@pending` in the
-/// committed tree) sets `FOUNDRY_EIP_DISTILL_CLASSIFICATION=1` to run on the
-/// hand-written shapes, and the double says so once per run.
+/// Two explicit opt-ins serve the hand-written shapes instead, each announced
+/// once per run on stderr:
+///
+/// - `FOUNDRY_EIP_DISTILL_CLASSIFICATION=1`: DISTILL's RED classification;
+/// - `FOUNDRY_EIP_HANDWRITTEN_SLACK=1`: DELIVER before the recordings exist
+///   (user decision 2026-10-22: the fixture gate moved to release time). The
+///   shapes follow Slack's documented `oauth.v2.access` and `auth.test`
+///   answers and are diffed against the recordings (H-3) before release.
 pub fn announce_answer_source() {
     if answers_are_recorded() {
         return;
     }
+    let opted_in = |name: &str| std::env::var(name).as_deref() == Ok("1");
+    let handwritten = opted_in("FOUNDRY_EIP_HANDWRITTEN_SLACK");
     assert!(
-        std::env::var("FOUNDRY_EIP_DISTILL_CLASSIFICATION").as_deref() == Ok("1"),
-        "slack_double: no recorded Slack fixtures under tests/fixtures/slack ({REQUIRED_FIXTURES:?}); record them (DEVOPS H-3) before un-pending slice 01"
+        handwritten || opted_in("FOUNDRY_EIP_DISTILL_CLASSIFICATION"),
+        "slack_double: no recorded Slack fixtures under tests/fixtures/slack ({REQUIRED_FIXTURES:?}); record them (DEVOPS H-3), or set FOUNDRY_EIP_HANDWRITTEN_SLACK=1 to run on the hand-written shapes before release"
     );
     static ONCE: std::sync::Once = std::sync::Once::new();
     ONCE.call_once(|| {
-        eprintln!("slack_double: serving HAND-WRITTEN Slack answer shapes for DISTILL classification (DEVOPS H-3)");
+        if handwritten {
+            eprintln!("slack_double: Slack double serving HAND-WRITTEN shapes; recorded fixtures (H-3) required before release");
+        } else {
+            eprintln!("slack_double: serving HAND-WRITTEN Slack answer shapes for DISTILL classification (DEVOPS H-3)");
+        }
     });
 }

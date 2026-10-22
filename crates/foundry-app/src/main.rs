@@ -308,8 +308,39 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
+    // external-integration-plugins (DDR-9, DDR-10, DD-2): the integration
+    // settings, read once. A partial Slack trio or a malformed secrets key
+    // refuses start naming the setting; a missing secrets key is not a refusal
+    // (Slack is simply not offered, K-20).
+    let integrations =
+        match foundry_app::integrations::config::IntegrationSettings::from_env(&public_url) {
+            Ok(settings) => {
+                if settings.secrets.is_none() {
+                    tracing::warn!(
+                        event = "health.degraded",
+                        probe = "secrets_key",
+                        setting = foundry_auth::secret_box::SECRETS_KEY_SETTING,
+                        "no secrets key: integrations are not offered"
+                    );
+                }
+                foundry_app::integrations::IntegrationsHandle::new(
+                    foundry_app::integrations::Integrations::new(settings),
+                )
+            }
+            Err(err) => {
+                tracing::error!(
+                    event = "health.startup.refused",
+                    probe = "integrations",
+                    detail = %err,
+                    "integration settings refused — refusing to start"
+                );
+                return Err(err.into());
+            }
+        };
+
     let state = AppState {
         oidc,
+        integrations,
         store: store.clone(),
         session_secret: Arc::new(SecretString::new(session_secret.into())),
         machine_token_verifier: Arc::new(machine_token_verifier),

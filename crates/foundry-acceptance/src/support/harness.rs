@@ -447,6 +447,7 @@ impl InProcHarness {
             db_schema: schema.clone(),
             public_url: "http://localhost".into(),
             clock: fake_clock.clone(),
+            integrations: Default::default(),
             notifier,
             // US-TMA05 — the per-principal revoke guardrail at the ratified
             // defaults (C=20, R=1/sec). Reads `clock` above (the MockClock), so

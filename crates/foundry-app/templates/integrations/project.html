@@ -1,0 +1,8 @@
+{% extends "app_shell.html" %}
+{% block title %}{{ project_name }} integrations{% endblock %}
+{% block app_content %}
+<h1>{{ project_name }} integrations</h1>
+<ul data-routes>
+  {% for route in routes %}<li data-route-destination="{{ route.destination_label }}" data-route-id="{{ route.id }}">{{ route.destination_label }}</li>{% endfor %}
+</ul>
+{% endblock %}
