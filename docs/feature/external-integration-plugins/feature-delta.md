@@ -2044,3 +2044,579 @@ Reviewer: nw-product-owner-reviewer, 2026-10-21.
   - low R-3, journey 3 step 3 had no Gherkin: added;
   - low R-4, tool and pin references in US-EIP-12 and US-EIP-15 ACs: moved to Technical Notes.
 - **Status for handoff**: no critical or high item is known to remain, but the last high fix has not been re-reviewed. The coordinator may run one confirming review before DESIGN, or accept the fix list above.
+
+## Wave: DESIGN
+
+Architect: Morgan (nw-solution-architect) | Date: 2026-10-21 | Scope: application, components |
+Mode: propose (orchestrator-dispatched; OD-1..OD-15 were accepted by the user on 2026-10-21 and are
+not reopened) | Paradigm: OOP (CLAUDE.md, unchanged) | Density: lean, [REF] / [WHY] | Depth:
+component level for deliverable A (slices 01-03), then B (04-05); deliverable C (06-08) only as far
+as the contract, event model, secrets and API boundary need to be fixed now | Review:
+nw-solution-architect-reviewer (see [REF] Peer Review).
+
+### [REF] Prior Wave Consultation
+
+| Artifact | Status | Note |
+|---|---|---|
+| DISCUSS above: Scope Assessment, D-1, D-2, D-3, D-4, D-13, OD-1..15 and [REF] User Decisions, SC-1..10, NFR-EIP-1..7, EIP-KPI-1..9, CA-1..5, risk register, all 16 stories | ✓ | No DISCUSS decision reopened. Four findings that change story wording or estimates are under [WHY] Upstream Issues. |
+| `slices/slice-01..08-*.md` | ✓ | All eight read. Learning hypotheses of 01 (R3, OD-3), 02 (escaping totality), 03 (refusal classification) and 04 (contract admits a second kind) are each answered by a DDR below. |
+| `docs/product/architecture/brief.md` | ✓ | Extended with a new section, "Project events leave the board", and the crate graph gains `foundry-integrations`. |
+| ADRs: `adr-oidc-001..003`, `adr-project-lifecycle-001..004`, `adr-issue-delete-001/002`, `adr-team-membership-003`, `adr-team-lifecycle-004`, `adr-api-openapi-001..004`, `adr-workspace-rename-001` | ✓ | Reused: crate boundary as security boundary, signed state carrier (considered, not reused), lazy external dependency, `live_projects` read seam and `lock_live_project` write guard, one delete primitive, one authority policy, the drift check, append-only audit rows. |
+| notification-delivery-providers `design/adr-001..007` | ✓ | ADR-001/003/004/005/006 inherited; ADR-007 changed for routes and project emails only (CA-1). |
+| `docs/product/journeys/journey-external-integration-plugins.yaml`, `docs/product/jobs.yaml` | ✓ | Three journeys and three jobs; shared artifacts mapped to their source of truth in [REF] Persistence Model. |
+| Code (Read and Grep): `foundry-app/src/notify.rs` (port, providers, `Notifier`), `main.rs` (env config, probes, background tasks, `FOUNDRY_PUBLIC_URL`), `lib.rs` (route table), `csrf.rs` (`is_exempt_path`), `session.rs` (`SameSite=Lax`), `unsubscribe.rs`; `foundry-store` `lib.rs` (the six outbox writers, `count_pending_outbox`), `issue_delete.rs`, `lanes.rs` (`move_cards_to_destination`), migrations 0001, 0003, 0013; `foundry-core/src/team_membership.rs` (`TeamAccess`); `foundry-auth` (`UnsubscribeToken`); `foundry-realtime` (`EventPayload` tolerates added fields); `xtask/src/check_arch.rs` module doc; `deny.toml`; `Cargo.lock`; the slice-8 deferred-metrics feature (outbox gauge contract) | ✓ | Facts used are cited where used. |
+| Style reference `docs/feature/api-openapi-document/feature-delta.md` `## Wave: DESIGN` | ✓ | Section order followed. |
+| CodeGraph (`codegraph explore`), dual-graph MCP | ⊘ | This session has neither a shell nor those MCP tools; code was read with Read and Grep at the files named. |
+| `discover/`, `diverge/` | ⊘ | None exist (DISCUSS R1 stands). |
+| `docs/product/architecture/c4-diagrams.md` | ⊘ | Does not exist; the diagrams live below and in brief.md. |
+
+Code facts this design rests on:
+
+- Six store writers insert `outbox` rows in the board change's transaction: `insert_issue_with_outbox` (`IssueCreated`), `reposition_issue_with_outbox` and `lanes.rs::move_cards_to_destination` (`IssueUpdated`, **only when the lane changes**), `issue_delete::delete_issues_with_outbox` (`IssueDeleted`, one per removed card), `insert_comment_with_outbox`, `update_comment_with_outbox`, `soft_delete_comment_with_outbox`.
+- `IssueUpdated` carries the new `state` only; `IssueDeleted` carries no actor and no title; `CommentAdded` carries `author_email` (so no renderer may ever see the raw payload).
+- Nothing writes `outbox.notified_at`; the shipped gauge `outbox_pending_jobs` counts `notified_at IS NULL` and its acceptance scenario asserts it rises with writes.
+- `Notifier::notify` returns nothing; `SmtpProvider` / `EmailApiProvider::deliver` return a classified `DeliveryError`; `Notification` has no headers; **no `List-Unsubscribe` header is sent anywhere**, and `POST /unsubscribe` is CSRF-checked (DA-1).
+- `ring` 0.17.14 is in the production graph through `rustls` and `jsonwebtoken`; no RustCrypto AEAD crate is locked; `reqwest`, `hmac`, `sha2`, `ipnet`, `secrecy`, `proptest`, `testcontainers` are locked. CI and local Postgres are 16.
+
+### [REF] Inherited Commitments
+
+| Origin | Commitment | DDR | Impact |
+|---|---|---|---|
+| DISCUSS D-1, OD-1 | One model (connection, route, email choice, delivery; app and grant later) designed once for every kind | DDR-1, DDR-17 | `ChannelKind` is closed and already lists `webhook`; tables carry `kind` columns; C adds rows and an adapter, not a model. |
+| DISCUSS D-2, ADR-005 (providers) | Closed, versioned catalogue; one name per event | DDR-7 | `EventKind` enum with one wire name each; reorders and edits are not events. |
+| DISCUSS D-3, R5 | Three content levels; never-sent list; never pings; links need sign-in | DDR-1, DDR-12 | A pure composer decides content, pure encoders decide escaping; both proptested. |
+| DISCUSS D-4, brief.md `TeamAccess` | Manage for routes, workspace admin for connections, uniform 404 otherwise | DDR-20 | Use-cases in `foundry-services` gate on `TeamAccess::can_manage` / workspace admin before any read. |
+| DISCUSS D-5, SC-1, ADR-003 (providers) | Delivery never inside the action | DDR-3, DDR-4 | Board writers gain no query; sending is out of band. |
+| DISCUSS D-6, SC-7 | Account mail, `NOTIFICATION_PROVIDERS`, env `WebhookProvider`, mute, `/unsubscribe` unchanged | DDR-15, DDR-23 | One new suppressible account event (D-15) is the only `Notifier` change; `notified_at` and its gauge keep their meaning. |
+| DISCUSS D-7 | One Slack and one Matrix connection per workspace | DDR-17 | `UNIQUE (workspace_id, kind)`. |
+| DISCUSS D-8 | Pause skips; lost queues 24 h; deleted project sends nothing, restore resumes; renames show current names | DDR-6, DDR-18 | Dispatch and send-time rules; names are read at send time. |
+| DISCUSS D-9, D-14 | `/account/settings` hosts Project emails; mute is the master switch; security mail untouched | DDR-15 | Send-time mute check; project mail never touches the suppression gate. |
+| DISCUSS D-11 | More than 5 same-kind events of one action to one route post one message | DDR-8 | Grouped by the committing transaction id. |
+| DISCUSS D-13 | Copy locked; paths may change | DDR-20 | Paths below; no string changed; missing strings are Upstream Issues. |
+| DISCUSS D-15 | Connection-lost admin email is a new suppressible account event | DDR-23 | `NotificationEvent::IntegrationConnectionLost`, suppressible. |
+| DISCUSS D-16, brief.md audit records | Append-only actor, what, via, when; no secret | DDR-21 | `integration_audit_events`. |
+| OD-3 | Operator-created Slack app; env credentials validated at boot | DDR-10 | Three-or-none Slack settings; manifest page with this instance's URLs. |
+| OD-4, OD-5 | Admin enters homeserver and bot token; encrypted rooms refused | DDR-13 | Thin Matrix client; encryption checked at save and before each send. |
+| OD-6 | Summary is the default level | DDR-12 | Route form preselects Summary. |
+| OD-7, CA-1, ADR-007 (providers) | Queued after commit, 24 h retry, at-least-once, stable event id | DDR-3, DDR-5 | ADR-007 is changed for routes and project emails only. |
+| OD-8, OD-10, OD-11 | One email per event; nothing on by default; never about own actions | DDR-15 | Dispatch excludes the actor; no default rows. |
+| OD-12, CA-4, ADR-006 (providers) | A dump alone yields no credential; operator-held key | DDR-9 | AES-256-GCM through `ring`; boot key-check. |
+| OD-13, R6 | Loopback, link-local, metadata always refused; private only by allow-list; no redirects | DDR-14 | One outbound client with a judging resolver. |
+| OD-14, `check_api_no_mint_route` | Webhook secret does not cross no-mint; OAuth tokens only outside `/api/v1` | DDR-24 | Fixed now for C; no `/api/v1` route in A or B. |
+| OD-15 | Three OAuth scopes | DDR-24 | Recorded for C; no design here. |
+| SC-3, ADR-006 (providers) | Credentials write-only, never in logs, errors, metrics, audit, API, debug | DDR-9 | `SealedSecret` has no `Debug`/`Display`/`Serialize`; one opening seam enforced by check-arch. |
+| SC-5 | Email access checked at send time | DDR-15 | Send-time access, mute, choice and scope checks. |
+| SC-9, ADR-004 (providers) | Metric labels from closed enums only | DDR-22 | `{kind, event, outcome}`. |
+| SC-10, memory "containerised dev dependencies" | Slack HTTP double; pinned homeserver container; no host installs | DDR-10, DDR-13 | `SLACK_API_BASE_URL` seam; Synapse container pinned by digest in DISTILL. |
+| project-lifecycle ADR-001/002 | `live_projects` read seam; `lock_live_project` write guard | DDR-17, DDR-18 | All new SQL reads `live_projects`; route and choice writers take the guard; check-arch rules extended. |
+| api-openapi-document ADR-001/002 | `/api/v1` is described in the same change | DDR-24 | Nothing in A or B touches `/api/v1`; C's routes reuse A's use-cases. |
+| issue-delete ADR-001 | One delete primitive announces each card | DDR-7 | It gains `author_id` and `title` in the payload. |
+| CSP posture (api-openapi ADR-004, canzan-theme) | No inline script; nothing cross-origin | DDR-20 | Server-rendered forms; Slack approval is a top-level link; no Slack or Matrix asset is embedded. |
+
+### [REF] Quality Attributes and Constraints
+
+| Driver | Measure | How the design meets it |
+|---|---|---|
+| Reliability (SC-2, OD-7, NFR-EIP-3) | 100% delivered or shown failed within 24 h; at most one attempt per destination per second | Outbox as log, exactly-once expansion, fenced leased at-least-once sends, a give-up for every non-terminal delivery, per-destination pacing, stall gauges (DDR-3, -4, -5, -22) |
+| Performance of the action (NFR-EIP-2, EIP-KPI-4) | p95 within 10% of baseline with every destination down | Zero new queries on the board path; worker holds no connection across outbound calls; per-replica send cap (DDR-3) |
+| Delivery latency (NFR-EIP-1) | 10 s p95, 60 s p99 | 1 s poll, one dispatch transaction, immediate claim (DDR-3) |
+| Security (SC-3, SC-4, SC-6, R5, R6, R8) | 0 secrets leaked, 0 pings, 0 cross-project deliveries | Sealed secrets, pure composer and encoders, address policy, uniform 404 (DDR-1, DDR-9, DDR-12, DDR-14, DDR-20) |
+| Maintainability (OD-1) | Matrix and webhook add no change to events, content, history or lifecycle | Split contract (DDR-1) |
+| Testability | Content and no-ping rules provable without a network | Pure core crate; property tests (DDR-2) |
+| Operability | Misconfiguration found at boot, not after 24 h | Three-or-none settings, key-check, `Store::probe` (DDR-9, DDR-10) |
+
+Team and Conway check: one maintainer, one repository, one binary, rolling replicas. A modular
+monolith with ports and adapters fits; no new deployable. Load: about 1,000 events a day and 50
+routes per workspace, so a database-backed queue has three orders of magnitude of headroom.
+
+Constraint weight: the largest risk is R3 (no durable event source, high/high) and it is entirely
+inside our control; the external constraints (Slack's fixed redirect, Matrix encryption) are each a
+single adapter decision. Slice 01 is therefore sized around the delivery engine, not around Slack.
+
+### [REF] C4 System Context (L1)
+
+Elements marked "deliverable C" are context for the seams fixed here; they are not built in this
+feature.
+
+```mermaid
+C4Context
+  title System Context: Foundry project events leave the board
+  Person(admin, "Workspace admin (Priya)", "Connects Slack and Matrix")
+  Person(lead, "Team lead (Lena)", "Routes a project's events")
+  Person(member, "Member (Sam)", "Chooses project emails")
+  Person(operator, "Instance operator", "Sets the Slack app, secrets key, email relay")
+  Person_Ext(integrator, "Integrator (Sven), deliverable C", "Scripts routes, receives webhooks")
+  System(foundry, "Foundry", "Issue tracker; emits project events to routes and members")
+  System_Ext(slack, "Slack", "Web API, OAuth v2, Events API")
+  System_Ext(matrix, "Matrix homeserver", "Client-server API, bot account")
+  System_Ext(mail, "Email relay or email API", "SMTP STARTTLS or HTTP API")
+  System_Ext(receiver, "Webhook receiver (n8n), deliverable C", "Receives signed events")
+  Rel(admin, foundry, "Connects Slack and Matrix in")
+  Rel(lead, foundry, "Creates and manages routes in")
+  Rel(member, foundry, "Saves email choices in")
+  Rel(operator, foundry, "Configures settings of")
+  Rel(integrator, foundry, "Configures routes through /api/v1 of")
+  Rel(foundry, slack, "Installs the app, lists channels, posts messages to")
+  Rel(slack, foundry, "Sends signed uninstall events to")
+  Rel(foundry, matrix, "Joins rooms and sends notices to")
+  Rel(foundry, mail, "Sends project emails through")
+  Rel(foundry, receiver, "Posts signed events to")
+  Rel(slack, lead, "Shows messages to the team of")
+  Rel(mail, member, "Delivers emails to")
+```
+
+### [REF] C4 Container (L2)
+
+The web tier, the JSON API and the delivery worker run in the **same `foundry` binary**, in every
+replica; they are drawn apart because they are different driving surfaces with different failure
+behaviour.
+
+```mermaid
+C4Container
+  title Container: Foundry with integrations
+  Person(lead, "Team lead / admin / member")
+  System_Ext(slack, "Slack")
+  System_Ext(matrix, "Matrix homeserver")
+  System_Ext(mail, "Email relay or API")
+  System_Boundary(f, "Foundry (one binary, N replicas)") {
+    Container(web, "Web tier", "Rust, axum, askama", "Integration pages, route forms, settings, stop links, Slack return and events endpoints")
+    Container(api, "JSON API /api/v1", "Rust, axum", "Board operations today; routes and connections in deliverable C")
+    Container(worker, "Delivery worker", "Rust, tokio tasks", "Dispatcher (one active), senders (every replica), expiry and retention sweeps")
+    ContainerDb(db, "PostgreSQL 16", "sqlx", "Board data, outbox, connections, routes, deliveries, audit, email choices")
+  }
+  Rel(lead, web, "Uses pages of", "HTTPS")
+  Rel(web, db, "Reads and writes routes, connections, choices in")
+  Rel(api, db, "Writes board changes and outbox rows to")
+  Rel(web, db, "Writes board changes and outbox rows to")
+  Rel(worker, db, "Dispatches outbox rows to deliveries and claims them from")
+  Rel(worker, slack, "Posts messages to", "HTTPS")
+  Rel(worker, matrix, "Sends notices to", "HTTPS")
+  Rel(worker, mail, "Sends project emails through", "SMTP or HTTPS")
+  Rel(web, slack, "Exchanges install codes with and lists channels of", "HTTPS")
+  Rel(web, matrix, "Verifies the bot token and rooms on", "HTTPS")
+  Rel(slack, web, "Posts signed app_uninstalled and tokens_revoked events to", "HTTPS")
+```
+
+### [REF] C4 Component (L3): the delivery subsystem
+
+All components below live inside the one `foundry` container of L2. The web-side and worker-side
+components are grouped by module, not by container. The pure core is a library crate the shell
+calls.
+
+```mermaid
+C4Component
+  title Component: integration components inside the foundry container
+  ContainerDb(db, "PostgreSQL", "outbox, integration_* tables")
+  System_Ext(ext, "Slack / Matrix / email relay")
+  Person(user, "Admin / lead / member")
+  Component(handlers, "Integration handlers", "foundry-app, axum", "Workspace and project pages, Slack install, return, events, preview, test, settings, stop links")
+  Component(usecases, "Integration use-cases", "foundry-services", "Authority (TeamAccess, admin), route and connection writes, audit")
+  Component(caps, "Store capabilities", "foundry-app store_capabilities.rs", "Narrow traits over Arc<Store>: EventViewReads, DispatchLog, DeliveryClaims, DeliverySweeps, ConnectionHealth")
+  Component(disp, "Dispatcher", "tokio task, advisory lock", "Takes whole source transactions of undispatched outbox rows")
+  Component(send, "Sender", "tokio task per replica", "Claims each route's head delivery under a fenced lease")
+  Component(hyd, "Hydrator", "read-only", "Builds EventView from live rows at send time")
+  Component(adapters, "Kind adapters", "SlackChannel, MatrixChannel, EmailChannel", "DeliveryChannel, DestinationCatalog, DestinationEnrolment impls")
+  Component(http, "OutboundHttp", "reqwest, judging resolver, no proxy, no redirects", "Only HTTP client for admin- or lead-supplied hosts")
+  Component(box, "SecretBox", "foundry-auth, ring AES-256-GCM", "Seals and opens credentials")
+  Component(health, "Connection health", "compare-and-set", "Marks connections lost, alerts admins once")
+  Component(sweep, "Sweeps", "tokio task, advisory lock", "Expiry, cancellation, retention")
+  Component(core, "Pure core", "foundry-integrations crate", "DispatchPlan, Composer, encoders, classifiers, RetryPolicy, RouteStatus, judge")
+  Component_Ext(notifier, "Notifier (shipped)", "account notifications")
+  Rel(user, handlers, "Uses")
+  Rel(handlers, usecases, "Calls")
+  Rel(handlers, adapters, "Checks destinations and sends tests through")
+  Rel(handlers, core, "Renders previews and statuses with")
+  Rel(usecases, db, "Writes routes, connections and audit rows to")
+  Rel(disp, caps, "Applies dispatch plans through DispatchLog of")
+  Rel(disp, core, "Computes the plan with")
+  Rel(send, caps, "Claims and records through DeliveryClaims of")
+  Rel(send, hyd, "Asks for the current event view from")
+  Rel(hyd, caps, "Reads through EventViewReads of")
+  Rel(caps, db, "Runs narrow transactions on")
+  Rel(send, core, "Composes, encodes, classifies and schedules with")
+  Rel(send, adapters, "Delivers through")
+  Rel(adapters, box, "Opens credentials with")
+  Rel(adapters, http, "Sends requests through")
+  Rel(http, ext, "Calls")
+  Rel(send, health, "Reports connection refusals to")
+  Rel(health, notifier, "Sends the connection-lost email through")
+  Rel(sweep, caps, "Expires, cancels and prunes through DeliverySweeps of")
+```
+
+### [REF] Component Decomposition (per slice)
+
+| Slice | Component | Where | Change |
+|---|---|---|---|
+| 01 | T-1: no-routes p95 of issue create and move, 100 sequential calls, smoke lane, release build; number written into EIP-KPI-4 | smoke lane | FIRST STEP |
+| 01 | Migration: nullable `outbox.event_id`, `outbox.source_txid`, `outbox.dispatched_at`, then `SET DEFAULT` (metadata only), `integration_dispatch_start`; `lock_timeout`; no backfill, no rewrite | `migrations/0028_outbox_dispatch.sql` | CREATE |
+| 01 | Migration (`-- no-transaction`): `CREATE INDEX CONCURRENTLY` on `outbox (id) WHERE dispatched_at IS NULL AND event_id IS NOT NULL` | `migrations/0029_outbox_dispatch_index.sql` | CREATE |
+| 01 | Migration: `integration_connections`, `integration_routes`, `integration_route_lanes`, `integration_destination_pacing`, `integration_deliveries`, `integration_audit_events`, `integration_key_checks`, `integration_worker_heartbeats` | `migrations/0030_integrations.sql` | CREATE |
+| 01 | Store capabilities: `EventViewReads`, `DispatchLog`, `DeliveryClaims`, `DeliverySweeps`, `ConnectionHealth` over `Arc<Store>` | `foundry-app/src/integrations/store_capabilities.rs` | CREATE |
+| 01 | Pure core: `ChannelKind`, `EventKind`, `ContentLevel`, `ReasonCode`, `ChannelOutcome`, `RouteSpec`, `DispatchPlan` (New issue only), `compose` (Summary), `encode_slack`, `classify_slack`, `RetryPolicy` (fixed 30 s, 24 h, at least one attempt), `RouteStatus` (Delivering, Retrying, Needs attention gave up); port traits `DeliveryChannel`, `DestinationCatalog`, `DestinationEnrolment`, `EmailTransport` | new crate `crates/foundry-integrations` | CREATE |
+| 01 | `SecretBox`, `SealedSecret`, key ids, AAD | `foundry-auth/src/secret_box.rs` (+ `ring` direct dep) | CREATE |
+| 01 | Store: connection upsert, route create and list, dispatch transaction (one call holding the transaction, taking the plan as a closure returning `NewDelivery` rows), fenced claim and record, expiry sweep, event-view reads, key-check rows, heartbeat; `Store::probe` requires the 0028-0030 objects (slice 05 extends it to 0031) | `foundry-store/src/integrations.rs`, `lib.rs` | CREATE / EXTEND |
+| 01 | Services: workspace integrations view, complete Slack install, create and list routes, audit writes | `foundry-services/src/integrations.rs` | CREATE |
+| 01 | App: `SlackConfig::from_env`, `SecretsConfig`, Slack adapter (`oauth.v2.access`, `auth.test`, `conversations.list`, `chat.postMessage`), worker (dispatcher, sender, expiry), handlers and templates for `/workspace/integrations`, Slack install and return, setup page, project integrations page and route form with Send test | `foundry-app/src/integrations/{mod,config,slack,worker,handlers}.rs`, `templates/integrations/*.html`, `main.rs`, `lib.rs` | CREATE / EXTEND |
+| 01 | Send test endpoint with a per-user rate limit (the `RevokeRateLimiter` shape: 6 per minute per user) | `foundry-app/src/integrations/handlers.rs`, `rate_limit.rs` | CREATE / EXTEND |
+| 01 | check-arch `integrations-pure-core` (allow-list), `integrations-secret-seam`, `integrations-store-capability`; `deny.toml` wrapper rule for `foundry-integrations` | `xtask/src/check_arch.rs`, `deny.toml` | EXTEND |
+| 02 | All four chat events, lane filters (`integration_route_lanes`), bursts by `source_txid`, three content levels, preview, K-5, K-6 via `conversations.info`; proptests for composer and Slack encoder | core, store, services, app | EXTEND |
+| 02 | Payload enrichment: `from_state` in both `IssueUpdated` writers; `author_id` and `title` in `IssueDeleted` (`IssueDeleteContext` gains the actor) | `foundry-store/src/lib.rs`, `lanes.rs`, `issue_delete.rs`; their callers in services | EXTEND |
+| 03 | Backoff and `retry_after`, destination and connection `not_before`, head-of-line claim (from slice 01, now under load), history page, reason catalogue, connection-lost transition, `NotificationEvent::IntegrationConnectionLost` (+ register-at-0), Slack events endpoint, reconnect, pause, resume, edit, delete, disconnect (`apps.uninstall`), D-8 skip rules, retention sweep, audit for every change, delivery metrics | core, store, services, app; `notify.rs`; `csrf.rs` | EXTEND |
+| 03 | check-arch `integrations-csrf-exempt-set` (unit test pinning the exempt paths), `project-lifecycle-write-guard` extended to route writers | `xtask`, `csrf.rs` tests | EXTEND |
+| 04 | `OutboundHttp` (judging resolver, `no_proxy()`, no redirects), `FOUNDRY_OUTBOUND_ALLOW` (no proxy mode in v1), `judge` in core, Matrix adapter (catalogue: alias resolve, membership, state or invite state, `joined_members`; enrolment: `join`, `leave`; channel: `send` with `txnId`, pre-send encryption read), `encode_matrix`, `classify_matrix`, Connect Matrix form; check-arch `integrations-outbound-client-seam` | core, app, `xtask` | CREATE / EXTEND |
+| 05 | Migration `integration_email_choices` (`0031`); Project emails section and save; `EmailTransport` impls on `SmtpProvider` and `EmailApiProvider`; email composer and encoder with `List-Unsubscribe` headers; `ProjectEmailStopToken`; `/email/stop` GET, POST and one-click POST; send-time access, mute, choice and scope checks | `migrations/0031_integration_email_choices.sql`, core, `foundry-auth`, store, services, app (`notify.rs`, `unsubscribe.rs` neighbour module) | CREATE / EXTEND |
+
+### [REF] Driving Ports (deliverables A and B)
+
+All HTML routes sit inside the session layer and `csrf_middleware`; all answer the uniform 404 to a
+caller without the right (SC-6); destructive actions are GET dialog plus POST confirm.
+
+| Path | Methods | Who | Story |
+|---|---|---|---|
+| `/workspace/integrations` | GET | workspace admin | US-EIP-01, -06, -07, -08 |
+| `/workspace/integrations/slack/setup` | GET | workspace admin (K-2's "How to set up Slack") | US-EIP-01 |
+| `/workspace/integrations/slack/install` | GET (redirect to Slack) | workspace admin | US-EIP-01, -06 |
+| `/workspace/integrations/slack/return` | GET | workspace admin; Slack's fixed redirect target | US-EIP-01, -06 |
+| `/workspace/integrations/slack/disconnect` | GET, POST | workspace admin | US-EIP-07 |
+| `/workspace/integrations/matrix` | POST (connect or replace token) | workspace admin | US-EIP-08 |
+| `/workspace/integrations/matrix/disconnect` | GET, POST | workspace admin | US-EIP-07 (Matrix) |
+| `/integrations/slack/events` | POST, public, CSRF-exempt, Slack-signed | Slack | US-EIP-06 |
+| `/team/{team_slug}/project/{project_slug}/integrations` | GET | Manage | US-EIP-02..07, -09 |
+| `…/integrations/routes/new` | GET (`?kind=slack|matrix`; re-posts for preview with scripting off) | Manage | US-EIP-02, -04, -09 |
+| `…/integrations/routes/preview` | POST (pure: re-renders the form with `compose` output; calls no port, writes nothing) | Manage | US-EIP-04 |
+| `…/integrations/routes/test` | POST (sends exactly one K-7 message to the entered destination; writes no row; rate-limited per user). Slack: from the unsaved form. Matrix: from the saved route row only, since the bot joins on save; `txnId` is a fresh uuid recorded nowhere | Manage | US-EIP-02, -09 |
+| `…/integrations/routes` | POST (create: catalogue check, then enrolment, then the route row and audit) | Manage | US-EIP-02, -03, -04, -09 |
+| `…/integrations/routes/{route_id}/edit` | GET, POST | Manage | US-EIP-07 |
+| `…/integrations/routes/{route_id}/pause`, `/resume` | POST | Manage | US-EIP-06, -07 |
+| `…/integrations/routes/{route_id}/delete` | GET, POST | Manage | US-EIP-07 |
+| `…/integrations/routes/{route_id}/history` | GET | Manage | US-EIP-05 |
+| `/account/settings` (Project emails section), `/account/settings/project-emails` | GET, POST | signed-in member | US-EIP-10 |
+| `/email/stop` | GET, POST | anyone holding a valid signed link | US-EIP-11 |
+| `/email/stop/one-click` | POST, CSRF-exempt, signature-authenticated | mail clients (RFC 8058) | US-EIP-11 |
+| `foundry doctor rotate-secrets` | CLI | operator | DDR-9 |
+| The board writers (`POST …/issues`, `…/state`, comments, lane delete, issue delete, and their `/api/v1` twins) | unchanged | as today | the event sources |
+
+`route_id` is a UUID. Every `/workspace/…` path acts on the session's active workspace, so Slack's
+single redirect address needs no workspace in it.
+
+### [REF] Driven Ports and Contract Shapes (Principle 12)
+
+| Component | Shape | Universe / assertion |
+|---|---|---|
+| `DispatchPlan::build(rows, routes, choices) -> DispatchPlan` | pure function (plan value) | Unit and proptest: rows of another project never match; reorders cannot appear; more than 5 same-kind rows of one transaction make one burst entry per route |
+| Dispatcher tick | bounded change: inserts the plan's `integration_deliveries` rows and sets `outbox.dispatched_at` on exactly the rows it read, one transaction | Store test: a rolled-back board transaction yields no delivery; a re-run is a no-op |
+| `compose(EventView, ContentLevel) -> MessageLines` | pure function | Proptest: never a description, attachment name, email address or id other than issue key and event id; comment excerpt at most 300 characters plus "…" |
+| `encode_slack`, `encode_matrix`, `encode_email` (and `encode_webhook`, C) | pure functions | Proptest over arbitrary user text: no active mention, no unescaped markup |
+| `classify_slack`, `classify_matrix`, email error mapping | pure functions of the vendor answer | Table tests from recorded answers, including Slack's 200 with `ok: false` |
+| `RetryPolicy::next` | pure function | Proptest: never schedules past `give_up_at`; honours a larger `retry_after`; monotone in attempts |
+| `claimable_head(route, deliveries, pacing, now)`, `expiry_set(now, deliveries)`, `cancel_set(target, deliveries)`, `prune_set(now, deliveries, outbox_refs)` | pure, plan-returning (ids) | Proptest per function: the returned set is exactly the specified one (head only, no live lease; past `give_up_at` and not leased; the target's non-terminal unleased rows; past retention and not among the newest 100 per route, outbox rows unreferenced). The store applies one compare-and-set on the returned ids, and a store test confirms the database-level match |
+| `RouteStatus::derive` | pure function | Table test over every precedence pair (DDR-19) |
+| `judge(ip, allow_list)` | pure function | Proptest over every refused range and mapped form |
+| `DestinationCatalog` (Slack, Matrix) | strictly read-only driven port: verify connection, list destinations, check destination | Adapter tests against the doubles assert that only GET (and Matrix filtered `/sync`) requests reach the vendor |
+| `DestinationEnrolment` (Matrix `join`/`leave`; Slack no-op) | bounded change: the bot's membership of one room | Called only by the route-save and route-delete use-cases; adapter test: one join on save, one leave on the last route's delete, none on preview, test or page load |
+| Send test (`…/routes/test`) | bounded change: exactly one K-7 message to one destination; zero rows written | Handler test: no `integration_*` row changes; a seventh test within a minute is refused with no vendor call |
+| Preview (`…/routes/preview`) | pure render of `compose` output | Handler test: no port is called, no row changes |
+| Hydrator (`EventViewReads`) | read-only capability | The trait has no write method; check-arch `integrations-store-capability` keeps `Store` out of the hydrator |
+| Sender claim (`DeliveryClaims::claim`) | plan-returning: `claimable_head` chooses; the store sets `claim_id`, `attempts`, `lease_until` on that id and `not_before` on its destination pacing row | Covered by the plan-function proptest above; store test: the compare-and-set misses when the row changed meanwhile |
+| Expiry sweep (`DeliverySweeps::expire`) | plan-returning: `expiry_set` chooses; the store sets those ids `failed` | As above |
+| Cancel (`DeliverySweeps::cancel`, for pause, disconnect, route delete) | plan-returning: `cancel_set` chooses; the store sets those ids `skipped` | As above |
+| Retention sweep (`DeliverySweeps::prune`) | plan-returning: `prune_set` chooses; the store deletes those ids | As above |
+| Route create (use-case over `RouteStore`, `AuditLog`, `DestinationEnrolment`) | bounded change: one route row, its lane rows, one audit row, and one vendor enrolment (Matrix) | Use-case test: a refused catalogue check or enrolment writes nothing |
+| Connection upsert (Slack install complete, Matrix connect; `ConnectionStore`, `AuditLog`) | bounded change: one connection row (insert, or replace of the sealed credential on reconnect), one audit row | Use-case test: a different Slack team on reconnect changes nothing; no plaintext crosses the use-case (it receives a `SealedSecret`) |
+| Email-choice save (slice 05, `EmailChoiceStore`) | bounded change: the member's own rows for one project | Use-case test: another member's or another project's rows untouched |
+| Dispatcher heartbeat | bounded change: one `integration_worker_heartbeats` row per replica and role | Store test |
+| `OutboundHttp` | capability: the only client for user-supplied hosts; judge at connect; no proxy; no redirects | Gold tests: rebinding, proxy forwarder, redirect to metadata |
+| Audit writer (inside the use-cases' transactions) | bounded change: one `integration_audit_events` row per effective change | Use-case tests: no row on a refused or no-op change; no secret field in any row |
+| `foundry doctor rotate-secrets` | bounded change: every `sealed_credential` re-sealed under the current key, plus one canary row, in one transaction | Test: plaintexts unchanged after open; row count unchanged; a failure mid-way changes nothing |
+| Use-cases pause, resume, edit, delete, disconnect | bounded change: the route or connection row, its audit row, and (pause, disconnect, delete) the cancel set | Use-case tests per action |
+| `DeliveryChannel` (Slack, Matrix, email; webhook in C) | write-only driven port: `deliver`, `kind`, `probe` (no default) | Compile-time `probe`; adapter tests per refusal code |
+| `EmailTransport` (on `SmtpProvider`, `EmailApiProvider`) | write-only driven port | Existing provider tests plus header assertions |
+| `SecretBox` | bounded change: `seal` returns a value, `open` returns `SecretString`; no I/O | Unit tests: wrong AAD, wrong key, truncated input all fail closed |
+| Sender record step (`DeliveryClaims::record`) | bounded change, fenced: one delivery row `WHERE claim_id = <its claim>`, plus pacing `not_before` on a "retry after", plus at most one connection state transition (through `ConnectionHealth`) | Store tests: a recorder whose lease was taken over writes nothing |
+| Connection health | bounded change: `connected → lost` compare-and-set; the winner sends one `Notifier` message per admin | Two-replica test: one email per admin |
+
+Shell components (worker loops, handlers, store transactions) contain no content decision; every
+decision above is a pure function the shell calls.
+
+### [REF] Persistence Model
+
+Migrations are additive; none adds a `projects` column, so `live_projects` is not recreated. All new
+Rust SQL selects projects through `live_projects` (the `project-lifecycle-live-reads` rule). Rows
+written by an old replica during a rolling deploy get the new `outbox` defaults.
+
+| Table | Key columns | Rules |
+|---|---|---|
+| `outbox` (+3 nullable columns, 0028; index 0029) | `event_id uuid` (default `gen_random_uuid()` for new rows), `source_txid xid8` (default `pg_current_xact_id()`), `dispatched_at` | No rewrite, no backfill: rows at or below `integration_dispatch_start` (and every row with a NULL `event_id`) are never dispatched; `notified_at` untouched |
+| `integration_dispatch_start` | `outbox_id` (one row) | The highest outbox id when 0028 ran |
+| `integration_worker_heartbeats` | `role`, `replica`, `beat_at` | Dispatcher liveness for the stall gauge |
+| `integration_connections` | `workspace_id`, `kind` (`slack`, `matrix`), `state` (`connected`, `lost`, `disconnected`), `external_id` (Slack team id or Matrix user id), `app_id` (Slack app id, matched against event envelopes), `bot_user_id`, `label`, `detail`, `endpoint` (homeserver), `sealed_credential`, `credential_saved_at`, `lost_reason`, `lost_at`, `connected_by`, `connected_at`, `not_before` | `UNIQUE (workspace_id, kind)` (D-7); CHECK `state = 'disconnected'` exactly when `sealed_credential IS NULL` |
+| `integration_routes` | `workspace_id`, `project_id`, `connection_id` (nullable), `kind`, `destination_ref` (channel id, room id; URL in C), `destination_label`, `events text[]`, `content_level`, `shared_confirmed`, `receives_from` (set at create and resume), `paused_at`, `paused_by`, `problem_reason`, `problem_at`, `created_by`, `created_via` (`web`, `api`), timestamps | CHECK `(kind = 'webhook') = (connection_id IS NULL)`, so C adds webhook routes without a model change; `events` non-empty and a subset of the kind's eligible events (CHECK); route writers take `lock_live_project` |
+| `integration_destination_pacing` | `connection_id`, `destination_ref`, `not_before` | PK `(connection_id, destination_ref)`: two routes to one channel share it (NFR-EIP-3); webhook routes (C) key on the route |
+| `integration_route_lanes` | `route_id`, `lane_id`, `label_at_save` | **No FK to `lanes`**, on purpose: a deleted lane must be detectable (US-EIP-03 example 5), not silently cascaded into "all lanes" |
+| `integration_deliveries` | `id bigserial`, `workspace_id`, `project_id`, `route_id` or `recipient_user_id` (CHECK exactly one), `event_kind`, `event_id`, `outbox_ids bigint[]`, `issue_id` (no FK), `issue_key`, `occurred_at`, `status` (`pending`, `delivered`, `failed`, `skipped`), `attempts`, `first_attempt_at`, `give_up_at` (NOT NULL, set at dispatch), `next_attempt_at`, `claim_id`, `lease_until`, `last_vendor_reason` (the latest `ReasonCode` from the vendor), `final_reason` (why it ended, e.g. `gave_up_24h`, `project_deleted`), `slowed_down` (bool, "Slack asked Foundry to slow down"), `finished_at` | Partial index `(route_id, id) WHERE status = 'pending'`; route delete cascades its history |
+| `integration_audit_events` | `workspace_id`, `project_id`, `actor_id` (NULL = system), `via` (`web`, `api`, `slack`, `system`), `action` (closed CHECK), `kind`, `subject` (team name, channel or room label), `created_at` | Append-only; no FK to projects or teams (the lifecycle-events precedent); never a secret |
+| `integration_key_checks` | `key_id`, `sealed_canary` | One per key id ever used (DDR-9) |
+| `integration_email_choices` (0031, slice 05) | `user_id`, `project_id`, `event`, `scope` (`all`, `mine`) | PK `(user_id, project_id, event)`; no default rows (OD-10) |
+
+Shared artifacts: `${connection_status}` = `integration_connections.state` (one source; route rows
+derive from it); `${destination}` = `destination_ref` plus `destination_label` (label refreshed by
+`DestinationCatalog` on the route page); `${event_id}` = `outbox.event_id`; `${event_catalogue}` =
+`EventKind`; `${foundry_issue_url}` = `FOUNDRY_PUBLIC_URL` + `/team/{team_slug}/project/{project_slug}/issues/{number}`
+from slugs; secrets = `sealed_credential` only.
+
+Per-workspace export (`TENANT_TABLES`): integration tables are **not** added in v1 (DD-5).
+
+### [REF] Route and Delivery Status (DDR-19)
+
+`RouteStatus::derive` gives the K-9 status, first match wins:
+
+1. route paused → "Paused";
+2. connection `disconnected` → "Paused: Slack was disconnected" (or Matrix); C adds "Paused: the app's access was revoked" here;
+3. connection `lost` → "Paused: connection lost" (rules 2 and 3 do not apply to a webhook route, which has no connection);
+4. route `problem_reason` set → "Needs attention: {reason}";
+5. a filter lane no longer in the project → "Needs attention: the lane {label_at_save} no longer exists. Choose lanes again.";
+6. the newest finished delivery is a 24-hour give-up with no later success → "Needs attention: {issue_key}'s message could not be delivered within 24 hours";
+7. the head pending delivery has failed at least once → "Retrying: {reason}";
+8. otherwise "Delivering" and the last delivery time.
+
+Dispatch and send rules (D-8). **The 24-hour give-up applies to every non-terminal delivery in every
+row of this table**. Each delivery stores `give_up_at = max(occurred_at, dispatched_at) + 24 h`
+(never NULL), and once it passes, the expiry sweep fails the delivery whatever the route or
+connection state. A blocked delivery (connection lost, route needs attention, credential
+unavailable) is attempted when its blocker clears. If the blocker does not clear in time, the sweep
+fails it unattempted at `give_up_at` with a `final_reason` naming the
+blocker, and status rule 6 shows it.
+
+| Situation | Dispatch | Pending deliveries | Sender |
+|---|---|---|---|
+| Route created or resumed | events whose outbox `created_at` is at or after `receives_from` only | n/a | normal |
+| Route paused | creates none | cancelled as `skipped` (DD-8) | n/a |
+| Route needs attention (vendor refusal) | creates them | kept, under the 24-hour rule | does not claim until Resume re-checks the destination |
+| Filter lane deleted | creates none for `issue.moved`; others continue | kept | normal |
+| Connection lost | creates them | kept (drained on reconnect), under the 24-hour rule | does not claim |
+| Credential cannot be opened on this replica (key missing or rotated) | creates them | kept, under the 24-hour rule | `Transient(secret_unavailable)`; connection state unchanged |
+| Connection disconnected | creates none | cancelled | n/a |
+| Project soft-deleted | none possible (writes refused) | ended `skipped` at send | restore resumes routes unchanged |
+| Issue or comment gone at send time | n/a | ended `skipped` | n/a |
+| Email recipient lost access, muted, choice removed, scope no longer matches | creates them | ended `skipped` at send (SC-5) | n/a |
+
+### [REF] Technology Choices
+
+| Need | Choice | Licence | Status in `Cargo.lock` | Alternatives rejected |
+|---|---|---|---|---|
+| Queue | PostgreSQL 16 tables with `FOR UPDATE SKIP LOCKED` and advisory locks | PostgreSQL | in use | NATS, Redis streams, RabbitMQ: new infrastructure for 1,000 events a day |
+| AEAD for secrets | `ring` 0.17 `aead::AES_256_GCM` | Apache-2.0 AND ISC | in the production graph (rustls, jsonwebtoken) | `aes-gcm` / `chacha20poly1305` (about 6 new crates), pgcrypto (key in queries), Vault (infrastructure) |
+| HTTP client | `reqwest` 0.12 with a custom `dns::Resolve` | MIT OR Apache-2.0 | locked | `hyper` directly (more code), `ureq` (blocking) |
+| Slack signing, stop tokens | `hmac` + `sha2`; `subtle` for constant-time compare (already used by `csrf.rs`) | MIT OR Apache-2.0 | locked | n/a |
+| Address ranges | `ipnet` | MIT OR Apache-2.0 | locked (transitive; becomes direct) | hand-written CIDR parsing |
+| Matrix | thin client on `reqwest` | n/a | n/a | `matrix-sdk` (large graph, E2EE not needed in v1; right tool for F-3) |
+| Slack | thin client on `reqwest` | n/a | n/a | community Slack crates (`slack-morphism`, MIT): a large typed surface for five methods |
+| Email | the shipped `lettre` and email-API providers | MIT | locked | a second mail client |
+| Tests | `proptest`, `testcontainers` (Synapse image pinned by digest in DISTILL), an axum-based Slack double in `foundry-acceptance` | MIT / Apache-2.0 | locked | WireMock as a container (works; a Rust double keeps scripted Slack answers in the test language) |
+
+DELIVER records the `Cargo.lock` diff and a passing `cargo deny check` for slices 01 and 04
+(the DDD-12a precedent). Expected new **third-party** crates: **0** (`ring` and `ipnet` become
+direct). New **workspace** crates: **1** (`foundry-integrations`).
+
+### [REF] Reuse Analysis
+
+| Need | Existing | Decision | Contract shape / universe / assertion |
+|---|---|---|---|
+| Transactional event source | `outbox` + six writers | **Extend** (three nullable columns, two defaults, three payload fields) | Bounded change: `outbox` columns only; gauge `outbox_pending_jobs` keeps its predicate (slice-8 scenario stays green; retention lowers the count only for rows older than 30 days, DA-4) |
+| Delivery port | `NotificationProvider` | **Sibling, not extension** (CA-2) | Unchanged; SC-7 lanes stay green |
+| Email transport | `SmtpProvider`, `EmailApiProvider` | **Reuse** via a second trait impl | Bounded change: a new impl; their `NotificationProvider` impls untouched |
+| Transient/permanent taxonomy | `DeliveryError` | **Reuse**, mapped into `ChannelOutcome` (named apart from the shipped `notify::DeliveryOutcome`) | Pure mapping |
+| Store access from the worker | `StoreSuppression` (a narrow trait over `Arc<Store>`) | **Reuse the pattern** for five capabilities | Read-only or bounded-change per trait |
+| Per-user rate limit | `RevokeRateLimiter` | **Reuse the shape** for Send test | Bounded memory per user |
+| Admin alert | `Notifier` + suppression gate | **Reuse**, one new suppressible event | Bounded change: `NotificationEvent::ALL` grows by one; register-at-0 series grow accordingly |
+| Authority | `TeamAccess`, workspace admin check | **Reuse** in services | Pure |
+| Project liveness | `live_projects`, `lock_live_project` | **Reuse** | Rule-enforced |
+| Signed links | `foundry_auth::sign` / `UnsubscribeToken` shape | **Reuse the primitive**, new token type | Pure |
+| CSRF | `csrf_middleware`, `is_exempt_path` | **Extend** by exactly two paths | Pinned by test |
+| Background tasks | `tokio::spawn` loops, advisory-lock pattern of the tombstone GC | **Reuse the pattern** | Same shutdown semantics |
+| Config and probes | env parsing, `health.startup.refused`, `probe_failures_total{probe_name}` | **Reuse**; `probe_name` gains `secrets` | Bounded label set |
+| Audit | lifecycle events tables | **Reuse the shape**, new table | Append-only |
+| Signed webhook (C) | env `WebhookProvider`'s `x-foundry-signature` | **Not reused** (instance-wide, carries account mail, SC-7); C designs a timestamped signature | n/a |
+| OAuth state carrier | ADR-OIDC-002 signed cookie | **Not reused**: the Slack install starts signed in; the session is the carrier | n/a |
+
+No existing component does route matching, content composition, queued delivery or credential
+sealing; each new component above answers "no existing alternative".
+
+### [REF] DDR List (design decisions)
+
+| ID | Decision | Options | Verdict | One-line rationale |
+|---|---|---|---|---|
+| DDR-1 | **The plugin contract (Q1)** | (a) extend `NotificationProvider`; (b) one fat trait per kind; (c) pure composer + pure per-kind encoder and classifier + read-only `DestinationCatalog` + write-only `DeliveryChannel` | **(c)**, plus a bounded-write `DestinationEnrolment` (Matrix join/leave) used only on route save and delete | D-3 lives in one pure function; reads and writes are separate ports (the catalogue is strictly read-only); a kind is one adapter set plus one encoder; unknown vendor codes are transient. ADR-EIP-001. |
+| DDR-2 | **Crate placement** | (a) everything in foundry-app (the notify.rs precedent); (b) new pure crate `foundry-integrations` + store, services, app modules; (c) a crate per kind | **(b)** | The pure core is property-testable without a runtime and enforceable by a dependency rule; use-cases in services are reused by C's API. ADR-EIP-001. |
+| DDR-3 | **Durable after-commit delivery (Q2)** | (a) LISTEN/NOTIFY; (b) second outbox in every writer; (c) trigger copy; (d) outbox as log, dispatcher marks `dispatched_at`, deliveries table as queue; (e) external broker | **(d)** | SC-2 by construction, zero writer queries, no new infrastructure. ADR-EIP-002. |
+| DDR-4 | **Multi-replica** | (a) leader election for everything; (b) single-active dispatcher (advisory lock) + `SKIP LOCKED` leased senders on every replica; (c) per-replica partitions | **(b)**, fenced | Dispatch is cheap and ordered; sending scales across replicas. The claim locks the route row and takes the route's head only when the head holds no live lease. The record and the sweeps are compare-and-set on `claim_id`. The lease (default 45 s) must exceed the worst-case resolve, pre-send read and send path plus 10 s (35 s), which boot checks. ADR-EIP-002 decisions 4, 9. |
+| DDR-5 | **Retries, ordering, pacing** | Ordering: (a) per (route, issue); (b) per route, head of line. Pacing: (a) per route; (b) per destination `(connection, destination_ref)`. Backoff: fixed 30 s (slice 01), then 10 s doubling to 15 min, ±20% jitter, `retry_after` honoured. Give-up: a stored `give_up_at = max(occurred_at, dispatched_at) + 24 h` for every delivery | **ordering (b) (DD-4), pacing (b)** | Per-route FIFO is simpler and stronger than the AC. Per-destination pacing meets NFR-EIP-3 even when two routes share a channel. Every delivery is delivered, skipped or failed with a reason by `give_up_at`, and a dispatcher stall delays messages instead of failing them unseen. |
+| DDR-6 | **Send-time hydration** | (a) snapshot content at dispatch; (b) read current rows at send, payload only for what is gone | **(b)** | D-8 "renames show current names"; deletions and access losses are honoured. |
+| DDR-7 | **Event catalogue (Q3)** | (a) also emit `IssueEdited` now (close F-1); (b) v1 = the six shipped outbox types mapped to a closed `EventKind`, with `from_state`, deleted `author_id` and `title` added to payloads | **(b)** | Matches D-2; ODD-4's no-broadcast of edits stands; F-1 is one variant later. ADR-EIP-003. |
+| DDR-8 | **Bursts** | (a) time window per route; (b) group by `source_txid` (one committing transaction = one action) | **(b)** | Exact "one action" semantics with a column default and no writer change. |
+| DDR-9 | **Secrets at rest (Q4)** | see ADR-EIP-004 table | **`ring` AES-256-GCM, key id, row-bound AAD, `doctor rotate-secrets` with a fixed rollout order, boot key-check** | Zero new third-party crates; a dump yields nothing. A malformed key refuses start; a missing or non-opening key starts degraded (DD-2). An open failure is a local transient fault, never a lost connection. |
+| DDR-10 | **Slack install (Q5)** | state carrier: (a) session (b) signed cookie (c) table | **(a)**, three-or-none settings, manifest page, `SLACK_API_BASE_URL` seam | Install starts signed in; Lax cookie survives the return. ADR-EIP-005. |
+| DDR-11 | **Slack uninstall detection** | (a) refusals only; (b) refusals + signed Events API endpoint; (c) polling | **(b)** (DD-1) | Fast K-10 with one narrowly scoped inbound endpoint; refusals remain the authority. |
+| DDR-12 | **Rendering and never-pings** | Slack: `mrkdwn` with escaping vs `plain_text` objects + escaping + `parse: none` + `link_names: false` + button URL | **plain_text belt and braces** | No user text reaches a parsing context; proptest proves it. |
+| DDR-13 | **Matrix (Q6)** | `matrix-sdk` vs thin client | **thin client**, `m.notice`, `m.mentions: {}`, word joiner, `txnId` = delivery id, encryption checked at save and per send | ADR-EIP-006. |
+| DDR-14 | **SSRF guard** | (a) check at save; (b) judging resolver at connect, no redirects; (c) egress proxy | **(b)** | Closes DNS rebinding; shared with C. ADR-EIP-006. |
+| DDR-15 | **Member email (Q7)** | (a) through `notify()`; (b) `NotificationProvider::deliver` directly; (c) new `EmailTransport` port on the same providers | **(c)** | Outcomes for retries, headers for one-click, SC-7 intact. ADR-EIP-007. |
+| DDR-16 | **Stop links** | expiry vs none; CSRF form only vs plus one-click POST | **no expiry; one-click POST CSRF-exempt** (DD-7) | RFC 8058 needs a cookie-less POST; a stop link must keep working. |
+| DDR-17 | **Persistence (Q8)** | see [REF] Persistence Model | **Additive migrations 0028-0031**; 0028 and 0029 never rewrite or long-lock `outbox` (nullable columns, metadata-only defaults, no backfill, `CREATE INDEX CONCURRENTLY`, `lock_timeout`) | One source per shared artifact; rolling upgrades keep board writes flowing. |
+| DDR-18 | **D-8 interactions** | see [REF] Route and Delivery Status | **As tabled** | Pause skips, lost queues, disconnect forgets, delete sends nothing, restore resumes. |
+| DDR-19 | **Route status** | stored status column vs derived | **derived, pure** | One source per fact; no status drift between connection and routes (`${connection_status}` HIGH risk). |
+| DDR-20 | **HTTP surface (Q9)** | paths under `/workspace/integrations` and the project | **As tabled** | Admin-only workspace paths, Manage-only project paths; scripting-off forms. |
+| DDR-21 | **Audit** | reuse an existing events table vs new | **`integration_audit_events`** | Different subject set; same append-only shape. |
+| DDR-22 | **Metrics and stall visibility** | `foundry_integration_deliveries_total{kind, event, outcome}` (outcome ∈ delivered, retried, failed, skipped, derived from the delivery's state, ADR-EIP-001); gauges `foundry_integration_deliveries_pending`, `foundry_outbox_undispatched`, `foundry_outbox_undispatched_oldest_seconds`, `foundry_integration_deliveries_pending_oldest_seconds`; dispatcher heartbeat; `integrations.dispatch.stalled` warn log past 5 minutes; all registered at 0 over closed sets | **As stated** | SC-9; never a channel, room, project, URL or person. A stalled dispatcher is visible within minutes, not after 24 h. |
+| DDR-23 | **Connection-lost alert (D-15)** | durable email delivery vs shipped `Notifier` | **`Notifier`, new suppressible event** | D-15 as decided; banner and statuses carry the state if the email is lost. |
+| DDR-24 | **Deliverable C boundary** | see [REF] What Deliverable C Inherits | **Fixed now** | No rework of contract, events, secrets or API seam. |
+| DDR-25 | **Preview and Send test** | (a) one form endpoint with `action=preview|test|save`; (b) three endpoints with three declared shapes | **(b)** | Preview (`…/routes/preview`) is a pure re-render of `compose` output and calls no port. Send test (`…/routes/test`) is a bounded change: exactly one K-7 message, zero rows, 10 s timeout, 6 per minute per user. Save never sends. Works with scripting off (NFR-EIP-6). A test is not a board action, so SC-1 does not apply. |
+| DDR-26 | **Restricted store capabilities (Principle 12e)** | (a) worker components hold `Arc<Store>`; (b) narrow traits per component over `Arc<Store>` (the `StoreSuppression` precedent) | **(b)** | `EventViewReads` (read-only), `DispatchLog`, `DeliveryClaims`, `DeliverySweeps`, `ConnectionHealth`; enforced by check-arch `integrations-store-capability`. ADR-EIP-001 decision 5. |
+| DDR-27 | **Which events a new or resumed route receives** | (a) everything undispatched at dispatch time; (b) events whose outbox `created_at` is at or after the route's `receives_from` | **(b)** | A lagging dispatcher never sends a new route old events; a resumed route never receives what it skipped. `receives_from` is the database `now()` of the create or resume transaction, the same clock as `outbox.created_at`. Accepted edge: an event whose transaction started before the route's and committed after it is not delivered. ADR-EIP-002 decision 3. |
+
+### [REF] What Deliverable C Inherits (DDR-24)
+
+Fixed now so `integration-webhooks-and-oauth-apps` adds, and does not rework:
+
+- **Webhook kind:** `ChannelKind::Webhook` exists; a webhook route has no connection (`integration_routes.connection_id` is nullable with a CHECK tying NULL to `kind = 'webhook'`; status rules 2-3 do not apply; pacing keys on the route); it accepts all six `EventKind`s; its destination is a URL judged by the outbound address policy (OD-13); its signing secrets are sealed by `SecretBox` in their own table with a rotation overlap (current plus previous with an expiry); the payload is `encode_webhook(MessageLines + EventView)` at schema version 1, never the outbox payload; the event id is `outbox.event_id`. Signature header shape and tolerance window are C's decision.
+- **API:** `/api/v1` routes and connections call the `foundry-services` use-cases slice 01 creates; responses never include `sealed_credential`; audit `via = api`; `openapi.json` and the drift check are updated in C's change. Webhook payloads should be described in the document's OpenAPI 3.1 `webhooks` section so the drift check covers them.
+- **No-mint (OD-14):** a webhook signing secret may be returned once on create (it opens no Foundry door); OAuth tokens are issued only by `/oauth/*` routes outside `/api/v1`; `check_api_no_mint_route` is unchanged.
+- **OAuth:** a fourth credential class with its own crate-level algorithm pin (SC-8) and a principal carrying a scope set; routes created under a grant gain a nullable `grant_id` column and status precedence 2 ("Paused: the app's access was revoked"). C's DESIGN owns the threat model (R7).
+
+### [REF] check-arch and Dependency Rules
+
+1. **`integrations-pure-core`** (slice 01), an **allow-list**: the `[dependencies]` of `crates/foundry-integrations/Cargo.toml` may name only `foundry-core`, `serde`, `serde_json`, `async-trait`, `uuid`, `time`, `ipnet`. Gold tests: plant `reqwest`; plant `foundry-auth`.
+1a. **`integrations-store-capability`** (slice 01): no file under `crates/foundry-app/src/integrations/` except `store_capabilities.rs`, and no file under `crates/foundry-services/src/integrations/` except `store_impls.rs`, names `foundry_store::Store`. Gold tests: `Arc<Store>` planted in the hydrator; `&Store` planted in a use-case.
+2. **`integrations-secret-seam`** (slice 01): `SecretBox::open` and `.open(` on a `SealedSecret` appear only under `crates/foundry-app/src/integrations/` (adapters, connect handlers) and in the `doctor` rotation command. Gold test: plant a call in a view module.
+3. **`integrations-outbound-client-seam`** (slice 04): no `reqwest::Client::new` / `Client::builder` under `crates/foundry-app/src/integrations/` outside `OutboundHttp` and the fixed-host Slack client; `OutboundHttp` sets both `redirect::Policy::none()` and `no_proxy()`, and the Slack client sets `redirect::Policy::none()`. Gold tests: a stray client; a redirect policy removed; `no_proxy()` removed.
+4. **`project-lifecycle-write-guard`** extended (slice 01): route and email-choice writers open with `lock_live_project`.
+5. **CSRF exempt set** (slices 03, 05): a `csrf.rs` unit test pins `is_exempt_path` to exactly `/bootstrap`, `/integrations/slack/events`, `/email/stop/one-click`.
+6. **`deny.toml`:** `[[bans.deny]] name = "foundry-integrations"`, wrappers `foundry-services`, `foundry-app`, `foundry-acceptance`.
+
+### [REF] Earned Trust (probes and the lies they catch)
+
+| Dependency | Probe at boot | Lies exercised by gold or acceptance tests |
+|---|---|---|
+| `FOUNDRY_SECRETS_KEY` | malformed or failed self-test → `health.startup.refused`; missing or non-opening key with sealed credentials → start degraded, `probe_failures_total{probe_name="secrets"}`, `health.degraded` | wrong key (degraded, board up, no connection marked lost); key removed while connections exist; swapped ciphertext between rows (AAD); mixed-key replicas during rotation (open failure is `Transient(secret_unavailable)`) |
+| Slack settings | three-or-none shape only; never a network call (readiness never depends on Slack) | 200 with `ok: false`; unknown `ok: false` codes (transient, never parks a route); 429 with `Retry-After`; HTML 503 from a proxy; timeout after Slack accepted (a rare duplicate, documented); forged, replayed, expired `state`; unsigned, stale or duplicated events; an uninstall event from another Slack team (no effect) |
+| Matrix | none instance-wide; `whoami` at connect | homeserver accepts plaintext into an encrypted room (checked per send); encryption turned on between check and join; 403 after a kick; 401 after logout; 429 with `retry_after_ms`; unknown `errcode` (transient) |
+| Outbound addresses | `FOUNDRY_OUTBOUND_ALLOW` parse | DNS rebinding (resolver judges at connect); `HTTPS_PROXY` forwarder to metadata; `::ffff:127.0.0.1`, NAT64 `64:ff9b::a9fe:a9fe`, 6to4 `2002:a9fe:a9fe::`; decimal IP literals; redirect to metadata |
+| Email transport | the shipped provider probe | relay accepts then bounces (reported Delivered, documented) |
+| Store and migrations | `Store::probe` requires the 0028-0030 objects from slice 01, and 0031 from slice 05 | a replica booted against an un-migrated schema refuses readiness; board writes during 0028/0029 on a large outbox (no rewrite; `lock_timeout` fails the migration rather than stalling writers) |
+| Worker | dispatcher heartbeat and the oldest-age gauges | replica killed mid-send (lease expiry, same `event_id`); lease expiring during a slow send (late record writes nothing); two replicas and a slow send (row 2 never overtakes row 1); two routes to one channel (one attempt per second); dispatcher stopped for 25 h (stall visible within 5 minutes; deliveries get a fresh window from dispatch and are attempted); connection lost and never reconnected (fails unattempted at `give_up_at`, naming the blocker); rolled-back board transaction (no delivery); restart while Slack is down (US-EIP-02 scenario 3) |
+
+Self-application: `probe()` is a required trait method (compile-time), the check-arch rules carry
+injected-violation gold tests, and the proptests are mutation-tested in DELIVER (kill rate ≥ 80%).
+
+### [REF] External Integrations Requiring Contract Tests
+
+- **Slack Web API** (REST): `oauth.v2.access`, `auth.test`, `conversations.list`, `conversations.info`, `chat.postMessage`, `apps.uninstall`; **Slack Events API** (inbound webhook): `url_verification`, `app_uninstalled`, `tokens_revoked`. Recommended: consumer-driven contracts (Pact, or a recorded-fixture suite replayed by the Rust double) in the CI acceptance stage; refresh fixtures against a real test Slack workspace at each dogfood.
+- **Matrix client-server API** (REST, spec v1.7+): `whoami`, `join`, room state, `joined_members`, `send`. Recommended: the pinned Synapse container is the contract (SC-10); bump it deliberately.
+- **Email relay / email API**: unchanged from notification-delivery-providers.
+
+### [REF] Open Design Decisions (DD-n, each with a recommended answer)
+
+- **DD-1: Slack events endpoint in slice 03?** *Recommended: yes*, `POST /integrations/slack/events` for `app_uninstalled` and `tokens_revoked` only, signature-verified. Alternative: refusals only (no inbound surface; K-10 appears only at the next routed event).
+- **DD-2: Secrets key missing or wrong while sealed credentials exist.** *Recommended (revised after review): start degraded*. The board stays up; affected connections show "unavailable"; no connection or route write is admitted on them; a probe-failure metric and a `health.degraded` line name the missing key ids; their deliveries follow the 24-hour give-up. A malformed key still refuses start. Alternative: refuse to start. That is louder, but the cost is every board page and API call for an optional feature's secret.
+- **DD-3: Slack scope `chat:write.public`.** *Recommended: include*, so public channels work without an invite (the picker lists them). Alternative: leads `/invite @Foundry` everywhere (fewer scopes, more steps, a DISCUSS example changes).
+- **DD-4: Per-route head-of-line ordering** (stronger than per-issue order). *Recommended: yes.* Alternative: per (route, issue) ordering, which lets other issues pass a stuck message at the cost of a more complex claim.
+- **DD-5: Integration tables in the per-workspace export.** *Recommended: not in v1* (credentials are unusable outside the instance; routes and history are cheap to recreate). Alternative: export routes and choices without credentials.
+- **DD-6: Copy for "Foundry cannot store connections yet" (no secrets key).** *Recommended: show K-2 for Slack when any Slack setting or the key is missing, and a new K-18 for Matrix* (Upstream Issue UI-1).
+- **DD-7: Stop links never expire.** *Recommended: yes* (US-EIP-11's "expired" then means nothing; Upstream Issue UI-2).
+- **DD-8: Pausing a route cancels its pending deliveries.** *Recommended: yes*, consistent with "a paused route skips events and does not send them later". Alternative: let already-queued ones finish.
+- **DD-9: The Slack manifest lives on an admin page rendered with this instance's URLs**, and the operator doc points at it. *Recommended: yes.* Alternative: a static manifest file in `docs/` the operator edits.
+- **DD-10: Retention.** *Recommended: prune finished deliveries older than 30 days beyond the newest 100 per route, and dispatched `outbox` rows older than 30 days that no non-terminal delivery references.* This bounds the personal data the outbox holds: deleted-issue titles and the shipped `author_email`. Alternative: keep the outbox forever, as today.
+- **DD-11: Poll interval 1 s, no LISTEN coupling.** *Recommended: yes.* Alternative: wake the dispatcher on the existing `issue_events` NOTIFY (lower latency, couples the worker to the realtime channel).
+
+### [WHY] Changed Assumptions (back-propagation)
+
+- **DA-1, RFC 8058 one-click is not shipped.** DISCUSS states the shipped unsubscribe link is "RFC 8058 one-click". In code no `List-Unsubscribe` or `List-Unsubscribe-Post` header is sent, `Notification` has no headers, and `POST /unsubscribe` is CSRF-checked, which a mail client's cookie-less one-click POST cannot pass. Project emails therefore get their own header-capable `EmailTransport` and a CSRF-exempt one-click endpoint (ADR-EIP-007). The shipped workspace `/unsubscribe` is unchanged.
+- **DA-2, the from-lane comes from the payload, not `issue_change_events`.** US-EIP-03's note suggested reading `issue_change_events`; DESIGN adds `from_state` to the payload in both move writers, and keeps the change-event read only as the rolling-deploy fallback (ADR-EIP-003).
+- **DA-3, posting to a public channel without an invite needs `chat:write.public`.** US-EIP-01's "least scopes" list omitted it (DD-3).
+- **DA-4, the outbox gauge is not the delivery backlog.** `outbox_pending_jobs` keeps its shipped predicate; the dispatcher uses its own `dispatched_at` column and new gauges (SC-7; the slice-8 scenario, ">= N after N writes within 10 s", stays valid). With DD-10 the retention sweep deletes dispatched rows older than 30 days, so the gauge stops growing without bound, which is closer to its stated purpose.
+- **DA-5, ADR-007 changes for routes and project emails only** (CA-1, restated as the ADR-EIP-002 decision).
+
+### [WHY] Upstream Issues (for the product owner; DISCUSS text not edited)
+
+- **UI-1 (copy):** no string covers "this Foundry has no secrets key" or "the key cannot open this connection" (DD-2 degraded start). Proposal: K-2 also covers a missing key for Slack; new **K-18** for Matrix: "Matrix is not set up on this Foundry yet. An instance operator sets it up once."; new **K-19** on an unavailable connection: "{kind} is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key." (DD-6).
+- **UI-2 (US-EIP-11 AC 4):** "A tampered or expired link" — with DD-7 links do not expire; proposal: "A tampered link".
+- **UI-3 (copy):** D-11's burst copy exists for deletes only ("7 issues deleted from Identity Platform by Lena Park"). A lane delete with MoveCards produces a burst of moves, which needs a locked line. Proposal: "7 issues moved to {to_lane} in {project_name} by {actor}".
+- **UI-4 (copy):** project email subjects exist for comments only ("[AUTH-7] Lena Park commented: …"). Needed: New issue, Issue moved, Issue deleted subjects. Proposal: "[{key}] New issue: {title}", "[{key}] Moved to {to_lane}: {title}", "[{key}] Deleted: {title}".
+- **UI-5 (copy):** the connection-lost admin email (D-15, US-EIP-06) has no subject or body string; K-10 is the banner. Proposal: subject "Foundry lost its Slack connection for {workspace_name}", body = K-10 with the Reconnect link.
+- **UI-6 (copy):** the Matrix private-address refusal on Connect Matrix: proposal reuse K-16 "Foundry will not send to this address." plus "An instance operator can allow it."
+- **UI-7 (reason catalogue):** K-9 "{reason}" values are scattered across examples. DESIGN's `ReasonCode` enum maps each: `slack_no_answer` "Slack did not answer", `slack_slow_down` "Slack asked Foundry to slow down", `channel_archived`, `not_in_channel`, `channel_not_found`, `app_removed` "the Foundry app was removed from Slack", `token_revoked`, `bot_not_in_room`, `room_encrypted`, `homeserver_no_answer`, `lane_missing`, `gave_up_24h`, `issue_gone`, `project_deleted`, `route_paused`, `no_access`, `muted`. The PO confirms the words for the ones without a quoted example.
+- **UI-8 (estimate):** slice 01 now carries the pure core crate, three migrations, the secret box, the fenced worker and the Slack install; DESIGN estimates **4.5 days, not 3**. Slices 02-04 unchanged; slice 05 gains about half a day for DA-1.
+- **UI-9 (EIP-KPI-4 method):** a p95 over 100 sequential calls is the fifth-slowest sample, too noisy for a 10% bound. Proposal: 500 calls at concurrency 1 and again at 4, run with the dispatcher and senders active against unreachable destinations; compare p95 with a bootstrap 95% confidence interval. T-1 records the baseline the same way.
+- **UI-10 (route boundary):** a route receives events from the moment it is saved (DDR-27). A resumed route receives events from the moment of resume. This matches US-EIP-07 scenario 1; recorded so DISTILL asserts it.
+
+### [REF] Wave Decisions
+
+- **Key Decisions:**
+  - DDR-1: a split delivery contract, a sibling of `NotificationProvider`. It has a pure composer, a pure per-kind encoder and classifier (unknown vendor codes are transient), a strictly read-only `DestinationCatalog`, a bounded `DestinationEnrolment` and a write-only `DeliveryChannel`.
+  - DDR-3/4: the outbox is a dispatched log and the deliveries table is the queue. A single-active dispatcher feeds fenced, leased `SKIP LOCKED` senders, and no migration rewrites the outbox.
+  - DDR-5: per-route FIFO, per-destination 1 s pacing, backoff to 15 min, and a stored `give_up_at = max(occurred_at, dispatched_at) + 24 h` by which every delivery is delivered, skipped or failed with a reason.
+  - DDR-25/26/27: preview, test and save are separate endpoints; worker components get restricted store capabilities; routes receive events from `receives_from`. DDR-7 closed `EventKind` from the six shipped outbox types with three payload fields added; DDR-9 `ring` AES-256-GCM sealed secrets with key-check; DDR-10/11 per-instance Slack app, session-bound install, signed events endpoint; DDR-13/14 thin Matrix client and one judging outbound client; DDR-15/16 `EmailTransport` port and one-click stop links.
+- **Architecture Summary:** modular monolith, ports and adapters, OOP. One new pure crate (`foundry-integrations`); store, services and app modules named `integrations`; a delivery worker inside the binary on every replica; four additive migrations (0028-0031).
+- **Technology Stack:** Rust, axum, askama, sqlx on PostgreSQL 16, tokio; `ring`, `reqwest`, `hmac`, `sha2`, `ipnet`, `lettre` (all already locked); `proptest`, `testcontainers` for tests. Zero new third-party crates expected; one new workspace crate.
+- **Constraints:** no new infrastructure; readiness never depends on Slack or Matrix; board path gains no query; every new page answers the uniform 404; no `/api/v1` change in A or B.
+- **Upstream Changes:** DA-1..DA-5; UI-1..UI-8 to the product owner; ADR-007 (providers) superseded for routes and project emails by ADR-EIP-002.
+- ADRs: `adr-eip-001` … `adr-eip-007` in `docs/product/architecture/`.
+- Handoff: DISTILL (acceptance-designer) reads brief.md "For Acceptance Designer"; DEVOPS (platform-architect) receives the contract-test annotation above, the new settings (`FOUNDRY_SECRETS_KEY`, `FOUNDRY_SECRETS_KEY_PREVIOUS`, `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET`, `FOUNDRY_OUTBOUND_ALLOW`, `FOUNDRY_INTEGRATIONS_POLL_MS`, `FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS`, `FOUNDRY_INTEGRATIONS_LEASE_SECONDS`, `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL`) and the delivery metrics and gauges of DDR-22.
+
+### [REF] Peer Review
+
+Reviewer: nw-solution-architect-reviewer, 2026-10-21. Maximum two iterations.
+
+- **Iteration 1: rejected pending revisions** (4 critical, 11 high, about 12 medium, 6 low). Strengths
+  noted: the split contract, the outbox-as-log choice justified by verified code facts, no technology
+  bias, the secrets design, honest DA-1. All items addressed:
+  - critical:
+    - Matrix `join` moved out of the read-only catalogue into `DestinationEnrolment`;
+    - contract shapes added for every writing or read-only component;
+    - preview, test and save split into three endpoints;
+    - restricted store capabilities (DDR-26);
+  - high:
+    - head-of-line claim predicate under a route-row lock;
+    - `claim_id` fencing and a lease setting;
+    - closed vendor-code lists, unknown → transient;
+    - Slack events matched by team and app;
+    - `no_proxy()`;
+    - per-destination pacing;
+    - a 24-hour bound for every non-terminal delivery;
+    - migrations that never rewrite `outbox`;
+    - stall gauges and a heartbeat;
+    - the rotation order and open failure as a local fault;
+    - DD-2 changed to a degraded start;
+  - medium and low: the route boundary (DDR-27), outbox retention (DD-10), NAT64 and 6to4, a
+    nullable `connection_id` for webhooks, UI-9, the ordering invariant, the dispatch store API,
+    sweep locks, the `ChannelOutcome` rename, an allow-list rule, the L3 redraw, crate counts, C
+    labels, two reason columns, the Slack client redirect policy.
+- **Iteration 2 (final): rejected pending revisions** (1 critical, 5 high, 6 medium, 2 low). Iteration
+  1's C1-C4 and the listed highs verified resolved in all three artifact sets. Remaining items were
+  fixed after the review **without a third review** (max-2 rule):
+  - critical U4: claim head, expiry, cancel and prune are now plan-returning pure functions
+    (`claimable_head`, `expiry_set`, `cancel_set`, `prune_set`), and the store applies a
+    compare-and-set on the returned ids;
+  - high:
+    - U1: `app_id` and `bot_user_id` are persisted at install and matched against event envelopes;
+    - U2: a stored, never-NULL `give_up_at = max(occurred_at, dispatched_at) + 24 h`. The guarantee
+      is restated as "delivered, skipped or failed with a reason by `give_up_at`"; the false "at
+      least one attempt" claim is removed;
+    - U3: the proxy mode (`FOUNDRY_OUTBOUND_PROXY`) is dropped from v1, so the "connects only to
+      judged addresses" invariant holds;
+    - U5: the services use-cases take narrow traits (`RouteStore`, `ConnectionStore`,
+      `EmailChoiceStore`, `AuditLog`) under the same check-arch rule;
+    - U6: Matrix Send test is offered on the saved route only, with a fresh `txnId`;
+  - medium and low:
+    - N1: the lease defaults to 45 s, and boot checks it against the worst-case path (35 s);
+    - N2: `SealedSecret` is a `foundry-core` newtype, and only the connect handlers seal;
+    - N3: `deliver` takes no credential; a `ChannelFactory` holds it;
+    - N4: probe ranges given per slice;
+    - N5: `receives_from` uses database time, and the edge is stated;
+    - N6: contract rows added for route create, connection upsert, email-choice save and the
+      heartbeat;
+    - N7: `0.0.0.0/8`, `240.0.0.0/4`, and the documentation and benchmark ranges are refused;
+    - N8: the inventory row and the ADR-001 vendor-write list completed.
+- **Status for handoff:** no critical or high item is known to remain, but the iteration-2 fixes have
+  not been re-reviewed. The coordinator may run one confirming review before DISTILL, or accept the
+  fix list above.

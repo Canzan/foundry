@@ -814,25 +814,244 @@ See `adr-api-openapi-001-hand-written-document-checked-against-the-code.md`,
 `adr-api-openapi-004-api-page-content-security-policy.md`, plus
 `docs/feature/api-openapi-document/feature-delta.md` (DESIGN DDD-1..23).
 
+### Project events leave the board: integrations, routes and durable delivery
+
+**Designed (external-integration-plugins DESIGN, 2026-10-21); not yet delivered.** ADR-EIP-001 to
+-007 are Proposed; the user confirms them through the feature's DD-1..DD-11. Deliverable A (slices
+01-03, Slack) and B (04-05, Matrix and member email) are designed to component level; deliverable C
+(signed webhooks, OAuth apps, routes by API) moves to its own feature, `integration-webhooks-and-oauth-apps`,
+and inherits the seams fixed here.
+
+**The model.** A workspace admin makes a **connection** (one Slack, one Matrix per workspace). A
+team lead (`TeamAccess::can_manage`) makes **routes**: per project, which events, which lanes, how
+much each message reveals, to which channel or room. A member makes **email choices** per project.
+Each event to each route or inbox is a **delivery** with a history. Kinds are a closed `ChannelKind`
+(`slack`, `matrix`, `email`, `webhook`); events are a closed `EventKind` with one wire name each
+(`issue.created`, `issue.moved`, `issue.deleted`, `comment.added`; `comment.edited` and
+`comment.deleted` for webhooks only). There is no reorder, edit or assignment event in v1.
+
+**The contract (ADR-EIP-001).** It is a sibling of `NotificationProvider`, not an extension of it:
+- `compose(EventView, ContentLevel) -> MessageLines` is pure and kind-independent. It alone applies
+  the content rules (levels, never-sent list, 300-character comment cut, bursts). The route preview
+  shows its output, so the preview equals the message by construction;
+- `encode_<kind>` and `classify_<kind>` are pure. They own escaping, the never-pings rule and the
+  mapping of vendor answers to `Delivered | Transient{retry_after} | RouteRefused | ConnectionRefused`
+  with a closed `ReasonCode`;
+- `DestinationCatalog` is a read-only port (verify, list, check a destination) and `DeliveryChannel`
+  a write-only port (`deliver`, `kind`, `probe` with no default body);
+- composition reads a hydrated `EventView` built at send time, **never the outbox payload** (which
+  carries `author_email` for comments).
+
+**Durable after-commit delivery (ADR-EIP-002).** The shipped `outbox` is the event log.
+- Migration 0028 adds three nullable columns: `event_id` (the id receivers see), `source_txid`
+  (one value per committing transaction, used for D-11 bursts) and `dispatched_at`. New rows get
+  `event_id` and `source_txid` from metadata-only defaults. Nothing is backfilled or rewritten,
+  every statement runs under `lock_timeout`, and 0029 builds the partial index `CONCURRENTLY`.
+  Rows from before the migration are never dispatched. Board writers gain no query.
+- A **dispatcher** (one active replica, advisory lock) turns whole source transactions of
+  undispatched rows into `integration_deliveries` rows and marks them dispatched in the same
+  transaction, so expansion is exactly-once. A route receives only events committed after its
+  `receives_from` (set at create and resume).
+- **Senders** on every replica lock a route row and take its head, the oldest non-terminal
+  delivery, only when the head holds no live lease. They set a `claim_id`, call the vendor outside
+  any transaction, and record the outcome with a compare-and-set on that `claim_id`. A crash
+  re-sends with the same `event_id`: at-least-once. Per-route order holds across replicas.
+- Pacing is per destination (`integration_destination_pacing`): at most one attempt per channel or
+  room per second. Backoff runs from 10 s, doubling to 15 min with jitter, and waits longer when
+  `retry_after` says so.
+- Each delivery stores `give_up_at = max(occurred_at, dispatched_at) + 24 h`. By then it is
+  delivered, skipped or failed, whatever blocks it. A blocked delivery is attempted when its
+  blocker clears, or fails unattempted with a `final_reason` naming the blocker. A dispatcher stall
+  delays messages instead of failing them unseen.
+- The sender re-reads route, connection, `live_projects`, issue and, for email, access, mute and
+  choice. Anything that no longer holds ends the delivery `skipped`.
+- The worker reaches the store only through narrow capability traits (`EventViewReads`,
+  `DispatchLog`, `DeliveryClaims`, `DeliverySweeps`, `ConnectionHealth`), never `Arc<Store>`.
+- Gauges for the oldest undispatched row and the oldest pending delivery make a stalled
+  dispatcher visible within minutes.
+- `outbox.notified_at` and the `outbox_pending_jobs` predicate keep their shipped meaning. The
+  retention sweep deletes dispatched outbox rows older than 30 days.
+- notification-delivery-providers ADR-007 (best-effort) still governs the five account
+  notifications; ADR-EIP-002 governs routes and project emails.
+
+**Secrets (ADR-EIP-004).** Outside credentials are sealed with AES-256-GCM through `ring` (already
+in the production graph) under `FOUNDRY_SECRETS_KEY`. Each sealed value carries a key id and is
+bound by associated data to its table, row and column. `SecretBox` lives in `foundry-auth`;
+`SealedSecret` has no `Debug`, `Display` or `Serialize`.
+- Boot refuses a malformed key or a failed self-test.
+- A missing key, or one that cannot open the stored credentials, starts the instance degraded:
+  the board is up and the affected connections show unavailable. An open failure is a local
+  transient fault and never marks a connection lost.
+- `foundry doctor rotate-secrets` re-seals under a new key, after the new and previous keys are on
+  every replica.
+
+**Slack (ADR-EIP-005).** Each instance runs its own Slack app, created from a manifest that
+`/workspace/integrations/slack/setup` renders with this instance's URLs. `SLACK_CLIENT_ID`,
+`SLACK_CLIENT_SECRET` and `SLACK_SIGNING_SECRET` are all set or none. The install `state` lives in
+the signed-in session (single use, 10 minutes, bound to the active workspace). Uninstalls are
+learnt from refusals and from a signed `POST /integrations/slack/events`.
+
+**Matrix and outbound addresses (ADR-EIP-006).** A thin client: per-workspace bot token,
+`m.notice` with `m.mentions: {}`, `txnId` = delivery id, and encrypted rooms refused at save and
+before each send. Checking a room is read-only; joining it is a separate, bounded enrolment step on
+save. Every admin- or lead-supplied host goes through `OutboundHttp`, which:
+- resolves the host and judges every address with the pure `judge`. Loopback, link-local and
+  metadata are always refused, including inside IPv4-mapped, NAT64 and 6to4 forms; private ranges
+  pass only through `FOUNDRY_OUTBOUND_ALLOW`;
+- connects only to judged addresses;
+- ignores the environment's proxy settings and follows no redirects.
+
+**Member email (ADR-EIP-007).** Project emails are deliveries sent through a narrow
+`EmailTransport` port that `SmtpProvider` and `EmailApiProvider` also implement. Each email carries
+a per-choice signed stop link (`/email/stop`) and RFC 8058 headers whose target
+(`/email/stop/one-click`) is CSRF-exempt and signature-authenticated. The shipped `/unsubscribe`,
+mute and suppression gate are unchanged; the mute is checked at send time.
+
+**Crate placement.**
+- **`foundry-integrations`**, new: the pure core, port traits and domain enums. Its dependencies
+  are an allow-list: `foundry-core`, `serde`, `serde_json`, `async-trait`, `uuid`, `time`, `ipnet`.
+- **`foundry-store/src/integrations.rs`**: tables, the dispatch and claim transactions.
+- **`foundry-services/src/integrations.rs`**: authority, use-cases and audit, which deliverable C's
+  `/api/v1` reuses.
+- **`foundry-app/src/integrations/`**: the adapters, the worker, the handlers and the wiring.
+
+**For future features (consumers):**
+- **A new routable event** is a new `EventKind` variant plus the writer's outbox row in its
+  transaction. Issue edits (F-1) need that writer row first; ODD-4's reason for not broadcasting
+  them to the board still applies.
+- **A new integration kind** is one encoder, one classifier and one adapter pair. Routes, history,
+  retries and lifecycle do not change.
+- **Any new outbound HTTP to a host a user typed** goes through `OutboundHttp`.
+- **Any new stored outside credential** is a `SealedSecret` with row-bound associated data.
+- **A new outbox writer** gets `event_id`, `source_txid` and `dispatched_at` by default and must not
+  set `dispatched_at` itself.
+
+#### For Acceptance Designer (external-integration-plugins)
+
+- **Driving ports.** The pages and endpoints are tabled in the feature delta, DESIGN
+  [REF] Driving Ports. Every new page answers the uniform 404 to the wrong caller, and every form
+  works with scripting off.
+- **Doubles (SC-10).**
+  - Slack is an HTTP double in `foundry-acceptance`, reached through `SLACK_API_BASE_URL` and
+    `SLACK_AUTHORIZE_URL`. It is scripted per scenario: `ok: false` codes (`ratelimited`,
+    `token_revoked`, `account_inactive`, `invalid_auth`, `channel_not_found`, `is_archived`,
+    `not_in_channel`), 429 with `Retry-After`, an HTML 503, and no answer.
+  - Matrix is a pinned Synapse container.
+  - The email relay is the double the notification lanes already use.
+- **Time.** Shorten the 24-hour window with `FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS`, the dispatch
+  cadence with `FOUNDRY_INTEGRATIONS_POLL_MS` and the lease with
+  `FOUNDRY_INTEGRATIONS_LEASE_SECONDS` (default 45; boot refuses less than 35, the worst-case
+  resolve, pre-send read and send path plus 10 s).
+- **Matrix Send test** is on the saved route, not the unsaved form, because the bot joins on save.
+  Slack keeps test-before-save. Assert on eventual states with bounded polls, never
+  fixed sleeps (the slice-8 lesson).
+- **Observable outcomes to assert:**
+  - the route row status (K-9, derived; precedence in the feature delta [REF] Route and Delivery
+    Status);
+  - the history page;
+  - what the double received, including the `event_id` on a retry;
+  - the audit activity;
+  - the metrics `foundry_integration_deliveries_total{kind,event,outcome}`,
+    `foundry_integration_deliveries_pending` and `foundry_outbox_undispatched`.
+- **Properties for layer 1-2 (DELIVER).** The composer's never-sent list, the encoders' no-ping
+  rules, `RetryPolicy`, `RouteStatus::derive` and the address judge.
+- **Guardrail EIP-KPI-4.** Task T-1 records the baseline before any slice-01 code. The comparison
+  runs with one route per kind, every destination unreachable, and the worker active. The proposed
+  method (feature delta UI-9) is 500 calls at concurrency 1 and again at 4, with a bootstrap
+  confidence interval on p95.
+- **Preview, test and save** are three endpoints. Assert that preview calls no port, that test
+  sends exactly one message and writes no row, and that save never sends.
+- **Restart durability (US-EIP-02 scenario 3).** It needs a subprocess restart while the Slack
+  double is down. Rebuild the `foundry` binary before the lane (memory: acceptance uses a
+  prebuilt binary).
+
+#### For Software Crafter (external-integration-plugins)
+
+- **Shape.** The pure core is a plain crate of structs, enums and functions, the decisions only.
+  The shell (worker loops, handlers, store transactions) calls it and decides nothing about
+  content.
+- **Dispatch.**
+  - Take whole source transactions (never split one `source_txid`) inside one transaction that
+    also sets `dispatched_at`. The store offers one call that holds the transaction and takes the
+    plan as a closure.
+  - Migrations 0028 and 0029 must not rewrite or long-lock `outbox`: nullable columns,
+    metadata-only defaults, no backfill, `CREATE INDEX CONCURRENTLY`, `lock_timeout`. Old rows are
+    excluded through `integration_dispatch_start` and their NULL `event_id`.
+- **Sends.**
+  - The claim locks the route row and takes the head only when it holds no live lease.
+  - The record and every sweep are compare-and-set on `claim_id` and status.
+  - Never hold a pooled connection across an outbound call, and cap in-flight sends per replica.
+  - Use the injected `Clock` for every time comparison passed into SQL.
+  - Worker components receive capability traits, never `Arc<Store>`. The services use-cases take
+    `RouteStore`, `ConnectionStore`, `EmailChoiceStore` and `AuditLog`, implemented for `Store` in
+    one submodule.
+  - The claim's head choice and every sweep's affected set are pure plan functions in the core
+    (`claimable_head`, `expiry_set`, `cancel_set`, `prune_set`). The store applies a
+    compare-and-set on exactly those ids.
+  - `DeliveryChannel::deliver` takes no credential. A `ChannelFactory` opens it and builds the
+    per-connection adapter. Only the connect handlers call `SecretBox::seal`. `SealedSecret` is a
+    `foundry-core` newtype.
+- **Payload enrichment.** `from_state` goes in both `IssueUpdated` writers. `author_id` and
+  `title` go in `IssueDeleted` (via `DELETE … RETURNING` and `IssueDeleteContext`).
+  `foundry-realtime` tolerates added fields.
+- **New SQL.** New SQL selects projects through `live_projects`. Route and choice writers open
+  with `lock_live_project`.
+- **Errors and logs.** No vendor text, URL, token or destination enters an error, log line or
+  metric. Log the delivery id and the `ReasonCode`.
+- **Architecture enforcement.**
+  - Style: modular monolith, ports and adapters.
+  - Tools: `cargo xtask check-arch` (AST rules) and `cargo-deny` bans.
+  - New rules: `integrations-pure-core` (an allow-list), `integrations-store-capability`,
+    `integrations-secret-seam`, `integrations-outbound-client-seam` (no redirects, no proxy), the
+    extended `project-lifecycle-write-guard`, and the pinned CSRF exempt set. Each lands with an injected-violation gold test.
+  - `deny.toml` gains a wrapper rule for `foundry-integrations`.
+
+See `adr-eip-001-delivery-channel-contract-and-crate-placement.md`,
+`adr-eip-002-durable-after-commit-delivery.md`,
+`adr-eip-003-event-catalogue-v1-and-payload-enrichment.md`, `adr-eip-004-secrets-at-rest.md`,
+`adr-eip-005-slack-app-per-instance.md`, `adr-eip-006-matrix-bot-and-outbound-address-policy.md`,
+`adr-eip-007-member-project-email.md`, and `docs/feature/external-integration-plugins/feature-delta.md`
+(DESIGN DDR-1..27, DD-1..11).
+
+**Designed component inventory (external-integration-plugins).** It becomes the shipped inventory at
+the DELIVER finalize.
+
+| Design element | Designed as | Where | DDR | Slice |
+|---|---|---|---|---|
+| Outbox as log | nullable `event_id`, `source_txid`, `dispatched_at` with metadata-only defaults; `integration_dispatch_start`; concurrent partial index | `migrations/0028_outbox_dispatch.sql`, `0029_outbox_dispatch_index.sql` | 3, 8, 17 | 01 |
+| Integration tables | connections, routes, route lanes, destination pacing, deliveries, audit, key checks, worker heartbeats | `migrations/0030_integrations.sql` | 17 | 01 |
+| Store capabilities | `EventViewReads`, `DispatchLog`, `DeliveryClaims`, `DeliverySweeps`, `ConnectionHealth` | `foundry-app/src/integrations/store_capabilities.rs` | 26 | 01 |
+| Pure core | `ChannelKind`, `EventKind`, `ContentLevel`, `ReasonCode`, `DispatchPlan`, `compose`, encoders, classifiers, `RetryPolicy`, `RouteStatus`, `judge`; ports | `crates/foundry-integrations` | 1, 2, 5, 7, 19 | 01-05 |
+| Secret box | `SecretBox`, `SealedSecret`, key-check | `foundry-auth/src/secret_box.rs` | 9 | 01 |
+| Worker | dispatcher, sender, expiry and retention sweeps, connection health | `foundry-app/src/integrations/worker.rs` | 3-6, 23 | 01, 03 |
+| Slack | install, return, setup page, events endpoint, adapter | `foundry-app/src/integrations/slack.rs`, handlers | 10-12 | 01-03 |
+| Matrix and outbound | `OutboundHttp`, `FOUNDRY_OUTBOUND_ALLOW`, adapter, connect form | `foundry-app/src/integrations/{outbound,matrix}.rs` | 13, 14 | 04 |
+| Member email | `integration_email_choices`, `EmailTransport`, `ProjectEmailStopToken`, `/email/stop*` | `migrations/0031_integration_email_choices.sql`, `foundry-auth`, `foundry-app` | 15, 16 | 05 |
+| Seam rules | `integrations-pure-core`, `integrations-store-capability`, `integrations-secret-seam`, `integrations-outbound-client-seam`, extended write guard, CSRF exempt pin; `deny.toml` wrapper | `xtask/src/check_arch.rs`, `deny.toml`, `csrf.rs` | 2, 9, 14 | 01-05 |
+
 ### Crate graph
 
 ```mermaid
 graph TB
-  app[foundry-app<br/>composition root, HTML handlers]
+  app[foundry-app<br/>composition root, HTML handlers,<br/>integration adapters and worker]
   api[foundry-api<br/>JSON adapter]
   svc[foundry-services<br/>shared use-case seam]
+  integ[foundry-integrations<br/>pure delivery core and ports<br/>designed, not yet delivered]
   oidc[foundry-oidc<br/>OIDC protocol]
-  auth[foundry-auth<br/>passwords, HMAC, EdDSA tokens]
+  auth[foundry-auth<br/>passwords, HMAC, EdDSA tokens,<br/>secret box]
   store[foundry-store<br/>sqlx persistence]
   core[foundry-core<br/>domain types]
   app --> api
   app --> svc
+  app --> integ
   app --> oidc
   app --> auth
   app --> store
   api --> svc
   svc --> store
+  svc --> integ
   svc --> core
+  integ --> core
   app --> core
   oidc --> core
   auth --> core
