@@ -15,6 +15,10 @@
 //!   destination pacing row, and claims the delivery the choice names only if
 //!   that row is unchanged (fresh `claim_id`, `attempts + 1`, lease, pacing);
 //! - [`Store::record_delivery`]: the fenced record, `WHERE claim_id = <claim>`;
+//! - [`Store::expire_deliveries`]: the expiry sweep, failing exactly the ids
+//!   the plan names, each still pending, past its give-up time and unleased;
+//! - [`Store::beat_worker`] and [`Store::integration_backlog`]: the stall
+//!   signals (DDR-22);
 //! - [`Store::create_route`]: a route writer, opening with `lock_live_project`;
 //! - [`Store::upsert_connection`]: a connection and its audit record, one
 //!   transaction (ADR-EIP-005 decision 4).
@@ -200,6 +204,17 @@ impl DeliveryResult {
     }
 }
 
+/// What the stall gauges read (DDR-22). Ages are seconds, 0 when none.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IntegrationBacklog {
+    pub undispatched: i64,
+    pub undispatched_oldest_seconds: f64,
+    /// Pending deliveries per kind (`slack`, `matrix`, `email`); a kind with
+    /// none is absent.
+    pub pending_by_kind: Vec<(String, i64)>,
+    pub pending_oldest_seconds: f64,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecordOutcome {
     Recorded,
@@ -276,8 +291,7 @@ const INSERT_DELIVERY_SQL: &str = "
     INSERT INTO integration_deliveries
            (workspace_id, project_id, route_id, event_kind, event_id,
             outbox_ids, issue_id, issue_key, occurred_at, give_up_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9,
-            GREATEST($9, now()) + make_interval(secs => $10))";
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $11 + make_interval(secs => $10))";
 
 /// The claim's compare-and-set: the row the choice saw, unchanged.
 const CLAIM_SQL: &str = "
@@ -293,6 +307,14 @@ const PACE_SQL: &str = "
     INSERT INTO integration_destination_pacing (connection_id, destination_ref, not_before)
     VALUES ($1, $2, $3)
     ON CONFLICT (connection_id, destination_ref) DO UPDATE SET not_before = EXCLUDED.not_before";
+
+/// The expiry sweep's compare-and-set on the plan's ids.
+const EXPIRE_SQL: &str = "
+    UPDATE integration_deliveries
+       SET status = 'failed', final_reason = $3, finished_at = $2,
+           lease_until = NULL, next_attempt_at = NULL
+     WHERE id = ANY($1) AND status = 'pending' AND give_up_at <= $2
+       AND (lease_until IS NULL OR lease_until <= $2)";
 
 /// The fenced record: only the current claim of a pending row writes.
 const RECORD_SQL: &str = "
@@ -332,11 +354,15 @@ impl Store {
     /// [`DispatchOutcome::Busy`] when another replica is the active dispatcher.
     /// Reads up to `max_transactions` whole source transactions, hands them and
     /// their projects' routes to `plan`, inserts the plan's deliveries with
-    /// `give_up_at = max(occurred_at, now()) + give_up_after`, and marks every
-    /// read row dispatched, all in one transaction; a failure changes nothing.
+    /// `give_up_at = dispatched_at + give_up_after`, and marks every read row
+    /// dispatched at `dispatched_at`, all in one transaction; a failure changes
+    /// nothing. `dispatched_at` is the injected clock's now: a row is read only
+    /// after it committed, so it is never before the row's `occurred_at` and
+    /// is DDR-5's `max(occurred_at, dispatched_at)` on that one clock.
     pub async fn dispatch_tick<P>(
         &self,
         max_transactions: i64,
+        dispatched_at: OffsetDateTime,
         give_up_after: Duration,
         plan: P,
     ) -> Result<DispatchOutcome, StoreError>
@@ -384,11 +410,13 @@ impl Store {
                 .bind(&delivery.issue_key)
                 .bind(delivery.occurred_at)
                 .bind(give_up_after.as_secs_f64())
+                .bind(dispatched_at)
                 .execute(&mut *tx)
                 .await?;
         }
-        sqlx::query("UPDATE outbox SET dispatched_at = now() WHERE id = ANY($1)")
+        sqlx::query("UPDATE outbox SET dispatched_at = $2 WHERE id = ANY($1)")
             .bind(&ids)
+            .bind(dispatched_at)
             .execute(&mut *tx)
             .await?;
         tx.commit().await?;
@@ -521,6 +549,94 @@ impl Store {
             RecordOutcome::LeaseLost
         } else {
             RecordOutcome::Recorded
+        })
+    }
+
+    /// The expiry sweep (ADR-EIP-002 decision 9, DDR-5): reads the pending
+    /// deliveries at or past their give-up time at `now`, asks `plan` which to
+    /// fail, and fails exactly those ids with `final_reason`, each only while
+    /// it is still pending, past its give-up time and holds no live lease (a
+    /// late record of a lease it lost writes nothing). Returns how many it
+    /// failed. The vendor's last reason is kept.
+    pub async fn expire_deliveries<P>(
+        &self,
+        now: OffsetDateTime,
+        final_reason: &str,
+        plan: P,
+    ) -> Result<u64, StoreError>
+    where
+        P: FnOnce(&[PendingDelivery]) -> Vec<i64>,
+    {
+        let due: Vec<PendingRow> = sqlx::query_as(
+            "SELECT id, attempts, next_attempt_at, claim_id, lease_until, give_up_at
+               FROM integration_deliveries
+              WHERE status = 'pending' AND give_up_at <= $1 ORDER BY id",
+        )
+        .bind(now)
+        .fetch_all(&self.pool)
+        .await?;
+        let due: Vec<PendingDelivery> = due.into_iter().map(pending_delivery).collect();
+        let ids = plan(&due);
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        Ok(sqlx::query(EXPIRE_SQL)
+            .bind(&ids)
+            .bind(now)
+            .bind(final_reason)
+            .execute(&self.pool)
+            .await?
+            .rows_affected())
+    }
+
+    /// A worker component's heartbeat (DDR-22): `role` on `replica` was alive
+    /// at `at`.
+    pub async fn beat_worker(
+        &self,
+        role: &str,
+        replica: &str,
+        at: OffsetDateTime,
+    ) -> Result<(), StoreError> {
+        sqlx::query(
+            "INSERT INTO integration_worker_heartbeats (role, replica, beat_at)
+             VALUES ($1, $2, $3)
+             ON CONFLICT (role, replica) DO UPDATE SET beat_at = EXCLUDED.beat_at",
+        )
+        .bind(role)
+        .bind(replica)
+        .bind(at)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
+    /// The stall gauges' facts (DDR-22), on the database's clock: the outbox
+    /// rows the dispatcher has yet to read and the age of the oldest, and the
+    /// pending deliveries by kind and the age of the oldest.
+    pub async fn integration_backlog(&self) -> Result<IntegrationBacklog, StoreError> {
+        let (undispatched, undispatched_oldest_seconds): (i64, f64) = sqlx::query_as(
+            "SELECT count(*), COALESCE(EXTRACT(EPOCH FROM now() - min(o.created_at)), 0)::float8
+               FROM outbox o, integration_dispatch_start s
+              WHERE o.dispatched_at IS NULL AND o.event_id IS NOT NULL
+                AND o.id > s.outbox_id",
+        )
+        .fetch_one(&self.pool)
+        .await?;
+        let pending: Vec<(String, i64, f64)> = sqlx::query_as(
+            "SELECT COALESCE(r.kind, 'email'), count(*),
+                    EXTRACT(EPOCH FROM now() - min(d.occurred_at))::float8
+               FROM integration_deliveries d
+               LEFT JOIN integration_routes r ON r.id = d.route_id
+              WHERE d.status = 'pending'
+              GROUP BY 1",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(IntegrationBacklog {
+            undispatched,
+            undispatched_oldest_seconds,
+            pending_oldest_seconds: pending.iter().map(|p| p.2).fold(0.0, f64::max),
+            pending_by_kind: pending.into_iter().map(|(k, n, _)| (k, n)).collect(),
         })
     }
 

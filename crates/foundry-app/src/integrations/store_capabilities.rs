@@ -4,8 +4,9 @@
 //! file of foundry-app's integrations module that names `foundry_store::Store`.
 //!
 //! - [`DispatchLog`]: the dispatcher's tick (outbox → deliveries, one
-//!   transaction, under the dispatcher lock);
+//!   transaction, under the dispatcher lock) and its heartbeat;
 //! - [`DeliveryClaims`]: a sender's candidates, its fenced claim and record;
+//! - [`DeliverySweeps`]: the expiry sweep's fenced failure of the plan's ids;
 //! - [`EventViewReads`]: read-only, what one claimed delivery needs at send
 //!   time;
 //! - [`ConnectionCredentials`]: read-only, a connection's sealed credential.
@@ -13,7 +14,7 @@
 use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DispatchBatch, DispatchOutcome,
-    NewDelivery, RecordOutcome,
+    NewDelivery, PendingDelivery, RecordOutcome,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -25,15 +26,30 @@ use uuid::Uuid;
 pub type DispatchPlanner<'a> = &'a (dyn Fn(&DispatchBatch) -> Vec<NewDelivery> + Sync);
 /// The claim choice a sender applies.
 pub type ClaimChooser<'a> = &'a (dyn Fn(&ClaimView) -> Option<i64> + Sync);
+/// The expiry plan a sweep applies.
+pub type ExpiryPlanner<'a> = &'a (dyn Fn(&[PendingDelivery]) -> Vec<i64> + Sync);
 
 #[async_trait]
 pub trait DispatchLog: Send + Sync {
     async fn dispatch(
         &self,
         max_transactions: i64,
+        dispatched_at: OffsetDateTime,
         give_up_after: Duration,
         plan: DispatchPlanner<'_>,
     ) -> Result<DispatchOutcome, StoreError>;
+
+    async fn beat(&self, role: &str, replica: &str, at: OffsetDateTime) -> Result<(), StoreError>;
+}
+
+#[async_trait]
+pub trait DeliverySweeps: Send + Sync {
+    async fn expire(
+        &self,
+        now: OffsetDateTime,
+        final_reason: &str,
+        plan: ExpiryPlanner<'_>,
+    ) -> Result<u64, StoreError>;
 }
 
 #[async_trait]
@@ -86,11 +102,32 @@ impl DispatchLog for StoreCapabilities {
     async fn dispatch(
         &self,
         max_transactions: i64,
+        dispatched_at: OffsetDateTime,
         give_up_after: Duration,
         plan: DispatchPlanner<'_>,
     ) -> Result<DispatchOutcome, StoreError> {
         self.0
-            .dispatch_tick(max_transactions, give_up_after, |batch| plan(batch))
+            .dispatch_tick(max_transactions, dispatched_at, give_up_after, |batch| {
+                plan(batch)
+            })
+            .await
+    }
+
+    async fn beat(&self, role: &str, replica: &str, at: OffsetDateTime) -> Result<(), StoreError> {
+        self.0.beat_worker(role, replica, at).await
+    }
+}
+
+#[async_trait]
+impl DeliverySweeps for StoreCapabilities {
+    async fn expire(
+        &self,
+        now: OffsetDateTime,
+        final_reason: &str,
+        plan: ExpiryPlanner<'_>,
+    ) -> Result<u64, StoreError> {
+        self.0
+            .expire_deliveries(now, final_reason, |due| plan(due))
             .await
     }
 }

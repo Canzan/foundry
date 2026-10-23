@@ -305,7 +305,12 @@ impl Lab {
         old_write(&self.pool, Some(self.auth)).await;
         let outcome = self
             .store
-            .dispatch_tick(100, GIVE_UP, every_matching_route)
+            .dispatch_tick(
+                100,
+                OffsetDateTime::now_utc(),
+                GIVE_UP,
+                every_matching_route,
+            )
             .await
             .expect("dispatch");
         assert!(
@@ -574,7 +579,7 @@ async fn rows_from_before_0028_are_never_dispatched() {
     let mut seen = Vec::new();
     let outcome = lab
         .store
-        .dispatch_tick(100, GIVE_UP, |batch| {
+        .dispatch_tick(100, OffsetDateTime::now_utc(), GIVE_UP, |batch| {
             seen = batch.events.iter().map(|e| e.id).collect();
             every_matching_route(batch)
         })
@@ -607,7 +612,12 @@ async fn rows_from_before_0028_are_never_dispatched() {
 
     let again = lab
         .store
-        .dispatch_tick(100, GIVE_UP, every_matching_route)
+        .dispatch_tick(
+            100,
+            OffsetDateTime::now_utc(),
+            GIVE_UP,
+            every_matching_route,
+        )
         .await
         .expect("dispatch again");
     assert!(
@@ -662,7 +672,12 @@ async fn old_writer_rows_after_0028_get_event_and_txid() {
     assert_eq!(txids, 2, "each writer transaction stamps its own id");
     let outcome = lab
         .store
-        .dispatch_tick(100, GIVE_UP, every_matching_route)
+        .dispatch_tick(
+            100,
+            OffsetDateTime::now_utc(),
+            GIVE_UP,
+            every_matching_route,
+        )
         .await
         .expect("dispatch");
     assert!(
@@ -701,7 +716,12 @@ async fn old_writer_rows_after_0028_get_event_and_txid() {
     );
     let after = lab
         .store
-        .dispatch_tick(100, GIVE_UP, every_matching_route)
+        .dispatch_tick(
+            100,
+            OffsetDateTime::now_utc(),
+            GIVE_UP,
+            every_matching_route,
+        )
         .await
         .expect("dispatch after R-6");
     assert!(
@@ -858,7 +878,7 @@ async fn rolled_back_board_transaction_yields_no_delivery() {
     let aborted = old_write(&mut *board, Some(lab.auth)).await;
     let mut read = Vec::new();
     lab.store
-        .dispatch_tick(100, GIVE_UP, |batch| {
+        .dispatch_tick(100, OffsetDateTime::now_utc(), GIVE_UP, |batch| {
             read.extend(batch.events.iter().map(|e| e.id));
             every_matching_route(batch)
         })
@@ -866,7 +886,7 @@ async fn rolled_back_board_transaction_yields_no_delivery() {
         .expect("tick during the transaction");
     board.rollback().await.expect("the board action aborts");
     lab.store
-        .dispatch_tick(100, GIVE_UP, |batch| {
+        .dispatch_tick(100, OffsetDateTime::now_utc(), GIVE_UP, |batch| {
             read.extend(batch.events.iter().map(|e| e.id));
             every_matching_route(batch)
         })
@@ -878,7 +898,12 @@ async fn rolled_back_board_transaction_yields_no_delivery() {
     // Positive control: a committed write is dispatched.
     let committed = old_write(&pool, Some(lab.auth)).await;
     lab.store
-        .dispatch_tick(100, GIVE_UP, every_matching_route)
+        .dispatch_tick(
+            100,
+            OffsetDateTime::now_utc(),
+            GIVE_UP,
+            every_matching_route,
+        )
         .await
         .expect("tick");
     let delivered: Vec<Vec<i64>> =
@@ -910,12 +935,12 @@ async fn dispatch_rerun_is_a_no_op() {
     let (mut replica, mut other_schema) = (None, None);
     let outcome = lab
         .store
-        .dispatch_tick(100, GIVE_UP, |batch| {
+        .dispatch_tick(100, OffsetDateTime::now_utc(), GIVE_UP, |batch| {
             tokio::task::block_in_place(|| {
                 tokio::runtime::Handle::current().block_on(async {
                     replica = Some(
                         lab.store
-                            .dispatch_tick(100, GIVE_UP, |_| {
+                            .dispatch_tick(100, OffsetDateTime::now_utc(), GIVE_UP, |_| {
                                 panic!("a busy dispatcher plans nothing")
                             })
                             .await
@@ -923,7 +948,12 @@ async fn dispatch_rerun_is_a_no_op() {
                     );
                     other_schema = Some(
                         sibling
-                            .dispatch_tick(100, GIVE_UP, every_matching_route)
+                            .dispatch_tick(
+                                100,
+                                OffsetDateTime::now_utc(),
+                                GIVE_UP,
+                                every_matching_route,
+                            )
                             .await
                             .expect("sibling tick"),
                     );
@@ -1024,7 +1054,7 @@ async fn dispatch_rerun_is_a_no_op() {
     let mut read = 0;
     let rerun = lab
         .store
-        .dispatch_tick(100, GIVE_UP, |batch| {
+        .dispatch_tick(100, OffsetDateTime::now_utc(), GIVE_UP, |batch| {
             read = batch.events.len();
             every_matching_route(batch)
         })
@@ -1072,7 +1102,7 @@ async fn dispatch_never_splits_a_source_transaction() {
     let mut batches: Vec<Vec<(i64, u64)>> = Vec::new();
     for _ in 0..3 {
         lab.store
-            .dispatch_tick(1, GIVE_UP, |batch| {
+            .dispatch_tick(1, OffsetDateTime::now_utc(), GIVE_UP, |batch| {
                 batches.push(batch.events.iter().map(|e| (e.id, e.source_txid)).collect());
                 every_matching_route(batch)
             })

@@ -79,7 +79,7 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     And #auth-dev holds exactly 6 test messages
     And Identity Platform still has no route
 
-  @pending @error @kpi @contract-shape:bounded-change
+  @error @kpi @contract-shape:bounded-change
   Scenario: Filing an issue is never slowed or refused by chat delivery
     Given Priya has connected Canzan Labs to Slack
     And Lena has routed New issue on Identity Platform to #auth-dev
@@ -108,7 +108,7 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     When 24 hours pass without Slack answering
     Then Lena's route to #auth-dev reads "Needs attention: AUTH-12's message could not be delivered within 24 hours"
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: A message given up on is never posted later
     Given Priya has connected Canzan Labs to Slack
     And Lena has routed New issue on Identity Platform to #auth-dev
@@ -149,14 +149,14 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     When Priya saves the route
     Then Homelab Ops's integrations page lists the route to #ops-alerts reading "Delivering"
 
-  @pending @error @kpi @contract-shape:unbounded-preservation
+  @error @kpi @contract-shape:unbounded-preservation
   Scenario: Another project's issues never reach the route
     Given Priya has connected Canzan Labs to Slack
     And Lena has routed New issue on Identity Platform to #auth-dev
     When Sam files "Renew cluster certificates" in Homelab Ops
     Then nothing is posted to #auth-dev within 10 seconds
 
-  @pending @edge @contract-shape:unbounded-preservation
+  @edge @contract-shape:unbounded-preservation
   Scenario: A route carries only what happens after it is saved
     Given Priya has connected Canzan Labs to Slack
     And Sam has filed "Rotate LLDAP bind password" in Identity Platform

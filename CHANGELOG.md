@@ -36,6 +36,19 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   `FOUNDRY_INTEGRATIONS_POLL_MS` (1000), `FOUNDRY_INTEGRATIONS_LEASE_SECONDS` (45; under 35
   refuses start), `FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS` (86400), and
   `FOUNDRY_INTEGRATIONS_WORKER=off` to run a process without the delivery worker.
+- **A route is flagged after 24 hours undelivered**: a message Slack has not accepted within a day
+  of being queued is given up and never posted later, and its route reads "Needs attention:
+  {key}'s message could not be delivered within 24 hours". A route carries only its own project's
+  events, and only those that happen after it is saved.
+
+### Operators
+
+- **Outbox stall gauges**: `foundry_outbox_undispatched`, `foundry_outbox_undispatched_oldest_seconds`,
+  `foundry_integration_deliveries_pending{kind}` (`slack`, `matrix`, `email`) and
+  `foundry_integration_deliveries_pending_oldest_seconds`, registered at 0 and refreshed with the
+  other database gauges every `METRICS_POOL_POLL_SECONDS`. While the oldest undispatched outbox row
+  is over five minutes old, Foundry logs the warning `integrations.dispatch.stalled`; the
+  dispatcher's liveness is the `integration_worker_heartbeats` row of role `dispatcher`.
 
 ## [v0.17.0] - 2026-10-20
 

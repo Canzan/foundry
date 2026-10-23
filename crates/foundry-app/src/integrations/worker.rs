@@ -7,28 +7,31 @@
 //! - the [`Dispatcher`] turns whole committed source transactions into
 //!   deliveries through the pure [`DispatchPlan::build`] (one active
 //!   dispatcher, the store's advisory lock);
-//! - the [`Sender`] claims each route's head delivery through the pure
-//!   [`claimable_head`] under a fenced lease, sends it outside any
-//!   transaction, and records the outcome fenced by its `claim_id`, settled by
-//!   [`RetryPolicy::settle`].
+//! - the [`Sender`] first fails every delivery past its give-up time through
+//!   the pure [`expiry_set`] (so nothing is attempted at or after it), then
+//!   claims each route's head delivery through the pure [`claimable_head`]
+//!   under a fenced lease, sends it outside any transaction, and records the
+//!   outcome fenced by its `claim_id`, settled by [`RetryPolicy::settle`].
+//!
+//! The dispatcher beats its heartbeat row each tick (DDR-22).
 //!
 //! The components hold only the narrow capabilities of
 //! [`super::store_capabilities`], never the store. Every time is the injected
 //! [`Clock`]'s.
 
 use super::store_capabilities::{
-    ConnectionCredentials, DeliveryClaims, DispatchLog, EventViewReads,
+    ConnectionCredentials, DeliveryClaims, DeliverySweeps, DispatchLog, EventViewReads,
 };
 use super::{Integrations, IntegrationsHandle};
 use crate::Clock;
 use foundry_integrations::{
-    claimable_head, compose, encode_slack, ChannelKind, ConnectionState, ContentLevel,
+    claimable_head, compose, encode_slack, expiry_set, ChannelKind, ConnectionState, ContentLevel,
     DeliveryChannel, DeliveryKey, DestinationRef, DispatchPlan, EventKind, EventView, OutboxRow,
     PlannedDelivery, QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec, Settlement,
 };
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, ClaimedDelivery, DeliveryContext, DeliveryResult, DeliveryTarget,
-    DispatchBatch, DispatchRoute, NewDelivery, OutboxEvent,
+    DispatchBatch, DispatchRoute, IntegrationBacklog, NewDelivery, OutboxEvent, PendingDelivery,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -40,6 +43,53 @@ const DISPATCH_BATCH: i64 = 100;
 const SEND_BATCH: i64 = 50;
 /// How often an idle worker looks again whether it should run.
 const IDLE_POLL: Duration = Duration::from_millis(250);
+/// The dispatcher's role in `integration_worker_heartbeats`.
+const DISPATCHER_ROLE: &str = "dispatcher";
+
+/// The stall gauges (DDR-22; DEVOPS observability), on the database's clock.
+pub const OUTBOX_UNDISPATCHED: &str = "foundry_outbox_undispatched";
+pub const OUTBOX_UNDISPATCHED_OLDEST_SECONDS: &str = "foundry_outbox_undispatched_oldest_seconds";
+pub const DELIVERIES_PENDING: &str = "foundry_integration_deliveries_pending";
+pub const DELIVERIES_PENDING_OLDEST_SECONDS: &str =
+    "foundry_integration_deliveries_pending_oldest_seconds";
+/// The closed `kind` set of [`DELIVERIES_PENDING`].
+const PENDING_KINDS: [&str; 3] = ["slack", "matrix", "email"];
+/// Past this, an undispatched outbox row means the dispatcher has stalled.
+const DISPATCH_STALL_SECONDS: f64 = 300.0;
+
+/// Register every stall gauge series at 0, before the first poll.
+pub fn register_stall_gauges() {
+    report_backlog(&IntegrationBacklog {
+        undispatched: 0,
+        undispatched_oldest_seconds: 0.0,
+        pending_by_kind: Vec::new(),
+        pending_oldest_seconds: 0.0,
+    });
+}
+
+/// Set the stall gauges from one backlog read, and warn
+/// `integrations.dispatch.stalled` while the oldest undispatched row is older
+/// than five minutes.
+pub fn report_backlog(backlog: &IntegrationBacklog) {
+    metrics::gauge!(OUTBOX_UNDISPATCHED).set(backlog.undispatched as f64);
+    metrics::gauge!(OUTBOX_UNDISPATCHED_OLDEST_SECONDS).set(backlog.undispatched_oldest_seconds);
+    for kind in PENDING_KINDS {
+        let pending = backlog
+            .pending_by_kind
+            .iter()
+            .find(|(k, _)| k == kind)
+            .map_or(0, |(_, n)| *n);
+        metrics::gauge!(DELIVERIES_PENDING, "kind" => kind).set(pending as f64);
+    }
+    metrics::gauge!(DELIVERIES_PENDING_OLDEST_SECONDS).set(backlog.pending_oldest_seconds);
+    if backlog.undispatched_oldest_seconds > DISPATCH_STALL_SECONDS {
+        tracing::warn!(
+            undispatched = backlog.undispatched,
+            oldest_seconds = backlog.undispatched_oldest_seconds,
+            "integrations.dispatch.stalled"
+        );
+    }
+}
 
 /// The dispatcher, the sender and what they read their settings from.
 pub struct IntegrationsWorker {
@@ -56,14 +106,21 @@ impl IntegrationsWorker {
         clock: Arc<dyn Clock>,
     ) -> Self
     where
-        C: DispatchLog + DeliveryClaims + EventViewReads + ConnectionCredentials + 'static,
+        C: DispatchLog
+            + DeliveryClaims
+            + DeliverySweeps
+            + EventViewReads
+            + ConnectionCredentials
+            + 'static,
     {
         Self {
             dispatcher: Dispatcher {
                 log: capabilities.clone(),
+                replica: uuid::Uuid::now_v7().to_string(),
             },
             sender: Sender {
                 claims: capabilities.clone(),
+                sweeps: capabilities.clone(),
                 events: capabilities.clone(),
                 credentials: capabilities,
             },
@@ -92,7 +149,11 @@ impl IntegrationsWorker {
     /// One dispatch and one round of sends.
     pub async fn tick(&self, integrations: &Integrations) {
         let worker = integrations.settings().worker;
-        if let Err(err) = self.dispatcher.tick(worker.give_up_after).await {
+        if let Err(err) = self
+            .dispatcher
+            .tick(self.clock.now(), worker.give_up_after)
+            .await
+        {
             tracing::warn!(error = %err, "integrations.dispatch.failed");
         }
         if let Err(err) = self
@@ -108,12 +169,19 @@ impl IntegrationsWorker {
 /// Outbox rows to deliveries (ADR-EIP-002 decision 2).
 struct Dispatcher {
     log: Arc<dyn DispatchLog>,
+    /// This worker's name in the heartbeat table.
+    replica: String,
 }
 
 impl Dispatcher {
-    async fn tick(&self, give_up_after: Duration) -> Result<(), foundry_store::StoreError> {
+    async fn tick(
+        &self,
+        now: OffsetDateTime,
+        give_up_after: Duration,
+    ) -> Result<(), foundry_store::StoreError> {
+        self.log.beat(DISPATCHER_ROLE, &self.replica, now).await?;
         self.log
-            .dispatch(DISPATCH_BATCH, give_up_after, &plan_deliveries)
+            .dispatch(DISPATCH_BATCH, now, give_up_after, &plan_deliveries)
             .await
             .map(|_| ())
     }
@@ -182,6 +250,7 @@ fn new_delivery(planned: &PlannedDelivery) -> NewDelivery {
 /// Claim, send, record (ADR-EIP-002 decision 4).
 struct Sender {
     claims: Arc<dyn DeliveryClaims>,
+    sweeps: Arc<dyn DeliverySweeps>,
     events: Arc<dyn EventViewReads>,
     credentials: Arc<dyn ConnectionCredentials>,
 }
@@ -193,6 +262,10 @@ impl Sender {
         clock: &dyn Clock,
         lease: Duration,
     ) -> Result<(), foundry_store::StoreError> {
+        let expire = |due: &[PendingDelivery]| expiry_of(due, clock.now());
+        self.sweeps
+            .expire(clock.now(), ReasonCode::GaveUp24h.wire_name(), &expire)
+            .await?;
         for route_id in self.claims.routes_with_pending(SEND_BATCH).await? {
             let now = clock.now();
             let choose = |view: &ClaimView| head_of(view, now);
@@ -265,8 +338,16 @@ impl Sender {
 
 /// The claim choice over the store's view of one route.
 fn head_of(view: &ClaimView, now: OffsetDateTime) -> Option<i64> {
-    let queued: Vec<QueuedDelivery> = view
-        .deliveries
+    claimable_head(&queued(&view.deliveries), view.destination_not_before, now)
+}
+
+/// The expiry sweep's choice over the store's due deliveries.
+fn expiry_of(due: &[PendingDelivery], now: OffsetDateTime) -> Vec<i64> {
+    expiry_set(now, &queued(due))
+}
+
+fn queued(deliveries: &[PendingDelivery]) -> Vec<QueuedDelivery> {
+    deliveries
         .iter()
         .map(|d| QueuedDelivery {
             id: d.id,
@@ -274,8 +355,7 @@ fn head_of(view: &ClaimView, now: OffsetDateTime) -> Option<i64> {
             lease_until: d.lease_until,
             give_up_at: d.give_up_at,
         })
-        .collect();
-    claimable_head(&queued, view.destination_not_before, now)
+        .collect()
 }
 
 /// The event as a message may show it, or `None` when its issue or project
