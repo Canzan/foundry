@@ -4650,20 +4650,10 @@ pub async fn given_replicas(world: &mut FoundryWorld) {
 /// every running replica stops (the one holding the claim among them) and a
 /// fresh replica starts on the same schema, as a restarted pod would.
 pub async fn stop_sending_replica(world: &mut FoundryWorld) {
-    let double = slack(world);
-    eventually(
-        DELIVERY_BUDGET,
+    slack_asked_to_post(
+        world,
+        "#auth-dev",
         "a replica has sent AUTH-12's message to Slack",
-        || {
-            let double = double.clone();
-            async move {
-                if double.posts_to("#auth-dev").is_empty() {
-                    Err("no post".into())
-                } else {
-                    Ok(())
-                }
-            }
-        },
     )
     .await;
     world.eip.replicas = None;
@@ -4676,20 +4666,10 @@ pub async fn stop_sending_replica(world: &mut FoundryWorld) {
 /// holding AUTH-12's claim stops (its delivery worker with it); no fresh
 /// replica starts, so the survivor must take the delivery over after the lease.
 pub async fn stop_claiming_replica_only(world: &mut FoundryWorld, key: &str) {
-    let double = slack(world);
-    eventually(
-        DELIVERY_BUDGET,
+    slack_asked_to_post(
+        world,
+        "#auth-dev",
         "a replica has sent the message to Slack",
-        || {
-            let double = double.clone();
-            async move {
-                if double.posts_to("#auth-dev").is_empty() {
-                    Err("no post".into())
-                } else {
-                    Ok(())
-                }
-            }
-        },
     )
     .await;
     let claimant = claiming_replica(world, key);
@@ -5175,7 +5155,36 @@ pub async fn given_filed(
     let key = file(world, who, project, title, None).await;
     if shown {
         then_shows_key(world, "#auth-dev", &key).await;
+    } else if slack(world).leaves_posts_unanswered() {
+        // Slack is silent or holding: the message's 24-hour clock starts at
+        // its first attempt, so a later "24 hours pass" must not move the
+        // clock before Foundry has asked Slack once.
+        slack_asked_to_post(
+            world,
+            "#auth-dev",
+            "Foundry has asked Slack to post the message",
+        )
+        .await;
     }
+}
+
+/// Wait until Slack has been asked at least once to post to `channel`
+/// (accepted or not): the delivery has been dispatched and attempted.
+async fn slack_asked_to_post(world: &FoundryWorld, channel: &str, what: &str) {
+    let double = slack(world);
+    let channel = channel.to_owned();
+    eventually(DELIVERY_BUDGET, what, || {
+        let double = double.clone();
+        let channel = channel.clone();
+        async move {
+            if double.posts_to(&channel).is_empty() {
+                Err("no post".into())
+            } else {
+                Ok(())
+            }
+        }
+    })
+    .await;
 }
 
 pub async fn given_commented_and_shown(world: &mut FoundryWorld, who: &str, key: &str, body: &str) {

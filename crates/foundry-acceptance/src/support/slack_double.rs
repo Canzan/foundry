@@ -405,6 +405,14 @@ impl SlackDouble {
         self.release.notify_waiters();
     }
 
+    /// Slack is silent or holding posts: a post is recorded but never answered.
+    pub fn leaves_posts_unanswered(&self) -> bool {
+        matches!(
+            self.script.lock().unwrap().standing,
+            Some(Mood::Silent | Mood::Held)
+        )
+    }
+
     /// Slack answers again: heal every standing fault and release held posts.
     pub fn heal(&self) {
         self.set_standing(Mood::Answers);

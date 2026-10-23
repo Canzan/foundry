@@ -99,7 +99,10 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     When Slack answers again
     Then #auth-dev shows AUTH-12's message exactly once
 
-  @pending @error @contract-shape:bounded-change
+  # DELIVER 01-07 owned this scenario; the coordinator had DISTILL lift its
+  # @pending after the harness fix: "Sam has filed …" now waits for Foundry's
+  # first attempt while Slack is silent, so the 24 hours count from dispatch.
+  @error @contract-shape:bounded-change
   Scenario: A message Slack never accepts within a day is flagged on the route
     Given Priya has connected Canzan Labs to Slack
     And Lena has routed New issue on Identity Platform to #auth-dev
