@@ -92,6 +92,20 @@ The full sequence and failure-mode analysis (migration fails mid-roll,
 expand-contract patterns, etc.) is in
 `docs/feature/foundry-backend-mvp/design/system/migrations.md`.
 
+## Integrations (Slack) and the secrets key
+
+`FOUNDRY_SECRETS_KEY` and the three `SLACK_*` settings go in
+`foundry-app-secrets` (see the template); the worker settings stay
+unset in the ConfigMap. A malformed key, a partial Slack trio or a
+lease under 35 s makes the new pod refuse to start
+(`health.startup.refused` names the setting), so the rollout stalls
+with the old pod serving. A missing key, or one that cannot open a
+stored credential, starts the pod **degraded**: `/readyz` stays 200,
+the board serves, `foundry_integration_secrets_degraded` reads 1 and
+the Slack connection reads "unavailable". Creating, rotating
+(`foundry doctor rotate-secrets`) and restoring the key are in
+RELEASING.md, "Integrations: secrets key and Slack" (R-1 to R-8).
+
 ## Probes and graceful shutdown
 
 - `livenessProbe -> /healthz` (returns 200 if the process can accept

@@ -44,6 +44,13 @@ const PROBE_FAILURES_TOTAL: &str = "probe_failures_total";
 /// add its name here. Bounded + code-defined; never request-derived
 /// (the slice-6 ADR-011 cardinality invariant, extended by D6).
 const PROBE_NAMES: &[&str] = &["store", "metrics", "machine_token"];
+/// external-integration-plugins (DD-2): the secrets probe's `probe_name`.
+/// Counted only when it fails: slice 8's shipped baseline pins the
+/// registered-at-0 set to `PROBE_NAMES` (escalated to DISTILL, step 01-08).
+const SECRETS_PROBE: &str = "secrets";
+/// external-integration-plugins (DD-2, U-D8): 1 while this replica started
+/// degraded because a stored credential cannot be opened.
+const SECRETS_DEGRADED: &str = "foundry_integration_secrets_degraded";
 
 /// Slice 7 (ADR-015) — default cadence for the daily tombstone GC
 /// sweep. 86400 seconds = 24 hours. Operators tune via
@@ -311,20 +318,18 @@ async fn main() -> anyhow::Result<()> {
     // external-integration-plugins (DDR-9, DDR-10, DD-2): the integration
     // settings, read once. A partial Slack trio or a malformed secrets key
     // refuses start naming the setting; a missing secrets key is not a refusal
-    // (Slack is simply not offered, K-20).
-    let integrations =
+    // (Slack is simply not offered, K-20). The secrets probe (ADR-EIP-004
+    // decision 4) then decides whether this replica starts degraded.
+    let (integrations, secrets_check) =
         match foundry_app::integrations::config::IntegrationSettings::from_env(&public_url) {
             Ok(settings) => {
-                if settings.secrets.is_none() {
-                    tracing::warn!(
-                        event = "health.degraded",
-                        probe = "secrets_key",
-                        setting = foundry_auth::secret_box::SECRETS_KEY_SETTING,
-                        "no secrets key: integrations are not offered"
-                    );
-                }
-                foundry_app::integrations::IntegrationsHandle::new(
-                    foundry_app::integrations::Integrations::new(settings),
+                let integrations = foundry_app::integrations::Integrations::new(settings);
+                let check = probe_secrets(&store, &integrations).await;
+                (
+                    foundry_app::integrations::IntegrationsHandle::new(
+                        integrations.with_secrets_check(check.clone()),
+                    ),
+                    check,
                 )
             }
             Err(err) => {
@@ -478,6 +483,11 @@ async fn main() -> anyhow::Result<()> {
     metrics::counter!(foundry_realtime::REALTIME_LISTEN_DISCONNECTS_TOTAL).absolute(0);
     for probe_name in PROBE_NAMES {
         metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => *probe_name).absolute(0);
+    }
+    // external-integration-plugins (DD-2): the secrets probe's verdict.
+    metrics::gauge!(SECRETS_DEGRADED).set(if secrets_check.degraded() { 1.0 } else { 0.0 });
+    if secrets_check.degraded() {
+        metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => SECRETS_PROBE).increment(1);
     }
 
     // token-mutations-metric-export — register the per-principal
@@ -839,6 +849,47 @@ fn init_tracing() {
     }
 }
 
+/// external-integration-plugins (DD-2, ADR-EIP-004 decision 4): record the
+/// current key's check value, then judge whether every stored credential can
+/// be opened. A store failure here never stops the board: the replica starts
+/// degraded and says so. Logs name key ids only, never a key.
+async fn probe_secrets(
+    store: &Store,
+    integrations: &foundry_app::integrations::Integrations,
+) -> foundry_app::integrations::SecretsCheck {
+    use foundry_app::integrations::SecretsCheck;
+    if let Some(check) = integrations.key_check() {
+        if let Err(err) = store.record_key_check(&check).await {
+            tracing::warn!(error = %err, "secrets probe: recording the key check failed");
+        }
+    }
+    let check = match (store.sealed_credentials().await, store.key_checks().await) {
+        (Ok(credentials), Ok(checks)) => integrations.check_secrets(&credentials, &checks),
+        (Err(err), _) | (_, Err(err)) => {
+            tracing::warn!(error = %err, "secrets probe: reading stored credentials failed");
+            SecretsCheck {
+                missing_key_ids: vec!["unknown".to_string()],
+            }
+        }
+    };
+    if check.degraded() {
+        tracing::warn!(
+            event = "health.degraded",
+            probe = "secrets",
+            missing_key_ids = %check.missing_key_ids.join(","),
+            "stored integration credentials cannot be opened with the configured secrets keys; \
+             the board runs, those connections are unavailable"
+        );
+    } else if integrations.settings().secrets.is_none() {
+        tracing::info!(
+            probe = "secrets",
+            setting = foundry_auth::secret_box::SECRETS_KEY_SETTING,
+            "no secrets key and no stored credential: integrations are not offered"
+        );
+    }
+    check
+}
+
 /// Inspect `std::env::args()` for a recognised subcommand. Returns
 /// `Some(exit_code)` when a subcommand handled the invocation and the
 /// process should exit; returns `None` when the binary should fall
@@ -886,6 +937,10 @@ fn dispatch_subcommand() -> Option<i32> {
                 "list-deleted-projects" => {
                     Some(foundry_app::admin_cli::run_list_deleted_projects())
                 }
+                // external-integration-plugins (C-11, ADR-EIP-004 decision 5):
+                // re-seal every stored credential under FOUNDRY_SECRETS_KEY.
+                // Reads DATABASE_URL and the secrets key settings.
+                "rotate-secrets" => Some(foundry_app::admin_cli::run_rotate_secrets()),
                 "restore-project" => {
                     let Some(uuid) = args.get(3) else {
                         eprintln!(
@@ -1095,7 +1150,8 @@ fn dispatch_subcommand() -> Option<i32> {
                          export-workspace <id|name> <out-path>, \
                          verify-export <archive-path>, \
                          reset-password --email <addr> [--password <new>], \
-                         add-test-user --email <addr> [--password <new>] [--name <display>]"
+                         add-test-user --email <addr> [--password <new>] [--name <display>], \
+                         rotate-secrets"
                     );
                     Some(2)
                 }
@@ -1111,7 +1167,8 @@ fn dispatch_subcommand() -> Option<i32> {
                          export-workspace <id|name> <out-path>, \
                          verify-export <archive-path>, \
                          reset-password --email <addr> [--password <new>], \
-                         add-test-user --email <addr> [--password <new>] [--name <display>]"
+                         add-test-user --email <addr> [--password <new>] [--name <display>], \
+                         rotate-secrets"
                     );
                     Some(2)
                 }

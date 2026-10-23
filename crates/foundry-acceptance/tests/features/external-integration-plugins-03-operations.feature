@@ -43,7 +43,7 @@ Feature: The operator keeps integrations safe and observable
     And the next issue filed in Identity Platform becomes AUTH-12
     And it is 14:02 on 21 Oct 2026
 
-  @pending @us-eip-01 @eip-01 @eip-metrics @error @kpi @contract-shape:unbounded-preservation
+  @us-eip-01 @eip-01 @eip-metrics @error @kpi @contract-shape:unbounded-preservation
   Scenario: No credential appears in anything Foundry writes to its logs
     Given Foundry runs as the operator's process with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack
@@ -52,7 +52,7 @@ Feature: The operator keeps integrations safe and observable
     When Sam files "Rotate LLDAP bind password" in Identity Platform
     Then Foundry's output never contains any Slack credential or the secrets key
 
-  @pending @us-eip-01 @eip-01 @eip-metrics @error @contract-shape:unbounded-preservation
+  @us-eip-01 @eip-01 @eip-metrics @error @contract-shape:unbounded-preservation
   Scenario: A missing secrets key keeps the board up and says what it cannot open
     Given Foundry runs as the operator's process with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack
@@ -63,7 +63,7 @@ Feature: The operator keeps integrations safe and observable
     And the operator's health signals report the secrets key as degraded
     And Canzan Labs' Slack is not marked lost and Priya receives no email about it
 
-  @pending @us-eip-01 @eip-01 @eip-metrics @error @contract-shape:unbounded-preservation
+  @us-eip-01 @eip-01 @eip-metrics @error @contract-shape:unbounded-preservation
   Scenario Outline: A setting that cannot be right stops Foundry from starting, and says which
     When the operator starts Foundry with <setting>
     Then Foundry refuses to start, naming <name>
@@ -75,7 +75,7 @@ Feature: The operator keeps integrations safe and observable
       | only two of the three Foundry Slack app settings     | the Slack app settings  |
       | a delivery lease shorter than 35 seconds             | the delivery lease      |
 
-  @pending @us-eip-01 @eip-01 @eip-metrics @driving_port @contract-shape:bounded-change
+  @us-eip-01 @eip-01 @eip-metrics @driving_port @contract-shape:bounded-change
   Scenario: The operator rotates the secrets key without anyone reconnecting
     Given Foundry runs as the operator's process with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack
@@ -135,7 +135,7 @@ Feature: The operator keeps integrations safe and observable
     When Sam files 3 issues in Identity Platform at once
     Then #auth-dev receives 6 messages, no two of them less than one second apart
 
-  @pending @us-eip-01 @eip-01 @eip-metrics @driving_port @contract-shape:bounded-change
+  @us-eip-01 @eip-01 @eip-metrics @driving_port @contract-shape:bounded-change
   Scenario: After a rotation Foundry opens the connection with only the new key
     Given Foundry runs as the operator's process with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack

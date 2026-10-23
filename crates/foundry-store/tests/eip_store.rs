@@ -1424,8 +1424,139 @@ async fn route_and_choice_writers_take_the_live_project_lock() {
     let _ = lab.team;
 }
 
-pending!(
-    rotate_secrets_reseals_every_credential_or_nothing,
-    "01-07",
-    "C-11: plaintexts unchanged after open, row count unchanged, a mid-way failure changes nothing"
-);
+/// A stand-in for the secret box: `<key>|<row id>|<plaintext>`, so a value
+/// opens only under its key and for its row (the row-bound AAD).
+fn toy_seal(key: &str, row: Id, plaintext: &str) -> Vec<u8> {
+    format!("{key}|{row}|{plaintext}").into_bytes()
+}
+
+fn toy_open(key: &str, row: Id, sealed: &[u8]) -> Option<String> {
+    let text = std::str::from_utf8(sealed).ok()?;
+    text.strip_prefix(&format!("{key}|{row}|"))
+        .map(str::to_string)
+}
+
+async fn credentials(pool: &PgPool) -> Vec<(Id, Vec<u8>)> {
+    sqlx::query_as(
+        "SELECT id, sealed_credential FROM integration_connections
+          WHERE sealed_credential IS NOT NULL ORDER BY id",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("credentials")
+}
+
+async fn key_check_rows(pool: &PgPool) -> Vec<(String, Vec<u8>)> {
+    sqlx::query_as("SELECT key_id, sealed_canary FROM integration_key_checks ORDER BY key_id")
+        .fetch_all(pool)
+        .await
+        .expect("key checks")
+}
+
+/// C-11: `doctor rotate-secrets` re-seals every credential under the new key
+/// with its plaintext unchanged, adds no row, writes the new canary, and a
+/// refusal on the last credential changes nothing at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn rotate_secrets_reseals_every_credential_or_nothing() {
+    use foundry_store::integrations::{KeyCheck, ResealOutcome};
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let matrix = Id::now_v7();
+    sqlx::query(
+        "INSERT INTO integration_connections
+                (id, workspace_id, kind, state, external_id, label,
+                 sealed_credential, credential_saved_at, connected_by)
+         VALUES ($1, $2, 'matrix', 'connected', '@foundry:canzan.dev', 'matrix.canzan.dev',
+                 $3, now(), $4)",
+    )
+    .bind(matrix)
+    .bind(lab.ws)
+    .bind(toy_seal("old", matrix, "matrix-token"))
+    .bind(lab.lena)
+    .execute(&pool)
+    .await
+    .expect("a second connection");
+    sqlx::query("UPDATE integration_connections SET sealed_credential = $2 WHERE id = $1")
+        .bind(lab.connection)
+        .bind(toy_seal("old", lab.connection, "slack-token"))
+        .execute(&pool)
+        .await
+        .expect("the Slack credential under the old key");
+    let plaintexts = [
+        (lab.connection, "slack-token".to_string()),
+        (matrix, "matrix-token".to_string()),
+    ];
+
+    let new_canary = KeyCheck {
+        key_id: "new".into(),
+        sealed_canary: b"canary-new".to_vec(),
+    };
+    let outcome = lab
+        .store
+        .reseal_credentials(
+            |row, sealed| {
+                toy_open("old", row, sealed)
+                    .map(|plain| toy_seal("new", row, &plain))
+                    .ok_or(row)
+            },
+            &new_canary,
+        )
+        .await
+        .expect("rotate");
+    assert_eq!(outcome, ResealOutcome::Resealed { credentials: 2 });
+    let after = credentials(&pool).await;
+    assert_eq!(after.len(), 2, "no credential row is added or removed");
+    for (row, plain) in &plaintexts {
+        let sealed = &after.iter().find(|(id, _)| id == row).expect("row kept").1;
+        assert_eq!(
+            toy_open("new", *row, sealed).as_deref(),
+            Some(plain.as_str()),
+            "the credential opens under the new key to the same plaintext"
+        );
+        assert_eq!(
+            toy_open("old", *row, sealed),
+            None,
+            "and no longer under the old one"
+        );
+    }
+    assert_eq!(
+        key_check_rows(&pool).await,
+        vec![("new".to_string(), b"canary-new".to_vec())],
+        "the new key's canary is written"
+    );
+
+    // A refusal on the last credential, after the first was re-sealed.
+    let before_failure = (credentials(&pool).await, key_check_rows(&pool).await);
+    let mut seen = 0;
+    let outcome = lab
+        .store
+        .reseal_credentials(
+            |row, sealed| {
+                seen += 1;
+                if seen == 2 {
+                    return Err(row);
+                }
+                toy_open("new", row, sealed)
+                    .map(|plain| toy_seal("newer", row, &plain))
+                    .ok_or(row)
+            },
+            &KeyCheck {
+                key_id: "newer".into(),
+                sealed_canary: b"canary-newer".to_vec(),
+            },
+        )
+        .await
+        .expect("the store answers");
+    assert!(matches!(outcome, ResealOutcome::Refused(_)), "{outcome:?}");
+    assert_eq!(
+        seen, 2,
+        "the refusal came after one credential was re-sealed"
+    );
+    assert_eq!(
+        (credentials(&pool).await, key_check_rows(&pool).await),
+        before_failure,
+        "a mid-way failure changes nothing"
+    );
+}

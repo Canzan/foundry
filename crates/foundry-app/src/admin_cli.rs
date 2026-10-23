@@ -629,6 +629,17 @@ where
     F: FnOnce(foundry_services::Services) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = i32>,
 {
+    run_with_store(command, move |store| {
+        body(foundry_services::Services::new(std::sync::Arc::new(store)))
+    })
+}
+
+/// [`run_with_services`]'s scaffold, handing the body the live store.
+fn run_with_store<F, Fut>(command: &'static str, body: F) -> i32
+where
+    F: FnOnce(foundry_store::Store) -> Fut + Send + 'static,
+    Fut: std::future::Future<Output = i32>,
+{
     let database_url = match std::env::var("DATABASE_URL") {
         Ok(v) if !v.is_empty() => v,
         _ => {
@@ -652,9 +663,7 @@ where
         };
         runtime.block_on(async move {
             match foundry_store::Store::connect(&database_url).await {
-                Ok(store) => {
-                    body(foundry_services::Services::new(std::sync::Arc::new(store))).await
-                }
+                Ok(store) => body(store).await,
                 Err(err) => {
                     eprintln!("{command}: could not connect to DATABASE_URL: {err}");
                     3
@@ -667,6 +676,86 @@ where
         eprintln!("{command}: worker thread panicked; see stderr above");
         3
     })
+}
+
+const ROTATE: &str = "foundry doctor rotate-secrets";
+
+/// external-integration-plugins (C-11, ADR-EIP-004 decision 5) — `foundry
+/// doctor rotate-secrets`: re-seal every stored credential under
+/// `FOUNDRY_SECRETS_KEY` (opening each under it or
+/// `FOUNDRY_SECRETS_KEY_PREVIOUS`) and write the new key's check value, in
+/// one transaction. Prints `<n> credential(s)` and the key id, never a key.
+/// Exits 0 rotated; 2 the key settings are missing or malformed; 3 the
+/// database cannot be reached or the transaction failed; 4 a credential
+/// neither key opens (nothing changed).
+pub fn run_rotate_secrets() -> i32 {
+    use foundry_auth::secret_box::{SECRETS_KEY_PREVIOUS_SETTING, SECRETS_KEY_SETTING};
+    let setting = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    let Some(current) = setting(SECRETS_KEY_SETTING) else {
+        eprintln!("{ROTATE}: {SECRETS_KEY_SETTING} is not set; set it to the new key first");
+        return 2;
+    };
+    let previous = setting(SECRETS_KEY_PREVIOUS_SETTING).map(secrecy::SecretString::from);
+    let secrets = match foundry_auth::secret_box::SecretBox::from_settings(
+        &secrecy::SecretString::from(current),
+        previous.as_ref(),
+    ) {
+        Ok(secrets) => secrets,
+        Err(err) => {
+            eprintln!("{ROTATE}: {err}");
+            return 2;
+        }
+    };
+    run_with_store(ROTATE, move |store| async move {
+        rotate_secrets(&store, &secrets).await
+    })
+}
+
+/// The rotation itself: the only place outside the integrations module that
+/// opens a sealed credential (check-arch `integrations-secret-seam`).
+async fn rotate_secrets(
+    store: &foundry_store::Store,
+    secrets: &foundry_auth::secret_box::SecretBox,
+) -> i32 {
+    use crate::integrations::{credential_slot, key_check};
+    use foundry_auth::secret_box::{
+        SealedSecret, SECRETS_KEY_PREVIOUS_SETTING, SECRETS_KEY_SETTING,
+    };
+    use foundry_store::integrations::ResealOutcome;
+    let Some(canary) = key_check(secrets) else {
+        eprintln!("{ROTATE}: the new key could not seal its check value; nothing changed");
+        return 3;
+    };
+    let reseal = |connection_id: uuid::Uuid, sealed: &[u8]| {
+        let slot = credential_slot(connection_id);
+        let plaintext = secrets
+            .open(&SealedSecret::from_bytes(sealed.to_vec()), &slot)
+            .map_err(|_| connection_id)?;
+        secrets
+            .seal(&plaintext, &slot)
+            .map(|resealed| resealed.as_bytes().to_vec())
+            .map_err(|_| connection_id)
+    };
+    match store.reseal_credentials(reseal, &canary).await {
+        Ok(ResealOutcome::Resealed { credentials }) => {
+            println!(
+                "rotate-secrets: {credentials} credential(s) sealed again under key {}",
+                canary.key_id
+            );
+            0
+        }
+        Ok(ResealOutcome::Refused(connection_id)) => {
+            eprintln!(
+                "{ROTATE}: the credential of connection {connection_id} opens under neither \
+                 {SECRETS_KEY_SETTING} nor {SECRETS_KEY_PREVIOUS_SETTING}; nothing changed"
+            );
+            4
+        }
+        Err(err) => {
+            eprintln!("{ROTATE}: the rotation failed; nothing changed: {err}");
+            3
+        }
+    }
 }
 
 /// project-lifecycle D10 — `foundry doctor list-deleted-projects`: one D14

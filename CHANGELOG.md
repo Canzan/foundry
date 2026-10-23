@@ -49,6 +49,50 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   other database gauges every `METRICS_POOL_POLL_SECONDS`. While the oldest undispatched outbox row
   is over five minutes old, Foundry logs the warning `integrations.dispatch.stalled`; the
   dispatcher's liveness is the `integration_worker_heartbeats` row of role `dispatcher`.
+- **`FOUNDRY_SECRETS_KEY`** (32 random bytes, base64url, padded or not; generate with
+  `openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'`) seals every Slack credential Foundry
+  stores. Keep an offline copy apart from database backups: losing every copy means workspace
+  admins reconnect Slack, nothing else is lost. `FOUNDRY_SECRETS_KEY_PREVIOUS` is set only during a
+  rotation. A key that is not 32 bytes, a partial Slack trio or `FOUNDRY_INTEGRATIONS_LEASE_SECONDS`
+  under 35 stops Foundry at start with `health.startup.refused` naming the setting (never its value).
+- **Degraded start instead of an outage**: when the secrets key is missing, or no configured key
+  opens a stored credential, Foundry starts and serves the board; the affected Slack connection
+  reads "Slack is unavailable: this Foundry cannot read its saved connection. An instance operator
+  needs to check the secrets key.", it is never marked lost and no admin is emailed, and its
+  messages wait (and are given up after a day as usual). The new gauge
+  `foundry_integration_secrets_degraded` reads 1, `probe_failures_total{probe_name="secrets"}`
+  counts the boot failure, and a `health.degraded probe=secrets` warning names the missing key ids
+  (never a key). Restore the key (or set the old one as `_PREVIOUS`) and restart; nobody reconnects.
+  Each boot records one sealed check value per key id in `integration_key_checks`.
+- **`foundry doctor rotate-secrets`** re-seals every stored credential under the current
+  `FOUNDRY_SECRETS_KEY`, writes the new key's check value, and prints
+  `rotate-secrets: <n> credential(s) sealed again under key <key id>`, in one transaction: a failure
+  changes nothing (exit 3 database, exit 4 a credential neither key opens). Rotation order: roll out
+  the new key with the old one as `FOUNDRY_SECRETS_KEY_PREVIOUS`, run the command once, then roll
+  out without `_PREVIOUS`. See `RELEASING.md` "Integrations: secrets key and Slack".
+
+### Upgrading
+
+- Migrations `0028_outbox_dispatch`, `0029_outbox_dispatch_index` and `0030_integrations` apply at
+  boot, before the new pod is ready. They are additive: no backfill and no rewrite of `outbox`;
+  `0028` takes a brief lock on `outbox` under a 2-second `lock_timeout` (it fails rather than stall
+  board writes; the next pod start retries), `0029` builds its index concurrently.
+- Set `FOUNDRY_SECRETS_KEY` before any workspace connects Slack. Without it the board runs and Slack
+  is simply not offered.
+- **Rollback:** the previous release runs on the new schema (it never reads the new columns or
+  tables, and its outbox writes still get an event id). Events written while it runs are delivered
+  late after you upgrade again, unless you mark them dispatched first (`RELEASING.md`, R-6).
+
+### Migration notes
+
+- **`0028_outbox_dispatch`** adds nullable `outbox.event_id`, `outbox.source_txid` and
+  `outbox.dispatched_at` with metadata-only defaults, and the one-row table
+  `integration_dispatch_start` (rows at or below it are never dispatched). **`0029`** (no
+  transaction) creates `idx_outbox_undispatched` with `CREATE INDEX CONCURRENTLY`; if it fails
+  partway, drop the invalid index (`DROP INDEX CONCURRENTLY idx_outbox_undispatched;`) and restart
+  the pod; Foundry logs a warning at boot while an invalid index exists. **`0030_integrations`**
+  creates the `integration_*` tables. Runtime on a 100k-issue database: seconds (no data is
+  rewritten). All three are forward-compatible with the previous release (rolling deploys).
 
 ## [v0.17.0] - 2026-10-20
 

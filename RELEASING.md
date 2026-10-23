@@ -359,6 +359,83 @@ config drift (wrong DATABASE_URL host, expired DB credentials,
 missing CLI binary on the bastion) before a real moderation
 reversal needs it.
 
+## Integrations: secrets key and Slack
+
+Secrets go in the Kubernetes Secret, everything else in the ConfigMap (see
+`deploy/k8s/foundry-secret.example.yaml` and `foundry-configmap.yaml`).
+
+| Setting | Where | Value |
+|---|---|---|
+| `FOUNDRY_SECRETS_KEY` | Secret | 32 random bytes, base64url; distinct per cluster; generated once |
+| `FOUNDRY_SECRETS_KEY_PREVIOUS` | Secret | Empty, except during a rotation |
+| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` | Secret | From that cluster's own Slack app; all three or none |
+| `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL` | none | Never set in a cluster (test seams; the defaults are Slack's) |
+| `FOUNDRY_INTEGRATIONS_POLL_MS`, `_GIVE_UP_SECONDS`, `_LEASE_SECONDS` | none | Unset (defaults 1000, 86400, 45) |
+
+A key that is not 32 bytes, two of the three Slack settings, or a lease under 35 seconds
+stops Foundry at start: `health.startup.refused` names the setting (never its value), the
+new pod crash-loops and the old one keeps serving. A missing key, or one that cannot open a
+stored credential, does **not** stop Foundry (see R-8).
+
+**R-1 Create the secrets key** (once per cluster, before any workspace connects Slack):
+
+```sh
+openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
+```
+
+Foundry accepts it padded or not. Keep an **offline copy** (a password manager that does not
+run on the cluster), apart from database backups: that copy is the backup. Losing every copy
+means workspace admins reconnect Slack; no board data is lost. Apply and roll, then check
+`probe_failures_total{probe_name="secrets"} == 0`, `foundry_integration_secrets_degraded == 0`
+and no `health.startup.refused` line in the logs.
+
+**R-2 Create the cluster's Slack app** (once per instance): a workspace admin opens
+`/workspace/integrations/slack/setup`, which renders the app manifest for this instance; paste it
+at api.slack.com (Create New App, From a manifest). Copy Client ID, Client Secret and Signing
+Secret into that cluster's Secret, apply, roll, then retry Event Subscriptions in the Slack app:
+"Verified" proves the inbound path. Dev and prod each get their own app.
+
+**R-5 Rotate the secrets key** (the order matters):
+
+1. Set `FOUNDRY_SECRETS_KEY=<new>` and `FOUNDRY_SECRETS_KEY_PREVIOUS=<old>`; apply; roll every
+   replica. Check `foundry_integration_secrets_degraded == 0` on each.
+2. Run the rotation once, with the pod's environment:
+
+   ```sh
+   kubectl -n foundry exec deploy/foundry -- /app/foundry doctor rotate-secrets
+   # rotate-secrets: 1 credential(s) sealed again under key 3f9c…
+   ```
+
+   It re-seals every stored credential under the new key and records the new key's check value
+   in one transaction; a failure changes nothing. Exit 2: the key settings are missing or
+   malformed; 3: the database could not be reached or the transaction failed; 4: a credential
+   neither key opens (nothing was changed; find the key it was sealed with).
+3. Clear `FOUNDRY_SECRETS_KEY_PREVIOUS`; apply; roll.
+
+Nobody reconnects. A broken order degrades (R-8); it never marks a connection lost or emails
+an admin.
+
+**R-6 Roll forward after a long rollback** (optional). Events written while the previous
+release ran are delivered late after the upgrade. To skip them instead, before rolling forward:
+
+```sql
+UPDATE outbox SET dispatched_at = now()
+ WHERE dispatched_at IS NULL AND event_id IS NOT NULL
+   AND created_at < now() - interval '<age>';
+```
+
+**R-7 A failed `0029`** (its index is built concurrently, outside a transaction):
+`DROP INDEX CONCURRENTLY idx_outbox_undispatched;`, then restart the pod so the migration runs
+again. Foundry logs a warning at boot while an invalid index exists.
+
+**R-8 Degraded secrets.** `foundry_integration_secrets_degraded == 1` and a
+`health.degraded probe=secrets` warning naming the missing key ids (never a key) mean the
+board is up but a stored Slack credential cannot be opened: its connection reads "Slack is
+unavailable: this Foundry cannot read its saved connection. An instance operator needs to check
+the secrets key." and its messages wait (given up after a day). Restore the key, or set the old
+one as `FOUNDRY_SECRETS_KEY_PREVIOUS`, and roll; the connection recovers without anyone
+reconnecting. If the key is truly lost, an admin reconnects Slack.
+
 ## Backing out a release
 
 For pre-1.0, the simplest correct path:

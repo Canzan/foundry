@@ -73,6 +73,8 @@ struct WorkspacePage {
     slack_line: Option<String>,
     not_set_up: bool,
     no_secrets_key: bool,
+    /// K-19: the saved connection cannot be read by this Foundry (DD-2).
+    unavailable: bool,
     activity: Vec<String>,
 }
 
@@ -731,6 +733,7 @@ async fn workspace_page(
         notice: notice.map(str::to_string),
         not_set_up: offer == SlackOffer::NotSetUp,
         no_secrets_key: offer == SlackOffer::NoSecretsKey,
+        unavailable: offer == SlackOffer::Unavailable && slack.is_some(),
         slack_line: slack,
         activity,
     };

@@ -31,3 +31,11 @@ data:
   # Deployment's terminationGracePeriodSeconds should be >= this value
   # + a small buffer.
   SHUTDOWN_GRACE_SECONDS: "15"
+  # external-integration-plugins — the delivery worker. Leave unset for
+  # the defaults (poll 1000 ms, lease 45 s, give up after 86400 s); a
+  # lease under 35 refuses start. FOUNDRY_INTEGRATIONS_WORKER=off runs a
+  # replica without the worker. SLACK_API_BASE_URL / SLACK_AUTHORIZE_URL
+  # are test seams: never set them in a cluster.
+  # FOUNDRY_INTEGRATIONS_POLL_MS: "1000"
+  # FOUNDRY_INTEGRATIONS_LEASE_SECONDS: "45"
+  # FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS: "86400"
