@@ -2422,6 +2422,21 @@ pub async fn when_slack_heals(world: &mut FoundryWorld) {
     slack(world).heal();
 }
 
+/// Foundry's call timeout towards Slack (`foundry-app` `integrations::slack`
+/// `CALL_TIMEOUT`, 10 s) plus a margin: after it, a send Slack never answered
+/// has been settled by Foundry (given up on, or scheduled to retry).
+const HUNG_SEND_SETTLES: Duration = Duration::from_secs(12);
+
+/// "Slack answers again and a minute passes": Slack heals, the send it left
+/// hanging times out on Foundry's side (real time), then the fake clock moves
+/// 60 s, past the 30 s retry, so a message still waiting would now be sent.
+pub async fn when_slack_heals_and_a_minute_passes(world: &mut FoundryWorld) {
+    capture_before(world).await;
+    slack(world).heal();
+    tokio::time::sleep(HUNG_SEND_SETTLES).await;
+    advance(world, Duration::from_secs(60)).await;
+}
+
 pub fn slack_next_answer(world: &mut FoundryWorld, channel: &str, answer: SlackAnswer) {
     let double = slack(world);
     match &answer {

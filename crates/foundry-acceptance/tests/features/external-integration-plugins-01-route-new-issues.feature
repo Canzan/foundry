@@ -118,7 +118,7 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     And Slack does not answer
     And Sam has filed "Expire stale LDAP sessions" in Identity Platform
     And 24 hours have passed without Slack answering
-    When Slack answers again
+    When Slack answers again and a minute passes
     Then nothing is posted to #auth-dev within 10 seconds
 
   @error @contract-shape:unbounded-preservation

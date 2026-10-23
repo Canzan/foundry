@@ -659,6 +659,11 @@ async fn when_slack_heals(world: &mut FoundryWorld) {
     eip::when_slack_heals(world).await;
 }
 
+#[when(regex = r"^Slack answers again and a minute passes$")]
+async fn when_slack_heals_and_a_minute_passes(world: &mut FoundryWorld) {
+    eip::when_slack_heals_and_a_minute_passes(world).await;
+}
+
 #[given(regex = r"^Slack will answer Foundry's next post to (#[\w-]+) with (.+)$")]
 async fn next_answer(world: &mut FoundryWorld, channel: String, answer: String) {
     eip::slack_next_answer(world, &channel, SlackAnswer::parse(&answer));
