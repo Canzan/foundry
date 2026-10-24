@@ -186,3 +186,18 @@ Feature: The operator keeps integrations safe and observable
     And both of Slack's posts for AUTH-12 carried the same message
     And the history of the route to #auth-dev reads "New issue · AUTH-12 · Delivered after 2 attempts"
     And the history of the route to #auth-dev lists AUTH-12 exactly once
+
+  # Live claim (DISTILL addendum, 2026-10-24; seeded fault A): both replicas
+  # keep running and Slack holds the first post, so the replica sending
+  # AUTH-12's message still holds its claim while it waits for Slack. The other
+  # replica must not send the message too. 131 cannot show this: its claimant
+  # stops, and the survivor's take-over reads the same whether it waited for
+  # the 45-second lease or not.
+  @us-eip-02 @eip-01 @eip-replica @error @contract-shape:bounded-change
+  Scenario: The other replica never sends a message a running replica is still sending
+    Given Foundry runs as two replicas on one database with the Foundry Slack app set up
+    And Priya has connected Canzan Labs to Slack
+    And Lena has routed New issue on Identity Platform to #auth-dev
+    And Slack holds Foundry's post without answering
+    When Sam files "Rotate LLDAP bind password" in Identity Platform
+    Then Slack is asked to post AUTH-12's message only once within 10 seconds

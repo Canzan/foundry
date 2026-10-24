@@ -3051,6 +3051,40 @@ pub async fn then_attempts(world: &mut FoundryWorld, channel: &str, key: &str, h
     }
 }
 
+/// "Slack is asked to post AUTH-12's message only once within 10 seconds":
+/// once Slack has been asked, the 10 s window is watched and the count must
+/// still be one. Slack is holding that post, so the replica that sent it still
+/// holds its live claim (the 45 s lease); the other replica must not take the
+/// delivery over and send it too. The window stays inside the claimant's own
+/// settle-and-retry (Foundry's 10 s call timeout, then `RetryPolicy::FIXED_30S`),
+/// so a correct Foundry asks Slack exactly once in it.
+pub async fn then_asked_once_within(world: &mut FoundryWorld, channel: &str, key: &str) {
+    slack_asked_to_post(
+        world,
+        channel,
+        &format!("Slack is asked to post {key}'s message"),
+    )
+    .await;
+    tokio::time::sleep(DELIVERY_BUDGET).await;
+    let asked: Vec<Instant> = slack(world)
+        .posts_to(channel)
+        .iter()
+        .filter(|m| key_line(m, key))
+        .map(|m| m.at)
+        .collect();
+    assert_eq!(
+        asked.len(),
+        1,
+        "Slack is asked to post {key}'s message only once while the replica sending it \
+         still holds its claim; it was asked {} times, {:?} after the first",
+        asked.len(),
+        asked
+            .iter()
+            .map(|t| t.saturating_duration_since(*asked.first().unwrap_or(t)))
+            .collect::<Vec<_>>()
+    );
+}
+
 /// "Open in Foundry opens AUTH-12 for Sam and gives Marco the not-found page".
 pub async fn then_link_opens(world: &mut FoundryWorld, channel: &str, key: &str) {
     let m = slack(world)

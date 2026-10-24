@@ -689,6 +689,11 @@ async fn attempts(world: &mut FoundryWorld, key: String, how: String) {
     eip::then_attempts(world, "#auth-dev", &key, &how).await;
 }
 
+#[then(regex = r"^Slack is asked to post (AUTH-\d+)'s message only once within 10 seconds$")]
+async fn asked_once_within(world: &mut FoundryWorld, key: String) {
+    eip::then_asked_once_within(world, "#auth-dev", &key).await;
+}
+
 // =========================================================================== Board actions
 
 #[when(regex = r#"^(Sam|Lena) files "([^"]+)" in (Identity Platform|Homelab Ops)$"#)]
