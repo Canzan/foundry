@@ -4,6 +4,6 @@
 <h1>{{ project_name }} integrations</h1>
 <p><a class="button" href="{{ new_route_path }}">New route</a></p>
 <ul data-routes>
-  {% for route in routes %}<li data-route-destination="{{ route.destination_label }}" data-route-id="{{ route.id }}"><span data-route-label>{{ route.destination_label }}</span> · <span data-route-status>{{ route.status }}</span></li>{% endfor %}
+  {% for route in routes %}<li data-route-destination="{{ route.destination_label }}" data-route-id="{{ route.id }}"><span data-route-label>{{ route.destination_label }}</span> · <span data-route-status>{{ route.status }}</span> · <a href="{{ route.history_path }}" data-route-history>History</a></li>{% endfor %}
 </ul>
 {% endblock %}

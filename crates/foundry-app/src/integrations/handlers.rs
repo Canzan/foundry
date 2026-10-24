@@ -101,6 +101,7 @@ struct RouteLine {
     id: uuid::Uuid,
     destination_label: String,
     status: String,
+    history_path: String,
 }
 
 #[derive(Template)]
@@ -251,7 +252,7 @@ pub async fn show_workspace(
     headers: HeaderMap,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
-        return resource_not_found_page();
+        return sign_in();
     };
     workspace_page(&state, &caller, &headers, None).await
 }
@@ -262,7 +263,7 @@ pub async fn show_slack_setup(
     headers: HeaderMap,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
-        return resource_not_found_page();
+        return sign_in();
     };
     if let Err(err) = caller
         .services
@@ -285,7 +286,7 @@ pub async fn start_slack_install(
     headers: HeaderMap,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
-        return resource_not_found_page();
+        return sign_in();
     };
     if let Err(err) = caller
         .services
@@ -313,7 +314,7 @@ pub async fn finish_slack_install(
     Query(returned): Query<SlackReturn>,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
-        return resource_not_found_page();
+        return sign_in();
     };
     let principal = caller.principal();
     if let Err(err) = caller.services.require_workspace_admin(&principal).await {
@@ -351,7 +352,7 @@ pub async fn show_project(
     Path((team_slug, project_slug)): Path<(String, String)>,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
-        return resource_not_found_page();
+        return sign_in();
     };
     let view = caller
         .services
@@ -364,15 +365,16 @@ pub async fn show_project(
         Ok(view) => view,
         Err(err) => return refusal(err),
     };
+    let base = base_path(&team_slug, &project_slug);
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
     let page = ProjectPage {
         nav: caller.nav(&state, csrf).await,
         project_name,
-        new_route_path: format!(
-            "{}/routes/new?kind=slack",
-            base_path(&team_slug, &project_slug)
-        ),
-        routes: routes.iter().map(route_line).collect(),
+        new_route_path: format!("{base}/routes/new?kind=slack"),
+        routes: routes
+            .iter()
+            .map(|route| route_line(route, &base))
+            .collect(),
     };
     render(page.render(), set_cookie)
 }
@@ -384,7 +386,7 @@ pub async fn show_route_history(
     Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
-        return resource_not_found_page();
+        return sign_in();
     };
     let Ok(route_id) = uuid::Uuid::parse_str(&route_id) else {
         return resource_not_found_page();
@@ -426,7 +428,7 @@ pub async fn show_new_route(
     Query(query): Query<NewRouteQuery>,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
-        return resource_not_found_page();
+        return sign_in();
     };
     let door = match RouteDoor::open(&state, &caller, &team_slug, &project_slug).await {
         Ok(door) => door,
@@ -451,7 +453,7 @@ pub async fn send_test(
     Form(fields): Form<Vec<(String, String)>>,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
-        return resource_not_found_page();
+        return sign_in();
     };
     let door = match RouteDoor::open(&state, &caller, &team_slug, &project_slug).await {
         Ok(door) => door,
@@ -516,7 +518,7 @@ pub async fn create_route(
     Form(fields): Form<Vec<(String, String)>>,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
-        return resource_not_found_page();
+        return sign_in();
     };
     let door = match RouteDoor::open(&state, &caller, &team_slug, &project_slug).await {
         Ok(door) => door,
@@ -678,8 +680,9 @@ fn base_path(team_slug: &str, project_slug: &str) -> String {
     format!("/team/{team_slug}/project/{project_slug}/integrations")
 }
 
-/// A stored route and its K-9 status, derived (DDR-19).
-fn route_line(route: &ProjectRoute) -> RouteLine {
+/// A stored route, its K-9 status (derived, DDR-19) and its history page
+/// under the project's integrations path `base`.
+fn route_line(route: &ProjectRoute, base: &str) -> RouteLine {
     let facts = RouteFacts {
         kind: ChannelKind::from_wire_name(&route.kind).unwrap_or(ChannelKind::Slack),
         paused: route.paused,
@@ -709,6 +712,7 @@ fn route_line(route: &ProjectRoute) -> RouteLine {
         id: route.id,
         destination_label: route.destination_label.clone(),
         status: RouteStatus::derive(&facts).words(&route.destination_label),
+        history_path: format!("{base}/routes/{}/history", route.id),
     }
 }
 
@@ -817,6 +821,13 @@ async fn workspace_page(
         activity,
     };
     render(page.render(), set_cookie)
+}
+
+/// A signed-out visitor goes to sign in, as from any page that needs a
+/// session (the shipped `redirect_to("/sign-in")`: 303, `Location: /sign-in`).
+/// The uniform not-found (SC-6) is for signed-in people without the right.
+fn sign_in() -> Response {
+    Redirect::to("/sign-in").into_response()
 }
 
 fn refusal(err: IntegrationError) -> Response {

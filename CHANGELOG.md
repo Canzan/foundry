@@ -45,7 +45,13 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   after 2 attempts (Slack asked Foundry to slow down)", "Retrying (Slack did not answer) · next
   attempt 16:15", "Failed: gave up after 24 hours (Slack did not answer)". It never shows Slack's
   own text or a credential. Team leads and workspace admins see it; anyone else gets the usual
-  not-found page.
+  not-found page. Each route on the project's integrations page links to its **History**.
+- **Signed-out visitors are sent to sign in from the integration pages**: the workspace
+  integrations page, the Slack setup page, Add to Slack and Slack's return, a project's
+  integrations page, route history, the route form, Send test and saving a route now answer a
+  signed-out visitor with the redirect to `/sign-in` that every other page needing a session
+  gives, instead of the not-found page. Signed-in people without the right still get the usual
+  not-found page; Slack's events address and the email stop link stay public.
 
 ### Operators
 
