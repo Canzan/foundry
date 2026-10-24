@@ -1047,6 +1047,25 @@ pub struct DeliveryContext {
     pub destination_ref: String,
     pub project: Option<DeliveryProject>,
     pub issue: Option<DeliveryIssue>,
+    /// What the event's outbox row recorded as it happened.
+    pub event: DeliveryEvent,
+}
+
+/// An event as its (first) outbox row recorded it (ADR-EIP-003): lanes are
+/// the lanes it named, by their current label (a lane gone reads as its
+/// slug); the actor is who acted. Every field is `None` when the row did not
+/// record it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveryEvent {
+    /// How many outbox rows the delivery stands for: more than one is a
+    /// burst (D-11).
+    pub issue_count: usize,
+    pub issue_number: Option<i32>,
+    /// A deleted issue's title.
+    pub title: Option<String>,
+    pub lane_label: Option<String>,
+    pub from_lane_label: Option<String>,
+    pub actor_name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1065,11 +1084,18 @@ pub struct DeliveryIssue {
     pub author_name: Option<String>,
 }
 
+/// The delivery, its route, the project and issue now, and the event as its
+/// first outbox row recorded it (lanes by slug; [`LANE_LABELS_SQL`] reads
+/// their labels now). A move row written before `from_state` was
+/// added (a rolling deploy) finds its from-lane in the status change the same
+/// transaction wrote (ADR-EIP-003 decision 4).
 const DELIVERY_CONTEXT_SQL: &str = "
     SELECT d.event_kind, d.give_up_at, r.kind, r.content_level,
            r.paused_at IS NOT NULL, r.connection_id, c.state, r.destination_ref,
-           d.project_id, p.name, p.key_prefix, p.slug, t.slug,
-           i.number, i.title, i.state, u.display_name
+           p.name, p.key_prefix, p.slug, t.slug,
+           i.number, i.title, i.state, u.display_name,
+           cardinality(d.outbox_ids), (o.payload->>'number')::int, o.payload->>'title',
+           o.payload->>'state', ef.slug, a.display_name, d.project_id
       FROM integration_deliveries d
       JOIN integration_routes r ON r.id = d.route_id
       LEFT JOIN integration_connections c ON c.id = r.connection_id
@@ -1077,7 +1103,21 @@ const DELIVERY_CONTEXT_SQL: &str = "
       LEFT JOIN teams t ON t.id = p.team_id
       LEFT JOIN issues i ON i.id = d.issue_id AND i.project_id = d.project_id
       LEFT JOIN users u ON u.id = i.author_id
+      LEFT JOIN outbox o ON o.id = d.outbox_ids[1]
+      LEFT JOIN LATERAL (
+          SELECT COALESCE(o.payload->>'from_state', (
+                     SELECT e.old_value FROM issue_change_events e
+                      WHERE o.event_type = 'IssueUpdated' AND e.issue_id = d.issue_id
+                        AND e.field = 'status' AND e.new_value = o.payload->>'state'
+                        AND e.created_at <= o.created_at
+                      ORDER BY e.created_at DESC LIMIT 1)) AS slug
+      ) ef ON true
+      LEFT JOIN users a ON a.id = (o.payload->>'author_id')::uuid
      WHERE d.id = $1";
+
+/// The current labels of a project's lanes, by slug.
+const LANE_LABELS_SQL: &str =
+    "SELECT slug, label FROM lanes WHERE project_id = $1 AND slug = ANY($2)";
 
 /// `workspace_connections`' row as Postgres answers it.
 type ConnectionTuple = (
@@ -1320,7 +1360,8 @@ impl Store {
     }
 
     /// What a sender needs to attempt `delivery_id`, read now: the route, its
-    /// connection, the project (through `live_projects`) and the issue.
+    /// connection, the project (through `live_projects`), the issue and the
+    /// event as its outbox row recorded it, in one query.
     pub async fn delivery_context(
         &self,
         delivery_id: i64,
@@ -1333,15 +1374,14 @@ impl Store {
         else {
             return Ok(None);
         };
-        let project_id: Uuid = row.try_get(8)?;
-        let project_name: Option<String> = row.try_get(9)?;
-        let key_prefix: Option<String> = row.try_get(10)?;
-        let project_slug: Option<String> = row.try_get(11)?;
-        let team_slug: Option<String> = row.try_get(12)?;
-        let number: Option<i32> = row.try_get(13)?;
-        let title: Option<String> = row.try_get(14)?;
-        let state: Option<String> = row.try_get(15)?;
-        let author_name: Option<String> = row.try_get(16)?;
+        let project_name: Option<String> = row.try_get(8)?;
+        let key_prefix: Option<String> = row.try_get(9)?;
+        let project_slug: Option<String> = row.try_get(10)?;
+        let team_slug: Option<String> = row.try_get(11)?;
+        let number: Option<i32> = row.try_get(12)?;
+        let title: Option<String> = row.try_get(13)?;
+        let issue_lane: Option<String> = row.try_get(14)?;
+        let author_name: Option<String> = row.try_get(15)?;
         let project = match (project_name, key_prefix, project_slug) {
             (Some(name), Some(key_prefix), Some(slug)) => Some(DeliveryProject {
                 name,
@@ -1351,23 +1391,44 @@ impl Store {
             }),
             _ => None,
         };
-        let issue = match (number, title, state) {
-            (Some(number), Some(title), Some(state)) => {
-                let lane_label: Option<String> = sqlx::query_scalar(
-                    "SELECT label FROM lanes WHERE project_id = $1 AND slug = $2",
-                )
-                .bind(project_id)
-                .bind(&state)
-                .fetch_optional(&self.pool)
-                .await?;
-                Some(DeliveryIssue {
-                    number,
-                    title,
-                    lane_label: lane_label.unwrap_or(state),
-                    author_name,
-                })
-            }
+        let event_lane: Option<String> = row.try_get(19)?;
+        let from_lane: Option<String> = row.try_get(20)?;
+        let project_id: Uuid = row.try_get(22)?;
+        let slugs: Vec<&String> = [&issue_lane, &event_lane, &from_lane]
+            .into_iter()
+            .flatten()
+            .collect();
+        let labels: Vec<(String, String)> = sqlx::query_as(LANE_LABELS_SQL)
+            .bind(project_id)
+            .bind(&slugs)
+            .fetch_all(&self.pool)
+            .await?;
+        // A lane gone since reads as its slug.
+        let label_of = |slug: Option<String>| {
+            slug.map(|slug| {
+                labels
+                    .iter()
+                    .find(|(known, _)| *known == slug)
+                    .map_or(slug.clone(), |(_, label)| label.clone())
+            })
+        };
+        let issue = match (number, title, label_of(issue_lane)) {
+            (Some(number), Some(title), Some(lane_label)) => Some(DeliveryIssue {
+                number,
+                title,
+                lane_label,
+                author_name,
+            }),
             _ => None,
+        };
+        let issue_count: i32 = row.try_get(16)?;
+        let event = DeliveryEvent {
+            issue_count: usize::try_from(issue_count).unwrap_or(1),
+            issue_number: row.try_get(17)?,
+            title: row.try_get(18)?,
+            lane_label: label_of(event_lane),
+            from_lane_label: label_of(from_lane),
+            actor_name: row.try_get(21)?,
         };
         Ok(Some(DeliveryContext {
             delivery_id,
@@ -1381,6 +1442,7 @@ impl Store {
             destination_ref: row.try_get(7)?,
             project,
             issue,
+            event,
         }))
     }
 }

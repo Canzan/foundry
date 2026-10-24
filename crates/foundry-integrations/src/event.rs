@@ -1,5 +1,7 @@
 //! The closed v1 event catalogue (DDR-7, ADR-EIP-003).
 
+use crate::ChannelKind;
+
 /// A routable board event. Closed: the six shipped outbox types, each with
 /// one wire name. A reorder is not an event, and an unknown outbox type maps
 /// to none (it is skipped, never guessed).
@@ -51,6 +53,28 @@ impl EventKind {
             .iter()
             .find(|(kind, _, _)| *kind == self)
             .map_or("", |(_, _, name)| name)
+    }
+
+    /// Whether a route of `kind` is ever given this event (ADR-EIP-003
+    /// decision 1): chat and email take New issue, Issue moved, Issue deleted
+    /// and New comment; a webhook (deliverable C) takes all six. A comment's
+    /// edit or delete therefore never posts to chat.
+    pub fn announced_to(self, kind: ChannelKind) -> bool {
+        kind == ChannelKind::Webhook
+            || !matches!(self, EventKind::CommentEdited | EventKind::CommentDeleted)
+    }
+
+    /// Whether a message about this event can still be sent once its issue is
+    /// gone: only a delete's, which carries its own title and actor.
+    pub fn outlives_its_issue(self) -> bool {
+        self == EventKind::IssueDeleted
+    }
+
+    /// Whether a delivery standing for `issue_count` events of this kind is
+    /// still sent once its issue is gone: a delete, or a burst (D-11), which
+    /// names no one issue.
+    pub fn sendable_without_its_issue(self, issue_count: usize) -> bool {
+        self.outlives_its_issue() || issue_count > 1
     }
 
     /// The event as a person reads it, e.g. "New issue" (D-2).

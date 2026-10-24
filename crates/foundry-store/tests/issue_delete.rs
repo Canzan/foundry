@@ -97,6 +97,7 @@ impl Seed {
             workspace_id: self.workspace_id,
             project_id: self.project_id,
             key_prefix: "GEN".to_string(),
+            actor_id: self.actor_id,
         }
     }
 }

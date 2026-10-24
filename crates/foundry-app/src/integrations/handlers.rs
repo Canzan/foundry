@@ -126,6 +126,7 @@ struct RouteFormPage {
     no_connection: bool,
     channels: Vec<Choice>,
     events: Vec<Choice>,
+    lanes: Vec<Choice>,
     levels: Vec<Choice>,
     private_channels: &'static str,
     no_chat_connection: &'static str,
@@ -648,6 +649,16 @@ impl RouteDoor {
             events: choices(&EVENT_CHOICES, |value| {
                 form.events.iter().any(|e| e == value)
             }),
+            lanes: self
+                .target
+                .lanes
+                .iter()
+                .map(|lane| Choice {
+                    chosen: form.lanes.contains(&lane.slug),
+                    value: lane.slug.clone(),
+                    label: lane.label.clone(),
+                })
+                .collect(),
             levels: choices(&LEVEL_CHOICES, |value| form.content_level == value),
             private_channels: PRIVATE_CHANNELS,
             no_chat_connection: NO_CHAT_CONNECTION,

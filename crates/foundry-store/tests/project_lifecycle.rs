@@ -1146,6 +1146,7 @@ async fn run_writer(store: Store, w: Writer, t: Arc<Target>) -> (bool, String) {
                 workspace_id: t.ws,
                 project_id: t.project,
                 key_prefix: t.key.clone(),
+                actor_id: t.actor,
             };
             let r = store
                 .delete_issue_with_outbox(&ctx, t.issue.0, t.issue.1)

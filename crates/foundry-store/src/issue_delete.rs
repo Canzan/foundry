@@ -18,9 +18,11 @@
 //!   than falsely announced. The insert rides the caller's transaction, so a
 //!   committed delete cannot fail to announce itself and a rolled-back one
 //!   announces nothing (AC-3.1/AC-3.7).
-//! - The payload uses ONLY fields `EventPayload` already declares: this is a
-//!   zero-field addition (realtime-roadmap invariant 4 / DDD-12).
-//!   `schema_version` stays 1 and `foundry-realtime` is untouched. `key` is
+//! - The payload adds `author_id` (the deleting actor) and `title` (from
+//!   `RETURNING`) for external-integration-plugins (ADR-EIP-003 decision 3):
+//!   a message about a delete needs both after the row is gone. `EventPayload`
+//!   ignores fields it does not declare, so `schema_version` stays 1 and
+//!   `foundry-realtime` is untouched. `key` is
 //!   composed as `{key_prefix}-{number}` from the caller's context plus the
 //!   number `RETURNING` hands back — after the delete there is no row left to
 //!   compose it from.
@@ -39,6 +41,8 @@ pub struct IssueDeleteContext {
     /// The project's key prefix (e.g. `AUTH`) — composes the payload's `key`
     /// as `{key_prefix}-{number}`, exactly as `move_cards_to_destination` does.
     pub key_prefix: String,
+    /// Who deletes: the payload's `author_id` (ADR-EIP-003 decision 3).
+    pub actor_id: uuid::Uuid,
 }
 
 /// Delete the named issues on the caller's transaction and announce each one
@@ -59,26 +63,27 @@ pub async fn delete_issues_with_outbox(
         return Ok(0);
     }
     let ids: Vec<uuid::Uuid> = cards.iter().map(|(id, _)| *id).collect();
-    let removed: Vec<(uuid::Uuid, i32)> =
-        sqlx::query_as("DELETE FROM issues WHERE id = ANY($1) RETURNING id, number")
+    let removed: Vec<(uuid::Uuid, i32, String)> =
+        sqlx::query_as("DELETE FROM issues WHERE id = ANY($1) RETURNING id, number, title")
             .bind(&ids)
             .fetch_all(&mut **tx)
             .await?;
 
-    for (issue_id, number) in &removed {
-        announce_deleted(tx, ctx, *issue_id, *number).await?;
+    for (issue_id, number, title) in &removed {
+        announce_deleted(tx, ctx, *issue_id, *number, title).await?;
     }
     Ok(removed.len() as u64)
 }
 
 /// One `IssueDeleted` row for one card that is already gone from `issues`.
 /// Mirrors `lanes.rs::move_cards_to_destination`'s emit shape, with
-/// `deleted: true` in place of `state`/`author_id`.
+/// `deleted: true` and the gone issue's `title` in place of `state`.
 async fn announce_deleted(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     ctx: &IssueDeleteContext,
     issue_id: uuid::Uuid,
     number: i32,
+    title: &str,
 ) -> Result<(), StoreError> {
     let key_prefix = &ctx.key_prefix;
     let payload = serde_json::json!({
@@ -88,6 +93,8 @@ async fn announce_deleted(
         "number": number,
         "key": format!("{key_prefix}-{number}"),
         "deleted": true,
+        "author_id": ctx.actor_id,
+        "title": title,
     });
     sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueDeleted', $1)")
         .bind(payload)

@@ -413,25 +413,39 @@ fn queued(deliveries: &[PendingDelivery]) -> Vec<QueuedDelivery> {
         .collect()
 }
 
-/// The event as a message may show it, or `None` when its issue or project
-/// is gone (or the project has no team to address it by).
+/// The event as a message may show it: as it happened (its lanes, its actor,
+/// a deleted issue's title, from its outbox row), with the names read now
+/// (D-8). `None` when its project is gone (or has no team to address it by),
+/// or its issue is gone and the event cannot be told without it.
 fn event_view(integrations: &Integrations, context: &DeliveryContext) -> Option<EventView> {
     let project = context.project.as_ref()?;
-    let issue = context.issue.as_ref()?;
     let team_slug = project.team_slug.as_deref()?;
+    let kind = EventKind::from_wire_name(&context.event_kind)?;
+    let event = &context.event;
+    let issue = context.issue.as_ref();
+    if issue.is_none() && !kind.sendable_without_its_issue(event.issue_count) {
+        return None;
+    }
+    let number = event.issue_number.or(issue.map(|i| i.number)).unwrap_or(0);
+    let either =
+        |first: Option<&String>, then: Option<&String>| first.or(then).cloned().unwrap_or_default();
     Some(EventView {
-        kind: EventKind::from_wire_name(&context.event_kind)?,
-        issue_key: format!("{}-{}", project.key_prefix, issue.number),
-        title: issue.title.clone(),
+        kind,
+        issue_key: format!("{}-{number}", project.key_prefix),
+        title: either(issue.map(|i| &i.title), event.title.as_ref()),
         project_name: project.name.clone(),
-        actor_name: issue.author_name.clone().unwrap_or_default(),
-        lane_label: issue.lane_label.clone(),
+        actor_name: either(
+            event.actor_name.as_ref(),
+            issue.and_then(|i| i.author_name.as_ref()),
+        ),
+        lane_label: either(event.lane_label.as_ref(), issue.map(|i| &i.lane_label)),
+        from_lane_label: either(event.from_lane_label.as_ref(), None),
         issue_url: format!(
-            "{}/team/{team_slug}/project/{}/issues/{}",
+            "{}/team/{team_slug}/project/{}/issues/{number}",
             integrations.settings().public_url,
             project.slug,
-            issue.number
         ),
+        issue_count: event.issue_count,
     })
 }
 

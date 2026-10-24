@@ -21,6 +21,16 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` (all three or none, else Foundry refuses to
   start), `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL`, `FOUNDRY_SECRETS_KEY` (+`_PREVIOUS`; a
   malformed key refuses start, a missing one leaves Slack unoffered).
+- **Issue moved, Issue deleted and New comment events on chat routes**: a route now posts each
+  event it chose: "Moved In progress → Done by Sam Okafor · Identity Platform", "Lena Park
+  commented · Identity Platform", and "Deleted by Lena Park · Identity Platform" (a deleted
+  issue's message has no Open in Foundry). Every message reads the event as it happened (the lane
+  an issue was filed in, the lanes of a move, who acted), with project and lane names as they
+  read now. Reordering cards inside a lane, and editing or deleting a comment, post nothing. One
+  action that touches more than five issues posts one message, e.g. "7 issues deleted from
+  Identity Platform by Lena Park" or "7 issues moved to Todo in Identity Platform by Lena Park".
+  The issue-created, issue-moved and issue-deleted outbox payloads gain `state`, `from_state`,
+  and `author_id` with `title`.
 - **Project routes to Slack channels, with Send test**: on a project's integrations page a team
   lead or workspace admin chooses **New route**, picks a channel (the picker lists the public
   channels and the private channels Foundry was invited to) and the events, and can **Send test**

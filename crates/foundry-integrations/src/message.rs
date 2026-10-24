@@ -7,17 +7,26 @@
 use crate::{ContentLevel, EncodedMessage, EventKind};
 use serde_json::json;
 
-/// The facts of one event a message may carry, read at send time.
+/// The facts of one event a message may carry: what the event recorded as it
+/// happened (its lanes, its actor, a deleted issue's title), and the names
+/// read at send time (D-8).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventView {
     pub kind: EventKind,
     pub issue_key: String,
+    /// Empty when a deleted issue's title was never recorded.
     pub title: String,
     pub project_name: String,
+    /// Empty when the actor is unknown.
     pub actor_name: String,
+    /// The lane the event put the issue in (filed in, moved to).
     pub lane_label: String,
+    /// The lane a move took the issue from; empty for any other event.
+    pub from_lane_label: String,
     /// The issue's address in Foundry (Open in Foundry).
     pub issue_url: String,
+    /// How many issues one action touched: more than one is a burst (D-11).
+    pub issue_count: usize,
 }
 
 /// A message's lines: a headline, an optional detail line and the button.
@@ -31,10 +40,21 @@ pub struct MessageLines {
 /// The button's label (K-8).
 pub const OPEN_IN_FOUNDRY: &str = "Open in Foundry";
 
+/// Who an unknown actor reads as (ADR-EIP-003 decision 4).
+const UNKNOWN_ACTOR: &str = "A Foundry member";
+
 /// The lines for `view` at `level` (K-8). Link only carries the key and the
-/// button; Summary adds the title and the event line.
+/// button; Summary adds the title and the event line. A burst is its one
+/// summary line (D-11), and neither a burst nor a deleted issue has a link.
 pub fn compose(view: &EventView, level: ContentLevel) -> MessageLines {
-    let link = Some(view.issue_url.clone());
+    if view.issue_count > 1 {
+        return MessageLines {
+            headline: burst_line(view),
+            detail: None,
+            link: None,
+        };
+    }
+    let link = (!view.kind.outlives_its_issue()).then(|| view.issue_url.clone());
     if level == ContentLevel::LinkOnly {
         return MessageLines {
             headline: view.issue_key.clone(),
@@ -43,26 +63,50 @@ pub fn compose(view: &EventView, level: ContentLevel) -> MessageLines {
         };
     }
     MessageLines {
-        headline: format!("{} {}", view.issue_key, view.title),
+        headline: [view.issue_key.as_str(), view.title.as_str()]
+            .join(" ")
+            .trim_end()
+            .to_string(),
         detail: Some(event_line(view)),
         link,
     }
 }
 
+fn actor(view: &EventView) -> &str {
+    match view.actor_name.as_str() {
+        "" => UNKNOWN_ACTOR,
+        name => name,
+    }
+}
+
 fn event_line(view: &EventView) -> String {
+    let (actor, project) = (actor(view), &view.project_name);
     match view.kind {
-        EventKind::IssueCreated => format!(
-            "New issue in {} by {} · {}",
-            view.project_name, view.actor_name, view.lane_label
-        ),
-        EventKind::IssueDeleted => {
-            format!("Deleted by {} · {}", view.actor_name, view.project_name)
+        EventKind::IssueCreated => {
+            format!("New issue in {project} by {actor} · {}", view.lane_label)
         }
-        EventKind::IssueMoved
-        | EventKind::CommentAdded
-        | EventKind::CommentEdited
-        | EventKind::CommentDeleted => {
-            format!("{} · {}", view.actor_name, view.project_name)
+        EventKind::IssueMoved => format!(
+            "Moved {} → {} by {actor} · {project}",
+            view.from_lane_label, view.lane_label
+        ),
+        EventKind::IssueDeleted => format!("Deleted by {actor} · {project}"),
+        EventKind::CommentAdded => format!("{actor} commented · {project}"),
+        EventKind::CommentEdited | EventKind::CommentDeleted => format!("{actor} · {project}"),
+    }
+}
+
+/// D-11's one line for a burst; R-10 for moves.
+fn burst_line(view: &EventView) -> String {
+    let (count, actor, project) = (view.issue_count, actor(view), &view.project_name);
+    match view.kind {
+        EventKind::IssueDeleted => format!("{count} issues deleted from {project} by {actor}"),
+        EventKind::IssueMoved => format!(
+            "{count} issues moved to {} in {project} by {actor}",
+            view.lane_label
+        ),
+        EventKind::IssueCreated => format!("{count} new issues in {project} by {actor}"),
+        EventKind::CommentAdded | EventKind::CommentEdited | EventKind::CommentDeleted => {
+            format!("{count} comments in {project} by {actor}")
         }
     }
 }

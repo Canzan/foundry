@@ -1980,6 +1980,9 @@ impl Store {
             "number": number,
             "key": format!("{project_key_prefix}-{number}"),
             "author_id": author_id,
+            // The lane it was filed in, so a message about it reads the lane
+            // as it happened (external-integration-plugins, ADR-EIP-003).
+            "state": state,
         });
         sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueCreated', $1)")
             .bind(payload)
@@ -2157,6 +2160,8 @@ impl Store {
                 "number": issue_number,
                 "key": format!("{project_key_prefix}-{issue_number}"),
                 "state": new_state,
+                // The lane it left (ADR-EIP-003 decision 3): "from → to".
+                "from_state": old_state,
                 "author_id": actor_id,
             });
             sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueUpdated', $1)")

@@ -5,12 +5,14 @@
 //! shells (worker loops, handlers, store transactions) only apply its plans:
 //!
 //! - [`DispatchPlan::build`] turns committed outbox rows and live routes into
-//!   the deliveries to queue (DDR-7, DDR-8, DDR-27);
+//!   the deliveries to queue (DDR-7, DDR-8, DDR-27): the events a route's
+//!   kind is given, never a reorder, more than five of one kind from one
+//!   action as one burst (D-11);
 //! - [`claimable_head`] chooses the one delivery a sender may claim on a
 //!   route, and [`expiry_set`] the deliveries the expiry sweep fails
 //!   (ADR-EIP-002 decisions 4 and 9);
-//! - [`compose`] decides a message's lines and [`encode_slack`] places them
-//!   (D-3, DDR-12); [`classify_slack`] reads Slack's answer;
+//! - [`compose`] decides a message's lines from the event as it happened
+//!   and [`encode_slack`] places them (D-3, D-11, DDR-12); [`classify_slack`] reads Slack's answer;
 //! - [`RetryPolicy::next`] schedules a retry, never past the give-up time;
 //! - [`RouteStatus::derive`] gives a route's K-9 status (DDR-19), and
 //!   [`DeliveryRecord::line`] a delivery's history line.

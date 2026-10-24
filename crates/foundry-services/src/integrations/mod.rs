@@ -143,6 +143,16 @@ pub struct RouteTarget {
     pub project_name: String,
     pub key_prefix: String,
     pub connection: Option<SealedConnection>,
+    /// The project's lanes, board order: what Issue moved can be limited to.
+    pub lanes: Vec<TargetLane>,
+}
+
+/// One lane a route's Issue moved can be limited to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetLane {
+    pub id: Uuid,
+    pub slug: String,
+    pub label: String,
 }
 
 /// A route's history page facts.
@@ -317,12 +327,23 @@ pub(crate) async fn route_target(
         .sealed_connection(principal.workspace_id(), SLACK)
         .await?
         .filter(|c| c.state != "disconnected");
+    let lanes = records
+        .project_lanes(project.id)
+        .await?
+        .into_iter()
+        .map(|lane| TargetLane {
+            id: lane.id,
+            slug: lane.slug,
+            label: lane.label,
+        })
+        .collect();
     Ok(RouteTarget {
         workspace_id: principal.workspace_id(),
         project_id: project.id,
         project_name: project.name,
         key_prefix: project.key_prefix,
         connection,
+        lanes,
     })
 }
 
@@ -347,12 +368,12 @@ pub(crate) async fn create_route(
     if !events_ok || !CONTENT_LEVELS.contains(&draft.content_level.as_str()) {
         return Err(IntegrationError::NotFound);
     }
-    let project_lanes = records.project_lanes(target.project_id).await?;
     let lanes = draft
         .lanes
         .iter()
         .map(|slug| {
-            project_lanes
+            target
+                .lanes
                 .iter()
                 .find(|lane| &lane.slug == slug)
                 .map(|lane| RouteLane {

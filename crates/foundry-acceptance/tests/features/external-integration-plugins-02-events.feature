@@ -62,7 +62,7 @@ Feature: A team lead chooses exactly which events a route carries
       | New comment   | Lena comments "Can you verify the Grafana login?" on AUTH-7 | AUTH-7 Move Grafana sign-in to Keycloak | Lena Park commented · Identity Platform                | with Open in Foundry  |
       | Issue deleted | Lena deletes AUTH-9                                      | AUTH-9 Retire the old bind account       | Deleted by Lena Park · Identity Platform                 | without a link        |
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: Reordering cards within a lane posts nothing
     Given Lena has routed every chat event on Identity Platform to #auth-dev
     When Sam moves AUTH-9 above AUTH-8 inside Todo
@@ -80,13 +80,13 @@ Feature: A team lead chooses exactly which events a route carries
       | edits   |
       | deletes |
 
-  @pending @edge @contract-shape:pure-function
+  @edge @contract-shape:pure-function
   Scenario: The route form offers exactly the chat events Foundry announces
     When Lena opens a new Slack route on Identity Platform
     Then the route form offers the events New issue, Issue moved, New comment and Issue deleted, and no other
     And Issue moved offers the lanes Backlog, Todo, In progress, QA, Done and Spikes to limit it to
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: A route with no event chosen is not saved
     Given Lena is creating a Slack route from Identity Platform to #auth-dev with no event chosen
     When Lena saves the route

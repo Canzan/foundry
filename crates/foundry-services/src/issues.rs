@@ -515,6 +515,7 @@ pub async fn delete_issue(
         workspace_id: issue.workspace_id,
         project_id: issue.project_id,
         key_prefix: issue.project_key_prefix,
+        actor_id: principal.user_id(),
     };
 
     match store

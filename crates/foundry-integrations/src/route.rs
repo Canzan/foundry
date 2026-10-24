@@ -27,6 +27,7 @@ impl RouteSpec {
     pub(crate) fn receives(&self, event: &RoutableEvent<'_>) -> bool {
         self.project_id == event.project_id
             && self.events.contains(&event.kind)
+            && event.kind.announced_to(self.kind)
             && self.is_open()
             && self.receives_from <= event.occurred_at
     }

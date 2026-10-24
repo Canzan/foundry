@@ -47,16 +47,6 @@ pending!(
     "proptest over arbitrary text: no markup or header injection"
 );
 // dispatch plan (DDR-7, DDR-8).
-pending!(
-    dispatch_plan_has_no_reorder_event,
-    "02-01",
-    "proptest: an in-lane reposition never becomes an event"
-);
-pending!(
-    dispatch_plan_bursts_more_than_five_per_source_transaction,
-    "02-01",
-    "proptest: more than 5 same-kind rows of one source transaction make one burst entry per route"
-);
 // retry policy (DDR-5).
 pending!(
     retry_policy_never_schedules_past_give_up,
@@ -161,7 +151,8 @@ fn outbox_rows() -> impl Strategy<Value = Vec<OutboxRow>> {
                     OutboxRow {
                         id: 100 + index as i64,
                         event_id: Uuid::from_u128(0x4000 + index as u128),
-                        source_txid: 7,
+                        // One transaction per row: bursts are their own property.
+                        source_txid: index as u64,
                         event_type: OUTBOX_TYPES[type_index].to_string(),
                         payload: serde_json::json!({
                             "issue_id": issue_id,
@@ -177,9 +168,9 @@ fn outbox_rows() -> impl Strategy<Value = Vec<OutboxRow>> {
     )
 }
 
-/// Generated routes, each with whether its stored wire names choose a New
-/// issue (read from the wire text, not through the catalogue under test).
-fn route_specs() -> impl Strategy<Value = Vec<(RouteSpec, bool)>> {
+/// Generated routes, each with its stored wire names (read as text, not
+/// through the catalogue under test).
+fn route_specs() -> impl Strategy<Value = Vec<(RouteSpec, Vec<&'static str>)>> {
     let route = (
         0usize..3,
         proptest::sample::subsequence(WIRE_NAMES.to_vec(), 0..=WIRE_NAMES.len()),
@@ -207,21 +198,36 @@ fn route_specs() -> impl Strategy<Value = Vec<(RouteSpec, bool)>> {
                     receives_from: at(from),
                     lane_ids: Vec::new(),
                 };
-                (spec, wires.contains(&"issue.created"))
+                (spec, wires)
             })
             .collect()
     })
 }
 
-/// The pairs a route of slice 01 receives: a New issue of its own project
-/// that it chose, written at or after its `receives_from` (DDR-27), while it
-/// is not paused and its connection is not disconnected.
-fn expected_pairs(rows: &[OutboxRow], routes: &[(RouteSpec, bool)]) -> BTreeSet<(i64, Uuid)> {
+/// The wire name a chat route knows an outbox type by: the four chat events
+/// of D-2 (ADR-EIP-003); comment edits and deletes, and unknown types, none.
+fn chat_wire(event_type: &str) -> Option<&'static str> {
+    match event_type {
+        "IssueCreated" => Some("issue.created"),
+        "IssueUpdated" => Some("issue.moved"),
+        "IssueDeleted" => Some("issue.deleted"),
+        "CommentAdded" => Some("comment.added"),
+        _ => None,
+    }
+}
+
+/// The pairs a chat route receives: a chat event of its own project that it
+/// chose, written at or after its `receives_from` (DDR-27), while it is not
+/// paused and its connection is not disconnected.
+fn expected_pairs(
+    rows: &[OutboxRow],
+    routes: &[(RouteSpec, Vec<&'static str>)],
+) -> BTreeSet<(i64, Uuid)> {
     let mut pairs = BTreeSet::new();
     for row in rows {
-        for (route, chooses_new_issue) in routes {
+        for (route, wires) in routes {
             let project_matches = row.payload["project_id"] == serde_json::json!(route.project_id);
-            let chosen = row.event_type == "IssueCreated" && *chooses_new_issue;
+            let chosen = chat_wire(&row.event_type).is_some_and(|wire| wires.contains(&wire));
             let open = !route.paused
                 && route.connection_state != Some(ConnectionState::Disconnected)
                 && row.created_at >= route.receives_from;
@@ -262,7 +268,7 @@ proptest! {
             prop_assert_eq!(delivery.workspace_id, route.workspace_id);
             prop_assert_eq!(&delivery.outbox_ids, &vec![row.id]);
             prop_assert_eq!(delivery.event_id, row.event_id);
-            prop_assert_eq!(delivery.event_kind.wire_name(), "issue.created");
+            prop_assert_eq!(Some(delivery.event_kind.wire_name()), chat_wire(&row.event_type));
             prop_assert_eq!(
                 delivery.issue_id,
                 Some(serde_json::from_value::<Uuid>(row.payload["issue_id"].clone()).unwrap())
@@ -477,5 +483,170 @@ fn route_status_derive_precedence() {
             },
             "{status} {reason:?} {key:?}"
         );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 02-01: no reorder event, and bursts (DDR-7, DDR-8, D-11, ADR-EIP-003).
+// ---------------------------------------------------------------------------
+
+/// One open Slack route per index on project 0, choosing every chat event.
+fn chat_routes(count: usize) -> Vec<RouteSpec> {
+    (0..count)
+        .map(|index| RouteSpec {
+            id: Uuid::from_u128(0x5000 + index as u128),
+            workspace_id: workspace_of(0),
+            project_id: project(0),
+            kind: ChannelKind::Slack,
+            connection_state: Some(ConnectionState::Connected),
+            events: [
+                "issue.created",
+                "issue.moved",
+                "issue.deleted",
+                "comment.added",
+            ]
+            .iter()
+            .map(|wire| EventKind::from_wire_name(wire).expect("a chat event"))
+            .collect(),
+            content_level: ContentLevel::Summary,
+            paused: false,
+            receives_from: at(-5),
+            lane_ids: Vec::new(),
+        })
+        .collect()
+}
+
+/// A row of project 0 in transaction `source_txid`, `from` and `to` its lanes.
+fn board_row(index: usize, source_txid: u64, event_type: &str, from: &str, to: &str) -> OutboxRow {
+    OutboxRow {
+        id: 100 + index as i64,
+        event_id: Uuid::from_u128(0x4000 + index as u128),
+        source_txid,
+        event_type: event_type.to_string(),
+        payload: serde_json::json!({
+            "issue_id": Uuid::from_u128(0x3000 + index as u128),
+            "project_id": project(0),
+            "workspace_id": workspace_of(0),
+            "key": format!("AUTH-{index}"),
+            "from_state": from,
+            "state": to,
+        }),
+        created_at: at(0),
+    }
+}
+
+const LANES: [&str; 3] = ["todo", "in-progress", "done"];
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// ADR-EIP-003 decision 1: there is no reorder event. A reposition inside
+    /// one lane (an `IssueUpdated` whose lane did not change) and a type the
+    /// catalogue does not know never reach a delivery, while every real move
+    /// still reaches each route.
+    #[test]
+    fn dispatch_plan_has_no_reorder_event(
+        picks in proptest::collection::vec(
+            (0usize..3, 0usize..LANES.len(), 0usize..LANES.len()), 0..12
+        ),
+        route_count in 1usize..3,
+    ) {
+        let rows: Vec<OutboxRow> = picks
+            .iter()
+            .enumerate()
+            .map(|(index, (shape, from, to))| {
+                let event_type = if *shape == 2 { "IssueReordered" } else { "IssueUpdated" };
+                let to = if *shape == 1 { from } else { to };
+                board_row(index, index as u64, event_type, LANES[*from], LANES[*to])
+            })
+            .collect();
+        let routes = chat_routes(route_count);
+
+        let plan = DispatchPlan::build(&rows, &routes);
+
+        let moves: BTreeSet<i64> = rows
+            .iter()
+            .filter(|row| {
+                row.event_type == "IssueUpdated" && row.payload["from_state"] != row.payload["state"]
+            })
+            .map(|row| row.id)
+            .collect();
+        let delivered: Vec<(i64, Uuid)> = plan
+            .deliveries()
+            .iter()
+            .flat_map(|d| d.outbox_ids.iter().map(move |id| (*id, d.route_id)))
+            .collect();
+        let expected: BTreeSet<(i64, Uuid)> = moves
+            .iter()
+            .flat_map(|id| routes.iter().map(move |route| (*id, route.id)))
+            .collect();
+        prop_assert_eq!(delivered.len(), expected.len(), "no row twice to one route");
+        prop_assert_eq!(delivered.into_iter().collect::<BTreeSet<_>>(), expected);
+        for delivery in plan.deliveries() {
+            prop_assert_eq!(delivery.event_kind, EventKind::IssueMoved);
+        }
+    }
+
+    /// D-11, DDR-8: more than five rows of one kind from one source
+    /// transaction make one delivery per route listing every row (its event
+    /// id the first row's, no single issue); five or fewer stay one delivery
+    /// per row. Each route's deliveries keep the order the rows happened in.
+    #[test]
+    fn dispatch_plan_bursts_more_than_five_per_source_transaction(
+        picks in proptest::collection::vec((1u64..4, 0usize..3), 0..40),
+        route_count in 1usize..3,
+    ) {
+        const TYPES: [&str; 3] = ["IssueDeleted", "IssueUpdated", "CommentAdded"];
+        let rows: Vec<OutboxRow> = picks
+            .iter()
+            .enumerate()
+            .map(|(index, (txid, kind))| board_row(index, *txid, TYPES[*kind], "spikes", "todo"))
+            .collect();
+        let routes = chat_routes(route_count);
+
+        let plan = DispatchPlan::build(&rows, &routes);
+
+        let mut expected: BTreeSet<(Uuid, Vec<i64>)> = BTreeSet::new();
+        for route in &routes {
+            for txid in 1u64..4 {
+                for kind in TYPES {
+                    let group: Vec<i64> = rows
+                        .iter()
+                        .filter(|row| row.source_txid == txid && row.event_type == kind)
+                        .map(|row| row.id)
+                        .collect();
+                    if group.len() > 5 {
+                        expected.insert((route.id, group));
+                    } else {
+                        expected.extend(group.into_iter().map(|id| (route.id, vec![id])));
+                    }
+                }
+            }
+        }
+        let planned: Vec<(Uuid, Vec<i64>)> = plan
+            .deliveries()
+            .iter()
+            .map(|d| (d.route_id, d.outbox_ids.clone()))
+            .collect();
+        prop_assert_eq!(planned.len(), expected.len(), "one delivery per group or row");
+        prop_assert_eq!(planned.iter().cloned().collect::<BTreeSet<_>>(), expected);
+
+        for delivery in plan.deliveries() {
+            let first = rows.iter().find(|r| r.id == delivery.outbox_ids[0]).expect("a row");
+            prop_assert_eq!(delivery.event_id, first.event_id);
+            prop_assert_eq!(delivery.occurred_at, first.created_at);
+            let burst = delivery.outbox_ids.len() > 1;
+            prop_assert_eq!(delivery.issue_id.is_none(), burst, "a burst names no one issue");
+            prop_assert_eq!(delivery.issue_key.is_none(), burst);
+        }
+        for route in &routes {
+            let firsts: Vec<i64> = plan
+                .deliveries()
+                .iter()
+                .filter(|d| d.route_id == route.id)
+                .map(|d| d.outbox_ids[0])
+                .collect();
+            prop_assert!(firsts.windows(2).all(|w| w[0] < w[1]), "in the order it happened");
+        }
     }
 }

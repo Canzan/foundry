@@ -94,7 +94,7 @@ Feature: The operator keeps integrations safe and observable
     Then the operator's delivery counters show one Slack New issue delivered
     And the delivery counters name no channel, room, project, workspace, address or person
 
-  @pending @us-eip-02 @eip-01 @eip-replica @kpi @contract-shape:bounded-change
+  @us-eip-02 @eip-01 @eip-replica @kpi @contract-shape:bounded-change
   Scenario: Two replicas deliver each event once, in the order it happened
     Given Foundry runs as two replicas on one database with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack

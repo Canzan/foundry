@@ -21,6 +21,11 @@
     {% for event in events %}<label><input type="checkbox" name="events" value="{{ event.value }}"{% if event.chosen %} checked{% endif %}> {{ event.label }}</label>
     {% endfor %}
   </fieldset>
+  <fieldset data-lane-filter>
+    <legend>Limit Issue moved to these lanes</legend>
+    {% for lane in lanes %}<label><input type="checkbox" name="lanes" value="{{ lane.value }}"{% if lane.chosen %} checked{% endif %}> {{ lane.label }}</label>
+    {% endfor %}
+  </fieldset>
   <fieldset>
     <legend>What messages carry</legend>
     {% for level in levels %}<label><input type="radio" name="content_level" value="{{ level.value }}"{% if level.chosen %} checked{% endif %}> {{ level.label }}</label>

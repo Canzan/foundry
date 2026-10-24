@@ -270,7 +270,7 @@ impl Store {
             // count is rows RETURNING-removed, not `rows_affected()`, so
             // `Deleted { deleted }` keeps its meaning.
             LaneDeleteFate::DeleteCards => {
-                let ctx = issue_delete_context(&mut tx, project_id).await?;
+                let ctx = issue_delete_context(&mut tx, project_id, actor_id).await?;
                 let deleted =
                     crate::issue_delete::delete_issues_with_outbox(&mut tx, &ctx, &cards).await?;
                 (0u64, deleted)
@@ -336,6 +336,7 @@ impl Store {
                 "number": number,
                 "key": format!("{key_prefix}-{number}"),
                 "state": destination_slug,
+                "from_state": dying_slug,
                 "author_id": actor_id,
             });
             sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueUpdated', $1)")
@@ -367,6 +368,7 @@ impl Store {
 async fn issue_delete_context(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     project_id: uuid::Uuid,
+    actor_id: uuid::Uuid,
 ) -> Result<IssueDeleteContext, StoreError> {
     let (workspace_id, key_prefix): (uuid::Uuid, String) =
         sqlx::query_as("SELECT workspace_id, key_prefix FROM live_projects WHERE id = $1")
@@ -377,6 +379,7 @@ async fn issue_delete_context(
         workspace_id,
         project_id,
         key_prefix,
+        actor_id,
     })
 }
 
