@@ -2668,6 +2668,14 @@ pub fn slack_next_answer(world: &mut FoundryWorld, channel: &str, answer: SlackA
     match &answer {
         SlackAnswer::Archived => double.archive(channel),
         SlackAnswer::NotInChannel => double.remove_foundry_from(channel),
+        // No answer lasts: every post to the channel hangs until Slack answers
+        // again, so Foundry's retries meet the same silence (a one-off hang
+        // would let the first retry deliver). Connections are still accepted,
+        // so each attempt reaches the double and is counted.
+        SlackAnswer::NoAnswer => {
+            world.eip.silence_seen = true;
+            double.set_channel_standing(channel, answer.mood());
+        }
         _ => double.queue_post_mood(channel, answer.mood()),
     }
 }
@@ -2843,6 +2851,23 @@ pub async fn then_shows_key_once(world: &mut FoundryWorld, channel: &str, key: &
     );
 }
 
+/// How long the arrival of messages held back by an outage is watched, once
+/// Slack or the homeserver has been silent in the scenario: STATUS_BUDGET
+/// (45 s) instead of the 10 s delivery budget. Healing Slack does not answer a
+/// send already in flight, so the earliest arrival is after Foundry's 10 s call
+/// timeout; a send that failed at once instead waits out DDR-5's second backoff
+/// (20 s, up to 24 s with its jitter) from its start; then the next message to
+/// the same channel waits its turn under per-destination pacing (NFR-EIP-3,
+/// one a second). Each of those is a ratified behaviour, so no conforming
+/// Foundry can show both messages within 10 s of Slack answering again.
+fn arrival_window(world: &FoundryWorld) -> Duration {
+    if world.eip.silence_seen {
+        STATUS_BUDGET
+    } else {
+        DELIVERY_BUDGET
+    }
+}
+
 /// "#auth-dev shows AUTH-12's New issue message before its Moved message".
 pub async fn then_order(
     world: &mut FoundryWorld,
@@ -2857,7 +2882,7 @@ pub async fn then_order(
         (second.0.to_string(), second.1.to_string()),
     ];
     eventually(
-        DELIVERY_BUDGET,
+        arrival_window(world),
         &format!("{channel} shows both messages"),
         || {
             let double = double.clone();

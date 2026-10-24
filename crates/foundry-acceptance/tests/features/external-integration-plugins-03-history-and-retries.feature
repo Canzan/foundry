@@ -49,7 +49,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
     Then #auth-dev shows AUTH-7's comment message
     And the history of the route to #auth-dev reads "New comment · AUTH-7 · Delivered after 2 attempts (Slack asked Foundry to slow down)"
 
-  @pending @error @contract-shape:bounded-change
+  @error @contract-shape:bounded-change
   Scenario: Messages delayed by an outage arrive in the order they happened
     Given Slack does not answer
     And Sam has filed "Pin the Keycloak realm export" in Identity Platform
@@ -66,7 +66,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
     When Lena opens the history of the route to #auth-dev
     Then the route's history shows "New issue · AUTH-12 · Failed: gave up after 24 hours (Slack did not answer)"
 
-  @pending @error @contract-shape:bounded-change
+  @error @contract-shape:bounded-change
   Scenario Outline: What Foundry does with each answer Slack can give
     Given Slack will answer Foundry's next post to #auth-dev with <answer>
     And Sam has filed "Rotate LLDAP bind password" in Identity Platform

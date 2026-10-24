@@ -247,6 +247,9 @@ struct Script {
     post_moods: HashMap<String, VecDeque<Mood>>,
     /// The mood of every post (and every call) until changed.
     standing: Option<Mood>,
+    /// Per channel id: the mood of every post there until Slack heals (after
+    /// any queued one-off moods, before the standing mood).
+    channel_standing: HashMap<String, Mood>,
     /// The app was removed: every call answers this connection-level code.
     removed: Option<String>,
 }
@@ -415,7 +418,18 @@ impl SlackDouble {
 
     /// Slack answers again: heal every standing fault and release held posts.
     pub fn heal(&self) {
+        self.script.lock().unwrap().channel_standing.clear();
         self.set_standing(Mood::Answers);
+    }
+
+    /// Every post to `channel` gets `mood` until Slack heals.
+    pub fn set_channel_standing(&self, channel: &str, mood: Mood) {
+        let id = self.channel_id(channel);
+        self.script
+            .lock()
+            .unwrap()
+            .channel_standing
+            .insert(id, mood);
     }
 
     /// The next post to `channel` gets `mood` (once).
@@ -834,6 +848,8 @@ async fn post_message(
             .and_then(VecDeque::pop_front)
         {
             m
+        } else if let Some(m) = script.channel_standing.get(&channel) {
+            m.clone()
         } else {
             script.standing.clone().unwrap_or(Mood::Answers)
         }
