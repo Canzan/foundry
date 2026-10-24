@@ -435,6 +435,17 @@ impl Services {
         integrations::route_target(&*self.store, principal, team_slug, project_slug).await
     }
 
+    /// external-integration-plugins — what the route form's preview renders
+    /// (Manage; DDR-25: reads only).
+    pub async fn route_preview(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+    ) -> Result<integrations::RoutePreview, integrations::IntegrationError> {
+        integrations::route_preview(&*self.store, principal, team_slug, project_slug).await
+    }
+
     /// external-integration-plugins — a route's delivery history (Manage).
     pub async fn route_history(
         &self,

@@ -25,8 +25,8 @@ use crate::Principal;
 use foundry_auth::secret_box::SealedSecret;
 use foundry_core::TeamAccess;
 use foundry_store::integrations::{
-    AuditRow, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow, NewConnection, NewRoute,
-    ProjectRoute, RouteLane, RouteWriteOutcome, SealedConnection,
+    AuditRow, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow, DeliveryIssue,
+    NewConnection, NewRoute, ProjectRoute, RouteLane, RouteWriteOutcome, SealedConnection,
 };
 use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
@@ -80,6 +80,7 @@ pub(crate) trait IntegrationRecords: Sync {
         kind: &str,
     ) -> Result<Option<SealedConnection>, StoreError>;
     async fn project_lanes(&self, project_id: Uuid) -> Result<Vec<LaneRow>, StoreError>;
+    async fn latest_issue(&self, project_id: Uuid) -> Result<Option<DeliveryIssue>, StoreError>;
     async fn create_route(&self, route: &NewRoute) -> Result<RouteWriteOutcome, StoreError>;
     async fn route_history(
         &self,
@@ -145,6 +146,14 @@ pub struct RouteTarget {
     pub connection: Option<SealedConnection>,
     /// The project's lanes, board order: what Issue moved can be limited to.
     pub lanes: Vec<TargetLane>,
+}
+
+/// What the route form's preview renders (DDR-25): the route door's target
+/// and the project's newest issue, if it has one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RoutePreview {
+    pub target: RouteTarget,
+    pub latest_issue: Option<DeliveryIssue>,
 }
 
 /// One lane a route's Issue moved can be limited to.
@@ -344,6 +353,22 @@ pub(crate) async fn route_target(
         key_prefix: project.key_prefix,
         connection,
         lanes,
+    })
+}
+
+/// What a preview renders (Manage): reads only, writes nothing, asks no
+/// vendor.
+pub(crate) async fn route_preview(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+) -> Result<RoutePreview, IntegrationError> {
+    let target = route_target(records, principal, team_slug, project_slug).await?;
+    let latest_issue = records.latest_issue(target.project_id).await?;
+    Ok(RoutePreview {
+        target,
+        latest_issue,
     })
 }
 

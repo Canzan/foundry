@@ -15,6 +15,9 @@ pub struct DestinationRef(pub String);
 pub struct Destination {
     pub reference: DestinationRef,
     pub label: String,
+    /// Shared with another organisation (Slack Connect): a route to it needs
+    /// the lead's confirmation (K-6).
+    pub shared_with_another_organisation: bool,
 }
 
 /// What checking one destination found.

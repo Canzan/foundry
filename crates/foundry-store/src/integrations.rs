@@ -1084,6 +1084,9 @@ pub struct DeliveryEvent {
     pub lane_label: Option<String>,
     pub from_lane_label: Option<String>,
     pub actor_name: Option<String>,
+    /// A new comment's text as it reads now (D-3: sent only at Summary with
+    /// comment text); `None` for any other event or a comment gone since.
+    pub comment_text: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1113,7 +1116,7 @@ const DELIVERY_CONTEXT_SQL: &str = "
            p.name, p.key_prefix, p.slug, t.slug,
            i.number, i.title, i.state, u.display_name,
            cardinality(d.outbox_ids), (o.payload->>'number')::int, o.payload->>'title',
-           o.payload->>'state', ef.slug, a.display_name, d.project_id
+           o.payload->>'state', ef.slug, a.display_name, d.project_id, cm.body_markdown
       FROM integration_deliveries d
       JOIN integration_routes r ON r.id = d.route_id
       LEFT JOIN integration_connections c ON c.id = r.connection_id
@@ -1131,7 +1134,20 @@ const DELIVERY_CONTEXT_SQL: &str = "
                       ORDER BY e.created_at DESC LIMIT 1)) AS slug
       ) ef ON true
       LEFT JOIN users a ON a.id = (o.payload->>'author_id')::uuid
+      LEFT JOIN comments cm ON cm.id = (o.payload->>'comment_id')::uuid
+                            AND cm.issue_id = d.issue_id
      WHERE d.id = $1";
+
+/// A project's newest issue as a message shows it now: its lane by label (a
+/// lane gone reads as its slug) and its author by display name.
+const LATEST_ISSUE_SQL: &str = "
+    SELECT i.number, i.title, COALESCE(l.label, i.state), u.display_name
+      FROM issues i
+      LEFT JOIN lanes l ON l.project_id = i.project_id AND l.slug = i.state
+      LEFT JOIN users u ON u.id = i.author_id
+     WHERE i.project_id = $1
+     ORDER BY i.number DESC
+     LIMIT 1";
 
 /// The current labels of a project's lanes, by slug.
 const LANE_LABELS_SQL: &str =
@@ -1148,6 +1164,26 @@ type ConnectionTuple = (
 );
 
 impl Store {
+    /// The project's newest issue, for the route form's preview (DDR-25):
+    /// one read, nothing written.
+    pub async fn latest_issue(
+        &self,
+        project_id: Uuid,
+    ) -> Result<Option<DeliveryIssue>, StoreError> {
+        let row: Option<(i32, String, String, Option<String>)> = sqlx::query_as(LATEST_ISSUE_SQL)
+            .bind(project_id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(
+            row.map(|(number, title, lane_label, author_name)| DeliveryIssue {
+                number,
+                title,
+                lane_label,
+                author_name,
+            }),
+        )
+    }
+
     /// The id of the workspace's connection of `kind`, if one exists.
     pub async fn connection_id(
         &self,
@@ -1447,6 +1483,7 @@ impl Store {
             lane_label: label_of(event_lane),
             from_lane_label: label_of(from_lane),
             actor_name: row.try_get(21)?,
+            comment_text: row.try_get(23)?,
         };
         Ok(Some(DeliveryContext {
             delivery_id,

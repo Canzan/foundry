@@ -3,6 +3,19 @@
 {% block app_content %}
 <h1>New Slack route for {{ project_name }}</h1>
 {% if let Some(notice) = notice %}<p class="notice" role="status" data-route-notice>{{ notice }}</p>{% endif %}
+{% if let Some(preview) = preview %}
+<section data-route-preview aria-labelledby="route-preview-heading">
+  <h2 id="route-preview-heading">Preview</h2>
+  {% if let Some(lines) = preview %}
+  <p>{{ lines.headline }}</p>
+  {% if let Some(detail) = lines.detail %}<p>{{ detail }}</p>{% endif %}
+  {% if let Some(excerpt) = lines.excerpt %}<blockquote>{{ excerpt }}</blockquote>{% endif %}
+  {% if let Some(link) = lines.link %}<p><a href="{{ link }}">Open in Foundry</a></p>{% endif %}
+  {% else %}
+  <p>{{ no_issue_yet }}</p>
+  {% endif %}
+</section>
+{% endif %}
 {% if no_connection %}
 <p data-no-connection>{{ no_chat_connection }}</p>
 {% else %}
@@ -16,6 +29,9 @@
     </select>
   </p>
   <p>{{ private_channels }}</p>
+  {% if let Some(audience) = audience %}<p data-audience-notice>{{ audience }}</p>{% endif %}
+  {% if let Some(shared) = shared_channel %}<p class="notice" role="alert" data-shared-notice>{{ shared }}</p>{% endif %}
+  {% if shared_tick %}<p><label><input type="checkbox" name="shared_confirmed" value="on"{% if shared_confirmed %} checked{% endif %}> This channel is shared with another organisation, and that is intended.</label></p>{% endif %}
   <fieldset>
     <legend>Events</legend>
     {% for event in events %}<label><input type="checkbox" name="events" value="{{ event.value }}"{% if event.chosen %} checked{% endif %}> {{ event.label }}</label>
@@ -32,6 +48,7 @@
     {% endfor %}
   </fieldset>
   <p>
+    <button type="submit" formaction="{{ preview_path }}">Preview</button>
     <button type="submit" formaction="{{ test_path }}">Send test</button>
     <button type="submit">Save route</button>
   </p>

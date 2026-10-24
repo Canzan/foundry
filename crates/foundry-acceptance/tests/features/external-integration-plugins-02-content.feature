@@ -33,7 +33,7 @@ Feature: A team lead decides how much a message reveals, and sees it before savi
     And the instance has the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack
 
-  @pending @contract-shape:pure-function
+  @contract-shape:pure-function
   Scenario Outline: Lena sees exactly what the channel will receive before saving
     Given Lena is creating a Slack route from Identity Platform to #general with <level>
     When Lena previews the route
@@ -45,13 +45,13 @@ Feature: A team lead decides how much a message reveals, and sees it before savi
       | Link only    | "AUTH-12 · Identity Platform · New issue" with Open in Foundry, and no title, actor or lane |
       | Summary      | "AUTH-12 Rotate LLDAP bind password" / "New issue in Identity Platform by Sam Okafor · Backlog" with Open in Foundry |
 
-  @pending @contract-shape:pure-function
+  @contract-shape:pure-function
   Scenario: A new route reveals a summary unless the lead chooses otherwise
     When Lena chooses #auth-dev as the destination of a new Slack route on Identity Platform
     Then the route form offers Link only, Summary and Summary with comment text, with Summary chosen
     And Lena reads "Everyone who can read #auth-dev will see what this route sends. Foundry cannot check who that is."
 
-  @pending @kpi @contract-shape:bounded-change
+  @kpi @contract-shape:bounded-change
   Scenario Outline: Comment text is sent only when chosen
     Given Lena has routed New comment on Identity Platform to #auth-dev with <level>
     When Sam comments "The bind DN changed; staging is green." on AUTH-7
@@ -99,12 +99,12 @@ Feature: A team lead decides how much a message reveals, and sees it before savi
     When Sam comments "Done; see the attachment" on AUTH-13
     Then no message in any channel contains any part of AUTH-13's description, the name "ldap-bind.env", any email address, or any identifier other than AUTH-13
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: A channel shared with another organisation asks for confirmation
     When Lena chooses #ext-auth-vendor as the destination of a new Slack route on Identity Platform
     Then Lena reads "#ext-auth-vendor is shared with another organisation. Tick to confirm that is intended."
 
-  @pending @error @contract-shape:bounded-change
+  @error @contract-shape:bounded-change
   Scenario Outline: A route to a shared channel is saved only once its sharing is confirmed
     Given Lena is creating a Slack route from Identity Platform to #ext-auth-vendor
     And Lena <ticked> the shared-channel confirmation
@@ -119,7 +119,7 @@ Feature: A team lead decides how much a message reveals, and sees it before savi
   # One row per content level, because each level builds a different message
   # body (Link only has no summary block, Summary with comment text adds the
   # excerpt), so a credential could slip into any one of them alone.
-  @pending @error @kpi @contract-shape:unbounded-preservation
+  @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: No message carries a Foundry or Slack credential
     Given Lena has routed every chat event on Identity Platform to #auth-dev with <level>
     When Sam comments "Rotation done; the new bind secret is in place." on AUTH-7

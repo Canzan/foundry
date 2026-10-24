@@ -23,11 +23,6 @@ macro_rules! pending {
 
 // Handlers (slices 01-03).
 pending!(
-    preview_calls_no_port_and_writes_nothing,
-    "02-02",
-    "DDR-25: routes/preview re-renders compose output; no vendor call, no integration_* row"
-);
-pending!(
     reconnect_to_another_slack_team_changes_nothing,
     "03-02",
     "connection upsert: a different team id on the return leaves the row and audit untouched"
@@ -338,6 +333,7 @@ mod routes {
     use foundry_app::integrations::{Integrations, IntegrationsHandle};
     use foundry_app::{build_router, AppState, Notifier, SystemClock};
     use foundry_auth::secret_box::SecretSlot;
+    use foundry_integrations::{compose, ContentLevel, EventKind, EventView};
     use foundry_store::integrations::NewConnection;
     use foundry_store::{run_migrations, Store};
     use secrecy::SecretString;
@@ -688,6 +684,36 @@ mod routes {
             .expect("request")
     }
 
+    /// The preview section's paragraphs (tags stripped) and its links.
+    fn preview_of(page: &str) -> (Vec<String>, Vec<String>) {
+        let start = page.find("data-route-preview").expect("a preview section");
+        let section = &page[start..start + page[start..].find("</section>").expect("its end")];
+        let paragraphs = section
+            .split("<p>")
+            .skip(1)
+            .map(|p| {
+                let inner = &p[..p.find("</p>").expect("a closed paragraph")];
+                let mut text = String::new();
+                let mut in_tag = false;
+                for c in inner.chars() {
+                    match c {
+                        '<' => in_tag = true,
+                        '>' => in_tag = false,
+                        c if !in_tag => text.push(c),
+                        _ => {}
+                    }
+                }
+                text
+            })
+            .collect();
+        let links = section
+            .split("href=\"")
+            .skip(1)
+            .map(|rest| rest[..rest.find('"').expect("a quoted href")].to_string())
+            .collect();
+        (paragraphs, links)
+    }
+
     fn texts(post: &Value) -> String {
         post.to_string()
     }
@@ -749,6 +775,77 @@ mod routes {
             before.iter().all(|row| after.contains(row)),
             "nothing else changed"
         );
+    }
+
+    /// DDR-25 (02-03): the preview re-renders the form with `compose`'s lines
+    /// for the project's newest issue, string for string, at every level; it
+    /// asks Slack nothing (not even the channel list) and changes no
+    /// integration_* row.
+    #[tokio::test]
+    async fn preview_calls_no_port_and_writes_nothing() {
+        let lab = Lab::start().await;
+        sqlx::query(
+            "INSERT INTO issues (id, project_id, workspace_id, number, title, state, author_id)
+             SELECT gen_random_uuid(), p.id, p.workspace_id, 12, 'Rotate LLDAP bind password',
+                    'backlog', u.id
+               FROM projects p, users u",
+        )
+        .execute(lab.store.pool())
+        .await
+        .expect("seed AUTH-12");
+        let view = EventView {
+            kind: EventKind::IssueCreated,
+            issue_key: "AUTH-12".into(),
+            title: "Rotate LLDAP bind password".into(),
+            project_name: "Identity Platform".into(),
+            actor_name: "Lena Park".into(),
+            lane_label: "Backlog".into(),
+            from_lane_label: String::new(),
+            issue_url: "http://foundry.test/team/backend/project/identity-platform/issues/12"
+                .into(),
+            issue_count: 1,
+            comment_text: String::new(),
+        };
+        let before = lab.universe().await;
+        for (wire, level) in [
+            ("link_only", ContentLevel::LinkOnly),
+            ("summary", ContentLevel::Summary),
+            ("summary_with_comment", ContentLevel::SummaryWithComment),
+        ] {
+            let response = lab
+                .router
+                .clone()
+                .oneshot(form(
+                    &format!("{PAGE}/routes/preview"),
+                    &lab.cookie,
+                    &[
+                        ("kind", "slack"),
+                        ("destination", AUTH_DEV),
+                        ("events", "issue.created"),
+                        ("content_level", wire),
+                    ],
+                ))
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::OK, "{wire}");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let page = String::from_utf8_lossy(&body);
+            let (shown, hrefs) = preview_of(&page);
+            let lines = compose(&view, level);
+            let mut expected = vec![lines.headline.clone()];
+            expected.extend(lines.detail.clone());
+            expected.extend(lines.link.as_ref().map(|_| "Open in Foundry".to_string()));
+            assert_eq!(shown, expected, "{wire}: the preview is compose's lines");
+            assert_eq!(hrefs, lines.link.into_iter().collect::<Vec<_>>());
+        }
+        assert!(
+            lab.calls.lock().unwrap().is_empty(),
+            "the preview asked Slack nothing: {:?}",
+            lab.calls.lock().unwrap()
+        );
+        assert_eq!(lab.universe().await, before, "no integration_* row changed");
     }
 
     #[tokio::test]

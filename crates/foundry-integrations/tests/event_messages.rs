@@ -42,6 +42,7 @@ fn view(kind: EventKind) -> EventView {
         from_lane_label: "In progress".into(),
         issue_url: URL.into(),
         issue_count: 1,
+        comment_text: String::new(),
     }
 }
 
@@ -148,6 +149,7 @@ fn a_new_issue_reads_the_lane_it_was_filed_in() {
         MessageLines {
             headline: "AUTH-12 Rotate LLDAP bind password".into(),
             detail: Some("New issue in Identity Platform by Sam Okafor · Backlog".into()),
+            excerpt: None,
             link: Some(URL.into()),
         }
     );
@@ -161,6 +163,7 @@ fn a_move_reads_both_lanes_and_links_to_the_issue() {
         MessageLines {
             headline: "AUTH-7 Move Grafana sign-in to Keycloak".into(),
             detail: Some("Moved In progress → Done by Sam Okafor · Identity Platform".into()),
+            excerpt: None,
             link: Some(URL.into()),
         }
     );
@@ -174,6 +177,7 @@ fn a_comment_reads_who_commented_and_links_to_the_issue() {
         MessageLines {
             headline: "AUTH-7 Move Grafana sign-in to Keycloak".into(),
             detail: Some("Lena Park commented · Identity Platform".into()),
+            excerpt: None,
             link: Some(URL.into()),
         }
     );
@@ -192,6 +196,7 @@ fn a_delete_reads_who_deleted_it_and_has_no_link() {
         MessageLines {
             headline: "AUTH-9 Retire the old bind account".into(),
             detail: Some("Deleted by Lena Park · Identity Platform".into()),
+            excerpt: None,
             link: None,
         }
     );
@@ -211,7 +216,16 @@ fn a_delete_whose_title_was_never_recorded_reads_its_key_alone() {
 fn at_link_only_a_delete_still_has_no_link_and_anything_else_does() {
     for kind in ALL_KINDS {
         let lines = compose(&view(kind), ContentLevel::LinkOnly);
-        assert_eq!(lines.headline, "AUTH-7", "{kind:?}");
+        // D-3 (02-03): Link only names the key, the project and the event.
+        let event = match kind {
+            EventKind::CommentAdded => "Issue commented on",
+            other => other.display_name(),
+        };
+        assert_eq!(
+            lines.headline,
+            format!("AUTH-7 · Identity Platform · {event}"),
+            "{kind:?}"
+        );
         assert_eq!(lines.detail, None, "{kind:?}");
         let expected = (kind != EventKind::IssueDeleted).then(|| URL.to_string());
         assert_eq!(lines.link, expected, "{kind:?}");
@@ -261,6 +275,7 @@ fn a_burst_of_deletes_is_one_line_with_no_link() {
             MessageLines {
                 headline: line.into(),
                 detail: None,
+                excerpt: None,
                 link: None,
             }
         );
@@ -275,6 +290,7 @@ fn a_burst_of_moves_names_the_lane_they_went_to() {
         MessageLines {
             headline: "7 issues moved to Todo in Identity Platform by Lena Park".into(),
             detail: None,
+            excerpt: None,
             link: None,
         }
     );

@@ -6,9 +6,9 @@
 //! (`proptest = "1"`, already locked) or a table test.
 
 use foundry_integrations::{
-    claimable_head, expiry_set, Attention, ChannelKind, ConnectionState, ContentLevel,
-    DispatchPlan, EventKind, FilterLane, FinishedDelivery, OutboxRow, QueuedDelivery, ReasonCode,
-    RouteFacts, RouteSpec, RouteStatus,
+    claimable_head, compose, encode_slack, expiry_set, issue_url, Attention, ChannelKind,
+    ConnectionState, ContentLevel, DispatchPlan, EventKind, EventView, FilterLane,
+    FinishedDelivery, OutboxRow, QueuedDelivery, ReasonCode, RouteFacts, RouteSpec, RouteStatus,
 };
 use proptest::prelude::*;
 use std::collections::BTreeSet;
@@ -31,11 +31,7 @@ macro_rules! pending {
     };
 }
 
-// compose (D-3), slices 01-02.
-pending!(compose_never_sends_description_attachment_email_or_internal_id, "02-02", "proptest: no description, attachment name, email address or id other than issue key and event id, at any level");
-pending!(compose_cuts_comment_text_at_300_characters_with_ellipsis, "02-02", "proptest: the excerpt is at most 300 characters plus an ellipsis, plain text, only at Summary with comment text");
 // encoders (never pings, DDR-12, DDR-13).
-pending!(encode_slack_never_leaves_a_live_mention, "02-02", "proptest over arbitrary text: no <!…>, <@…>, <#…> live in mrkdwn; user text in plain_text, parse none, link_names false");
 pending!(
     encode_matrix_never_mentions_the_room_or_a_user,
     "04-02",
@@ -769,4 +765,208 @@ fn a_lane_filter_with_a_gone_lane_posts_no_move() {
         .map(|d| (d.outbox_ids[0], d.event_kind))
         .collect();
     assert_eq!(delivered, vec![(101, EventKind::CommentAdded)]);
+}
+
+// ---------------------------------------------------------------------------
+// 02-03: compose (D-3) and the Slack encoder (DDR-12).
+// ---------------------------------------------------------------------------
+
+const EVENT_KINDS: [EventKind; 6] = [
+    EventKind::IssueCreated,
+    EventKind::IssueMoved,
+    EventKind::IssueDeleted,
+    EventKind::CommentAdded,
+    EventKind::CommentEdited,
+    EventKind::CommentDeleted,
+];
+
+const LEVELS: [ContentLevel; 3] = [
+    ContentLevel::LinkOnly,
+    ContentLevel::Summary,
+    ContentLevel::SummaryWithComment,
+];
+
+/// Text a person may type: letters, digits, spaces, punctuation, Slack's
+/// control characters and their mention markers, and a few non-ASCII ones.
+fn people_text(max: usize) -> impl Strategy<Value = String> {
+    proptest::collection::vec(
+        prop_oneof![
+            4 => proptest::char::range('a', 'z'),
+            1 => proptest::char::range('A', 'Z'),
+            1 => proptest::sample::select(vec![
+                ' ', '<', '>', '&', '!', '@', '#', '^', '|', '*', '_', '~', '`', ':', '.', ',',
+                'é', '…', '✓', '\n',
+            ]),
+            1 => proptest::sample::select(vec!['U', 'C', 'S', 'W']),
+        ],
+        0..=max,
+    )
+    .prop_map(|chars| chars.into_iter().collect())
+}
+
+/// One issue as Foundry holds it, with everything a message must never carry
+/// beside what it may: the never-sent parts are drawn from an alphabet
+/// (digits and `§`) people's text above never uses, so finding one in a
+/// message can only mean it leaked.
+#[derive(Debug, Clone)]
+struct HeldIssue {
+    view: EventView,
+    description: String,
+    attachment: String,
+    author_email: String,
+    ids: Vec<Uuid>,
+}
+
+fn held_issue() -> impl Strategy<Value = HeldIssue> {
+    (
+        0usize..EVENT_KINDS.len(),
+        people_text(40),
+        people_text(400),
+        people_text(20),
+        people_text(12),
+        1i32..10_000,
+        1usize..9,
+        any::<u128>(),
+        "§[0-9]{6,12}",
+        "§[0-9]{4,8}\\.env",
+    )
+        .prop_map(
+            |(kind, title, comment, actor, lane, number, count, seed, description, attachment)| {
+                let ids: Vec<Uuid> = (0..3)
+                    .map(|n| Uuid::from_u128(seed.wrapping_add(n)))
+                    .collect();
+                HeldIssue {
+                    view: EventView {
+                        kind: EVENT_KINDS[kind],
+                        issue_key: format!("AUTH-{number}"),
+                        title,
+                        project_name: "Identity Platform".into(),
+                        actor_name: actor,
+                        lane_label: lane.clone(),
+                        from_lane_label: lane,
+                        issue_url: issue_url(
+                            "https://foundry.canzan.dev",
+                            "backend",
+                            "identity-platform",
+                            number,
+                        ),
+                        // A burst, a fifth of the time (D-11).
+                        issue_count: if count > 7 { count } else { 1 },
+                        comment_text: comment,
+                    },
+                    description,
+                    attachment,
+                    author_email: format!("§{number}@canzan.dev"),
+                    ids,
+                }
+            },
+        )
+}
+
+/// Every string value an encoded message carries, wherever it sits.
+fn strings_in(value: &serde_json::Value, out: &mut Vec<String>) {
+    match value {
+        serde_json::Value::String(s) => out.push(s.clone()),
+        serde_json::Value::Array(items) => items.iter().for_each(|v| strings_in(v, out)),
+        serde_json::Value::Object(map) => map.values().for_each(|v| strings_in(v, out)),
+        _ => {}
+    }
+}
+
+fn unescape(text: &str) -> String {
+    text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// D-3: at every level, no description, attachment name, email address
+    /// or internal id reaches a message; the issue key does (unless a burst
+    /// names no one issue).
+    #[test]
+    fn compose_never_sends_description_attachment_email_or_internal_id(issue in held_issue()) {
+        for level in LEVELS {
+            let sent = encode_slack(&compose(&issue.view, level)).0.to_string();
+            prop_assert!(!sent.contains('§'), "a never-sent part leaked at {level:?}: {sent}");
+            prop_assert!(!sent.contains(&issue.description));
+            prop_assert!(!sent.contains(&issue.attachment));
+            prop_assert!(!sent.contains(&issue.author_email));
+            for id in &issue.ids {
+                prop_assert!(!sent.contains(&id.to_string()), "an id leaked: {sent}");
+                prop_assert!(!sent.contains(&id.simple().to_string()), "an id leaked: {sent}");
+            }
+            if issue.view.issue_count == 1 {
+                prop_assert!(sent.contains(&issue.view.issue_key), "the key is sent: {sent}");
+            }
+        }
+    }
+
+    /// D-3: a comment's text is sent only at Summary with comment text, for a
+    /// single new comment, whole up to 300 characters and otherwise its first
+    /// 300 followed by "…", as plain text.
+    #[test]
+    fn compose_cuts_comment_text_at_300_characters_with_ellipsis(
+        issue in held_issue(),
+        long in people_text(700),
+    ) {
+        let mut view = issue.view;
+        view.comment_text = long;
+        for level in LEVELS {
+            let lines = compose(&view, level);
+            let chosen = level == ContentLevel::SummaryWithComment
+                && view.kind == EventKind::CommentAdded
+                && view.issue_count == 1
+                && !view.comment_text.is_empty();
+            if !chosen {
+                prop_assert_eq!(&lines.excerpt, &None, "{:?} {:?}", level, view.kind);
+                continue;
+            }
+            let excerpt = lines.excerpt.clone().expect("an excerpt");
+            let length = view.comment_text.chars().count();
+            if length <= 300 {
+                prop_assert_eq!(&excerpt, &view.comment_text);
+            } else {
+                let first: String = view.comment_text.chars().take(300).collect();
+                prop_assert_eq!(excerpt.clone(), format!("{first}…"));
+            }
+            let message = encode_slack(&lines).0;
+            let placed = message["blocks"]
+                .as_array()
+                .expect("blocks")
+                .iter()
+                .find(|block| block["text"]["text"].as_str().map(unescape) == Some(excerpt.clone()))
+                .cloned();
+            prop_assert!(placed.is_some(), "the excerpt is a block: {message}");
+            prop_assert_eq!(&placed.unwrap()["text"]["type"], "plain_text");
+        }
+    }
+
+    /// DDR-12: whatever people type, Slack is given no live `<!…>`, `<@…>`
+    /// or `<#…>`: every text is plain_text (never mrkdwn) with `<`, `>` and
+    /// `&` escaped, `parse: none` and `link_names: false`; and the text still
+    /// reads as typed once Slack shows the escapes.
+    #[test]
+    fn encode_slack_never_leaves_a_live_mention(issue in held_issue()) {
+        for level in LEVELS {
+            let lines = compose(&issue.view, level);
+            let message = encode_slack(&lines).0;
+            prop_assert_eq!(&message["parse"], "none");
+            prop_assert_eq!(&message["link_names"], false);
+            prop_assert_eq!(&message["mrkdwn"], false);
+            let mut strings = Vec::new();
+            strings_in(&message, &mut strings);
+            prop_assert!(!strings.iter().any(|s| s == "mrkdwn"), "no mrkdwn object: {message}");
+            for text in strings.iter().filter(|s| !s.starts_with("https://")) {
+                prop_assert!(!text.contains('<') && !text.contains('>'), "a live control sequence: {text:?}");
+            }
+            for typed in [Some(&lines.headline), lines.detail.as_ref(), lines.excerpt.as_ref()].into_iter().flatten() {
+                prop_assert!(
+                    strings.iter().any(|s| unescape(s) == *typed),
+                    "{typed:?} reads as typed: {message}"
+                );
+            }
+        }
+    }
 }

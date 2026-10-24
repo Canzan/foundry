@@ -44,7 +44,8 @@ pub use event::EventKind;
 pub use history::DeliveryRecord;
 pub use kinds::{ChannelKind, ChannelOutcome, ConnectionState, ContentLevel, ReasonCode};
 pub use message::{
-    compose, encode_slack, escape_slack, test_message, EventView, MessageLines, OPEN_IN_FOUNDRY,
+    compose, encode_slack, escape_slack, issue_url, test_message, EventView, MessageLines,
+    EXCERPT_CHARACTERS, OPEN_IN_FOUNDRY,
 };
 pub use ports::{
     DeliveryChannel, DeliveryKey, Destination, DestinationCatalog, DestinationCheck,

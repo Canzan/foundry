@@ -25,9 +25,10 @@ use super::store_capabilities::{
 use super::{Integrations, IntegrationsHandle};
 use crate::Clock;
 use foundry_integrations::{
-    claimable_head, compose, encode_slack, expiry_set, ChannelKind, ConnectionState, ContentLevel,
-    DeliveryChannel, DeliveryKey, DestinationRef, DispatchPlan, EventKind, EventView, FilterLane,
-    OutboxRow, PlannedDelivery, QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec, Settlement,
+    claimable_head, compose, encode_slack, expiry_set, issue_url, ChannelKind, ConnectionState,
+    ContentLevel, DeliveryChannel, DeliveryKey, DestinationRef, DispatchPlan, EventKind, EventView,
+    FilterLane, OutboxRow, PlannedDelivery, QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec,
+    Settlement,
 };
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, ClaimedDelivery, DeliveryContext, DeliveryResult, DeliveryTarget,
@@ -447,12 +448,14 @@ fn event_view(integrations: &Integrations, context: &DeliveryContext) -> Option<
         ),
         lane_label: either(event.lane_label.as_ref(), issue.map(|i| &i.lane_label)),
         from_lane_label: either(event.from_lane_label.as_ref(), None),
-        issue_url: format!(
-            "{}/team/{team_slug}/project/{}/issues/{number}",
-            integrations.settings().public_url,
-            project.slug,
+        issue_url: issue_url(
+            &integrations.settings().public_url,
+            team_slug,
+            &project.slug,
+            number,
         ),
         issue_count: event.issue_count,
+        comment_text: event.comment_text.clone().unwrap_or_default(),
     })
 }
 

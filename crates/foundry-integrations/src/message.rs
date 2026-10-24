@@ -2,7 +2,8 @@
 //!
 //! [`compose`] decides the lines from an event and a content level; the
 //! encoders only place them. Nothing here reads a description, an attachment
-//! or an email address: [`EventView`] has no field for them.
+//! or an email address: [`EventView`] has no field for them. The route form's
+//! preview and the worker both call [`compose`], so a preview is the message.
 
 use crate::{ContentLevel, EncodedMessage, EventKind};
 use serde_json::json;
@@ -27,38 +28,59 @@ pub struct EventView {
     pub issue_url: String,
     /// How many issues one action touched: more than one is a burst (D-11).
     pub issue_count: usize,
+    /// A new comment's text as its author wrote it; empty for any other event.
+    pub comment_text: String,
 }
 
-/// A message's lines: a headline, an optional detail line and the button.
+/// A message's lines: a headline, an optional detail line, the comment's
+/// excerpt (Summary with comment text only) and the button.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MessageLines {
     pub headline: String,
     pub detail: Option<String>,
+    pub excerpt: Option<String>,
     pub link: Option<String>,
 }
 
 /// The button's label (K-8).
 pub const OPEN_IN_FOUNDRY: &str = "Open in Foundry";
 
+/// The most characters of a comment a message carries (D-3).
+pub const EXCERPT_CHARACTERS: usize = 300;
+
+/// An issue's address in Foundry, by numbers and slugs only: never an id.
+pub fn issue_url(public_url: &str, team_slug: &str, project_slug: &str, number: i32) -> String {
+    format!("{public_url}/team/{team_slug}/project/{project_slug}/issues/{number}")
+}
+
 /// Who an unknown actor reads as (ADR-EIP-003 decision 4).
 const UNKNOWN_ACTOR: &str = "A Foundry member";
 
-/// The lines for `view` at `level` (K-8). Link only carries the key and the
-/// button; Summary adds the title and the event line. A burst is its one
-/// summary line (D-11), and neither a burst nor a deleted issue has a link.
+/// The lines for `view` at `level` (D-3, K-8). Link only carries the key,
+/// the project and the event word with the button; Summary adds the title and
+/// the event line; Summary with comment text adds a new comment's first 300
+/// characters. A burst is its one summary line (D-11), and neither a burst nor
+/// a deleted issue has a link.
 pub fn compose(view: &EventView, level: ContentLevel) -> MessageLines {
     if view.issue_count > 1 {
         return MessageLines {
             headline: burst_line(view),
             detail: None,
+            excerpt: None,
             link: None,
         };
     }
     let link = (!view.kind.outlives_its_issue()).then(|| view.issue_url.clone());
     if level == ContentLevel::LinkOnly {
         return MessageLines {
-            headline: view.issue_key.clone(),
+            headline: format!(
+                "{} · {} · {}",
+                view.issue_key,
+                view.project_name,
+                link_only_word(view.kind)
+            ),
             detail: None,
+            excerpt: None,
             link,
         };
     }
@@ -68,8 +90,32 @@ pub fn compose(view: &EventView, level: ContentLevel) -> MessageLines {
             .trim_end()
             .to_string(),
         detail: Some(event_line(view)),
+        excerpt: excerpt(view, level),
         link,
     }
+}
+
+/// The event word a Link only message names (D-3): the event's name, and for
+/// a new comment what happened to the issue, since no actor is named.
+fn link_only_word(kind: EventKind) -> &'static str {
+    match kind {
+        EventKind::CommentAdded => "Issue commented on",
+        other => other.display_name(),
+    }
+}
+
+/// A new comment's text, cut at [`EXCERPT_CHARACTERS`] with "…", when the
+/// route chose Summary with comment text.
+fn excerpt(view: &EventView, level: ContentLevel) -> Option<String> {
+    let chosen = level == ContentLevel::SummaryWithComment && view.kind == EventKind::CommentAdded;
+    if !chosen || view.comment_text.is_empty() {
+        return None;
+    }
+    let mut cut: String = view.comment_text.chars().take(EXCERPT_CHARACTERS).collect();
+    if cut.len() < view.comment_text.len() {
+        cut.push('…');
+    }
+    Some(cut)
 }
 
 fn actor(view: &EventView) -> &str {
@@ -118,6 +164,7 @@ pub fn test_message(project_name: &str, key_prefix: &str) -> MessageLines {
             "Test message from Foundry for {project_name} ({key_prefix}). This route will post here."
         ),
         detail: None,
+        excerpt: None,
         link: None,
     }
 }
@@ -132,16 +179,21 @@ pub fn encode_slack(lines: &MessageLines) -> EncodedMessage {
     if let Some(detail) = &lines.detail {
         blocks.push(json!({ "type": "context", "elements": [plain(detail)] }));
     }
+    if let Some(excerpt) = &lines.excerpt {
+        blocks.push(json!({ "type": "section", "text": plain(excerpt) }));
+    }
     if let Some(url) = &lines.link {
         blocks.push(json!({
             "type": "actions",
             "elements": [{ "type": "button", "text": plain(OPEN_IN_FOUNDRY), "url": url }]
         }));
     }
-    let fallback = match &lines.detail {
-        Some(detail) => format!("{}\n{}", lines.headline, detail),
-        None => lines.headline.clone(),
-    };
+    let fallback = std::iter::once(&lines.headline)
+        .chain(&lines.detail)
+        .chain(&lines.excerpt)
+        .map(String::as_str)
+        .collect::<Vec<_>>()
+        .join("\n");
     EncodedMessage(json!({
         "text": escape_slack(&fallback),
         "blocks": blocks,

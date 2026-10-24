@@ -838,11 +838,16 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/project/{project_slug}/integrations",
             get(integrations::handlers::show_project),
         )
-        // DDR-25: the route form, Send test (one K-7 message, no row) and the
-        // route save (no send), three doors. Manage only.
+        // DDR-25: the route form, its preview (asks no vendor, writes nothing),
+        // Send test (one K-7 message, no row) and the route save (no send).
+        // Manage only.
         .route(
             "/team/{team_slug}/project/{project_slug}/integrations/routes/new",
             get(integrations::handlers::show_new_route),
+        )
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations/routes/preview",
+            post(integrations::handlers::preview_route),
         )
         .route(
             "/team/{team_slug}/project/{project_slug}/integrations/routes/test",

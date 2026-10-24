@@ -16,10 +16,14 @@
 //! - `GET …/integrations/routes/new?kind=slack`: the route form, its channel
 //!   picker listing the channels Foundry can post to, or K-4 without a
 //!   connection (Manage).
+//! - `POST …/integrations/routes/preview`: the form again with the message the
+//!   route would send for the project's newest issue, from the one `compose`
+//!   the worker sends with; asks Slack nothing, writes nothing (DDR-25).
 //! - `POST …/integrations/routes/test`: exactly one K-7 message to the entered
 //!   channel, no row written, six a minute per person (DDR-25, R-5).
 //! - `POST …/integrations/routes`: checks the channel with Slack, then saves
-//!   the route and its audit record; sends nothing (DDR-25).
+//!   the route and its audit record; sends nothing (DDR-25). A channel shared
+//!   with another organisation is saved only with the K-6 tick.
 //! - `GET …/integrations/routes/{route_id}/history`: every delivery of the
 //!   route, newest first, in Foundry's words (US-EIP-05, Manage).
 
@@ -36,13 +40,14 @@ use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::Form;
 use foundry_auth::secret_box::SecretSlot;
 use foundry_integrations::{
-    encode_slack, test_message, ChannelKind, ChannelOutcome, ConnectionState, DeliveryChannel,
-    DeliveryKey, DeliveryRecord, Destination, DestinationCatalog, DestinationRef, FinishedDelivery,
-    ReasonCode, RouteFacts, RouteStatus,
+    compose, encode_slack, issue_url, test_message, ChannelKind, ChannelOutcome, ConnectionState,
+    ContentLevel, DeliveryChannel, DeliveryKey, DeliveryRecord, Destination, DestinationCatalog,
+    DestinationRef, EventKind, EventView, FinishedDelivery, MessageLines, ReasonCode, RouteFacts,
+    RouteStatus,
 };
 use foundry_services::integrations::{
-    IntegrationError, ProjectIntegrations, RouteDraft, RouteHistory, RouteTarget, SlackInstall,
-    WorkspaceIntegrations,
+    IntegrationError, ProjectIntegrations, RouteDraft, RouteHistory, RoutePreview, RouteTarget,
+    SlackInstall, WorkspaceIntegrations,
 };
 use foundry_services::{Principal, Services};
 use foundry_store::integrations::{ConnectionWriteOutcome, DeliveryHistoryRow, ProjectRoute};
@@ -66,6 +71,12 @@ pub const PRIVATE_CHANNELS: &str =
     "Private channels appear here after someone runs /invite @Foundry in them.";
 pub const TEST_SENT: &str = "Test message sent.";
 pub const CANNOT_POST: &str = "Foundry cannot post to that channel. Choose another.";
+/// K-5, for the chosen `{destination}`.
+pub const AUDIENCE: &str =
+    "Everyone who can read {destination} will see what this route sends. Foundry cannot check who that is.";
+/// K-6, for the chosen `{destination}`.
+pub const SHARED_CHANNEL: &str =
+    "{destination} is shared with another organisation. Tick to confirm that is intended.";
 
 #[derive(Template)]
 #[template(path = "integrations/workspace.html")]
@@ -122,7 +133,17 @@ struct RouteFormPage {
     project_name: String,
     routes_path: String,
     test_path: String,
+    preview_path: String,
     notice: Option<String>,
+    /// K-5 for the chosen channel.
+    audience: Option<String>,
+    /// K-6 when the chosen channel is shared with another organisation.
+    shared_channel: Option<String>,
+    shared_tick: bool,
+    shared_confirmed: bool,
+    /// The preview, once asked for; `Some(None)` when there is no issue yet.
+    preview: Option<Option<MessageLines>>,
+    no_issue_yet: String,
     no_connection: bool,
     channels: Vec<Choice>,
     events: Vec<Choice>,
@@ -191,6 +212,39 @@ impl RouteForm {
             content_level: "summary".to_string(),
             ..RouteForm::default()
         }
+    }
+}
+
+/// What a route form answer shows beside the form.
+struct FormAnswer {
+    notice: Option<String>,
+    status: StatusCode,
+    preview: Option<Option<MessageLines>>,
+}
+
+impl FormAnswer {
+    fn with(notice: Option<&str>, status: StatusCode) -> Self {
+        Self {
+            notice: notice.map(str::to_string),
+            status,
+            preview: None,
+        }
+    }
+
+    fn plain() -> Self {
+        Self::with(None, StatusCode::OK)
+    }
+
+    /// A preview: it never asks Slack for the channel list (DDR-25).
+    fn preview(lines: Option<MessageLines>) -> Self {
+        Self {
+            preview: Some(lines),
+            ..Self::plain()
+        }
+    }
+
+    fn asks_slack(&self) -> bool {
+        self.preview.is_none()
     }
 }
 
@@ -440,10 +494,53 @@ pub async fn show_new_route(
         &caller,
         &headers,
         &RouteForm::new(query.destination),
-        None,
-        StatusCode::OK,
+        FormAnswer::plain(),
     )
     .await
+}
+
+pub async fn preview_route(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug)): Path<(String, String)>,
+    Form(fields): Form<Vec<(String, String)>>,
+) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return sign_in();
+    };
+    let preview = caller
+        .services
+        .route_preview(&caller.principal(), &team_slug, &project_slug)
+        .await;
+    let RoutePreview {
+        target,
+        latest_issue,
+    } = match preview {
+        Ok(preview) => preview,
+        Err(err) => return refusal(err),
+    };
+    let form = RouteForm::read(&fields);
+    let level = ContentLevel::from_wire_name(&form.content_level).unwrap_or(ContentLevel::Summary);
+    let public_url = state.integrations.current().settings().public_url.clone();
+    let lines = latest_issue.map(|issue| {
+        let view = EventView {
+            kind: EventKind::IssueCreated,
+            issue_key: format!("{}-{}", target.key_prefix, issue.number),
+            title: issue.title,
+            project_name: target.project_name.clone(),
+            actor_name: issue.author_name.unwrap_or_default(),
+            lane_label: issue.lane_label,
+            from_lane_label: String::new(),
+            issue_url: issue_url(&public_url, &team_slug, &project_slug, issue.number),
+            issue_count: 1,
+            comment_text: String::new(),
+        };
+        compose(&view, level)
+    });
+    let door = RouteDoor::at(&state, target, &team_slug, &project_slug);
+    door.form(&state, &caller, &headers, &form, FormAnswer::preview(lines))
+        .await
 }
 
 pub async fn send_test(
@@ -473,14 +570,13 @@ pub async fn send_test(
                 &caller,
                 &headers,
                 &form,
-                Some(TOO_MANY_TESTS),
-                StatusCode::TOO_MANY_REQUESTS,
+                FormAnswer::with(Some(TOO_MANY_TESTS), StatusCode::TOO_MANY_REQUESTS),
             )
             .await;
     }
     let Some(bot) = door.bot.as_ref() else {
         return door
-            .form(&state, &caller, &headers, &form, None, StatusCode::OK)
+            .form(&state, &caller, &headers, &form, FormAnswer::plain())
             .await;
     };
     let message = encode_slack(&test_message(
@@ -507,8 +603,14 @@ pub async fn send_test(
             StatusCode::UNPROCESSABLE_ENTITY,
         ),
     };
-    door.form(&state, &caller, &headers, &form, Some(&notice), status)
-        .await
+    door.form(
+        &state,
+        &caller,
+        &headers,
+        &form,
+        FormAnswer::with(Some(&notice), status),
+    )
+    .await
 }
 
 pub async fn create_route(
@@ -537,11 +639,22 @@ pub async fn create_route(
                 &caller,
                 &headers,
                 &form,
-                Some(CANNOT_POST),
-                StatusCode::UNPROCESSABLE_ENTITY,
+                FormAnswer::with(Some(CANNOT_POST), StatusCode::UNPROCESSABLE_ENTITY),
             )
             .await;
     };
+    if destination.shared_with_another_organisation && !form.shared_confirmed {
+        // K-6 shows on the form for the chosen channel; nothing is saved.
+        return door
+            .form(
+                &state,
+                &caller,
+                &headers,
+                &form,
+                FormAnswer::with(None, StatusCode::UNPROCESSABLE_ENTITY),
+            )
+            .await;
+    }
     let draft = RouteDraft {
         destination_ref: destination.reference.0,
         destination_label: destination.label,
@@ -600,6 +713,12 @@ impl RouteDoor {
             .route_target(&caller.principal(), team_slug, project_slug)
             .await
             .map_err(refusal)?;
+        Ok(Self::at(state, target, team_slug, project_slug))
+    }
+
+    /// The door for an already checked `target`. Opening the bot asks Slack
+    /// nothing.
+    fn at(state: &AppState, target: RouteTarget, team_slug: &str, project_slug: &str) -> Self {
         let bot = target.connection.as_ref().and_then(|connection| {
             let sealed = connection.sealed_credential.clone()?;
             state
@@ -607,28 +726,43 @@ impl RouteDoor {
                 .current()
                 .slack_bot(connection.id, sealed)
         });
-        Ok(Self {
+        Self {
             target,
             bot,
             routes_path: format!("{}/routes", base_path(team_slug, project_slug)),
-        })
+        }
     }
 
-    /// The route form for `form`, with `notice`; K-4 without a usable
-    /// connection.
+    /// The channels the picker offers: Slack's list, or for a preview only the
+    /// channel the form names, since a preview asks Slack nothing.
+    async fn channels(&self, form: &RouteForm, answer: &FormAnswer) -> Vec<Destination> {
+        match &self.bot {
+            Some(bot) if answer.asks_slack() => bot.list_destinations().await.unwrap_or_default(),
+            Some(_) if !form.destination.is_empty() => vec![Destination {
+                reference: DestinationRef(form.destination.clone()),
+                label: form.destination.clone(),
+                shared_with_another_organisation: false,
+            }],
+            _ => Vec::new(),
+        }
+    }
+
+    /// The route form for `form` with `answer`; K-4 without a usable
+    /// connection, K-5 for the chosen channel and K-6 when it is shared.
     async fn form(
         &self,
         state: &AppState,
         caller: &Caller,
         headers: &HeaderMap,
         form: &RouteForm,
-        notice: Option<&str>,
-        status: StatusCode,
+        answer: FormAnswer,
     ) -> Response {
-        let channels = match &self.bot {
-            Some(bot) => bot.list_destinations().await.unwrap_or_default(),
-            None => Vec::new(),
-        };
+        let channels = self.channels(form, &answer).await;
+        let chosen = channels.iter().find(|c| c.reference.0 == form.destination);
+        let audience = chosen.map(|c| AUDIENCE.replace("{destination}", &c.label));
+        let shared_channel = chosen
+            .filter(|c| c.shared_with_another_organisation)
+            .map(|c| SHARED_CHANNEL.replace("{destination}", &c.label));
         let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
         let page = RouteFormPage {
             nav: caller.nav(state, csrf.clone()).await,
@@ -636,7 +770,14 @@ impl RouteDoor {
             project_name: self.target.project_name.clone(),
             routes_path: self.routes_path.clone(),
             test_path: format!("{}/test", self.routes_path),
-            notice: notice.map(str::to_string),
+            preview_path: format!("{}/preview", self.routes_path),
+            notice: answer.notice,
+            audience,
+            shared_tick: shared_channel.is_some() || form.shared_confirmed,
+            shared_channel,
+            shared_confirmed: form.shared_confirmed,
+            preview: answer.preview,
+            no_issue_yet: format!("{} has no issue to preview yet.", self.target.project_name),
             no_connection: self.bot.is_none(),
             channels: channels
                 .into_iter()
@@ -665,7 +806,7 @@ impl RouteDoor {
         };
         match page.render() {
             Ok(html) => {
-                response_with_optional_cookie(status, Html(html).into_response(), set_cookie)
+                response_with_optional_cookie(answer.status, Html(html).into_response(), set_cookie)
             }
             Err(err) => {
                 tracing::error!(error = %err, "integrations: render failed");

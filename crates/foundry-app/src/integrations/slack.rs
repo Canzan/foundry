@@ -243,7 +243,13 @@ fn postable(channel: &Value) -> Option<Destination> {
     Some(Destination {
         reference: DestinationRef(channel["id"].as_str()?.to_string()),
         label: format!("#{}", channel["name"].as_str()?),
+        shared_with_another_organisation: shared_with_another_organisation(channel),
     })
+}
+
+/// Whether Slack reports the channel shared with another organisation.
+fn shared_with_another_organisation(channel: &Value) -> bool {
+    channel["is_ext_shared"].as_bool().unwrap_or(false)
 }
 
 /// The most pages of `conversations.list` one listing reads.
@@ -338,7 +344,7 @@ impl DestinationCatalog for SlackBot {
         let channel = &answer["channel"];
         Ok(DestinationCheck {
             can_post: postable(channel).is_some(),
-            shared_with_another_organisation: channel["is_ext_shared"].as_bool().unwrap_or(false),
+            shared_with_another_organisation: shared_with_another_organisation(channel),
             encrypted: false,
         })
     }

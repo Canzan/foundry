@@ -21,6 +21,17 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` (all three or none, else Foundry refuses to
   start), `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL`, `FOUNDRY_SECRETS_KEY` (+`_PREVIOUS`; a
   malformed key refuses start, a missing one leaves Slack unoffered).
+- **Content levels and message preview for chat routes**: the route form offers Link only
+  ("AUTH-12 · Identity Platform · New issue" with Open in Foundry), Summary (the default: key,
+  title, who acted and the lane) and Summary with comment text (adds a new comment's first 300
+  characters, then "…"). Preview shows, before saving, exactly the message the route would send
+  for the project's newest issue; it asks Slack nothing and saves nothing, and works without
+  scripting. The form names who will read the channel ("Everyone who can read #auth-dev will see
+  what this route sends. Foundry cannot check who that is."), and a channel shared with another
+  organisation is saved only once the lead ticks "#ext-auth-vendor is shared with another
+  organisation. Tick to confirm that is intended." No message carries an issue's description,
+  attachments, an email address, an internal id or any credential, and text people wrote can
+  never mention or notify anyone in the channel.
 - **Issue moved, Issue deleted and New comment events on chat routes**: a route now posts each
   event it chose: "Moved In progress → Done by Sam Okafor · Identity Platform", "Lena Park
   commented · Identity Platform", and "Deleted by Lena Park · Identity Platform" (a deleted
