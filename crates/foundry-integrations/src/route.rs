@@ -19,7 +19,17 @@ pub struct RouteSpec {
     pub paused: bool,
     /// Database time of the create or resume (DDR-27).
     pub receives_from: OffsetDateTime,
-    pub lane_ids: Vec<Uuid>,
+    /// The lanes Issue moved is limited to; empty: any lane.
+    pub lane_ids: Vec<FilterLane>,
+}
+
+/// A lane a route limits Issue moved to, by its id (saved with the route, so
+/// it survives a rename) and its slug as the project has it now; `None` once
+/// the lane is gone (DDR-19 rule 5).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FilterLane {
+    pub id: Uuid,
+    pub slug: Option<String>,
 }
 
 impl RouteSpec {
@@ -30,6 +40,22 @@ impl RouteSpec {
             && event.kind.announced_to(self.kind)
             && self.is_open()
             && self.receives_from <= event.occurred_at
+            && (event.kind != EventKind::IssueMoved || self.takes_move_into(event.lane))
+    }
+
+    /// A move into `lane` passes the lane filter: no filter, or every chosen
+    /// lane still exists and `lane` is one of them. A route with a gone lane
+    /// posts no move until it is edited (US-EIP-03 example 5).
+    fn takes_move_into(&self, lane: Option<&str>) -> bool {
+        if self.lane_ids.is_empty() {
+            return true;
+        }
+        let slugs: Option<Vec<&str>> = self
+            .lane_ids
+            .iter()
+            .map(|chosen| chosen.slug.as_deref())
+            .collect();
+        matches!((slugs, lane), (Some(slugs), Some(lane)) if slugs.contains(&lane))
     }
 
     /// Not paused, and its connection (if it has one) not disconnected.

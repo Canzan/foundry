@@ -31,6 +31,10 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   Identity Platform by Lena Park" or "7 issues moved to Todo in Identity Platform by Lena Park".
   The issue-created, issue-moved and issue-deleted outbox payloads gain `state`, `from_state`,
   and `author_id` with `title`.
+- **Lane filters on Issue moved**: a route limited to lanes ("Limit Issue moved to these lanes")
+  posts only moves into those lanes, and keeps following a lane through a rename. When a chosen
+  lane is deleted the route reads "Needs attention: the lane QA no longer exists. Choose lanes
+  again." and posts no moves until it is edited. Lane renames and deletes run no extra queries.
 - **Project routes to Slack channels, with Send test**: on a project's integrations page a team
   lead or workspace admin chooses **New route**, picks a channel (the picker lists the public
   channels and the private channels Foundry was invited to) and the events, and can **Send test**

@@ -42,7 +42,7 @@ Feature: A team lead chooses exactly which events a route carries
     And the instance has the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack
 
-  @pending @kpi @contract-shape:bounded-change
+  @kpi @contract-shape:bounded-change
   Scenario: A route limited to one lane posts only moves into that lane
     Given Lena has routed Issue moved into Done on Identity Platform to #auth-releases
     And Sam has moved AUTH-8 from Todo to In progress
@@ -99,13 +99,13 @@ Feature: A team lead chooses exactly which events a route carries
     When Sam moves AUTH-10 from In progress to Shipped
     Then #auth-releases shows exactly one message, "AUTH-10 Enable MFA for admins" / "Moved In progress → Shipped by Sam Okafor · Identity Platform"
 
-  @pending @error @contract-shape:bounded-change
+  @error @contract-shape:bounded-change
   Scenario: A route whose filtered lane is gone asks to be fixed
     Given Lena has routed Issue moved into QA or Done on Identity Platform to #auth-releases
     When Lena deletes the lane QA
     Then Lena's route to #auth-releases reads "Needs attention: the lane QA no longer exists. Choose lanes again."
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: A route whose filtered lane is gone posts no moves until it is edited
     Given Lena has routed Issue moved into QA or Done on Identity Platform to #auth-releases
     And Lena has deleted the lane QA

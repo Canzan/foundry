@@ -53,5 +53,5 @@ pub use ports::{
 };
 pub use queue::{claimable_head, expiry_set, QueuedDelivery};
 pub use retry::{RetryPolicy, Settlement};
-pub use route::RouteSpec;
+pub use route::{FilterLane, RouteSpec};
 pub use status::{Attention, FinishedDelivery, RouteFacts, RouteStatus};

@@ -66,7 +66,16 @@ pub struct DispatchRoute {
     pub content_level: String,
     pub paused: bool,
     pub receives_from: OffsetDateTime,
-    pub lane_ids: Vec<Uuid>,
+    /// The route's filter lanes, by lane id order.
+    pub lanes: Vec<DispatchLane>,
+}
+
+/// A filter lane of a route: its id and its slug now, `None` when the
+/// project no longer has it (no FK to `lanes`, on purpose).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchLane {
+    pub id: Uuid,
+    pub slug: Option<String>,
 }
 
 /// What one dispatcher tick read: whole source transactions, in `min(id)`
@@ -277,11 +286,14 @@ const DISPATCH_ROUTES_SQL: &str = "
     SELECT r.id, r.workspace_id, r.project_id, r.kind, r.connection_id, c.state,
            r.events, r.content_level, r.paused_at IS NOT NULL, r.receives_from,
            COALESCE(array_agg(l.lane_id ORDER BY l.lane_id)
+                    FILTER (WHERE l.lane_id IS NOT NULL), '{}'),
+           COALESCE(array_agg(x.slug ORDER BY l.lane_id)
                     FILTER (WHERE l.lane_id IS NOT NULL), '{}')
       FROM integration_routes r
       JOIN live_projects p ON p.id = r.project_id
       LEFT JOIN integration_connections c ON c.id = r.connection_id
       LEFT JOIN integration_route_lanes l ON l.route_id = r.id
+      LEFT JOIN lanes x ON x.id = l.lane_id AND x.project_id = r.project_id
      WHERE r.project_id::text IN (
                SELECT payload->>'project_id' FROM outbox WHERE id = ANY($1))
      GROUP BY r.id, c.state
@@ -336,6 +348,7 @@ type RouteRow = (
     bool,
     OffsetDateTime,
     Vec<Uuid>,
+    Vec<Option<String>>,
 );
 
 type EventRow = (i64, Uuid, String, String, serde_json::Value, OffsetDateTime);
@@ -806,6 +819,7 @@ fn dispatch_route(row: RouteRow) -> DispatchRoute {
         paused,
         receives_from,
         lane_ids,
+        lane_slugs,
     ) = row;
     DispatchRoute {
         id,
@@ -818,7 +832,11 @@ fn dispatch_route(row: RouteRow) -> DispatchRoute {
         content_level,
         paused,
         receives_from,
-        lane_ids,
+        lanes: lane_ids
+            .into_iter()
+            .zip(lane_slugs)
+            .map(|(id, slug)| DispatchLane { id, slug })
+            .collect(),
     }
 }
 

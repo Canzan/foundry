@@ -48,7 +48,8 @@ impl DispatchPlan {
     /// One delivery per (row, route) pair the route receives: an event of the
     /// route's own project that it chose and its kind is given (ADR-EIP-003),
     /// written at or after its `receives_from` (DDR-27), while the route is
-    /// not paused and its connection is not disconnected. A row of an unknown
+    /// not paused and its connection is not disconnected; a move only into
+    /// the route's lanes, when it has a lane filter. A row of an unknown
     /// type, an in-lane reposition, or a row without a readable project is
     /// matched by no route. More than five pairs of one source transaction,
     /// kind and route become one burst delivery, in the place of its first
@@ -97,6 +98,8 @@ pub(crate) struct RoutableEvent<'a> {
     pub(crate) kind: EventKind,
     pub(crate) project_id: Uuid,
     pub(crate) occurred_at: OffsetDateTime,
+    /// The slug of the lane the issue is in after the event.
+    pub(crate) lane: Option<&'a str>,
 }
 
 impl<'a> RoutableEvent<'a> {
@@ -110,6 +113,7 @@ impl<'a> RoutableEvent<'a> {
             kind,
             project_id: payload_uuid(&row.payload, "project_id")?,
             occurred_at: row.created_at,
+            lane: row.payload["state"].as_str(),
         })
     }
 

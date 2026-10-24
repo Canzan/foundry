@@ -26,8 +26,8 @@ use super::{Integrations, IntegrationsHandle};
 use crate::Clock;
 use foundry_integrations::{
     claimable_head, compose, encode_slack, expiry_set, ChannelKind, ConnectionState, ContentLevel,
-    DeliveryChannel, DeliveryKey, DestinationRef, DispatchPlan, EventKind, EventView, OutboxRow,
-    PlannedDelivery, QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec, Settlement,
+    DeliveryChannel, DeliveryKey, DestinationRef, DispatchPlan, EventKind, EventView, FilterLane,
+    OutboxRow, PlannedDelivery, QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec, Settlement,
 };
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, ClaimedDelivery, DeliveryContext, DeliveryResult, DeliveryTarget,
@@ -231,7 +231,14 @@ fn route_spec(route: &DispatchRoute) -> Option<RouteSpec> {
         content_level: ContentLevel::from_wire_name(&route.content_level)?,
         paused: route.paused,
         receives_from: route.receives_from,
-        lane_ids: route.lane_ids.clone(),
+        lane_ids: route
+            .lanes
+            .iter()
+            .map(|lane| FilterLane {
+                id: lane.id,
+                slug: lane.slug.clone(),
+            })
+            .collect(),
     })
 }
 
