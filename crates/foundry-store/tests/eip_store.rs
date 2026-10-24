@@ -1653,6 +1653,212 @@ async fn record_applies_slow_down_route_and_connection_refusals() {
     assert_eq!(lab.delivery(id).await.status, "pending");
 }
 
+/// 03-02 (DDR-11, DDR-23): Slack's word that the Foundry app left a Slack
+/// workspace turns only that app's connection there `connected → lost`, with
+/// one audit record; only the call (or refusal record) that turns it gets the
+/// workspace's admins to tell, so two replicas and repeated events tell them
+/// once; and the workspace's page reads the lost state and its reason.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_lost_connection_is_told_once_to_the_workspace_admins() {
+    use foundry_store::integrations::LostConnection;
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    exec(
+        &pool,
+        "UPDATE integration_connections SET app_id = 'A0EIPFOUNDRY'",
+    )
+    .await;
+    let priya = Id::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, 'priya@canzan.dev', 'Priya@canzan.dev', 'Priya', 'not-a-real-hash')",
+    )
+    .bind(priya)
+    .execute(&pool)
+    .await
+    .expect("admin");
+    for (user, role) in [(priya, "admin"), (lab.lena, "member")] {
+        sqlx::query(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role) VALUES ($1, $2, $3)",
+        )
+        .bind(lab.ws)
+        .bind(user)
+        .bind(role)
+        .execute(&pool)
+        .await
+        .expect("membership");
+    }
+    let now = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+    let state = || async {
+        sqlx::query_as::<_, (String, Option<String>, Option<OffsetDateTime>)>(
+            "SELECT state, lost_reason, lost_at FROM integration_connections WHERE id = $1",
+        )
+        .bind(lab.connection)
+        .fetch_one(&pool)
+        .await
+        .expect("connection")
+    };
+    let audits = || async {
+        sqlx::query_as::<_, (String, String, String)>(
+            "SELECT via, kind, subject FROM integration_audit_events
+              WHERE action = 'connection_lost' ORDER BY created_at",
+        )
+        .fetch_all(&pool)
+        .await
+        .expect("audit")
+    };
+
+    for (team, app) in [
+        ("T0PERSONAL", "A0EIPFOUNDRY"),
+        ("T0CANZAN", "A0SOMEOTHERAPP"),
+    ] {
+        assert_eq!(
+            lab.store
+                .slack_app_lost(team, app, "app_removed", now)
+                .await
+                .expect("foreign"),
+            None,
+            "{team} {app} is not this connection"
+        );
+    }
+    assert_eq!(state().await, ("connected".to_string(), None, None));
+
+    let (a, b) = tokio::join!(
+        lab.store
+            .slack_app_lost("T0CANZAN", "A0EIPFOUNDRY", "app_removed", now),
+        lab.store
+            .slack_app_lost("T0CANZAN", "A0EIPFOUNDRY", "app_removed", now),
+    );
+    let told: Vec<LostConnection> = [a.expect("first"), b.expect("second")]
+        .into_iter()
+        .flatten()
+        .collect();
+    assert_eq!(
+        told,
+        vec![LostConnection {
+            workspace_id: lab.ws,
+            workspace_name: "Canzan Labs".to_string(),
+            kind: "slack".to_string(),
+            reason: Some("app_removed".to_string()),
+            admins: vec!["Priya@canzan.dev".to_string()],
+        }],
+        "exactly one of two concurrent calls turns it, and gets only the admins"
+    );
+    assert_eq!(
+        state().await,
+        (
+            "lost".to_string(),
+            Some("app_removed".to_string()),
+            Some(now)
+        )
+    );
+    assert_eq!(
+        audits().await,
+        vec![(
+            "slack".to_string(),
+            "slack".to_string(),
+            "Canzan Labs".to_string()
+        )]
+    );
+    let shown = lab
+        .store
+        .workspace_connections(lab.ws)
+        .await
+        .expect("connections");
+    assert_eq!(
+        shown
+            .iter()
+            .map(|c| (
+                c.state.as_str(),
+                c.lost_reason.as_deref(),
+                c.workspace_name.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        vec![("lost", Some("app_removed"), "Canzan Labs")]
+    );
+    assert_eq!(
+        lab.store
+            .slack_app_lost("T0CANZAN", "A0EIPFOUNDRY", "app_removed", now)
+            .await
+            .expect("again"),
+        None,
+        "a connection already lost is not lost again"
+    );
+
+    // A refusal recorded after the connection was lost is only recorded; one
+    // that turns a connected connection lost gets its admins, once.
+    let id = lab.one_delivery().await;
+    let claim = |at: OffsetDateTime| {
+        let store = &lab.store;
+        let route = lab.route;
+        async move {
+            match store
+                .claim_delivery(route, at, LEASE, head_if_free(at))
+                .await
+                .expect("claim")
+            {
+                ClaimOutcome::Claimed(c) => c.claim_id,
+                other => panic!("claimed: {other:?}"),
+            }
+        }
+    };
+    let refuse = |claim_id: Id, at: OffsetDateTime| {
+        let store = &lab.store;
+        async move {
+            store
+                .record_delivery(
+                    id,
+                    claim_id,
+                    at,
+                    DeliveryResult::ConnectionRefused {
+                        vendor_reason: "token_revoked".to_string(),
+                    },
+                )
+                .await
+                .expect("record")
+        }
+    };
+    exec(
+        &pool,
+        "UPDATE integration_connections SET state = 'connected'",
+    )
+    .await;
+    let later = now + Duration::from_secs(60);
+    let held = claim(later).await;
+    assert!(lab
+        .store
+        .slack_app_lost("T0CANZAN", "A0EIPFOUNDRY", "app_removed", later)
+        .await
+        .expect("lost while a send was out")
+        .is_some());
+    assert_eq!(
+        refuse(held, later).await,
+        RecordOutcome::Recorded,
+        "a refusal on a lost connection tells no one"
+    );
+    assert_eq!(audits().await.len(), 2);
+
+    exec(
+        &pool,
+        "UPDATE integration_connections SET state = 'connected'",
+    )
+    .await;
+    let last = later + Duration::from_secs(60);
+    let claim_id = claim(last).await;
+    match refuse(claim_id, last).await {
+        RecordOutcome::ConnectionLost(lost) => assert_eq!(
+            (lost.reason.as_deref(), lost.admins),
+            (Some("token_revoked"), vec!["Priya@canzan.dev".to_string()])
+        ),
+        other => panic!("the refusal turns the connection lost: {other:?}"),
+    }
+    let audits = audits().await;
+    assert_eq!(audits.len(), 3);
+    assert_eq!(audits[2].0, "system");
+}
+
 /// Route writers open with `lock_live_project`: a delete in flight makes the
 /// write wait and then refuse; a deleted project refuses at once.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -10,12 +10,14 @@
 //!   and the retention sweep's deletion of the plan's ids;
 //! - [`EventViewReads`]: read-only, what one claimed delivery needs at send
 //!   time;
-//! - [`ConnectionCredentials`]: read-only, a connection's sealed credential.
+//! - [`ConnectionCredentials`]: read-only, a connection's sealed credential;
+//! - [`ConnectionHealth`]: the events door's `connected → lost` transition
+//!   on Slack's signed word.
 
 use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DispatchBatch, DispatchOutcome,
-    NewDelivery, PendingDelivery, Pruned, Pruning, RecordOutcome, RetentionView,
+    LostConnection, NewDelivery, PendingDelivery, Pruned, Pruning, RecordOutcome, RetentionView,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -95,6 +97,19 @@ pub trait EventViewReads: Send + Sync {
 #[async_trait]
 pub trait ConnectionCredentials: Send + Sync {
     async fn sealed_credential(&self, connection_id: Uuid) -> Result<Option<Vec<u8>>, StoreError>;
+}
+
+/// A connection's health: Slack's signed word that the Foundry app left a
+/// Slack workspace turns that connection `connected → lost`, once.
+#[async_trait]
+pub trait ConnectionHealth: Send + Sync {
+    async fn slack_app_lost(
+        &self,
+        team_id: &str,
+        app_id: &str,
+        reason: &str,
+        now: OffsetDateTime,
+    ) -> Result<Option<LostConnection>, StoreError>;
 }
 
 /// Every capability, over the store.
@@ -196,5 +211,18 @@ impl EventViewReads for StoreCapabilities {
 impl ConnectionCredentials for StoreCapabilities {
     async fn sealed_credential(&self, connection_id: Uuid) -> Result<Option<Vec<u8>>, StoreError> {
         self.0.sealed_credential(connection_id).await
+    }
+}
+
+#[async_trait]
+impl ConnectionHealth for StoreCapabilities {
+    async fn slack_app_lost(
+        &self,
+        team_id: &str,
+        app_id: &str,
+        reason: &str,
+        now: OffsetDateTime,
+    ) -> Result<Option<LostConnection>, StoreError> {
+        self.0.slack_app_lost(team_id, app_id, reason, now).await
     }
 }

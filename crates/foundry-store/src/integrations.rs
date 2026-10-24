@@ -15,6 +15,9 @@
 //!   destination pacing row, and claims the delivery the choice names only if
 //!   that row is unchanged (fresh `claim_id`, `attempts + 1`, lease, pacing);
 //! - [`Store::record_delivery`]: the fenced record, `WHERE claim_id = <claim>`;
+//!   a refused connection turns `connected → lost` there, once;
+//! - [`Store::slack_app_lost`]: Slack's signed word that the Foundry app left a
+//!   Slack workspace, the same `connected → lost` compare-and-set;
 //! - [`Store::expire_deliveries`]: the expiry sweep, failing exactly the ids
 //!   the plan names, each still pending, past its give-up time and unleased;
 //! - [`Store::prune_deliveries`]: the retention sweep (DD-10), deleting exactly
@@ -310,9 +313,56 @@ pub struct IntegrationBacklog {
     pub pending_oldest_seconds: f64,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A connection that has just turned `connected → lost`: what its
+/// workspace's admins are told, and their addresses (DDR-23).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LostConnection {
+    pub workspace_id: Uuid,
+    pub workspace_name: String,
+    pub kind: String,
+    pub reason: Option<String>,
+    pub admins: Vec<String>,
+}
+
+/// The rest of a `connected → lost` transition, in its transaction: the
+/// audit record, and what the admins are told.
+async fn connection_lost(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    connection_id: Uuid,
+    via: &str,
+    now: OffsetDateTime,
+) -> Result<LostConnection, StoreError> {
+    let (workspace_id,): (Uuid,) = sqlx::query_as(CONNECTION_LOST_AUDIT_SQL)
+        .bind(Uuid::now_v7())
+        .bind(via)
+        .bind(now)
+        .bind(connection_id)
+        .fetch_one(&mut **tx)
+        .await?;
+    let (workspace_name, kind, reason): (String, String, Option<String>) =
+        sqlx::query_as(LOST_CONNECTION_SQL)
+            .bind(connection_id)
+            .fetch_one(&mut **tx)
+            .await?;
+    let admins: Vec<(String,)> = sqlx::query_as(WORKSPACE_ADMINS_SQL)
+        .bind(workspace_id)
+        .fetch_all(&mut **tx)
+        .await?;
+    Ok(LostConnection {
+        workspace_id,
+        workspace_name,
+        kind,
+        reason,
+        admins: admins.into_iter().map(|(email,)| email).collect(),
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordOutcome {
     Recorded,
+    /// Recorded, and this record's refusal turned the route's connection
+    /// from connected to lost: its admins are to be told, once.
+    ConnectionLost(LostConnection),
     /// The claim is no longer the row's (taken over, or already finished).
     LeaseLost,
 }
@@ -442,7 +492,36 @@ const ROUTE_PROBLEM_SQL: &str = "
 const CONNECTION_LOST_SQL: &str = "
     UPDATE integration_connections c SET state = 'lost', lost_reason = $2, lost_at = $3
       FROM integration_routes r
-     WHERE r.id = $1 AND c.id = r.connection_id AND c.state = 'connected'";
+     WHERE r.id = $1 AND c.id = r.connection_id AND c.state = 'connected'
+    RETURNING c.id";
+
+/// Slack's word that the Foundry app left a Slack workspace: that
+/// workspace's connection of this app, `connected → lost`, once.
+const SLACK_APP_LOST_SQL: &str = "
+    UPDATE integration_connections SET state = 'lost', lost_reason = $3, lost_at = $4
+     WHERE kind = 'slack' AND external_id = $1 AND app_id = $2 AND state = 'connected'
+    RETURNING id";
+
+/// The audit record of a connection that was lost (DDR-21), by Foundry.
+const CONNECTION_LOST_AUDIT_SQL: &str = "
+    INSERT INTO integration_audit_events
+           (id, workspace_id, project_id, actor_id, via, action, kind, subject, created_at)
+    SELECT $1, c.workspace_id, NULL, NULL, $2, 'connection_lost', c.kind, c.label, $3
+      FROM integration_connections c WHERE c.id = $4
+    RETURNING workspace_id";
+
+/// What a lost connection's admins are told: the workspace's name, the
+/// connection's kind and why it was lost.
+const LOST_CONNECTION_SQL: &str = "
+    SELECT w.name, c.kind, c.lost_reason
+      FROM integration_connections c JOIN workspaces w ON w.id = c.workspace_id
+     WHERE c.id = $1";
+
+/// A workspace's admins' addresses.
+const WORKSPACE_ADMINS_SQL: &str = "
+    SELECT u.email_display FROM workspace_memberships m JOIN users u ON u.id = m.user_id
+     WHERE m.workspace_id = $1 AND m.role = 'admin'
+     ORDER BY u.email_lower";
 
 /// The senders' candidates: routes with a pending delivery that are neither
 /// stopped by a refusal nor on a lost connection, the oldest pending first.
@@ -750,17 +829,52 @@ impl Store {
                 }
             }
             (DeliveryResult::ConnectionRefused { vendor_reason }, Some(route_id)) => {
-                sqlx::query(CONNECTION_LOST_SQL)
+                let lost: Option<(Uuid,)> = sqlx::query_as(CONNECTION_LOST_SQL)
                     .bind(route_id)
                     .bind(vendor_reason)
                     .bind(now)
-                    .execute(&mut *tx)
+                    .fetch_optional(&mut *tx)
                     .await?;
+                if let Some((connection_id,)) = lost {
+                    let lost = connection_lost(&mut tx, connection_id, "system", now).await?;
+                    tx.commit().await?;
+                    return Ok(RecordOutcome::ConnectionLost(lost));
+                }
             }
             _ => {}
         }
         tx.commit().await?;
         Ok(RecordOutcome::Recorded)
+    }
+
+    /// Slack's signed word that the Foundry app `app_id` left the Slack
+    /// workspace `team_id` (ADR-EIP-005 decision 6): that connection,
+    /// `connected → lost` for `reason`, with its audit record, in one
+    /// transaction. Only the call that turns it gets the
+    /// [`LostConnection`]; a connection already lost, another app's or
+    /// another Slack workspace's changes nothing.
+    pub async fn slack_app_lost(
+        &self,
+        team_id: &str,
+        app_id: &str,
+        reason: &str,
+        now: OffsetDateTime,
+    ) -> Result<Option<LostConnection>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        let lost: Option<(Uuid,)> = sqlx::query_as(SLACK_APP_LOST_SQL)
+            .bind(team_id)
+            .bind(app_id)
+            .bind(reason)
+            .bind(now)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some((connection_id,)) = lost else {
+            tx.rollback().await?;
+            return Ok(None);
+        };
+        let lost = connection_lost(&mut tx, connection_id, "slack", now).await?;
+        tx.commit().await?;
+        Ok(Some(lost))
     }
 
     /// The retention sweep (DD-10): reads the finished deliveries and the
@@ -1155,6 +1269,9 @@ pub enum ConnectionWriteOutcome {
 pub struct ConnectionRow {
     pub kind: String,
     pub state: String,
+    /// Why a lost connection was lost (`lost_reason`).
+    pub lost_reason: Option<String>,
+    pub workspace_name: String,
     pub label: String,
     pub detail: Option<String>,
     pub connected_by_name: Option<String>,
@@ -1427,6 +1544,8 @@ const LANE_LABELS_SQL: &str =
 type ConnectionTuple = (
     String,
     String,
+    Option<String>,
+    String,
     String,
     Option<String>,
     Option<String>,
@@ -1548,8 +1667,10 @@ impl Store {
         workspace_id: Uuid,
     ) -> Result<Vec<ConnectionRow>, StoreError> {
         let rows: Vec<ConnectionTuple> = sqlx::query_as(
-            "SELECT c.kind, c.state, c.label, c.detail, u.display_name, c.connected_at
+            "SELECT c.kind, c.state, c.lost_reason, w.name, c.label, c.detail, u.display_name,
+                        c.connected_at
                    FROM integration_connections c
+                   JOIN workspaces w ON w.id = c.workspace_id
                    LEFT JOIN users u ON u.id = c.connected_by
                   WHERE c.workspace_id = $1
                   ORDER BY c.kind",
@@ -1560,9 +1681,20 @@ impl Store {
         Ok(rows
             .into_iter()
             .map(
-                |(kind, state, label, detail, connected_by_name, connected_at)| ConnectionRow {
+                |(
                     kind,
                     state,
+                    lost_reason,
+                    workspace_name,
+                    label,
+                    detail,
+                    connected_by_name,
+                    connected_at,
+                )| ConnectionRow {
+                    kind,
+                    state,
+                    lost_reason,
+                    workspace_name,
                     label,
                     detail,
                     connected_by_name,

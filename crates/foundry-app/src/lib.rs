@@ -834,6 +834,12 @@ pub fn build_router(state: AppState) -> Router {
             integrations::handlers::RETURN_PATH,
             get(integrations::handlers::finish_slack_install),
         )
+        // DDR-11: Slack's Events API, signed by Slack (CSRF-exempt: no
+        // browser, no cookie; the signature is its forgery defence).
+        .route(
+            integrations::slack::EVENTS_PATH,
+            post(integrations::handlers::slack_events),
+        )
         .route(
             "/team/{team_slug}/project/{project_slug}/integrations",
             get(integrations::handlers::show_project),
@@ -1059,6 +1065,10 @@ pub mod test_support {
                 .await
                 .ok();
         });
+        state
+            .integrations
+            .admin_mail()
+            .use_notifier(state.notifier.clone());
         let worker_task = integrations::worker::IntegrationsWorker::new(
             integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
             state.integrations.clone(),

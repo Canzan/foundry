@@ -21,6 +21,10 @@
 //!
 //! The dispatcher beats its heartbeat row each tick (DDR-22).
 //!
+//! A record that turns a connection lost tells the workspace's admins once,
+//! through [`AdminMail`] (DDR-23): only the record whose compare-and-set
+//! turned it gets the admins to tell.
+//!
 //! The components hold only the narrow capabilities of
 //! [`super::store_capabilities`], never the store. Every time is the injected
 //! [`Clock`]'s.
@@ -29,22 +33,23 @@ use super::store_capabilities::{
     ConnectionCredentials, DeliveryClaims, DeliverySweeps, DispatchLog, EventViewReads,
 };
 use super::{Integrations, IntegrationsHandle};
+use crate::notify::{Notification, NotificationEvent, Notifier};
 use crate::Clock;
 use foundry_integrations::{
-    claimable_head, compose, encode_slack, expiry_set, issue_url, ChannelKind, ConnectionState,
-    ContentLevel, DeliveryChannel, DeliveryKey, DestinationRef, DispatchPlan, EventKind, EventView,
-    FilterLane, OutboxRow, PlannedDelivery, QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec,
-    Settlement,
+    claimable_head, compose, encode_slack, expiry_set, issue_url, ChannelKind,
+    ConnectionLostNotice, ConnectionState, ContentLevel, DeliveryChannel, DeliveryKey,
+    DestinationRef, DispatchPlan, EventKind, EventView, FilterLane, OutboxRow, PlannedDelivery,
+    QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec, Settlement,
 };
 use foundry_integrations::{
     prune_set, Attempt, Jitter, PrunePlan, RetainedDelivery, RetainedOutboxRow, RETENTION,
 };
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, ClaimedDelivery, DeliveryContext, DeliveryResult, DeliveryTarget,
-    DispatchBatch, DispatchRoute, IntegrationBacklog, NewDelivery, OutboxEvent, PendingDelivery,
-    Pruning, RetentionView,
+    DispatchBatch, DispatchRoute, IntegrationBacklog, LostConnection, NewDelivery, OutboxEvent,
+    PendingDelivery, Pruning, RecordOutcome, RetentionView,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use time::OffsetDateTime;
 
@@ -139,6 +144,7 @@ impl IntegrationsWorker {
                 sweeps: capabilities.clone(),
                 events: capabilities.clone(),
                 credentials: capabilities.clone(),
+                admin_mail: integrations.admin_mail().clone(),
             },
             retention: Retention {
                 sweeps: capabilities,
@@ -366,6 +372,7 @@ struct Sender {
     sweeps: Arc<dyn DeliverySweeps>,
     events: Arc<dyn EventViewReads>,
     credentials: Arc<dyn ConnectionCredentials>,
+    admin_mail: AdminMail,
 }
 
 impl Sender {
@@ -419,10 +426,16 @@ impl Sender {
             }
             None => skipped(ReasonCode::IssueGone),
         };
-        self.claims
+        let recorded = self
+            .claims
             .record(claim.id, claim.claim_id, clock.now(), result)
-            .await
-            .map(|_| ())
+            .await?;
+        if let RecordOutcome::ConnectionLost(lost) = recorded {
+            self.admin_mail
+                .connection_lost(&lost, &integrations.settings().public_url)
+                .await;
+        }
+        Ok(())
     }
 
     /// Send-time checks, then one post (outside any transaction).
@@ -467,6 +480,56 @@ impl Sender {
             RetryPolicy::BACKOFF.settle(outcome, attempt, clock.now(), context.give_up_at);
         Ok(delivery_result(settled))
     }
+}
+
+/// How a workspace's admins are told its connection was lost (D-15, DDR-23):
+/// one email each through the shipped [`Notifier`], a suppressible event, so
+/// an admin who muted the workspace is not emailed. Cloning shares it; it
+/// tells no one until the composition root hands it the notifier.
+#[derive(Clone, Default)]
+pub struct AdminMail(Arc<RwLock<Option<Arc<Notifier>>>>);
+
+impl AdminMail {
+    /// Tell admins through `notifier` from now on.
+    pub fn use_notifier(&self, notifier: Arc<Notifier>) {
+        *self.0.write().unwrap_or_else(|p| p.into_inner()) = Some(notifier);
+    }
+
+    /// Email each admin of `lost` its workspace's K-10, with the address
+    /// that reconnects it.
+    pub async fn connection_lost(&self, lost: &LostConnection, public_url: &str) {
+        let notifier = self.0.read().unwrap_or_else(|p| p.into_inner()).clone();
+        let Some(notifier) = notifier else {
+            return;
+        };
+        for notification in connection_lost_emails(lost, public_url) {
+            notifier.notify(&notification).await;
+        }
+    }
+}
+
+/// One K-10 email per admin of `lost` (R-10's subject).
+fn connection_lost_emails(lost: &LostConnection, public_url: &str) -> Vec<Notification> {
+    let notice = ConnectionLostNotice {
+        kind: ChannelKind::from_wire_name(&lost.kind).unwrap_or(ChannelKind::Slack),
+        workspace: lost.workspace_name.clone(),
+        reason: lost.reason.as_deref().and_then(ReasonCode::from_wire_name),
+    };
+    let body = format!(
+        "{} Reconnect: {public_url}{}",
+        notice.words(),
+        super::handlers::WORKSPACE_PATH
+    );
+    lost.admins
+        .iter()
+        .map(|admin| Notification {
+            event: NotificationEvent::IntegrationConnectionLost,
+            recipient: admin.clone(),
+            subject: notice.subject(),
+            body: body.clone(),
+            workspace_id: Some(lost.workspace_id),
+        })
+        .collect()
 }
 
 /// Test-support only (DIST-22; DEVOPS C-13): which replica's worker took a

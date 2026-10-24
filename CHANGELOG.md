@@ -77,6 +77,18 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   signed-out visitor with the redirect to `/sign-in` that every other page needing a session
   gives, instead of the not-found page. Signed-in people without the right still get the usual
   not-found page; Slack's events address and the email stop link stay public.
+- **A lost Slack connection pauses routes and emails workspace admins**: when Slack refuses
+  Foundry's access, or tells Foundry the Foundry app was uninstalled, `/workspace/integrations`
+  reads "Foundry lost its Slack connection for Canzan Labs: the Foundry app was removed from
+  Slack. Routes are paused. Reconnect", every route reads "Paused: connection lost" and its
+  messages wait, and each workspace admin gets one email "Foundry lost its Slack connection for
+  Canzan Labs" (once, even with two replicas or a repeated event; an admin who muted the
+  workspace gets none, the page still says what broke). Slack's events address
+  (`POST /integrations/slack/events`) answers Slack's address check and believes a post only
+  when Slack signed it with `SLACK_SIGNING_SECRET` within five minutes: an unsigned, wrongly
+  signed or stale post is refused (401), and one about another Slack workspace or another app
+  is acknowledged and changes nothing. New notification event `integration_connection_lost`
+  (suppressible) on the `foundry_notification_*` families.
 
 ### Changed
 

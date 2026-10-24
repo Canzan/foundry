@@ -112,10 +112,20 @@ pub enum IntegrationError {
 /// The workspace integrations page's facts.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WorkspaceIntegrations {
-    /// K-1 for the workspace's Slack connection, when it has one.
+    /// K-1 for the workspace's Slack connection, when it has a connected one.
     pub slack: Option<String>,
+    /// The workspace's Slack connection, when it is lost (K-10's facts).
+    pub slack_lost: Option<LostSlack>,
     /// R-4 activity lines, newest first.
     pub activity: Vec<String>,
+}
+
+/// A lost Slack connection as its workspace's page tells it (K-10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LostSlack {
+    pub workspace_name: String,
+    /// Why it was lost (`lost_reason`), when Foundry knows.
+    pub reason: Option<String>,
 }
 
 /// What Slack's install answered (ADR-EIP-005 decision 4). Never the token.
@@ -209,19 +219,26 @@ pub(crate) async fn workspace_view(
 ) -> Result<WorkspaceIntegrations, IntegrationError> {
     require_admin(records, principal).await?;
     let workspace_id = principal.workspace_id();
-    let slack = records
-        .connections(workspace_id)
-        .await?
+    let connections = records.connections(workspace_id).await?;
+    let current = connections
         .iter()
-        .find(|c| c.kind == SLACK && c.state != "disconnected")
-        .map(connected_line);
+        .find(|c| c.kind == SLACK && c.state != "disconnected");
+    let slack_lost = current.filter(|c| c.state == "lost").map(|c| LostSlack {
+        workspace_name: c.workspace_name.clone(),
+        reason: c.lost_reason.clone(),
+    });
+    let slack = current.filter(|c| c.state != "lost").map(connected_line);
     let activity = records
         .activity(workspace_id, ACTIVITY_LIMIT)
         .await?
         .iter()
         .map(activity_line)
         .collect();
-    Ok(WorkspaceIntegrations { slack, activity })
+    Ok(WorkspaceIntegrations {
+        slack,
+        slack_lost,
+        activity,
+    })
 }
 
 /// The row a new Slack credential is sealed for: the workspace's existing
@@ -507,6 +524,8 @@ mod copy {
         let connection = ConnectionRow {
             kind: SLACK.into(),
             state: "connected".into(),
+            lost_reason: None,
+            workspace_name: "Canzan Labs".into(),
             label: "Canzan Labs".into(),
             detail: Some("canzanlabs.slack.com".into()),
             connected_by_name: Some("Priya Raman".into()),

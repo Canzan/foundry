@@ -63,6 +63,9 @@ pub enum NotificationEvent {
     MemberInvite,
     MemberRemoved,
     PasswordChanged,
+    /// external-integration-plugins (D-15, DDR-23): a workspace's chat
+    /// connection was lost; its admins are told once.
+    IntegrationConnectionLost,
 }
 
 impl NotificationEvent {
@@ -74,6 +77,7 @@ impl NotificationEvent {
             NotificationEvent::MemberInvite => "member_invite",
             NotificationEvent::MemberRemoved => "member_removed",
             NotificationEvent::PasswordChanged => "password_changed",
+            NotificationEvent::IntegrationConnectionLost => "integration_connection_lost",
         }
     }
 
@@ -82,16 +86,19 @@ impl NotificationEvent {
     /// present at zero on the first `/metrics` scrape (ADR-004). Slices adding
     /// events (US-06: `member_removed`, `password_changed`) extend this in
     /// lockstep with the enum.
-    pub const ALL: [NotificationEvent; 5] = [
+    pub const ALL: [NotificationEvent; 6] = [
         NotificationEvent::PasswordReset,
         NotificationEvent::WorkspaceInvite,
         NotificationEvent::MemberInvite,
         NotificationEvent::MemberRemoved,
         NotificationEvent::PasswordChanged,
+        NotificationEvent::IntegrationConnectionLost,
     ];
 
     /// recipient-notification-preferences (ADR-003) — the SUPPRESSIBLE allow-list.
-    /// True ONLY for `{WorkspaceInvite, MemberInvite}`; the three MANDATORY security
+    /// True ONLY for `{WorkspaceInvite, MemberInvite, IntegrationConnectionLost}`
+    /// (the last per D-15: a muted admin is not emailed, the page still says what
+    /// broke); the three MANDATORY security
     /// events (`PasswordReset`, `PasswordChanged`, `MemberRemoved`) are its
     /// complement and are held structurally exempt (NFR-3 by construction — the
     /// suppression gate skips the lookup entirely for a non-suppressible event, so
@@ -99,7 +106,9 @@ impl NotificationEvent {
     pub fn is_suppressible(&self) -> bool {
         matches!(
             self,
-            NotificationEvent::WorkspaceInvite | NotificationEvent::MemberInvite
+            NotificationEvent::WorkspaceInvite
+                | NotificationEvent::MemberInvite
+                | NotificationEvent::IntegrationConnectionLost
         )
     }
 }

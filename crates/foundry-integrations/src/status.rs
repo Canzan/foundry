@@ -144,3 +144,33 @@ impl Attention {
         }
     }
 }
+
+/// A workspace's lost connection, as its admins are told (K-10, R-10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionLostNotice {
+    pub kind: ChannelKind,
+    pub workspace: String,
+    /// Why it was lost (`lost_reason`), when Foundry knows.
+    pub reason: Option<ReasonCode>,
+}
+
+impl ConnectionLostNotice {
+    /// R-10: "Foundry lost its {Kind} connection for {workspace}".
+    pub fn subject(&self) -> String {
+        format!(
+            "Foundry lost its {} connection for {}",
+            self.kind.display_name(),
+            self.workspace
+        )
+    }
+
+    /// K-10 up to its Reconnect action: "{subject}: {reason}. Routes are
+    /// paused."
+    pub fn words(&self) -> String {
+        let why = self
+            .reason
+            .map(|reason| format!(": {}", reason.words("")))
+            .unwrap_or_default();
+        format!("{}{why}. Routes are paused.", self.subject())
+    }
+}

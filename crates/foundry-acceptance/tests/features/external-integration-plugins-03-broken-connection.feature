@@ -37,7 +37,7 @@ Feature: A broken connection is flagged at once and fixed with one reconnect
     And Lena has routed every chat event on Identity Platform to #auth-releases
     And Priya has routed every chat event on Homelab Ops to #ops-alerts
 
-  @pending @error @kpi @contract-shape:bounded-change
+  @error @kpi @contract-shape:bounded-change
   Scenario: A removed Slack app pauses the routes and tells the workspace admins
     Given the Foundry app has been removed from Canzan Labs' Slack without Foundry being told
     When Sam files "Rotate LLDAP bind password" in Identity Platform
@@ -46,14 +46,14 @@ Feature: A broken connection is flagged at once and fixed with one reconnect
     And Priya receives one email "Foundry lost its Slack connection for Canzan Labs" within 5 minutes
     And Lena receives no email about it
 
-  @pending @error @kpi @contract-shape:bounded-change
+  @error @kpi @contract-shape:bounded-change
   Scenario: Slack telling Foundry the app was uninstalled pauses the routes at once
     When Slack tells Foundry the Foundry app was uninstalled from Canzan Labs
     Then the workspace integrations page reads "Foundry lost its Slack connection for Canzan Labs: the Foundry app was removed from Slack. Routes are paused. Reconnect"
     And the routes to #auth-dev, #auth-releases and #ops-alerts each read "Paused: connection lost"
     And Priya receives one email "Foundry lost its Slack connection for Canzan Labs" within 5 minutes
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: Messages to Foundry's Slack events address that are not Slack's change nothing
     When <sender> posts <message> to Foundry's Slack events address
     Then Foundry <answers> the message
@@ -68,13 +68,13 @@ Feature: A broken connection is flagged at once and fixed with one reconnect
       | Slack   | an uninstall of another Slack workspace                        | acknowledges without acting on         |
       | Slack   | an uninstall of another Slack app in Canzan Labs               | acknowledges without acting on         |
 
-  @pending @edge @contract-shape:bounded-change
+  @edge @contract-shape:bounded-change
   Scenario: Slack telling Foundry twice still sends one email
     Given Slack has told Foundry the Foundry app was uninstalled from Canzan Labs
     When Slack tells Foundry the Foundry app was uninstalled from Canzan Labs
     Then Priya has received exactly one email "Foundry lost its Slack connection for Canzan Labs"
 
-  @pending @edge @contract-shape:pure-function
+  @edge @contract-shape:pure-function
   Scenario: Slack can confirm Foundry's events address
     When Slack verifies Foundry's Slack events address
     Then Slack's confirmation of Foundry's events address succeeds
@@ -123,7 +123,7 @@ Feature: A broken connection is flagged at once and fixed with one reconnect
       | has been invited back to      | #auth-dev shows AUTH-12's message                                                        |
       | has still not been invited to | Lena's route to #auth-dev reads "Needs attention: Foundry is no longer in #auth-dev. Invite @Foundry back, then Resume." |
 
-  @pending @edge @contract-shape:bounded-change
+  @edge @contract-shape:bounded-change
   Scenario: A muted workspace admin is not emailed, and the page still says what broke
     Given Priya has muted Canzan Labs
     When Slack tells Foundry the Foundry app was uninstalled from Canzan Labs

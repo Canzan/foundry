@@ -21,6 +21,7 @@ use secrecy::{ExposeSecret, SecretString};
 use slack::{SlackApp, SlackBot};
 use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock};
+use worker::AdminMail;
 
 /// What `/workspace/integrations` may offer for Slack.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -209,6 +210,7 @@ impl Integrations {
 pub struct IntegrationsHandle {
     current: Arc<RwLock<Arc<Integrations>>>,
     test_messages: Arc<RevokeRateLimiter>,
+    admin_mail: AdminMail,
 }
 
 impl IntegrationsHandle {
@@ -216,7 +218,14 @@ impl IntegrationsHandle {
         Self {
             current: Arc::new(RwLock::new(Arc::new(integrations))),
             test_messages: Arc::new(RevokeRateLimiter::test_messages()),
+            admin_mail: AdminMail::default(),
         }
+    }
+
+    /// How workspace admins are told a connection was lost (DDR-23); the
+    /// composition root hands it the shipped `Notifier`.
+    pub fn admin_mail(&self) -> &AdminMail {
+        &self.admin_mail
     }
 
     /// Send test's per-person limit (DDR-25, R-5).

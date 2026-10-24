@@ -61,4 +61,4 @@ pub use queue::{
 };
 pub use retry::{Attempt, Jitter, RetryPolicy, Settlement};
 pub use route::{FilterLane, RouteSpec};
-pub use status::{Attention, FinishedDelivery, RouteFacts, RouteStatus};
+pub use status::{Attention, ConnectionLostNotice, FinishedDelivery, RouteFacts, RouteStatus};

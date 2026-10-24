@@ -724,6 +724,12 @@ async fn main() -> anyhow::Result<()> {
     // loops, with their shutdown semantics (dropped when the runtime stops).
     // It runs while the integration settings say so and the secrets key is
     // set; it holds only the store capabilities, never the store.
+    // DDR-23: a lost connection's admins are told through the shipped
+    // notifier, by the worker and by the Slack events door alike.
+    state
+        .integrations
+        .admin_mail()
+        .use_notifier(state.notifier.clone());
     let _integrations_worker = foundry_app::integrations::worker::IntegrationsWorker::new(
         foundry_app::integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
         state.integrations.clone(),

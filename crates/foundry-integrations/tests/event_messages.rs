@@ -370,3 +370,32 @@ fn open_in_foundry_is_the_issue_page_by_team_project_and_number() {
         "http://foundry.test/team/ops/project/homelab-ops/issues/130"
     );
 }
+
+/// R-10 and K-10 (03-02): the connection-lost email's subject and the page's
+/// words, with and without a known reason.
+#[test]
+fn a_lost_connection_reads_r10_and_k10() {
+    use foundry_integrations::{ChannelKind, ConnectionLostNotice, ReasonCode};
+    let notice = |kind, reason| ConnectionLostNotice {
+        kind,
+        workspace: "Canzan Labs".to_string(),
+        reason,
+    };
+    let removed = notice(ChannelKind::Slack, Some(ReasonCode::AppRemoved));
+    assert_eq!(
+        removed.subject(),
+        "Foundry lost its Slack connection for Canzan Labs"
+    );
+    assert_eq!(
+        removed.words(),
+        "Foundry lost its Slack connection for Canzan Labs: the Foundry app was removed from Slack. Routes are paused."
+    );
+    assert_eq!(
+        notice(ChannelKind::Slack, Some(ReasonCode::TokenRevoked)).words(),
+        "Foundry lost its Slack connection for Canzan Labs: Foundry's access was revoked. Routes are paused."
+    );
+    assert_eq!(
+        notice(ChannelKind::Matrix, None).words(),
+        "Foundry lost its Matrix connection for Canzan Labs. Routes are paused."
+    );
+}

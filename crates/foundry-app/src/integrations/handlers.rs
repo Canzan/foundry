@@ -26,8 +26,16 @@
 //!   with another organisation is saved only with the K-6 tick.
 //! - `GET …/integrations/routes/{route_id}/history`: every delivery of the
 //!   route, newest first, in Foundry's words (US-EIP-05, Manage).
+//! - `POST /integrations/slack/events`: Slack's Events API (DDR-11,
+//!   ADR-EIP-005 decision 6), a machine post with no session, believed only
+//!   when Slack signed it (401 otherwise): it answers Slack's address check
+//!   with its challenge, and the Foundry app's removal from a connected Slack
+//!   workspace (`app_uninstalled`, `tokens_revoked`) turns that connection
+//!   lost and tells its admins once. Anything else is acknowledged and
+//!   changes nothing.
 
-use super::slack::{self, InstallState, SlackGrant};
+use super::slack::{self, InstallState, SlackEvent, SlackGrant};
+use super::store_capabilities::{ConnectionHealth, StoreCapabilities};
 use super::{Integrations, SlackOffer};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{ensure_csrf_cookie, response_with_optional_cookie};
@@ -37,17 +45,17 @@ use askama::Template;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use axum::Form;
+use axum::{Form, Json};
 use foundry_auth::secret_box::SecretSlot;
 use foundry_integrations::{
-    compose, encode_slack, issue_url, test_message, ChannelKind, ChannelOutcome, ConnectionState,
-    ContentLevel, DeliveryChannel, DeliveryKey, DeliveryRecord, Destination, DestinationCatalog,
-    DestinationRef, EventKind, EventView, FinishedDelivery, MessageLines, ReasonCode, RouteFacts,
-    RouteStatus,
+    compose, encode_slack, issue_url, test_message, ChannelKind, ChannelOutcome,
+    ConnectionLostNotice, ConnectionState, ContentLevel, DeliveryChannel, DeliveryKey,
+    DeliveryRecord, Destination, DestinationCatalog, DestinationRef, EventKind, EventView,
+    FinishedDelivery, MessageLines, ReasonCode, RouteFacts, RouteStatus,
 };
 use foundry_services::integrations::{
-    IntegrationError, ProjectIntegrations, RouteDraft, RouteHistory, RoutePreview, RouteTarget,
-    SlackInstall, WorkspaceIntegrations,
+    IntegrationError, LostSlack, ProjectIntegrations, RouteDraft, RouteHistory, RoutePreview,
+    RouteTarget, SlackInstall, WorkspaceIntegrations,
 };
 use foundry_services::{Principal, Services};
 use foundry_store::integrations::{ConnectionWriteOutcome, DeliveryHistoryRow, ProjectRoute};
@@ -84,6 +92,8 @@ struct WorkspacePage {
     nav: crate::nav::NavContext,
     notice: Option<String>,
     slack_line: Option<String>,
+    /// K-10: the connection was lost; offer to reconnect it.
+    reconnect: bool,
     not_set_up: bool,
     no_secrets_key: bool,
     /// K-19: the saved connection cannot be read by this Foundry (DD-2).
@@ -971,7 +981,11 @@ async fn workspace_page(
     headers: &HeaderMap,
     notice: Option<&str>,
 ) -> Response {
-    let WorkspaceIntegrations { slack, activity } = match caller
+    let WorkspaceIntegrations {
+        slack,
+        slack_lost,
+        activity,
+    } = match caller
         .services
         .workspace_integrations(&caller.principal())
         .await
@@ -980,6 +994,8 @@ async fn workspace_page(
         Err(err) => return refusal(err),
     };
     let offer = state.integrations.current().slack_offer();
+    let reconnect = slack_lost.is_some();
+    let slack = slack.or_else(|| slack_lost.map(|lost| lost_words(&lost)));
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let page = WorkspacePage {
         nav: caller.nav(state, csrf).await,
@@ -988,9 +1004,73 @@ async fn workspace_page(
         no_secrets_key: offer == SlackOffer::NoSecretsKey,
         unavailable: offer == SlackOffer::Unavailable && slack.is_some(),
         slack_line: slack,
+        reconnect,
         activity,
     };
     render(page.render(), set_cookie)
+}
+
+/// K-10, up to its Reconnect action.
+fn lost_words(lost: &LostSlack) -> String {
+    ConnectionLostNotice {
+        kind: ChannelKind::Slack,
+        workspace: lost.workspace_name.clone(),
+        reason: lost.reason.as_deref().and_then(ReasonCode::from_wire_name),
+    }
+    .words()
+}
+
+/// `POST /integrations/slack/events`: Slack's Events API. The signature's
+/// freshness is judged on the wall clock, as Slack stamps it.
+pub async fn slack_events(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: axum::body::Bytes,
+) -> Response {
+    let integrations = state.integrations.current();
+    let Some(app) = integrations.slack() else {
+        return StatusCode::UNAUTHORIZED.into_response();
+    };
+    let header = |name: &str| headers.get(name).and_then(|value| value.to_str().ok());
+    let event = app.read_event(
+        header("x-slack-request-timestamp"),
+        header("x-slack-signature"),
+        &body,
+        time::OffsetDateTime::now_utc(),
+    );
+    match event {
+        SlackEvent::Unsigned => StatusCode::UNAUTHORIZED.into_response(),
+        SlackEvent::Unreadable => StatusCode::BAD_REQUEST.into_response(),
+        SlackEvent::UrlVerification { challenge } => {
+            Json(serde_json::json!({ "challenge": challenge })).into_response()
+        }
+        SlackEvent::AppLost {
+            team_id,
+            app_id,
+            reason,
+        } => {
+            let health = StoreCapabilities::new(state.store.clone());
+            match health
+                .slack_app_lost(&team_id, &app_id, reason.wire_name(), state.clock.now())
+                .await
+            {
+                Ok(Some(lost)) => {
+                    state
+                        .integrations
+                        .admin_mail()
+                        .connection_lost(&lost, &integrations.settings().public_url)
+                        .await;
+                    StatusCode::OK.into_response()
+                }
+                Ok(None) => StatusCode::OK.into_response(),
+                Err(err) => {
+                    tracing::error!(error = %err, "integrations: Slack event not recorded");
+                    (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+                }
+            }
+        }
+        SlackEvent::Other => StatusCode::OK.into_response(),
+    }
 }
 
 /// A signed-out visitor goes to sign in, as from any page that needs a

@@ -12,6 +12,10 @@
 //!   - `/bootstrap` — pre-session admin claim. The bootstrap token in
 //!     the URL plus the SHA-256 single-use guard already prevent CSRF.
 //!     (Pre-session forms cannot rely on a server-issued cookie.)
+//!   - `/integrations/slack/events` — Slack's Events API, a machine post
+//!     with no browser and no cookie. Slack's request signature (the
+//!     signing secret's HMAC over the timestamp and body, checked by the
+//!     handler) is its forgery defence (DDR-11).
 
 use crate::AppState;
 use axum::body::{to_bytes, Body};
@@ -148,7 +152,7 @@ fn is_exempt_path(path: &str) -> bool {
     // single-use token in the URL already provides CSRF-equivalent
     // protection: an attacker would need the operator's secret token,
     // and the token is consumed on first POST.
-    path == "/bootstrap"
+    path == "/bootstrap" || path == "/integrations/slack/events"
 }
 
 fn constant_time_eq(a: &str, b: &str) -> bool {

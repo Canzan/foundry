@@ -4,6 +4,11 @@
 //! [`SlackBot`], one workspace's bot posting with `chat.postMessage` and
 //! listing channels with `conversations.list` / `conversations.info`.
 //!
+//! It also reads what Slack posts to the events address (ADR-EIP-005
+//! decision 6): [`SlackApp::read_event`] believes a post only when Slack
+//! signed it with this app's signing secret (`v0` HMAC-SHA256 over
+//! `v0:{timestamp}:{body}`, compared in constant time) within five minutes.
+//!
 //! The client follows no redirect and keeps the bot token inside a
 //! [`SecretString`]; no error carries Slack's own text or a credential.
 
@@ -14,10 +19,12 @@ use foundry_integrations::{
     classify_slack, ChannelKind, ChannelOutcome, DeliveryChannel, DeliveryKey, Destination,
     DestinationCatalog, DestinationCheck, DestinationRef, EncodedMessage, ReasonCode, SlackAnswer,
 };
+use hmac::{Hmac, Mac};
 use rand::RngCore;
 use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use sha2::Sha256;
 use std::time::Duration;
 use subtle::ConstantTimeEq;
 use time::OffsetDateTime;
@@ -36,6 +43,9 @@ pub const EVENTS_PATH: &str = "/integrations/slack/events";
 /// A return older than this is refused (US-EIP-01, K-3).
 pub const INSTALL_STATE_TTL: time::Duration = time::Duration::minutes(10);
 const CALL_TIMEOUT: Duration = Duration::from_secs(10);
+/// A signed post whose timestamp is further than this from now is refused
+/// (Slack's replay guard).
+pub const EVENT_MAX_AGE_SECONDS: i64 = 5 * 60;
 
 /// What the install start keeps in the signed-in session, taken out (single
 /// use) by the return (ADR-EIP-005 decision 4).
@@ -100,6 +110,7 @@ pub struct SlackApp {
     http: reqwest::Client,
     client_id: String,
     client_secret: SecretString,
+    signing_secret: SecretString,
     api_base_url: String,
     authorize_url: String,
 }
@@ -115,6 +126,7 @@ impl SlackApp {
             http,
             client_id: settings.client_id.clone(),
             client_secret: settings.client_secret.clone(),
+            signing_secret: settings.signing_secret.clone(),
             api_base_url: settings.api_base_url.clone(),
             authorize_url: settings.authorize_url.clone(),
         }
@@ -172,6 +184,50 @@ impl SlackApp {
             .ok_or(SlackError::Unreadable)
     }
 
+    /// What a post to the events address says, believed only when Slack
+    /// signed `body` with this app's signing secret at `timestamp`, no more
+    /// than five minutes from `now`.
+    pub fn read_event(
+        &self,
+        timestamp: Option<&str>,
+        signature: Option<&str>,
+        body: &[u8],
+        now: OffsetDateTime,
+    ) -> SlackEvent {
+        match (timestamp, signature) {
+            (Some(timestamp), Some(signature)) if self.signed(timestamp, signature, body, now) => {
+                SlackEvent::read(body)
+            }
+            _ => SlackEvent::Unsigned,
+        }
+    }
+
+    fn signed(&self, timestamp: &str, signature: &str, body: &[u8], now: OffsetDateTime) -> bool {
+        let Ok(at) = timestamp.parse::<i64>() else {
+            return false;
+        };
+        if (now.unix_timestamp() - at).abs() > EVENT_MAX_AGE_SECONDS {
+            return false;
+        }
+        let Ok(mut mac) =
+            Hmac::<Sha256>::new_from_slice(self.signing_secret.expose_secret().as_bytes())
+        else {
+            return false;
+        };
+        mac.update(format!("v0:{timestamp}:").as_bytes());
+        mac.update(body);
+        let hex: String = mac
+            .finalize()
+            .into_bytes()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        format!("v0={hex}")
+            .as_bytes()
+            .ct_eq(signature.as_bytes())
+            .into()
+    }
+
     fn method(&self, name: &str) -> String {
         format!("{}/{name}", self.api_base_url)
     }
@@ -186,6 +242,72 @@ impl SlackApp {
             Some(false) => Err(SlackError::Refused),
             None => Err(SlackError::Unreadable),
         }
+    }
+}
+
+/// What a post to the events address is (Slack's Events API envelope).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SlackEvent {
+    /// Not signed by Slack with this app's secret within five minutes.
+    Unsigned,
+    /// Signed, but not an envelope Foundry can read.
+    Unreadable,
+    /// Slack confirming the events address: answer with its challenge.
+    UrlVerification { challenge: String },
+    /// The Slack app `app_id` was removed from the Slack workspace
+    /// `team_id`, or its bot token there was revoked.
+    AppLost {
+        team_id: String,
+        app_id: String,
+        reason: ReasonCode,
+    },
+    /// Any other event: acknowledged, nothing done.
+    Other,
+}
+
+impl SlackEvent {
+    /// A signed envelope: `url_verification`, or an `event_callback` whose
+    /// event is `app_uninstalled` or a `tokens_revoked` naming bot tokens.
+    fn read(body: &[u8]) -> SlackEvent {
+        let Ok(envelope) = serde_json::from_slice::<Value>(body) else {
+            return SlackEvent::Unreadable;
+        };
+        match envelope["type"].as_str() {
+            Some("url_verification") => {
+                envelope["challenge"]
+                    .as_str()
+                    .map_or(SlackEvent::Unreadable, |challenge| {
+                        SlackEvent::UrlVerification {
+                            challenge: challenge.to_string(),
+                        }
+                    })
+            }
+            Some("event_callback") => Self::app_lost(&envelope).unwrap_or(SlackEvent::Other),
+            Some(_) => SlackEvent::Other,
+            None => SlackEvent::Unreadable,
+        }
+    }
+
+    fn app_lost(envelope: &Value) -> Option<SlackEvent> {
+        let event = &envelope["event"];
+        let reason = match event["type"].as_str()? {
+            "app_uninstalled" => ReasonCode::AppRemoved,
+            "tokens_revoked" if Self::names_bot_tokens(event) => ReasonCode::TokenRevoked,
+            _ => return None,
+        };
+        Some(SlackEvent::AppLost {
+            team_id: envelope["team_id"].as_str()?.to_string(),
+            app_id: envelope["api_app_id"].as_str()?.to_string(),
+            reason,
+        })
+    }
+
+    /// `tokens_revoked` lists the revoked users' tokens by type; Foundry
+    /// holds only a bot token.
+    fn names_bot_tokens(event: &Value) -> bool {
+        event["tokens"]["bot"]
+            .as_array()
+            .is_some_and(|bots| !bots.is_empty())
     }
 }
 
@@ -438,6 +560,121 @@ mod tests {
             assert!(manifest.contains(scope));
         }
         assert!(!manifest.contains("user_scope"));
+    }
+
+    const SECRET: &str = "eip-test-signing-secret";
+
+    fn app() -> SlackApp {
+        SlackApp::new(&SlackSettings {
+            client_id: "client".into(),
+            client_secret: SecretString::from("client-secret"),
+            signing_secret: SecretString::from(SECRET),
+            api_base_url: "http://127.0.0.1:9".into(),
+            authorize_url: "http://127.0.0.1:9/authorize".into(),
+        })
+    }
+
+    /// Slack's `v0` signature, computed independently of `signed`.
+    fn sign(secret: &str, ts: i64, body: &str) -> String {
+        let mut mac = Hmac::<Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(format!("v0:{ts}:{body}").as_bytes());
+        let hex: String = mac
+            .finalize()
+            .into_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        format!("v0={hex}")
+    }
+
+    fn post(body: &str, secret: &str, age_seconds: i64) -> SlackEvent {
+        let ts = AT.unix_timestamp() - age_seconds;
+        app().read_event(
+            Some(&ts.to_string()),
+            Some(&sign(secret, ts, body)),
+            body.as_bytes(),
+            AT,
+        )
+    }
+
+    const UNINSTALL: &str = r#"{"type":"event_callback","team_id":"T0CANZANLABS","api_app_id":"A0EIPFOUNDRY","event":{"type":"app_uninstalled"}}"#;
+
+    #[test]
+    fn an_event_is_believed_only_signed_with_the_secret_within_five_minutes() {
+        let lost = SlackEvent::AppLost {
+            team_id: "T0CANZANLABS".into(),
+            app_id: "A0EIPFOUNDRY".into(),
+            reason: ReasonCode::AppRemoved,
+        };
+        assert_eq!(post(UNINSTALL, SECRET, 0), lost);
+        assert_eq!(post(UNINSTALL, SECRET, 4 * 60), lost, "four minutes old");
+        assert_eq!(post(UNINSTALL, SECRET, EVENT_MAX_AGE_SECONDS), lost);
+        assert_eq!(post(UNINSTALL, SECRET, -EVENT_MAX_AGE_SECONDS), lost);
+        assert_eq!(
+            post(UNINSTALL, SECRET, EVENT_MAX_AGE_SECONDS + 1),
+            SlackEvent::Unsigned
+        );
+        assert_eq!(
+            post(UNINSTALL, SECRET, -EVENT_MAX_AGE_SECONDS - 1),
+            SlackEvent::Unsigned
+        );
+        assert_eq!(post(UNINSTALL, "another-secret", 0), SlackEvent::Unsigned);
+        let ts = AT.unix_timestamp().to_string();
+        let good = sign(SECRET, AT.unix_timestamp(), UNINSTALL);
+        let body = UNINSTALL.as_bytes();
+        for (timestamp, signature) in [
+            (None, Some(good.as_str())),
+            (Some(ts.as_str()), None),
+            (Some("soon"), Some(good.as_str())),
+            (Some(ts.as_str()), Some(&good[..good.len() - 1])),
+        ] {
+            assert_eq!(
+                app().read_event(timestamp, signature, body, AT),
+                SlackEvent::Unsigned
+            );
+        }
+        let tampered = UNINSTALL.replace("T0CANZANLABS", "T0SOMEONEELS");
+        assert_eq!(
+            app().read_event(Some(&ts), Some(&good), tampered.as_bytes(), AT),
+            SlackEvent::Unsigned
+        );
+    }
+
+    #[test]
+    fn a_signed_envelope_reads_as_slack_documents_it() {
+        let read = |body: &str| post(body, SECRET, 0);
+        assert_eq!(
+            read(r#"{"token":"x","challenge":"c-123","type":"url_verification"}"#),
+            SlackEvent::UrlVerification {
+                challenge: "c-123".into()
+            }
+        );
+        assert_eq!(
+            read(r#"{"type":"url_verification"}"#),
+            SlackEvent::Unreadable
+        );
+        assert_eq!(
+            read(
+                r#"{"type":"event_callback","team_id":"T1","api_app_id":"A1","event":{"type":"tokens_revoked","tokens":{"oauth":[],"bot":["U0BOT"]}}}"#
+            ),
+            SlackEvent::AppLost {
+                team_id: "T1".into(),
+                app_id: "A1".into(),
+                reason: ReasonCode::TokenRevoked,
+            }
+        );
+        for other in [
+            r#"{"type":"event_callback","team_id":"T1","api_app_id":"A1","event":{"type":"tokens_revoked","tokens":{"oauth":["U1"],"bot":[]}}}"#,
+            r#"{"type":"event_callback","team_id":"T1","api_app_id":"A1","event":{"type":"tokens_revoked","tokens":{"oauth":["U1"]}}}"#,
+            r#"{"type":"event_callback","team_id":"T1","api_app_id":"A1","event":{"type":"message"}}"#,
+            r#"{"type":"event_callback","api_app_id":"A1","event":{"type":"app_uninstalled"}}"#,
+            r#"{"type":"event_callback","team_id":"T1","event":{"type":"app_uninstalled"}}"#,
+            r#"{"type":"app_rate_limited"}"#,
+        ] {
+            assert_eq!(read(other), SlackEvent::Other, "{other}");
+        }
+        assert_eq!(read("not json"), SlackEvent::Unreadable);
+        assert_eq!(read(r#"{"no":"type"}"#), SlackEvent::Unreadable);
     }
 
     #[test]

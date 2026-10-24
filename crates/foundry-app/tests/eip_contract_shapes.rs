@@ -28,7 +28,35 @@ pending!(
     "connection upsert: a different team id on the return leaves the row and audit untouched"
 );
 pending!(csrf_exempt_set_is_exactly_three_paths, "03-02", "check-arch rule 5: is_exempt_path is /bootstrap, /integrations/slack/events, /email/stop/one-click and nothing else");
-pending!(connection_lost_event_is_registered_at_zero, "03-02", "DDR-23: NotificationEvent::IntegrationConnectionLost is suppressible and its series register at 0");
+
+// DDR-23 (03-02): the connection-lost admin email is a suppressible account
+// event (D-15: a muted admin is not emailed), and the composition root's
+// register-at-0 series name it for every active provider and outcome.
+#[test]
+fn connection_lost_event_is_registered_at_zero() {
+    use foundry_app::notify::{delivery_zero_series, suppressions_zero_series};
+    use foundry_app::{DeliveryOutcome, NotificationEvent, ProviderKind};
+    let event = NotificationEvent::IntegrationConnectionLost;
+    assert_eq!(event.as_str(), "integration_connection_lost");
+    assert!(
+        event.is_suppressible(),
+        "a muted admin is not emailed (D-15)"
+    );
+    assert!(NotificationEvent::ALL.contains(&event));
+    assert!(suppressions_zero_series().contains(&event));
+    let series = delivery_zero_series(&ProviderKind::ALL);
+    for provider in ProviderKind::ALL {
+        for outcome in DeliveryOutcome::ALL {
+            assert!(
+                series.contains(&(provider, event, outcome)),
+                "{} {} {} registers at 0",
+                provider.as_str(),
+                event.as_str(),
+                outcome.as_str()
+            );
+        }
+    }
+}
 
 // Outbound address policy (slice 04).
 pending!(
@@ -316,6 +344,272 @@ mod audit {
                 rows[0]
             );
         }
+    }
+
+    /// Records every notification a provider is handed.
+    #[derive(Default)]
+    struct Mailbox(std::sync::Mutex<Vec<(String, String, String)>>);
+
+    /// The provider handing every notification to a shared [`Mailbox`].
+    struct Inbox(Arc<Mailbox>);
+
+    #[async_trait::async_trait]
+    impl foundry_app::NotificationProvider for Inbox {
+        async fn deliver(
+            &self,
+            n: &foundry_app::Notification,
+        ) -> Result<(), foundry_app::DeliveryError> {
+            self.0 .0.lock().unwrap().push((
+                n.recipient.clone(),
+                n.subject.clone(),
+                n.body.clone(),
+            ));
+            Ok(())
+        }
+        fn kind(&self) -> foundry_app::ProviderKind {
+            foundry_app::ProviderKind::Log
+        }
+        async fn probe(&self) -> Result<(), foundry_app::DeliveryError> {
+            Ok(())
+        }
+    }
+
+    /// Slack's `v0` request signature over `v0:{ts}:{body}`.
+    fn slack_signature(secret: &str, ts: i64, body: &str) -> String {
+        use hmac::Mac;
+        let mut mac = hmac::Hmac::<sha2::Sha256>::new_from_slice(secret.as_bytes()).unwrap();
+        mac.update(format!("v0:{ts}:{body}").as_bytes());
+        let hex: String = mac
+            .finalize()
+            .into_bytes()
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        format!("v0={hex}")
+    }
+
+    /// A post to the events address, as Slack (or someone) sends it: no
+    /// cookie, no CSRF token; signed with `secret` `age` seconds ago.
+    fn event(body: &str, secret: Option<&str>, age: i64) -> Request<Body> {
+        let ts = time::OffsetDateTime::now_utc().unix_timestamp() - age;
+        let mut req = Request::builder()
+            .method("POST")
+            .uri("/integrations/slack/events")
+            .header(header::CONTENT_TYPE, "application/json");
+        if let Some(secret) = secret {
+            req = req
+                .header("x-slack-request-timestamp", ts.to_string())
+                .header("x-slack-signature", slack_signature(secret, ts, body));
+        }
+        req.body(Body::from(body.to_string())).expect("request")
+    }
+
+    fn uninstall(team: &str, app: &str) -> String {
+        serde_json::json!({
+            "token": "deprecated", "team_id": team, "api_app_id": app,
+            "type": "event_callback", "event_id": "Ev0EIP", "event_time": 1_761_055_320,
+            "event": { "type": "app_uninstalled" }
+        })
+        .to_string()
+    }
+
+    async fn text(resp: axum::response::Response) -> String {
+        let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+            .await
+            .expect("body");
+        String::from_utf8_lossy(&bytes).to_string()
+    }
+
+    // DDR-11, DDR-23 (03-02): Slack's events address, through the router with
+    // no session and no CSRF token, believes only Slack's signed word: a post
+    // that is not Slack's answers 401 and changes nothing; Slack's address
+    // check is answered; the Foundry app's removal from the connected Slack
+    // workspace turns the connection lost and emails each workspace admin
+    // once (a repeat tells no one), and the workspace page then says what
+    // broke, with Reconnect.
+    #[tokio::test]
+    async fn slack_events_believe_only_slack_and_tell_admins_once() {
+        let pg = Postgres::default()
+            .with_tag("16-alpine")
+            .start()
+            .await
+            .expect("start postgres container");
+        let url = format!(
+            "postgres://postgres:postgres@{}:{}/postgres",
+            pg.get_host().await.expect("host"),
+            pg.get_host_port_ipv4(5432).await.expect("port")
+        );
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .acquire_timeout(Duration::from_secs(10))
+            .connect(&url)
+            .await
+            .expect("connect pool");
+        run_migrations(&pool).await.expect("run migrations");
+        let store = Arc::new(Store::from_pool(pool));
+        seed_admin(&store).await;
+        sqlx::query(
+            "INSERT INTO integration_connections
+                    (id, workspace_id, kind, state, external_id, app_id, label,
+                     sealed_credential, credential_saved_at)
+             SELECT $1, id, 'slack', 'connected', 'T0CANZANLABS', 'A0EIPFOUNDRY',
+                    'Canzan Labs', '\\x00'::bytea, now() FROM workspaces",
+        )
+        .bind(uuid::Uuid::now_v7())
+        .execute(store.pool())
+        .await
+        .expect("seed connection");
+        let mailbox = Arc::new(Mailbox::default());
+        let notifier = Arc::new(Notifier::new(vec![Arc::new(Inbox(mailbox.clone()))]));
+        let integrations = IntegrationsHandle::new(Integrations::new(settings(&slack().await)));
+        integrations.admin_mail().use_notifier(notifier.clone());
+        let state = AppState {
+            oidc: None,
+            store: store.clone(),
+            session_secret: Arc::new(SecretString::new(
+                "eip-audit-secret-thirty-two-bytes-or-more-yes-please".into(),
+            )),
+            machine_token_verifier: Arc::new(
+                foundry_auth::MachineTokenVerifier::from_public_keys(&[
+                    "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\n-----END PUBLIC KEY-----\n"
+                        .to_string(),
+                ])
+                .expect("fixed test public key is valid"),
+            ),
+            machine_token_signer: None,
+            session_cookie_secure: false,
+            db_schema: "public".into(),
+            public_url: "http://foundry.test".into(),
+            clock: Arc::new(SystemClock),
+            integrations,
+            notifier,
+            revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
+            realtime_tx: foundry_realtime::build_broadcast(),
+            sse_heartbeat_ms: foundry_app::DEFAULT_SSE_HEARTBEAT_MS,
+            file_upload_max_mb: foundry_app::DEFAULT_FILE_UPLOAD_MAX_MB,
+            db_unreachable: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            force_board_render_failure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            test_migrations_dir: None,
+            applied_migrations: Arc::new(std::sync::Mutex::new(
+                foundry_store::MigrationReport::default(),
+            )),
+            test_migration_delay_ms: 0,
+        };
+        let router = build_router(state);
+        let connection = || async {
+            sqlx::query_as::<_, (String, Option<String>)>(
+                "SELECT state, lost_reason FROM integration_connections",
+            )
+            .fetch_one(store.pool())
+            .await
+            .expect("connection")
+        };
+        let connected = ("connected".to_string(), None);
+        let mails = || mailbox.0.lock().unwrap().clone();
+        let labs = uninstall("T0CANZANLABS", "A0EIPFOUNDRY");
+
+        for (req, why) in [
+            (event(&labs, None, 0), "unsigned"),
+            (
+                event(&labs, Some("not-the-signing-secret"), 0),
+                "wrong secret",
+            ),
+            (event(&labs, Some(SIGNING_SECRET), 6 * 60), "stale"),
+        ] {
+            let resp = send(&router, req).await;
+            assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "{why}");
+            assert_eq!(connection().await, connected, "{why} changes nothing");
+        }
+        for (team, app) in [
+            ("T0CANZANPERSONAL", "A0EIPFOUNDRY"),
+            ("T0CANZANLABS", "A0SOMEOTHERAPP"),
+        ] {
+            let resp = send(
+                &router,
+                event(&uninstall(team, app), Some(SIGNING_SECRET), 0),
+            )
+            .await;
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "{team} {app} is acknowledged"
+            );
+            assert_eq!(
+                connection().await,
+                connected,
+                "{team} {app} changes nothing"
+            );
+        }
+        // The CSRF exemption is that one path: a cookie-less post anywhere
+        // else is refused before any route.
+        let mut beside = event(&labs, Some(SIGNING_SECRET), 0);
+        *beside.uri_mut() = "/integrations/slack/events/".parse().expect("uri");
+        assert_eq!(send(&router, beside).await.status(), StatusCode::FORBIDDEN);
+        let check = r#"{"token":"x","challenge":"eip-challenge-1","type":"url_verification"}"#;
+        let resp = send(&router, event(check, Some(SIGNING_SECRET), 0)).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        assert!(text(resp).await.contains("eip-challenge-1"));
+        assert_eq!(
+            send(&router, event("not json", Some(SIGNING_SECRET), 0))
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert!(mails().is_empty(), "nobody is emailed: {:?}", mails());
+
+        for _ in 0..2 {
+            let resp = send(&router, event(&labs, Some(SIGNING_SECRET), 0)).await;
+            assert_eq!(
+                resp.status(),
+                StatusCode::OK,
+                "Slack's word is acknowledged"
+            );
+        }
+        assert_eq!(
+            connection().await,
+            ("lost".to_string(), Some("app_removed".to_string()))
+        );
+        let told = mails();
+        assert_eq!(told.len(), 1, "one email, once: {told:?}");
+        assert_eq!(
+            (told[0].0.as_str(), told[0].1.as_str()),
+            (ADMIN, "Foundry lost its Slack connection for Canzan Labs")
+        );
+        assert_eq!(
+            told[0].2,
+            "Foundry lost its Slack connection for Canzan Labs: the Foundry app was removed \
+             from Slack. Routes are paused. Reconnect: http://foundry.test/workspace/integrations"
+        );
+
+        let form = serde_urlencoded::to_string([
+            ("_csrf", CSRF),
+            ("email", ADMIN),
+            ("password", PASSWORD),
+        ])
+        .expect("form");
+        let signed_in = send(
+            &router,
+            Request::builder()
+                .method("POST")
+                .uri("/sign-in")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(header::COOKIE, format!("foundry_csrf={CSRF}"))
+                .body(Body::from(form))
+                .expect("request"),
+        )
+        .await;
+        let mut jar = cookies(&signed_in);
+        jar.push(format!("foundry_csrf={CSRF}"));
+        let page = text(send(&router, get("/workspace/integrations", &jar.join("; "))).await).await;
+        assert!(
+            page.contains(
+                "Foundry lost its Slack connection for Canzan Labs: the Foundry app was removed \
+                 from Slack. Routes are paused. <a class=\"button\" \
+                 href=\"/workspace/integrations/slack/install\">Reconnect</a>"
+            ),
+            "{page}"
+        );
+        assert!(!page.contains("Connected to"), "{page}");
     }
 }
 
