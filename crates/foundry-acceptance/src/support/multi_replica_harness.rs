@@ -479,8 +479,30 @@ impl MultiReplicaHarness {
             .clone()
     }
 
+    /// Give every replica the same integration settings, the way the
+    /// composition root gives one instance its settings at boot (`main.rs`:
+    /// `IntegrationsHandle::new(Integrations::new(settings))`). Each replica's
+    /// delivery worker, built by `spawn_app` as `main.rs` builds it, reads
+    /// that replica's handle, so it starts delivering once the settings run
+    /// one — with this replica's own identity and the harness's Clock.
+    /// Replicas keep integrations off until a scenario calls this.
+    /// `settings` builds one replica's settings (each holds its own secrets
+    /// box, as each instance reads its own environment).
+    pub fn install_integrations(
+        &self,
+        settings: impl Fn() -> foundry_app::integrations::config::IntegrationSettings,
+    ) {
+        for replica in &self.replicas {
+            replica
+                .state
+                .integrations
+                .install(foundry_app::integrations::Integrations::new(settings()));
+        }
+    }
+
     /// Stop the replica at slot `idx` by aborting its underlying tokio
-    /// serve task AND removing it from the proxy's rotation. The
+    /// serve task AND its delivery worker, AND removing it from the proxy's
+    /// rotation. The
     /// per-replica TestApp's Drop will reclaim the listener task; the
     /// HTTP serve task winds down when its TcpListener drops (we send
     /// the shutdown oneshot first to be explicit).
@@ -504,6 +526,11 @@ impl MultiReplicaHarness {
             // Sending on a dropped Receiver is fine — `with_graceful_shutdown`
             // already polled the rx; if it's already won, this is a noop.
             let _ = real_tx.send(());
+            // (3) A stopped replica sends nothing more: abort its delivery
+            //     worker, a send in flight with it, as a killed pod's would.
+            if let Some(worker) = app.worker_task.take() {
+                worker.abort();
+            }
         }
     }
 }

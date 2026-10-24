@@ -1121,6 +1121,29 @@ pub fn instance_env(world: &FoundryWorld) -> Vec<(&'static str, String)> {
     env
 }
 
+/// The scenario's [`InstanceSpec`] as `IntegrationSettings`, read through the
+/// same `IntegrationSettings::from_lookup` the binary reads its environment
+/// with. `worker` false adds `FOUNDRY_INTEGRATIONS_WORKER=off`.
+fn scenario_settings(
+    world: &FoundryWorld,
+    worker: bool,
+    default_public_url: &str,
+    who: &str,
+) -> foundry_app::integrations::config::IntegrationSettings {
+    use foundry_app::integrations::config::IntegrationSettings;
+    let mut env = instance_env(world);
+    if !worker {
+        env.push(("FOUNDRY_INTEGRATIONS_WORKER", "off".to_string()));
+    }
+    let lookup = |name: &str| {
+        env.iter()
+            .find(|(setting, _)| *setting == name)
+            .map(|(_, value)| value.clone())
+    };
+    IntegrationSettings::from_lookup(lookup, default_public_url)
+        .unwrap_or_else(|err| panic!("{who} refuses the scenario's settings: {err}"))
+}
+
 /// Hand the scenario's [`InstanceSpec`] to the in-process app — ALL of it,
 /// as [`instance_env`] spells it, through the same
 /// `IntegrationSettings::from_lookup` the binary reads its environment with,
@@ -1128,28 +1151,30 @@ pub fn instance_env(world: &FoundryWorld) -> Vec<(&'static str, String)> {
 /// seams, the secrets keys and the public URL; the worker and email settings
 /// as their readers land). The app reads the installed integrations per
 /// request, so this takes effect at once.
+///
+/// When Foundry runs as replicas, every replica gets the same settings with
+/// its own delivery worker on (each replica is an instance, as production
+/// wires one); the in-process app then runs no worker of its own.
 pub async fn rewire(world: &mut FoundryWorld) {
-    use foundry_app::integrations::config::IntegrationSettings;
     use foundry_app::integrations::Integrations;
-    let mut env = instance_env(world);
+    let harness = tm::harness(world);
     // Subprocess and replica scenarios: the in-process app runs no delivery
     // worker of its own on the shared schema.
-    if !world.eip.spec.in_process_worker {
-        env.push(("FOUNDRY_INTEGRATIONS_WORKER", "off".to_string()));
-    }
-    let harness = tm::harness(world);
-    let lookup = |name: &str| {
-        env.iter()
-            .find(|(setting, _)| *setting == name)
-            .map(|(_, value)| value.clone())
-    };
-    let settings = IntegrationSettings::from_lookup(lookup, &harness.base_url())
-        .unwrap_or_else(|err| panic!("the in-process app refuses the scenario's settings: {err}"));
+    let settings = scenario_settings(
+        world,
+        world.eip.spec.in_process_worker,
+        &harness.base_url(),
+        "the in-process app",
+    );
     harness
         .app
         .state
         .integrations
         .install(Integrations::new(settings));
+    if let Some(replicas) = &world.eip.replicas {
+        let public_url = replicas.base_url();
+        replicas.install_integrations(|| scenario_settings(world, true, &public_url, "a replica"));
+    }
 }
 
 // ===========================================================================
@@ -4696,6 +4721,8 @@ pub async fn given_replicas(world: &mut FoundryWorld) {
     let h = tm::harness(world);
     let replicas = MultiReplicaHarness::spawn_sharing_schema(2, h, now(world)).await;
     world.eip.replicas = Some(replicas);
+    // Each replica now delivers with the scenario's settings.
+    rewire(world).await;
 }
 
 /// "the replica sending AUTH-12's message has stopped before hearing back":
@@ -4711,6 +4738,8 @@ pub async fn stop_sending_replica(world: &mut FoundryWorld) {
     world.eip.replicas = None;
     let h = tm::harness(world);
     world.eip.replicas = Some(MultiReplicaHarness::spawn_sharing_schema(1, h, now(world)).await);
+    // The restarted pod starts with the operator's settings, its worker on.
+    rewire(world).await;
 }
 
 /// "the replica sending AUTH-12's message stopped before hearing back, and the
@@ -4733,9 +4762,10 @@ pub async fn stop_claiming_replica_only(world: &mut FoundryWorld, key: &str) {
     replicas.stop_replica(claimant);
 }
 
-/// Which replica holds `key`'s delivery claim. The harness cannot tell yet,
-/// and `MultiReplicaHarness::stop_replica` stops a replica's HTTP serving but
-/// not its delivery worker: both are DELIVER 01-11's seam (DIST-22).
+/// Which replica holds `key`'s delivery claim. The harness cannot tell yet
+/// (`MultiReplicaHarness::stop_replica` now stops a replica's HTTP serving
+/// and its delivery worker, but nothing names the claimant): DELIVER 01-11's
+/// seam (DIST-22).
 fn claiming_replica(world: &FoundryWorld, key: &str) -> usize {
     let running = world.eip.replicas.as_ref().map_or(0, |r| r.replicas.len());
     panic!(
