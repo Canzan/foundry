@@ -1794,22 +1794,48 @@ pub async fn given_tests_sent(world: &mut FoundryWorld, who: &str, n: usize) {
     }
 }
 
+/// The channel names the rendered route form carries for `route`'s channel
+/// (its hidden `channel_label.{id}` fields), as a browser would post them.
+async fn rendered_channel_labels(
+    world: &mut FoundryWorld,
+    who: &str,
+    route: &Route,
+) -> Vec<(String, String)> {
+    let channel = destination_ref(world, route);
+    let base = integrations_path(world, &route.project);
+    let new = format!(
+        "{base}/routes/new?kind={}&destination={}",
+        route.kind.wire(),
+        urlencoding::encode(&channel)
+    );
+    let page = get(world, who, &new).await;
+    form_fields(&page, &format!("{base}/routes"))
+        .into_iter()
+        .filter(|(name, _)| name.starts_with("channel_label."))
+        .collect()
+}
+
 pub async fn when_preview(world: &mut FoundryWorld, who: &str) {
-    capture_before(world).await;
-    world
-        .eip
-        .shown_before
-        .insert("calls".into(), slack(world).calls().len());
     let route = world
         .eip
         .draft
         .clone()
         .expect("a Given began creating a route");
+    // The form the lead previews from was rendered before the preview: the
+    // channel names it carries ride along, and Slack's listing for that
+    // render is not the preview's.
+    let labels = rendered_channel_labels(world, who, &route).await;
+    capture_before(world).await;
+    world
+        .eip
+        .shown_before
+        .insert("calls".into(), slack(world).calls().len());
     let path = format!(
         "{}/routes/preview",
         integrations_path(world, &route.project)
     );
-    let fields = route_fields(world, &route);
+    let mut fields = route_fields(world, &route);
+    fields.extend(labels);
     let answer = post(world, who, &path, &fields, true).await;
     world.eip.when_answer = Some(answer);
 }

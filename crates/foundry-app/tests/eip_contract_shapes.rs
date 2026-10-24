@@ -912,6 +912,132 @@ mod routes {
         );
     }
 
+    /// The hidden `channel_label.{id}` fields a rendered route form carries.
+    fn channel_labels_of(page: &str) -> Vec<(String, String)> {
+        page.split("<input type=\"hidden\" name=\"channel_label.")
+            .skip(1)
+            .map(|rest| {
+                let id = rest[..rest.find('"').expect("a quoted name")].to_string();
+                let value = rest.split("value=\"").nth(1).expect("a value");
+                (
+                    format!("channel_label.{id}"),
+                    value[..value.find('"').expect("a quoted value")].to_string(),
+                )
+            })
+            .collect()
+    }
+
+    /// The picker's option labels and the K-5 audience notice of a page.
+    fn picker_labels_and_audience(page: &str) -> (Vec<String>, Option<String>) {
+        let start = page
+            .find("name=\"destination\"")
+            .expect("the destination picker");
+        let picker = &page[start..start + page[start..].find("</select>").expect("its end")];
+        let labels = picker
+            .split("<option ")
+            .skip(1)
+            .map(|rest| {
+                let after = &rest[rest.find('>').expect("a closed option") + 1..];
+                after[..after.find("</option>").expect("its end")].to_string()
+            })
+            .collect();
+        let audience = page.find("data-audience-notice>").map(|at| {
+            let rest = &page[at + "data-audience-notice>".len()..];
+            rest[..rest.find("</p>").expect("a closed notice")].to_string()
+        });
+        (labels, audience)
+    }
+
+    /// 02-03: the preview names the chosen channel as the rendered form named
+    /// it — the form carries each offered channel's name in a hidden
+    /// `channel_label.{id}` field, and the preview's single-channel picker and
+    /// K-5 read that name, never another channel's; without it they fall back
+    /// to the channel id. Slack is asked nothing by any preview.
+    #[tokio::test]
+    async fn preview_names_the_chosen_channel_from_the_rendered_form() {
+        let lab = Lab::start().await;
+        let response = lab
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri(format!(
+                        "{PAGE}/routes/new?kind=slack&destination={AUTH_DEV}"
+                    ))
+                    .header(header::COOKIE, &lab.cookie)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("response");
+        assert_eq!(response.status(), StatusCode::OK, "the route form");
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let rendered = channel_labels_of(&String::from_utf8_lossy(&body));
+        assert_eq!(
+            rendered,
+            vec![(format!("channel_label.{AUTH_DEV}"), "#auth-dev".to_string())],
+            "the form carries the channel's name"
+        );
+        lab.calls.lock().unwrap().clear();
+        let decoy = vec![("channel_label.C0DECOY".to_string(), "#decoy".to_string())];
+        let mut answers = Vec::new();
+        for labels in [
+            rendered.clone(),
+            [decoy.clone(), rendered].concat(),
+            decoy,
+            vec![],
+        ] {
+            let mut fields: Vec<(&str, &str)> = vec![
+                ("kind", "slack"),
+                ("destination", AUTH_DEV),
+                ("events", "issue.created"),
+                ("content_level", "summary"),
+            ];
+            fields.extend(labels.iter().map(|(n, v)| (n.as_str(), v.as_str())));
+            let response = lab
+                .router
+                .clone()
+                .oneshot(form(
+                    &format!("{PAGE}/routes/preview"),
+                    &lab.cookie,
+                    &fields,
+                ))
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::OK, "{labels:?}");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            answers.push(picker_labels_and_audience(&String::from_utf8_lossy(&body)));
+        }
+        let named = |name: &str| {
+            (
+                vec![name.to_string()],
+                Some(format!(
+                    "Everyone who can read {name} will see what this route sends. \
+                     Foundry cannot check who that is."
+                )),
+            )
+        };
+        assert_eq!(
+            answers,
+            vec![
+                named("#auth-dev"),
+                named("#auth-dev"),
+                named(AUTH_DEV),
+                named(AUTH_DEV),
+            ],
+            "the rendered name; never another channel's; else the channel id"
+        );
+        assert!(
+            lab.calls.lock().unwrap().is_empty(),
+            "the preview asked Slack nothing: {:?}",
+            lab.calls.lock().unwrap()
+        );
+    }
+
     #[tokio::test]
     async fn refused_destination_check_writes_nothing() {
         let lab = Lab::start().await;
