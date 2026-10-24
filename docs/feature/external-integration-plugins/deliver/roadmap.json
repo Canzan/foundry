@@ -471,7 +471,7 @@
           "id": "01-10",
           "name": "Two-replica delivery verification",
           "type": "verification",
-          "description": "Declared verification step with its own commit. Un-pends 65, 66, 123, 124 (4 rows) and proves each fails under a seeded worker fault, reverted before commit.",
+          "description": "Declared verification step with its own commit. Un-pends 65, 66, 123, 124 (4 rows) and proves each fails under a seeded worker fault, reverted before commit. Coordinator 2026-10-23: scenario 65 moved to 02-01 (needs Moved delivery); 01-10 now un-pends 66, 123, 124.",
           "criteria": [
             "Two replicas deliver each event once, in order, including bursts",
             "A stopped sender's message, or a late answer, is delivered and recorded once",
@@ -486,7 +486,6 @@
           ],
           "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-03-operations.feature",
           "scenario_name": [
-            "Two replicas deliver each event once, in the order it happened",
             "A message whose sender stopped in the middle of a send is not lost",
             "A late answer from a replica whose claim expired is recorded once",
             "Two replicas deliver a burst of events once each"
@@ -614,11 +613,13 @@
             "One action that deletes many cards posts one message once there are more than five",
             "Deleting a lane that moves its cards posts one message for the move",
             "core_properties.rs::dispatch_plan_has_no_reorder_event",
-            "core_properties.rs::dispatch_plan_bursts_more_than_five_per_source_transaction"
+            "core_properties.rs::dispatch_plan_bursts_more_than_five_per_source_transaction",
+            "Two replicas deliver each event once, in the order it happened"
           ],
-          "implementation_notes": "DDR-6/7/8, ADR-EIP-003, DA-2, R-10. CHANGELOG: Added: issue moved, issue deleted and comment events on routes.",
+          "implementation_notes": "DDR-6/7/8, ADR-EIP-003, DA-2, R-10. CHANGELOG: Added: issue moved, issue deleted and comment events on routes. Coordinator 2026-10-23: also un-pends scenario 65 (eip-replica, 03-operations) and proves it with seeded fault C (scratchpad/0110/f/C-head-order-ignored.patch). Defect from the 01-10 hand-back: the New issue message reads the issue's lane at send time ('· Done' after a move) instead of the event's own snapshot; compose from the event as it happened.",
           "lanes": [
-            "eip-02"
+            "eip-02",
+            "eip-replica"
           ],
           "mutation_targets": [
             "crates/foundry-integrations/src/lib.rs",
