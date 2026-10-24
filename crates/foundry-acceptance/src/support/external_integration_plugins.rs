@@ -1008,6 +1008,24 @@ pub fn lane_slug(label: &str) -> String {
     label.trim().to_ascii_lowercase().replace(' ', "_")
 }
 
+/// The slug of the lane `project` shows as `label` today. A rename changes a
+/// lane's label and keeps its slug ("Done" renamed "Shipped" is still `done`),
+/// so a move names the lane by what the board reads now. A label no lane
+/// carries falls back to the slug the label would seed, so the board answers
+/// for an unknown lane itself.
+pub async fn current_lane_slug(world: &FoundryWorld, project: &str, label: &str) -> String {
+    let slug: Option<String> = sqlx::query_scalar(
+        "SELECT l.slug FROM lanes l JOIN projects p ON p.id = l.project_id
+          WHERE p.name = $1 AND l.label = $2",
+    )
+    .bind(project)
+    .bind(label.trim())
+    .fetch_optional(&tm::pool(world))
+    .await
+    .expect("read the lane's current slug");
+    slug.unwrap_or_else(|| lane_slug(label))
+}
+
 /// "Identity Platform holds these issues" — each filed and moved through the
 /// product as the person named, before any route exists.
 pub async fn given_issues(world: &mut FoundryWorld, project: &str, step: &Step) {
@@ -2183,7 +2201,10 @@ pub async fn move_issue(world: &mut FoundryWorld, who: &str, key: &str, lane: &s
         world,
         who,
         &path,
-        &[("state".into(), lane_slug(lane))],
+        &[(
+            "state".into(),
+            current_lane_slug(world, &project, lane).await,
+        )],
         true,
     )
     .await;
@@ -2201,7 +2222,10 @@ pub async fn reorder(world: &mut FoundryWorld, who: &str, key: &str, lane: &str)
         world,
         who,
         &path,
-        &[("state".into(), lane_slug(lane))],
+        &[(
+            "state".into(),
+            current_lane_slug(world, &project, lane).await,
+        )],
         true,
     )
     .await;

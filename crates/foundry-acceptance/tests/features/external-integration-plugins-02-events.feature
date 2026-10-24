@@ -92,7 +92,7 @@ Feature: A team lead chooses exactly which events a route carries
     When Lena saves the route
     Then Identity Platform still has no route
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: A lane filter follows its lane through a rename
     Given Lena has routed Issue moved into Done on Identity Platform to #auth-releases
     And Lena has renamed the lane Done to Shipped

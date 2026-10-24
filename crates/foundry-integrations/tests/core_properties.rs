@@ -7,8 +7,8 @@
 
 use foundry_integrations::{
     claimable_head, expiry_set, Attention, ChannelKind, ConnectionState, ContentLevel,
-    DispatchPlan, EventKind, FinishedDelivery, OutboxRow, QueuedDelivery, ReasonCode, RouteFacts,
-    RouteSpec, RouteStatus,
+    DispatchPlan, EventKind, FilterLane, FinishedDelivery, OutboxRow, QueuedDelivery, ReasonCode,
+    RouteFacts, RouteSpec, RouteStatus,
 };
 use proptest::prelude::*;
 use std::collections::BTreeSet;
@@ -649,4 +649,124 @@ proptest! {
             prop_assert!(firsts.windows(2).all(|w| w[0] < w[1]), "in the order it happened");
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 02-02: lane-filtered routes (DDR-19 rule 5, US-EIP-03 examples 4-5).
+// ---------------------------------------------------------------------------
+
+/// One open chat route on project 0 limited to `filter`: each chosen lane by
+/// its id, with the slug the project has for it now, or `None` once gone.
+fn lane_filtered_route(filter: &[Option<usize>]) -> RouteSpec {
+    let lane_ids = filter
+        .iter()
+        .enumerate()
+        .map(|(index, lane)| FilterLane {
+            id: Uuid::from_u128(0x6000 + index as u128),
+            slug: lane.map(|lane| LANES[lane].to_string()),
+        })
+        .collect();
+    RouteSpec {
+        lane_ids,
+        ..chat_routes(1).remove(0)
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// A lane filter limits Issue moved and nothing else: every new issue,
+    /// deletion and comment still reaches a lane-filtered route, whatever lane
+    /// it is in; a move reaches it only when it lands in one of the chosen
+    /// lanes and every chosen lane still exists; an empty filter takes every
+    /// move.
+    #[test]
+    fn a_lane_filter_limits_only_moves_and_only_into_chosen_live_lanes(
+        picks in proptest::collection::vec(
+            (0usize..4, 0usize..LANES.len(), 0usize..LANES.len()), 1..12
+        ),
+        filter in proptest::collection::vec(
+            proptest::option::weighted(0.8, 0usize..LANES.len()), 0..=LANES.len()
+        ),
+    ) {
+        const TYPES: [&str; 4] = ["IssueCreated", "IssueUpdated", "IssueDeleted", "CommentAdded"];
+        let rows: Vec<OutboxRow> = picks
+            .iter()
+            .enumerate()
+            .map(|(index, (kind, from, to))| {
+                // A move always changes lane: a reposition is its own property.
+                let from = if TYPES[*kind] == "IssueUpdated" && from == to {
+                    (to + 1) % LANES.len()
+                } else {
+                    *from
+                };
+                board_row(index, index as u64, TYPES[*kind], LANES[from], LANES[*to])
+            })
+            .collect();
+        let route = lane_filtered_route(&filter);
+
+        let plan = DispatchPlan::build(&rows, std::slice::from_ref(&route));
+
+        let every_lane_lives = filter.iter().all(Option::is_some);
+        let expected: BTreeSet<i64> = rows
+            .iter()
+            .zip(&picks)
+            .filter(|(_, (kind, _, to))| {
+                TYPES[*kind] != "IssueUpdated"
+                    || filter.is_empty()
+                    || (every_lane_lives && filter.contains(&Some(*to)))
+            })
+            .map(|(row, _)| row.id)
+            .collect();
+        let delivered: Vec<i64> = plan.deliveries().iter().map(|d| d.outbox_ids[0]).collect();
+        prop_assert_eq!(delivered.len(), expected.len(), "no row twice");
+        prop_assert_eq!(delivered.into_iter().collect::<BTreeSet<_>>(), expected);
+    }
+}
+
+/// US-EIP-03 example 4: a renamed lane keeps its id, so the route follows it
+/// by the slug the project has for it now; a move into another lane does not
+/// reach the route.
+#[test]
+fn a_lane_filter_follows_its_lane_by_the_slug_it_has_now() {
+    let done = LANES.iter().position(|lane| *lane == "done").expect("done");
+    let route = lane_filtered_route(&[Some(done)]);
+    let rows = [
+        board_row(0, 1, "IssueUpdated", "in-progress", "done"),
+        board_row(1, 2, "IssueUpdated", "done", "todo"),
+        board_row(2, 3, "IssueCreated", "todo", "todo"),
+    ];
+
+    let plan = DispatchPlan::build(&rows, &[route]);
+
+    let delivered: Vec<(i64, EventKind)> = plan
+        .deliveries()
+        .iter()
+        .map(|d| (d.outbox_ids[0], d.event_kind))
+        .collect();
+    assert_eq!(
+        delivered,
+        vec![(100, EventKind::IssueMoved), (102, EventKind::IssueCreated)]
+    );
+}
+
+/// US-EIP-03 example 5: a route with a gone lane posts no move, even into a
+/// lane it still names, until it is edited; its other events still arrive.
+#[test]
+fn a_lane_filter_with_a_gone_lane_posts_no_move() {
+    let done = LANES.iter().position(|lane| *lane == "done").expect("done");
+    let route = lane_filtered_route(&[None, Some(done)]);
+    let rows = [
+        board_row(0, 1, "IssueUpdated", "in-progress", "done"),
+        board_row(1, 2, "CommentAdded", "done", "done"),
+    ];
+
+    let plan = DispatchPlan::build(&rows, &[route]);
+
+    let delivered: Vec<(i64, EventKind)> = plan
+        .deliveries()
+        .iter()
+        .map(|d| (d.outbox_ids[0], d.event_kind))
+        .collect();
+    assert_eq!(delivered, vec![(101, EventKind::CommentAdded)]);
 }
