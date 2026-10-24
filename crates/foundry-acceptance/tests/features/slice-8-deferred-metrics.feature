@@ -295,19 +295,20 @@ Feature: The five deferred observability metrics emit so the operator dashboard 
   @real-io @probe-failure @startup-register @nfr-obs-03
   Scenario: On a healthy instance every known probe is scrapable at zero so the operator sees the full all-passing baseline
     # register-at-0 for the bounded probe_name set (ADR-019). On a
-    # healthy instance both known probes register at 0 so the dashboard
+    # healthy instance every known probe registers at 0 so the dashboard
     # shows the full probe set as flat-zero lines ("all probes
     # passing"). Bounded-poll settles-to-0; asserts the line is present
     # immediately and the bounded label set is exactly {probe_name} with
-    # values drawn from the closed {store, metrics, machine_token} set
-    # (Feature A US-W05b added the machine-token key-material probe).
+    # values drawn from the closed {store, metrics, machine_token, secrets}
+    # set (Feature A US-W05b added the machine-token key-material probe;
+    # external-integration-plugins U-D8 added the secrets-key probe).
     Given the operator's foundry instance is running
     When the operator scrapes the metrics endpoint immediately
     Then the scrape returns HTTP 200
     And the scrape body contains the line "probe_failures_total"
     And the scrape body's "probe_failures_total" sample settles to 0 within 5 seconds
     And the scrape body's "probe_failures_total" samples carry only the label keys "probe_name"
-    And the scrape body's "probe_failures_total" samples carry only the probe names "store,metrics,machine_token"
+    And the scrape body's "probe_failures_total" samples carry only the probe names "store,metrics,machine_token,secrets"
 
   @real-io @probe-failure @error @nfr-obs-03 @serial
   Scenario: A failing startup store probe refuses to start so a half-migrated deploy never serves

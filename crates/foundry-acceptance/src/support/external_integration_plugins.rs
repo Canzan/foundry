@@ -626,6 +626,9 @@ pub struct EipState {
     /// Slack or the homeserver went silent in this scenario: an absence check
     /// then waits STATUS_BUDGET (Foundry's client timeout comes first).
     pub silence_seen: bool,
+    /// The operator's Foundry was killed between two attempts and started
+    /// again: a message still waiting is due at its retry, not at once.
+    pub restarted_between_attempts: bool,
 }
 
 impl std::fmt::Debug for EipState {
@@ -2566,10 +2569,27 @@ pub async fn then_exactly_one(
     );
 }
 
+/// After a restart between attempts the waiting message is sent at its
+/// scheduled retry: `RetryPolicy::FIXED_30S` (30 s after the failed attempt
+/// settled), plus a margin for the restart, the poll and the per-destination
+/// pacing. No delivery lease is in play (FOUNDRY_INTEGRATIONS_LEASE_SECONDS,
+/// 45 s): the kill came after the attempt was recorded, which clears it.
+const RETRY_AFTER_RESTART_BUDGET: Duration = Duration::from_secs(30 + 15);
+
+/// How long a message may take to show: the NFR delivery budget, or the
+/// scheduled retry after a restart between attempts.
+fn showing_budget(world: &FoundryWorld) -> Duration {
+    if world.eip.restarted_between_attempts {
+        RETRY_AFTER_RESTART_BUDGET
+    } else {
+        DELIVERY_BUDGET
+    }
+}
+
 pub async fn then_shows_key(world: &mut FoundryWorld, channel: &str, key: &str) {
     let double = slack(world);
     eventually(
-        DELIVERY_BUDGET,
+        showing_budget(world),
         &format!("{channel} shows {key}'s message"),
         || {
             let double = double.clone();
@@ -4354,6 +4374,18 @@ pub async fn start_process(world: &mut FoundryWorld) {
         .eip
         .sessions
         .retain(|(b, _), _| !b.starts_with("http://127.0.0.1"));
+}
+
+/// "Foundry has been killed and started again while Slack was still down":
+/// the first attempt (already asked of Slack, see `given_filed`) settles,
+/// Foundry's 10 s call timeout, so the route reads it is retrying; then
+/// SIGKILL and start again, between that attempt and the 30 s retry. A kill
+/// in the middle of the send would leave its 45 s lease live; that case is
+/// the replica lane's (scenarios 66, 131).
+pub async fn kill_between_attempts(world: &mut FoundryWorld) {
+    then_route_reads(world, "#auth-dev", "Retrying: Slack did not answer", false).await;
+    restart_process(world).await;
+    world.eip.restarted_between_attempts = true;
 }
 
 /// SIGKILL (kill_on_drop) and start again.

@@ -43,10 +43,10 @@ const PROBE_FAILURES_TOTAL: &str = "probe_failures_total";
 /// baseline) AND increments the counter on failure. Adding a probe MUST
 /// add its name here. Bounded + code-defined; never request-derived
 /// (the slice-6 ADR-011 cardinality invariant, extended by D6).
-const PROBE_NAMES: &[&str] = &["store", "metrics", "machine_token"];
-/// external-integration-plugins (DD-2): the secrets probe's `probe_name`.
-/// Counted only when it fails: slice 8's shipped baseline pins the
-/// registered-at-0 set to `PROBE_NAMES` (escalated to DISTILL, step 01-08).
+const PROBE_NAMES: &[&str] = &["store", "metrics", "machine_token", SECRETS_PROBE];
+/// external-integration-plugins (DD-2, U-D8): the secrets probe's
+/// `probe_name`, registered at 0 with the rest of `PROBE_NAMES` and
+/// counted when a stored credential cannot be opened.
 const SECRETS_PROBE: &str = "secrets";
 /// external-integration-plugins (DD-2, U-D8): 1 while this replica started
 /// degraded because a stored credential cannot be opened.

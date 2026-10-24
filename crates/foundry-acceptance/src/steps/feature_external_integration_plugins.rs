@@ -1195,7 +1195,7 @@ async fn process(world: &mut FoundryWorld) {
 
 #[given(regex = r"^Foundry has been killed and started again while Slack was still down$")]
 async fn killed(world: &mut FoundryWorld) {
-    eip::restart_process(world).await;
+    eip::kill_between_attempts(world).await;
 }
 
 #[given(regex = r"^Foundry has been started again without its secrets key$")]

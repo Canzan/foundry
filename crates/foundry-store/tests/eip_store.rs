@@ -1560,3 +1560,64 @@ async fn rotate_secrets_reseals_every_credential_or_nothing() {
         "a mid-way failure changes nothing"
     );
 }
+
+/// The secrets probe's check values (ADR-EIP-004 decision 4): recording one
+/// persists it, a second recording for the same key keeps the first (replicas
+/// of a rollout race to write it), and `key_checks` returns every stored
+/// value in key id order.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn record_key_check_keeps_the_first_value_per_key_and_reads_back() {
+    use foundry_store::integrations::KeyCheck;
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let store = Store::from_pool(pool.clone());
+    let check = |key_id: &str, canary: &[u8]| KeyCheck {
+        key_id: key_id.into(),
+        sealed_canary: canary.to_vec(),
+    };
+    let read = |checks: Vec<KeyCheck>| -> Vec<(String, Vec<u8>)> {
+        checks
+            .into_iter()
+            .map(|c| (c.key_id, c.sealed_canary))
+            .collect()
+    };
+    assert!(
+        store.key_checks().await.expect("read").is_empty(),
+        "no check value before the first boot"
+    );
+
+    store
+        .record_key_check(&check("k2", b"canary-k2"))
+        .await
+        .expect("record k2");
+    assert_eq!(
+        key_check_rows(&pool).await,
+        vec![("k2".to_string(), b"canary-k2".to_vec())],
+        "the check value is persisted"
+    );
+
+    store
+        .record_key_check(&check("k2", b"canary-k2-later"))
+        .await
+        .expect("a second replica's record is not an error");
+    store
+        .record_key_check(&check("k1", b"canary-k1"))
+        .await
+        .expect("record k1");
+
+    let expected = vec![
+        ("k1".to_string(), b"canary-k1".to_vec()),
+        ("k2".to_string(), b"canary-k2".to_vec()),
+    ];
+    assert_eq!(
+        key_check_rows(&pool).await,
+        expected,
+        "the first value for a key stays"
+    );
+    assert_eq!(
+        read(store.key_checks().await.expect("read")),
+        expected,
+        "key_checks returns every stored value, in key id order"
+    );
+}

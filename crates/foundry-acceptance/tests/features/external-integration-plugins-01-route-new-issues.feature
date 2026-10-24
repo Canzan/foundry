@@ -88,7 +88,12 @@ Feature: A team lead sends a project's new issues to a Slack channel and sees th
     Then AUTH-12 is created and shown on the board within 2 seconds
     And Lena's route to #auth-dev reads "Retrying: Slack did not answer"
 
-  @pending @error @slow @eip-restart @kpi @contract-shape:bounded-change
+  # DELIVER 01-08 owned this scenario; DISTILL lifted its @pending after the
+  # harness fix: "killed and started again" waits for Foundry's first attempt
+  # to settle (the route reads it is retrying), then SIGKILLs between that
+  # attempt and the 30-second retry, so no live lease delays the restart, and
+  # the Then waits out the retry.
+  @error @slow @eip-restart @kpi @contract-shape:bounded-change
   Scenario: A message waiting for Slack survives a restart of Foundry
     Given Foundry runs as the operator's process with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack
