@@ -42,6 +42,7 @@ use crate::support::round_robin_proxy::{spawn_round_robin_proxy, ProxyHandle};
 use crate::support::test_migration::TestMigrationsDir;
 use foundry_app::clock::MockClock;
 use foundry_app::test_support::{boot_test_migrations, spawn_app_with_listener, TestApp};
+use foundry_app::Clock;
 use foundry_app::ProviderKind;
 use foundry_app::{AppState, DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS};
 use foundry_store::{MigrationReport, Store};
@@ -87,7 +88,12 @@ pub struct MultiReplicaHarness {
     /// The round-robin proxy in front of all replicas.
     pub proxy: ProxyHandle,
     /// Shared fake clock — Arc'd so every replica observes the same now.
+    /// With [`ReplicaTime::WallTicking`] it is the base the replicas' clock
+    /// ticks from; `advance` on it still jumps every replica forward.
     pub fake_clock: Arc<MockClock>,
+    /// The Clock every replica's AppState holds (the fake clock itself, or
+    /// the wall-ticking clock over it).
+    pub clock: Arc<dyn Clock>,
     /// Shared delivery recorder — Arc'd so every replica's notifier records into
     /// the same inbox.
     pub fake_email: Arc<DeliveryRecorder>,
@@ -135,7 +141,7 @@ impl MultiReplicaHarness {
     /// entry point in slice-4).
     pub async fn spawn(n: usize, now: time::OffsetDateTime) -> Self {
         // No existing single-replica harness; provision a fresh schema.
-        Self::spawn_inner(n, now, None).await
+        Self::spawn_inner(n, now, None, ReplicaTime::Frozen).await
     }
 
     /// US-04: Spawn N replicas in PARALLEL against a fresh per-scenario
@@ -221,6 +227,7 @@ impl MultiReplicaHarness {
             None => fresh_schema_pool_no_migrations().await,
         };
         let fake_clock = MockClock::new(now);
+        let clock: Arc<dyn Clock> = fake_clock.clone();
         let fake_email = DeliveryRecorder::new();
         let heartbeat_ms =
             heartbeat_env::current_heartbeat_ms().unwrap_or(DEFAULT_SSE_HEARTBEAT_MS);
@@ -246,7 +253,7 @@ impl MultiReplicaHarness {
                     session_cookie_secure: true,
                     db_schema: schema.clone(),
                     public_url: "http://localhost".into(),
-                    clock: fake_clock.clone(),
+                    clock: clock.clone(),
                     integrations: Default::default(),
                     notifier: notifier_from_recorder(&fake_email, &[ProviderKind::Log]),
                     revoke_rate_limiter: Arc::new(
@@ -325,6 +332,7 @@ impl MultiReplicaHarness {
             schema,
             proxy,
             fake_clock,
+            clock,
             fake_email,
             shared_pool: pool,
             listen_url,
@@ -345,6 +353,18 @@ impl MultiReplicaHarness {
         existing: &InProcHarness,
         now: time::OffsetDateTime,
     ) -> Self {
+        Self::spawn_sharing_schema_with_time(n, existing, now, ReplicaTime::Frozen).await
+    }
+
+    /// As [`Self::spawn_sharing_schema`], choosing how the replicas' time
+    /// passes (external-integration-plugins' replica lane ticks with wall
+    /// time so the 1-per-second destination pacing behaves as in production).
+    pub async fn spawn_sharing_schema_with_time(
+        n: usize,
+        existing: &InProcHarness,
+        now: time::OffsetDateTime,
+        replica_time: ReplicaTime,
+    ) -> Self {
         let shared = SharedSchema {
             schema: existing.schema.clone(),
             pool: existing.app.state.store.pool().clone(),
@@ -357,13 +377,14 @@ impl MultiReplicaHarness {
             ),
             existing_addr: Some(existing.app.addr),
         };
-        Self::spawn_inner(n, now, Some(shared)).await
+        Self::spawn_inner(n, now, Some(shared), replica_time).await
     }
 
     async fn spawn_inner(
         n: usize,
         now: time::OffsetDateTime,
         shared: Option<SharedSchema>,
+        replica_time: ReplicaTime,
     ) -> Self {
         assert!(n >= 1, "MultiReplicaHarness requires n >= 1");
         // Force the shared Postgres container to exist before any of
@@ -378,6 +399,10 @@ impl MultiReplicaHarness {
             }
         };
         let fake_clock = MockClock::new(now);
+        let clock: Arc<dyn Clock> = match replica_time {
+            ReplicaTime::Frozen => fake_clock.clone(),
+            ReplicaTime::WallTicking => Arc::new(WallTickingClock::new(fake_clock.clone())),
+        };
         let fake_email = DeliveryRecorder::new();
         let heartbeat_ms =
             heartbeat_env::current_heartbeat_ms().unwrap_or(DEFAULT_SSE_HEARTBEAT_MS);
@@ -406,7 +431,7 @@ impl MultiReplicaHarness {
                 session_cookie_secure: true,
                 db_schema: schema.clone(),
                 public_url: "http://localhost".into(),
-                clock: fake_clock.clone(),
+                clock: clock.clone(),
                 integrations: Default::default(),
                 notifier: notifier_from_recorder(&fake_email, &[ProviderKind::Log]),
                 revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
@@ -437,12 +462,18 @@ impl MultiReplicaHarness {
             schema,
             proxy,
             fake_clock,
+            clock,
             fake_email,
             shared_pool: pool,
             listen_url,
             migrations_dir: None,
             boot_durations: Vec::new(),
         }
+    }
+
+    /// The time the replicas read now.
+    pub fn now(&self) -> time::OffsetDateTime {
+        self.clock.now()
     }
 
     /// Base URL the test reqwest client should hit — the proxy, NOT
@@ -532,6 +563,47 @@ impl MultiReplicaHarness {
                 worker.abort();
             }
         }
+    }
+}
+
+/// How time passes for a harness's replicas.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReplicaTime {
+    /// The shared [`MockClock`] alone: time moves only when a step advances it.
+    Frozen,
+    /// [`WallTickingClock`]: the fake base, plus whatever `advance` added,
+    /// plus the real time elapsed since the replicas spawned.
+    WallTicking,
+}
+
+/// A replica Clock that runs like a real instance's while staying
+/// advanceable: `now` is the shared fake clock (its base plus every
+/// `advance`) plus the wall time elapsed since the replicas spawned. Steps
+/// never move it to let ordinary time pass; `advance` still jumps leases.
+/// `sleep` is the fake clock's (recorded, not slept).
+#[derive(Debug)]
+pub struct WallTickingClock {
+    base: Arc<MockClock>,
+    started: std::time::Instant,
+}
+
+impl WallTickingClock {
+    pub fn new(base: Arc<MockClock>) -> Self {
+        Self {
+            base,
+            started: std::time::Instant::now(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Clock for WallTickingClock {
+    fn now(&self) -> time::OffsetDateTime {
+        self.base.now() + self.started.elapsed()
+    }
+
+    async fn sleep(&self, duration: std::time::Duration) {
+        self.base.sleep(duration).await;
     }
 }
 

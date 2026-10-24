@@ -77,7 +77,7 @@ use crate::steps::handler_instrumentation::FoundrySubprocess;
 use crate::support::harness::{ensure_postgres, InProcHarness};
 use crate::support::html_assertions::{parse, select_all};
 use crate::support::matrix_homeserver::{self as mx, Account, FaultProxy, Homeserver, Names};
-use crate::support::multi_replica_harness::MultiReplicaHarness;
+use crate::support::multi_replica_harness::{MultiReplicaHarness, ReplicaTime};
 use crate::support::slack_double::{
     self as sd, Approval, Mood, PostedMessage, SlackDouble, SlackTeam,
 };
@@ -4719,7 +4719,15 @@ pub async fn given_replicas(world: &mut FoundryWorld) {
     world.eip.spec.in_process_worker = false;
     rewire(world).await;
     let h = tm::harness(world);
-    let replicas = MultiReplicaHarness::spawn_sharing_schema(2, h, now(world)).await;
+    // Replicas run like real instances: their time ticks with the wall
+    // (1-per-second pacing), and `advance` still jumps a lease.
+    let replicas = MultiReplicaHarness::spawn_sharing_schema_with_time(
+        2,
+        h,
+        now(world),
+        ReplicaTime::WallTicking,
+    )
+    .await;
     world.eip.replicas = Some(replicas);
     // Each replica now delivers with the scenario's settings.
     rewire(world).await;
@@ -4735,9 +4743,20 @@ pub async fn stop_sending_replica(world: &mut FoundryWorld) {
         "a replica has sent AUTH-12's message to Slack",
     )
     .await;
+    // The restarted pod reads the same time the stopped ones did (their
+    // advances and the wall time that passed), so a lease they took expires
+    // when the scenario says.
+    let at = world
+        .eip
+        .replicas
+        .as_ref()
+        .map_or_else(|| now(world), MultiReplicaHarness::now);
     world.eip.replicas = None;
     let h = tm::harness(world);
-    world.eip.replicas = Some(MultiReplicaHarness::spawn_sharing_schema(1, h, now(world)).await);
+    world.eip.replicas = Some(
+        MultiReplicaHarness::spawn_sharing_schema_with_time(1, h, at, ReplicaTime::WallTicking)
+            .await,
+    );
     // The restarted pod starts with the operator's settings, its worker on.
     rewire(world).await;
 }
