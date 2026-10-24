@@ -77,7 +77,7 @@ use crate::steps::handler_instrumentation::FoundrySubprocess;
 use crate::support::harness::{ensure_postgres, InProcHarness};
 use crate::support::html_assertions::{parse, select_all};
 use crate::support::matrix_homeserver::{self as mx, Account, FaultProxy, Homeserver, Names};
-use crate::support::multi_replica_harness::{MultiReplicaHarness, ReplicaTime};
+use crate::support::multi_replica_harness::{MultiReplicaHarness, ReplicaTime, WallTickingClock};
 use crate::support::slack_double::{
     self as sd, Approval, Mood, PostedMessage, SlackDouble, SlackTeam,
 };
@@ -857,11 +857,45 @@ fn attr_of(body: &str, selector: &str, attr: &str) -> Vec<String> {
 // Background: the instance, the workspace, its people, projects and issues
 // ===========================================================================
 
+/// The in-process app's delivery worker, rebuilt as `spawn_app` builds it but
+/// on a [`WallTickingClock`]: the scenario's fake clock (every `advance`
+/// included) plus the wall time since the Background. A real instance's
+/// worker sees time pass between attempts, so per-destination pacing (one
+/// attempt a second, `not_before = now + 1 s`) lets a second message to the
+/// same channel go; on the frozen clock it never would. Only the worker
+/// ticks: the board (filing times, history, activity dates) still reads the
+/// frozen clock, so "14:02" stays 14:02, and "24 hours pass" still jumps the
+/// worker. Scoped to this feature's Background; no other lane is touched.
+fn run_worker_on_wall_time(world: &mut FoundryWorld) {
+    use foundry_app::integrations::{
+        store_capabilities::StoreCapabilities, worker::IntegrationsWorker,
+    };
+    let harness = world
+        .harness
+        .as_mut()
+        .expect("the Background spawned foundry for this scenario");
+    if let Some(frozen) = harness.app.worker_task.take() {
+        frozen.abort();
+    }
+    let state = &harness.app.state;
+    let clock: Arc<dyn foundry_app::Clock> =
+        Arc::new(WallTickingClock::new(harness.fake_clock.clone()));
+    harness.app.worker_task = Some(
+        IntegrationsWorker::new(
+            StoreCapabilities::new(state.store.clone()),
+            state.integrations.clone(),
+            clock,
+        )
+        .spawn(),
+    );
+}
+
 /// "the Canzan Labs workspace with these people" — spawn foundry, seed the
 /// workspace, its teams (from the table) and people.
 pub async fn given_workspace_people(world: &mut FoundryWorld, step: &Step) {
     let rows = table_rows(step);
     world.harness = Some(InProcHarness::spawn(tm::ts("2026-10-21T14:02:00Z")).await);
+    run_worker_on_wall_time(world);
     world.http = Some(
         reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
@@ -990,7 +1024,7 @@ pub async fn given_issues(world: &mut FoundryWorld, project: &str, step: &Step) 
             .and_then(|n| n.parse().ok())
             .expect("a key ends in its number");
         set_next_number(world, project, number).await;
-        file(world, first_name(by), project, title, None).await;
+        file(world, first_name(by), project, title).await;
         if lane != "Backlog" {
             move_issue(world, first_name(by), key, lane).await;
         }
@@ -2109,13 +2143,7 @@ fn project_of_key(world: &FoundryWorld, key: &str) -> String {
 }
 
 /// File an issue through the board's own form; returns its key.
-pub async fn file(
-    world: &mut FoundryWorld,
-    who: &str,
-    project: &str,
-    title: &str,
-    lane: Option<&str>,
-) -> String {
+pub async fn file(world: &mut FoundryWorld, who: &str, project: &str, title: &str) -> String {
     let number = *world.eip.next_numbers.get(project).unwrap_or(&1);
     let prefix = if project == "Homelab Ops" {
         "OPS"
@@ -2124,13 +2152,11 @@ pub async fn file(
     };
     let key = format!("{prefix}-{number}");
     let path = format!("{}/issues", project_path(world, project));
-    let mut fields = vec![
+    // The board's form files into the first lane; it takes no lane.
+    let fields = vec![
         ("title".to_string(), title.to_string()),
         ("description".to_string(), String::new()),
     ];
-    if let Some(lane) = lane {
-        fields.push(("state".into(), lane_slug(lane)));
-    }
     let answer = post(world, who, &path, &fields, true).await;
     went_through(&answer, &format!("{who} filing {title:?}"));
     world
@@ -2202,7 +2228,9 @@ pub async fn comment(world: &mut FoundryWorld, who: &str, key: &str, body: &str)
     world.eip.commented_key = Some(key.to_string());
 }
 
-/// The newest comment's id on an issue, read from its page (edit/delete links).
+/// The newest comment's address on an issue, read from its page the way the
+/// browser finds it: the comment card's Delete button `hx-delete`s it, and its
+/// Edit button `hx-get`s the edit form beneath it.
 async fn latest_comment_path(world: &mut FoundryWorld, who: &str, key: &str) -> String {
     let project = project_of_key(world, key);
     let issue = format!(
@@ -2213,12 +2241,12 @@ async fn latest_comment_path(world: &mut FoundryWorld, who: &str, key: &str) -> 
     let page = get(world, who, &issue).await;
     let marker = format!("{issue}/comments/");
     let doc = parse(&page.body);
-    select_all(&doc, "form[action], a[href]")
+    select_all(&doc, "[hx-delete], [hx-get]")
         .into_iter()
         .filter_map(|e| {
             e.value()
-                .attr("action")
-                .or_else(|| e.value().attr("href"))
+                .attr("hx-delete")
+                .or_else(|| e.value().attr("hx-get"))
                 .map(str::to_string)
         })
         .filter(|a| a.starts_with(&marker))
@@ -2226,26 +2254,84 @@ async fn latest_comment_path(world: &mut FoundryWorld, who: &str, key: &str) -> 
         .last()
         .unwrap_or_else(|| {
             panic!(
-                "precondition: {key}'s page offers its comment's edit and delete; {}",
+                "precondition: {key}'s page offers its comment's Edit and Delete; {}",
                 tm::describe(&page)
             )
         })
 }
 
+/// An htmx request as the browser sends it from a comment card: the session
+/// and CSRF cookies, `HX-Request`, and either the form's fields (with its
+/// `_csrf`) or the `x-csrf-token` header the Delete button echoes.
+async fn htmx(
+    world: &mut FoundryWorld,
+    who: &str,
+    method: reqwest::Method,
+    path: &str,
+    form: Option<&[(String, String)]>,
+) -> Answer {
+    let email = email_of(world, who);
+    let cookie = cookie(world, email.as_deref()).await;
+    let mut request = http(world)
+        .request(method.clone(), format!("{}{path}", base(world)))
+        .header(COOKIE, cookie)
+        .header("HX-Request", "true");
+    request = match form {
+        Some(fields) => {
+            let mut fields: Vec<(String, String)> = fields
+                .iter()
+                .filter(|(k, _)| k != "_csrf")
+                .cloned()
+                .collect();
+            fields.push(("_csrf".into(), world.eip.csrf.clone()));
+            request.form(&fields)
+        }
+        None => request.header("x-csrf-token", world.eip.csrf.clone()),
+    };
+    let resp = request
+        .send()
+        .await
+        .unwrap_or_else(|e| panic!("{method} {path}: {e}"));
+    let answer = tm::into_answer(path, resp).await;
+    keep(world, email, answer.clone());
+    answer
+}
+
+/// Edit (Edit, change the text, Save) or delete (Delete) the newest comment on
+/// `key`, through the comment card's own htmx doors.
 pub async fn change_comment(world: &mut FoundryWorld, who: &str, key: &str, delete: bool) {
     let path = latest_comment_path(world, who, key).await;
     let answer = if delete {
-        post(world, who, &format!("{path}/delete"), &[], true).await
+        htmx(world, who, reqwest::Method::DELETE, &path, None).await
     } else {
-        post(
+        let form = htmx(
             world,
             who,
+            reqwest::Method::GET,
             &format!("{path}/edit"),
-            &[(
-                "body".into(),
+            None,
+        )
+        .await;
+        went_through(&form, &format!("{who} opening the comment's edit form"));
+        let doc = parse(&form.body);
+        let patch = select_all(&doc, "form[hx-patch]")
+            .into_iter()
+            .find_map(|e| e.value().attr("hx-patch").map(str::to_string))
+            .unwrap_or_else(|| {
+                panic!(
+                    "precondition: the edit form saves through its hx-patch; {}",
+                    tm::describe(&form)
+                )
+            });
+        htmx(
+            world,
+            who,
+            reqwest::Method::PATCH,
+            &patch,
+            Some(&[(
+                "body_markdown".into(),
                 "Edited: can you verify the Grafana login?".into(),
-            )],
-            true,
+            )]),
         )
         .await
     };
@@ -2274,7 +2360,7 @@ pub async fn delete_issue(world: &mut FoundryWorld, who: &str, key: &str) {
 pub async fn board_action(world: &mut FoundryWorld, action: BoardAction, who: &str) {
     match action {
         BoardAction::File { project, title } => {
-            file(world, who, &project, &title, None).await;
+            file(world, who, &project, &title).await;
         }
         BoardAction::Move { key, to_lane } => move_issue(world, who, &key, &to_lane).await,
         BoardAction::Reorder { key, lane, .. } => reorder(world, who, &key, &lane).await,
@@ -2290,17 +2376,32 @@ pub async fn when_board(world: &mut FoundryWorld, who: &str, action: BoardAction
     board_action(world, action, who).await;
 }
 
-/// "the lane Spikes holds N cards" (filed into it, before the delete).
+/// "the lane Spikes holds N cards": each filed through the board's form (a
+/// New issue event, which the scenarios' Issue deleted / Issue moved routes
+/// are never given), then placed in the lane by the store, the way a board
+/// that has held them for a while looks. The board's move door is not used:
+/// the route is already saved, and a move into the lane would be an Issue
+/// moved event the lane-move scenario's Then would count.
 pub async fn given_lane_cards(world: &mut FoundryWorld, lane: &str, n: usize) {
+    let project = "Identity Platform";
     for i in 0..n {
-        file(
-            world,
-            "Lena",
-            "Identity Platform",
-            &format!("Spike {}", i + 1),
-            Some(lane),
+        let key = file(world, "Lena", project, &format!("Spike {}", i + 1)).await;
+        let placed = sqlx::query(
+            "UPDATE issues SET state = $3, position = $4
+              WHERE number = $2 AND project_id = (SELECT id FROM projects WHERE name = $1)",
         )
-        .await;
+        .bind(project)
+        .bind(key_number(&key) as i32)
+        .bind(lane_slug(lane))
+        .bind(i as i32)
+        .execute(&tm::pool(world))
+        .await
+        .expect("place a card in the lane");
+        assert_eq!(
+            placed.rows_affected(),
+            1,
+            "precondition: {key} is in {lane}"
+        );
     }
 }
 
@@ -2344,7 +2445,7 @@ pub async fn file_with_secrets(
     attachment: &str,
 ) {
     let project = "Identity Platform";
-    let key = file(world, who, project, title, None).await;
+    let key = file(world, who, project, title).await;
     let edit = format!(
         "{}/issues/{}/edit",
         project_path(world, project),
@@ -2680,7 +2781,8 @@ pub async fn then_order(
                 if found {
                     Ok(())
                 } else {
-                    Err("not both yet".into())
+                    let texts: Vec<Vec<String>> = shown.iter().map(|m| m.texts()).collect();
+                    Err(format!("not both yet; {channel} shows {texts:?}"))
                 }
             }
         },
@@ -5297,7 +5399,7 @@ pub async fn given_filed(
     title: &str,
     shown: bool,
 ) {
-    let key = file(world, who, project, title, None).await;
+    let key = file(world, who, project, title).await;
     if shown {
         then_shows_key(world, "#auth-dev", &key).await;
     } else if let Some(channel) = world.eip.scripted_answer_channel.clone() {
@@ -5522,14 +5624,7 @@ pub async fn then_comment_message_words(
 pub async fn given_filed_many_shown(world: &mut FoundryWorld, who: &str, n: usize, project: &str) {
     let before = slack(world).shown_in("#auth-dev").len();
     for i in 0..n {
-        file(
-            world,
-            who,
-            project,
-            &format!("Retention filler {}", i + 1),
-            None,
-        )
-        .await;
+        file(world, who, project, &format!("Retention filler {}", i + 1)).await;
     }
     let double = slack(world);
     eventually(

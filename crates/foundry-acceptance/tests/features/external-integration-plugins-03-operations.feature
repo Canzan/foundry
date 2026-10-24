@@ -101,7 +101,7 @@ Feature: The operator keeps integrations safe and observable
     And Lena has routed every chat event on Identity Platform to #auth-dev
     And Sam has filed "Rotate LLDAP bind password" in Identity Platform
     When Sam moves AUTH-12 from Backlog to Done
-    Then #auth-dev shows AUTH-12's New issue message before its Moved message, each exactly once
+    Then #auth-dev shows AUTH-12's New issue message, "New issue in Identity Platform by Sam Okafor · Backlog", before its Moved message, each exactly once
 
   @us-eip-02 @eip-01 @eip-replica @error @kpi @contract-shape:bounded-change
   Scenario: A message whose sender stopped in the middle of a send is not lost

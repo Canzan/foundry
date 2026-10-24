@@ -53,10 +53,10 @@ Feature: A team lead chooses exactly which events a route carries
   Scenario Outline: Each chosen event posts its own message
     Given Lena has routed <event> on Identity Platform to #auth-dev
     When <action>
-    Then #auth-dev shows within 10 seconds a Foundry message "<first line>" / "<second line>" <link>
+    Then #auth-dev shows within 10 seconds a Foundry message "<first_line>" / "<second_line>" <link>
 
     Examples:
-      | event         | action                                                   | first line                               | second line                                              | link                  |
+      | event         | action                                                   | first_line                               | second_line                                              | link                  |
       | New issue     | Sam files "Rotate LLDAP bind password" in Identity Platform | AUTH-12 Rotate LLDAP bind password    | New issue in Identity Platform by Sam Okafor · Backlog   | with Open in Foundry  |
       | Issue moved   | Sam moves AUTH-7 from In progress to Done                | AUTH-7 Move Grafana sign-in to Keycloak  | Moved In progress → Done by Sam Okafor · Identity Platform | with Open in Foundry  |
       | New comment   | Lena comments "Can you verify the Grafana login?" on AUTH-7 | AUTH-7 Move Grafana sign-in to Keycloak | Lena Park commented · Identity Platform                | with Open in Foundry  |

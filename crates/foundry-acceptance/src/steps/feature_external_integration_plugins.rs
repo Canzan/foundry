@@ -880,13 +880,18 @@ async fn key_order(world: &mut FoundryWorld, a: String, b: String) {
 }
 
 #[then(
-    regex = r"^#auth-dev shows (AUTH-\d+)'s New issue message before its Moved message(, each exactly once)?$"
+    regex = r#"^#auth-dev shows (AUTH-\d+)'s New issue message(?:, "([^"]+)",)? before its Moved message(, each exactly once)?$"#
 )]
-async fn created_before_moved(world: &mut FoundryWorld, key: String, once: String) {
+async fn created_before_moved(world: &mut FoundryWorld, key: String, line: String, once: String) {
+    let created = if line.is_empty() {
+        "New issue"
+    } else {
+        line.as_str()
+    };
     eip::then_order(
         world,
         "#auth-dev",
-        (&key, "New issue"),
+        (&key, created),
         (&key, "Moved"),
         !once.is_empty(),
     )
