@@ -103,7 +103,7 @@ Feature: The operator keeps integrations safe and observable
     When Sam moves AUTH-12 from Backlog to Done
     Then #auth-dev shows AUTH-12's New issue message before its Moved message, each exactly once
 
-  @pending @us-eip-02 @eip-01 @eip-replica @error @kpi @contract-shape:bounded-change
+  @us-eip-02 @eip-01 @eip-replica @error @kpi @contract-shape:bounded-change
   Scenario: A message whose sender stopped in the middle of a send is not lost
     Given Foundry runs as two replicas on one database with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack
@@ -145,7 +145,7 @@ Feature: The operator keeps integrations safe and observable
     Then the operator's health signals report the secrets key as healthy
     And the workspace integrations page reads "Connected to Canzan Labs"
 
-  @pending @us-eip-02 @eip-01 @eip-replica @error @contract-shape:bounded-change
+  @us-eip-02 @eip-01 @eip-replica @error @contract-shape:bounded-change
   Scenario: A late answer from a replica whose claim expired is recorded once
     Given Foundry runs as two replicas on one database with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack
@@ -158,7 +158,7 @@ Feature: The operator keeps integrations safe and observable
     And the history of the route to #auth-dev lists AUTH-12 exactly once
     And both of Slack's posts for AUTH-12 carried the same message
 
-  @pending @us-eip-02 @eip-01 @eip-replica @kpi @contract-shape:bounded-change
+  @us-eip-02 @eip-01 @eip-replica @kpi @contract-shape:bounded-change
   Scenario: Two replicas deliver a burst of events once each
     Given Foundry runs as two replicas on one database with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack
