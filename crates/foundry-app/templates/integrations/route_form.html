@@ -27,6 +27,7 @@
     <select id="route-destination" name="destination">
       {% for channel in channels %}<option value="{{ channel.value }}"{% if channel.chosen %} selected{% endif %}>{{ channel.label }}</option>{% endfor %}
     </select>
+    {% for channel in channels %}<input type="hidden" name="channel_label.{{ channel.value }}" value="{{ channel.label }}">{% endfor %}
   </p>
   <p>{{ private_channels }}</p>
   {% if let Some(audience) = audience %}<p data-audience-notice>{{ audience }}</p>{% endif %}

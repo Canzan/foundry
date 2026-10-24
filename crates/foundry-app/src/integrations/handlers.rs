@@ -175,10 +175,16 @@ const LEVEL_CHOICES: [(&str, &str); 3] = [
     ("summary_with_comment", "Summary with comment text"),
 ];
 
+/// The field prefix carrying a channel's name, `channel_label.{id}`.
+const CHANNEL_LABEL_FIELD: &str = "channel_label.";
+
 /// What the route form submitted.
 #[derive(Debug, Clone, Default)]
 struct RouteForm {
     destination: String,
+    /// Each offered channel's name, by its id, as the picker showed it: so a
+    /// preview, which asks Slack nothing, still names the channel (K-5).
+    channel_labels: Vec<(String, String)>,
     events: Vec<String>,
     content_level: String,
     lanes: Vec<String>,
@@ -198,10 +204,22 @@ impl RouteForm {
                 "content_level" => form.content_level = value.clone(),
                 "lanes" => form.lanes.push(value.clone()),
                 "shared_confirmed" => form.shared_confirmed = true,
-                _ => {}
+                other => {
+                    if let Some(id) = other.strip_prefix(CHANNEL_LABEL_FIELD) {
+                        form.channel_labels.push((id.to_string(), value.clone()));
+                    }
+                }
             }
         }
         form
+    }
+
+    /// The chosen channel's name as the picker showed it, else its id.
+    fn destination_label(&self) -> String {
+        self.channel_labels
+            .iter()
+            .find(|(id, _)| *id == self.destination)
+            .map_or_else(|| self.destination.clone(), |(_, label)| label.clone())
     }
 
     /// A fresh form: New issue at Summary, for `destination`.
@@ -740,7 +758,7 @@ impl RouteDoor {
             Some(bot) if answer.asks_slack() => bot.list_destinations().await.unwrap_or_default(),
             Some(_) if !form.destination.is_empty() => vec![Destination {
                 reference: DestinationRef(form.destination.clone()),
-                label: form.destination.clone(),
+                label: form.destination_label(),
                 shared_with_another_organisation: false,
             }],
             _ => Vec::new(),

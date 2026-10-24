@@ -63,7 +63,7 @@ Feature: A team lead decides how much a message reveals, and sees it before savi
       | Summary                    | without     |
       | Summary with comment text  | with        |
 
-  @pending @edge @contract-shape:bounded-change
+  @edge @contract-shape:bounded-change
   Scenario Outline: Comment text is cut at 300 characters
     Given Lena has routed New comment on Identity Platform to #auth-dev with Summary with comment text
     When Lena posts a <length>-character comment on AUTH-7
@@ -76,7 +76,7 @@ Feature: A team lead decides how much a message reveals, and sees it before savi
       | 301    | the comment's first 300 characters followed by "…"          |
       | 450    | the comment's first 300 characters followed by "…"          |
 
-  @pending @error @kpi @contract-shape:bounded-change
+  @error @kpi @contract-shape:bounded-change
   Scenario Outline: Text from people can never ping a channel
     Given Lena has routed every chat event on Identity Platform to #auth-dev with Summary with comment text
     When <action>
@@ -89,7 +89,7 @@ Feature: A team lead decides how much a message reveals, and sees it before savi
       | Sam comments "<!subteam^S0BACKEND> @backend *bold* _it_ <https://evil.example>" on AUTH-7 |
       | Sam files "<!channel> LDAP outage" in Identity Platform                                   |
 
-  @pending @error @kpi @contract-shape:unbounded-preservation
+  @error @kpi @contract-shape:unbounded-preservation
   Scenario: Descriptions, attachments and email addresses are never sent
     Given Lena has routed every chat event on Identity Platform to #general with Link only
     And Lena has routed every chat event on Identity Platform to #auth-dev with Summary

@@ -57,7 +57,7 @@ pub fn issue_url(public_url: &str, team_slug: &str, project_slug: &str, number: 
 const UNKNOWN_ACTOR: &str = "A Foundry member";
 
 /// The lines for `view` at `level` (D-3, K-8). Link only carries the key,
-/// the project and the event word with the button; Summary adds the title and
+/// the project and the event's D-2 name with the button; Summary adds the title and
 /// the event line; Summary with comment text adds a new comment's first 300
 /// characters. A burst is its one summary line (D-11), and neither a burst nor
 /// a deleted issue has a link.
@@ -77,7 +77,7 @@ pub fn compose(view: &EventView, level: ContentLevel) -> MessageLines {
                 "{} · {} · {}",
                 view.issue_key,
                 view.project_name,
-                link_only_word(view.kind)
+                view.kind.display_name()
             ),
             detail: None,
             excerpt: None,
@@ -92,15 +92,6 @@ pub fn compose(view: &EventView, level: ContentLevel) -> MessageLines {
         detail: Some(event_line(view)),
         excerpt: excerpt(view, level),
         link,
-    }
-}
-
-/// The event word a Link only message names (D-3): the event's name, and for
-/// a new comment what happened to the issue, since no actor is named.
-fn link_only_word(kind: EventKind) -> &'static str {
-    match kind {
-        EventKind::CommentAdded => "Issue commented on",
-        other => other.display_name(),
     }
 }
 

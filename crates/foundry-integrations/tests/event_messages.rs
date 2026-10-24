@@ -216,9 +216,13 @@ fn a_delete_whose_title_was_never_recorded_reads_its_key_alone() {
 fn at_link_only_a_delete_still_has_no_link_and_anything_else_does() {
     for kind in ALL_KINDS {
         let lines = compose(&view(kind), ContentLevel::LinkOnly);
-        // D-3 (02-03): Link only names the key, the project and the event.
+        // D-3 (02-03): Link only names the key, the project and the event by
+        // its D-2 catalogue name.
         let event = match kind {
-            EventKind::CommentAdded => "Issue commented on",
+            EventKind::IssueCreated => "New issue",
+            EventKind::IssueMoved => "Issue moved",
+            EventKind::IssueDeleted => "Issue deleted",
+            EventKind::CommentAdded => "New comment",
             other => other.display_name(),
         };
         assert_eq!(
