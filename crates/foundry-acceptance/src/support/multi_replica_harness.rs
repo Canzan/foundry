@@ -531,6 +531,22 @@ impl MultiReplicaHarness {
         }
     }
 
+    /// The slots of the replicas whose delivery worker took the claim
+    /// `claim_id`, through the worker's test-support claimant seam (DIST-22).
+    pub fn replicas_that_took_claim(&self, claim_id: uuid::Uuid) -> Vec<usize> {
+        self.replicas
+            .iter()
+            .enumerate()
+            .filter(|(_, replica)| {
+                foundry_app::integrations::worker::claimant_seam::took_claim(
+                    &replica.state.integrations,
+                    claim_id,
+                )
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
     /// Stop the replica at slot `idx` by aborting its underlying tokio
     /// serve task AND its delivery worker, AND removing it from the proxy's
     /// rotation. The

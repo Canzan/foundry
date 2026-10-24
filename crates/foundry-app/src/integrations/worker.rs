@@ -119,6 +119,8 @@ impl IntegrationsWorker {
                 replica: uuid::Uuid::now_v7().to_string(),
             },
             sender: Sender {
+                #[cfg(feature = "test-support")]
+                claimant: claimant_seam::Claimant::of(&integrations),
                 claims: capabilities.clone(),
                 sweeps: capabilities.clone(),
                 events: capabilities.clone(),
@@ -249,6 +251,9 @@ fn new_delivery(planned: &PlannedDelivery) -> NewDelivery {
 
 /// Claim, send, record (ADR-EIP-002 decision 4).
 struct Sender {
+    /// Names this worker as the claimant of every claim it takes (DIST-22).
+    #[cfg(feature = "test-support")]
+    claimant: claimant_seam::Claimant,
     claims: Arc<dyn DeliveryClaims>,
     sweeps: Arc<dyn DeliverySweeps>,
     events: Arc<dyn EventViewReads>,
@@ -272,6 +277,8 @@ impl Sender {
             if let ClaimOutcome::Claimed(claim) =
                 self.claims.claim(route_id, now, lease, &choose).await?
             {
+                #[cfg(feature = "test-support")]
+                self.claimant.took(claim.claim_id);
                 self.attempt(integrations, clock, claim).await?;
             }
         }
@@ -333,6 +340,54 @@ impl Sender {
         };
         let settled = RetryPolicy::FIXED_30S.settle(outcome, clock.now(), context.give_up_at);
         Ok(delivery_result(settled))
+    }
+}
+
+/// Test-support only (DIST-22; DEVOPS C-13): which replica's worker took a
+/// delivery's claim, so the acceptance harness can stop exactly that replica.
+/// Every naming of this module carries the test-support gate, and its marker
+/// must never reach a shipped binary (check-arch `integrations-test-seam`; the
+/// Dockerfile refuses an image whose `foundry` carries the marker).
+#[cfg(feature = "test-support")]
+pub mod claimant_seam {
+    use super::IntegrationsHandle;
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    use uuid::Uuid;
+
+    /// The seam's unique marker: present in a binary only if the seam is.
+    pub const CLAIMANT_SEAM_MARKER: &str = "foundry-test-seam:integrations-claimant-v1";
+
+    /// Every claim taken, by its `claim_id`, to the worker that took it. A
+    /// `claim_id` is fresh per claim, so it names its taker for good.
+    fn takers() -> &'static Mutex<HashMap<Uuid, usize>> {
+        static TAKERS: OnceLock<Mutex<HashMap<Uuid, usize>>> = OnceLock::new();
+        TAKERS.get_or_init(Mutex::default)
+    }
+
+    /// One worker, known by the integrations handle it reads (one per replica).
+    pub(super) struct Claimant(usize);
+
+    impl Claimant {
+        pub(super) fn of(handle: &IntegrationsHandle) -> Self {
+            Self(identity(handle))
+        }
+
+        pub(super) fn took(&self, claim_id: Uuid) {
+            tracing::trace!(seam = CLAIMANT_SEAM_MARKER, %claim_id, "integrations.claim.taken");
+            let mut takers = takers().lock().unwrap_or_else(|p| p.into_inner());
+            takers.insert(claim_id, self.0);
+        }
+    }
+
+    /// Whether the worker reading `handle` took the claim `claim_id`.
+    pub fn took_claim(handle: &IntegrationsHandle, claim_id: Uuid) -> bool {
+        let takers = takers().lock().unwrap_or_else(|p| p.into_inner());
+        takers.get(&claim_id) == Some(&identity(handle))
+    }
+
+    fn identity(handle: &IntegrationsHandle) -> usize {
+        std::sync::Arc::as_ptr(&handle.current) as usize
     }
 }
 

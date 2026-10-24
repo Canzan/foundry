@@ -82,6 +82,12 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   changes nothing (exit 3 database, exit 4 a credential neither key opens). Rotation order: roll out
   the new key with the old one as `FOUNDRY_SECRETS_KEY_PREVIOUS`, run the command once, then roll
   out without `_PREVIOUS`. See `RELEASING.md` "Integrations: secrets key and Slack".
+- **A replica that stops mid-send loses nothing**: when the replica sending a message stops
+  before Slack answers and another replica keeps running, the survivor sends it once the
+  45-second lease lapses, and the route's history lists it once. The image build now refuses a
+  `foundry` binary that carries test-only code: the Dockerfile builds exactly
+  `-p foundry-app --bin foundry` and fails if the binary holds the test seam's marker, and
+  `cargo xtask check-arch` (`integrations-test-seam`) keeps both true.
 
 ### Upgrading
 

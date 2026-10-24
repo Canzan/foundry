@@ -4772,7 +4772,7 @@ pub async fn stop_claiming_replica_only(world: &mut FoundryWorld, key: &str) {
         "a replica has sent the message to Slack",
     )
     .await;
-    let claimant = claiming_replica(world, key);
+    let claimant = claiming_replica(world, key).await;
     let replicas = world
         .eip
         .replicas
@@ -4781,17 +4781,27 @@ pub async fn stop_claiming_replica_only(world: &mut FoundryWorld, key: &str) {
     replicas.stop_replica(claimant);
 }
 
-/// Which replica holds `key`'s delivery claim. The harness cannot tell yet
-/// (`MultiReplicaHarness::stop_replica` now stops a replica's HTTP serving
-/// and its delivery worker, but nothing names the claimant): DELIVER 01-11's
-/// seam (DIST-22).
-fn claiming_replica(world: &FoundryWorld, key: &str) -> usize {
-    let running = world.eip.replicas.as_ref().map_or(0, |r| r.replicas.len());
-    panic!(
-        "missing seam (DELIVER 01-11): the multi-replica harness cannot name which of its \
-         {running} replicas holds {key}'s delivery claim, nor stop that replica's delivery \
-         worker alone"
+/// Which replica holds `key`'s delivery claim: the pending delivery's
+/// `claim_id`, named to its taker by the worker's claimant seam (DIST-22).
+/// Exactly one replica took it.
+async fn claiming_replica(world: &FoundryWorld, key: &str) -> usize {
+    let replicas = world
+        .eip
+        .replicas
+        .as_ref()
+        .expect("Foundry runs as two replicas");
+    let claim_id: Option<uuid::Uuid> = sqlx::query_scalar(
+        "SELECT claim_id FROM integration_deliveries WHERE issue_key = $1 AND status = 'pending'",
     )
+    .bind(key)
+    .fetch_one(&replicas.shared_pool)
+    .await
+    .unwrap_or_else(|e| panic!("precondition: {key}'s delivery is pending; {e}"));
+    let claim_id = claim_id.unwrap_or_else(|| panic!("precondition: {key}'s delivery is claimed"));
+    match replicas.replicas_that_took_claim(claim_id).as_slice() {
+        [claimant] => *claimant,
+        takers => panic!("exactly one replica took {key}'s claim; took it: {takers:?}"),
+    }
 }
 
 pub async fn file_many(world: &mut FoundryWorld, who: &str, n: usize, project: &str) {

@@ -172,7 +172,7 @@ Feature: The operator keeps integrations safe and observable
   # Scenario 66 stops every replica and 123 keeps both running; this one is
   # the survivor taking over. The seam that names the claiming replica is
   # DELIVER 01-11's to build.
-  @pending @us-eip-02 @eip-01 @eip-replica @error @kpi @contract-shape:bounded-change
+  @us-eip-02 @eip-01 @eip-replica @error @kpi @contract-shape:bounded-change
   Scenario: The replica that kept running delivers a message its stopped partner was sending
     Given Foundry runs as two replicas on one database with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack

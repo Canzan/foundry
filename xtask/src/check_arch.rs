@@ -127,6 +127,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_integrations_pure_core(root));
     violations.extend(check_integrations_store_capability(root));
     violations.extend(check_integrations_secret_seam(root));
+    violations.extend(check_integrations_test_seam(root));
     violations.extend(check_project_lifecycle_live_reads(root));
     violations.extend(check_store_natural_key_scoped(root));
     violations.extend(check_api_openapi_operations(root));
@@ -170,7 +171,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), every naming of the worker's claimant seam is gated on test-support, the seam carries its unique marker and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying that marker (integrations-test-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4035,6 +4036,10 @@ mod tests {
         // publish workflows or Dockerfile, so it carries stamping ones.
         // `check_store_natural_key_scoped` fails closed on a missing
         // foundry-store src, so it carries a store with no query.
+        let seam_guarded_dockerfile = STAMPING_DOCKERFILE.replace(
+            "-p foundry-app\n",
+            "-p foundry-app --bin foundry \\\n    && ! grep -q \"seam-marker\" /usr/local/bin/foundry\n",
+        );
         let clean = stage(&[
             ("crates/foundry-store/src/lib.rs", "pub struct Store;\n"),
             (
@@ -4047,7 +4052,15 @@ mod tests {
             ),
             (PUBLISH_WORKFLOWS[0], STAMPING_WORKFLOW),
             (PUBLISH_WORKFLOWS[1], STAMPING_WORKFLOW),
-            ("Dockerfile", STAMPING_DOCKERFILE),
+            // `check_integrations_test_seam` fails closed on a missing seam
+            // or a Dockerfile building more than foundry without the marker
+            // guard, so the clean tree carries both.
+            ("Dockerfile", &seam_guarded_dockerfile),
+            (
+                "crates/foundry-app/src/integrations/worker.rs",
+                "#[cfg(feature = \"test-support\")]\npub mod claimant_seam {\n    \
+                 pub const CLAIMANT_SEAM_MARKER: &str = \"seam-marker\";\n}\n",
+            ),
             // `check_api_openapi_operations` fails closed on a missing
             // description, so the clean tree carries one describing nothing.
             ("crates/foundry-api/openapi.json", "{\"paths\": {}}\n"),
@@ -14806,6 +14819,221 @@ fn secret_openings(file_rel: &str, contents: &str) -> BTreeSet<usize> {
     lines
 }
 
+const TEST_SEAM_ID: &str = "integrations-test-seam";
+const TEST_SEAM_REFERENCE: &str = "external-integration-plugins DIST-22, DEVOPS C-13";
+/// Where the seam may be named: foundry-app's sources.
+const TEST_SEAM_CRATE: &str = "crates/foundry-app/src";
+/// The file declaring the seam module, and the module.
+const TEST_SEAM_FILE: &str = "crates/foundry-app/src/integrations/worker.rs";
+const TEST_SEAM_MODULE: &str = "claimant_seam";
+/// The seam's marker constant, declared inside the module.
+const TEST_SEAM_MARKER: &str = "CLAIMANT_SEAM_MARKER";
+const TEST_SEAM_GATE: &str = "#[cfg(feature = \"test-support\")]";
+/// The one cargo build the Dockerfile may run, once its `--locked`,
+/// `--release` and `--target` flags are set aside.
+const TEST_SEAM_BUILD: &str = "-p foundry-app --bin foundry";
+/// Where the Dockerfile installs the binary its marker guard reads.
+const TEST_SEAM_BINARY: &str = "/usr/local/bin/foundry";
+
+/// Rule `integrations-test-seam` (DEVOPS C-13): (a) every naming of the
+/// worker's claimant seam in foundry-app's sources is gated on
+/// `#[cfg(feature = "test-support")]`; (b) the Dockerfile runs exactly one
+/// cargo build, of `-p foundry-app --bin foundry` (no features, no workspace),
+/// and after it refuses a binary carrying the seam's marker; (c) the seam
+/// module declares a non-empty marker string constant found nowhere else in
+/// the crates. Comments and string literals are ignored when finding namings.
+fn check_integrations_test_seam(root: &Path) -> Vec<String> {
+    let mut violations = test_seam_ungated(root);
+    let marker = test_seam_marker(root)
+        .map_err(|problem| {
+            violations.push(format!(
+                "{TEST_SEAM_ID}: {problem} ({TEST_SEAM_REFERENCE})."
+            ))
+        })
+        .ok();
+    violations.extend(
+        test_seam_dockerfile(root, marker.as_deref())
+            .into_iter()
+            .map(|problem| format!("{TEST_SEAM_ID}: {problem} ({TEST_SEAM_REFERENCE}).")),
+    );
+    violations
+}
+
+/// (a) Every line of foundry-app's sources naming the seam whose item is not
+/// gated: the nearest code line above it, past blank, comment and other
+/// attribute lines, is not the test-support gate.
+fn test_seam_ungated(root: &Path) -> Vec<String> {
+    let (sources, unreadable) = files_under(&root.join(TEST_SEAM_CRATE), "rs", &|_| false);
+    let mut violations: Vec<String> = unreadable
+        .iter()
+        .map(|dir| {
+            format!(
+                "{TEST_SEAM_ID}: cannot list {} ({TEST_SEAM_REFERENCE}).",
+                rel(root, dir)
+            )
+        })
+        .collect();
+    for file in sources {
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            violations.push(format!(
+                "{TEST_SEAM_ID}: cannot read {} ({TEST_SEAM_REFERENCE}).",
+                rel(root, &file)
+            ));
+            continue;
+        };
+        let code = RustSource::scan(&contents).code;
+        let lines: Vec<&str> = contents.lines().collect();
+        for at in word_positions(&code, TEST_SEAM_MODULE) {
+            let line = line_at(&code, at);
+            if !gated(&lines, line) {
+                violations.push(format!(
+                    "{TEST_SEAM_ID}: {}:{line} names the claimant seam outside \
+                     {TEST_SEAM_GATE} — the seam must never reach a production build \
+                     ({TEST_SEAM_REFERENCE}).",
+                    rel(root, &file)
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// Every offset of `word` in `code`, as a whole word.
+fn word_positions<'a>(code: &'a str, word: &'a str) -> impl Iterator<Item = usize> + 'a {
+    let mut from = 0;
+    std::iter::from_fn(move || {
+        let at = find_sql_word(code, word, from)?;
+        from = at + word.len();
+        Some(at)
+    })
+}
+
+/// Whether the 1-based `line` of `lines` carries, or sits under, the gate.
+fn gated(lines: &[&str], line: usize) -> bool {
+    if lines[line - 1].trim_start().starts_with(TEST_SEAM_GATE) {
+        return true;
+    }
+    lines[..line - 1]
+        .iter()
+        .rev()
+        .map(|above| above.trim())
+        .find(|above| {
+            !above.is_empty()
+                && !above.starts_with("//")
+                && (*above == TEST_SEAM_GATE || !above.starts_with("#["))
+        })
+        .is_some_and(|above| above == TEST_SEAM_GATE)
+}
+
+/// (c) The marker string the seam module declares, if it declares exactly
+/// one non-empty marker no other crate source carries.
+fn test_seam_marker(root: &Path) -> Result<String, String> {
+    let contents = std::fs::read_to_string(root.join(TEST_SEAM_FILE))
+        .map_err(|_| format!("cannot read {TEST_SEAM_FILE}, which declares the claimant seam"))?;
+    let source = RustSource::scan(&contents);
+    let code = &source.code;
+    let module = seam_module_body(code)
+        .ok_or_else(|| format!("{TEST_SEAM_FILE} declares no `mod {TEST_SEAM_MODULE}`"))?;
+    let declared = word_positions(code, TEST_SEAM_MARKER)
+        .find(|&at| (module.0..module.1).contains(&at) && code[..at].trim_end().ends_with("const"))
+        .ok_or_else(|| {
+            format!("the claimant seam in {TEST_SEAM_FILE} declares no `const {TEST_SEAM_MARKER}`")
+        })?;
+    let statement_end = code[declared..]
+        .find(';')
+        .map_or(code.len(), |offset| declared + offset);
+    let marker = source
+        .literals
+        .iter()
+        .find(|literal| literal.start > declared)
+        .filter(|literal| literal.end <= statement_end)
+        .map(|literal| literal.text.clone())
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| {
+            format!("{TEST_SEAM_MARKER} in {TEST_SEAM_FILE} is not a non-empty string")
+        })?;
+    let (sources, _) = files_under(&root.join("crates"), "rs", &|_| false);
+    let elsewhere: Vec<String> = sources
+        .iter()
+        .filter(|file| **file != root.join(TEST_SEAM_FILE))
+        .filter(|file| std::fs::read_to_string(file).is_ok_and(|text| text.contains(&marker)))
+        .map(|file| rel(root, file))
+        .collect();
+    if !elsewhere.is_empty() || contents.matches(&marker).count() != 1 {
+        return Err(format!(
+            "the claimant seam's marker {marker:?} is not unique (also in {elsewhere:?} or \
+             repeated in {TEST_SEAM_FILE})"
+        ));
+    }
+    Ok(marker)
+}
+
+/// The `[open, close]` braces of the seam module's body in `code`.
+fn seam_module_body(code: &str) -> Option<(usize, usize)> {
+    let named = word_positions(code, TEST_SEAM_MODULE)
+        .find(|&at| code[..at].trim_end().ends_with("mod"))?;
+    let open = code[named..].find('{').map(|offset| named + offset)?;
+    Some((open, matching_brace(code.as_bytes(), open)?))
+}
+
+/// (b) The Dockerfile's build line and, after it, the marker guard.
+fn test_seam_dockerfile(root: &Path, marker: Option<&str>) -> Vec<String> {
+    let Ok(source) = std::fs::read_to_string(root.join("Dockerfile")) else {
+        return vec!["cannot read Dockerfile — its foundry build could not be checked".to_string()];
+    };
+    let joined = source.replace("\\\n", " ");
+    let builds: Vec<usize> = joined
+        .match_indices("cargo build")
+        .map(|(at, _)| at)
+        .collect();
+    let mut problems: Vec<String> = builds
+        .iter()
+        .map(|&at| build_arguments(&joined[at + "cargo build".len()..]))
+        .filter(|arguments| arguments != TEST_SEAM_BUILD)
+        .map(|arguments| {
+            format!(
+                "the Dockerfile runs `cargo build {arguments}` — an image builds exactly \
+                 `{TEST_SEAM_BUILD}` (no features, no workspace)"
+            )
+        })
+        .collect();
+    if builds.len() != 1 {
+        problems.push(format!(
+            "the Dockerfile runs {} cargo builds — an image runs exactly one, `{TEST_SEAM_BUILD}`",
+            builds.len()
+        ));
+    }
+    if let (Some(marker), Some(&build)) = (marker, builds.first()) {
+        let guard = format!("! grep -q \"{marker}\" {TEST_SEAM_BINARY}");
+        if !joined[build..].contains(&guard) {
+            problems.push(format!(
+                "the Dockerfile does not run `{guard}` after its foundry build — an image \
+                 carrying the claimant seam would ship"
+            ));
+        }
+    }
+    problems
+}
+
+/// A cargo build's arguments up to the end of its shell command, with
+/// `--locked`, `--release` and `--target <triple>` set aside.
+fn build_arguments(rest: &str) -> String {
+    let command = rest.split(['&', ';', '|', '\n']).next().unwrap_or_default();
+    let mut kept = Vec::new();
+    let mut tokens = command.split_whitespace();
+    while let Some(token) = tokens.next() {
+        match token {
+            "--locked" | "--release" => {}
+            "--target" => {
+                tokens.next();
+            }
+            _ if token.starts_with("--target=") => {}
+            _ => kept.push(token),
+        }
+    }
+    kept.join(" ")
+}
+
 #[cfg(test)]
 mod external_integration_plugins_check_arch_tests {
     //! external-integration-plugins — injected-violation gold tests for the
@@ -15217,20 +15445,254 @@ cc = "1"
         "04-01",
         "the fixed-host Slack client without redirect::Policy::none() is refused"
     );
-    // DEVOPS C-13 `integrations-test-seam`, slice 04 (lands with the seam).
-    pending_gold!(
-        test_seam_refuses_an_item_outside_test_support,
-        "04-01",
-        "a seam item without #[cfg(feature = \"test-support\")] is refused"
+    // --- DEVOPS C-13 `integrations-test-seam` (DELIVER 01-11) ----------------
+
+    const SEAM_FILE: &str = "crates/foundry-app/src/integrations/worker.rs";
+    const SEAM_LIB: &str = "crates/foundry-app/src/lib.rs";
+    const MARKER: &str = "seam-marker-under-test";
+
+    /// A gated field naming the seam, then the gated seam module and marker.
+    const CLEAN_SEAM: &str = concat!(
+        "struct Sender {\n",
+        "    /// Names the claimant.\n",
+        "    #[cfg(feature = \"test-support\")]\n",
+        "    claimant: claimant_seam::Claimant,\n",
+        "}\n",
+        "#[cfg(feature = \"test-support\")]\n",
+        "#[allow(dead_code)]\n",
+        "pub mod claimant_seam {\n",
+        "    pub const CLAIMANT_SEAM_MARKER: &str = \"seam-marker-under-test\";\n",
+        "}\n",
     );
-    pending_gold!(
-        test_seam_refuses_a_dockerfile_build_with_features,
-        "04-01",
-        "a Dockerfile cargo build line other than -p foundry-app --bin foundry is refused"
+
+    const CLEAN_BUILD: &str = concat!(
+        "RUN triple=x \\\n",
+        "    && cargo build --locked --release --target \"$triple\" -p foundry-app --bin foundry \\\n",
+        "    && cp a /usr/local/bin/foundry \\\n",
+        "    && ! grep -q \"seam-marker-under-test\" /usr/local/bin/foundry\n",
     );
-    pending_gold!(
-        test_seam_requires_its_marker_constant,
-        "04-01",
-        "the seam's unique marker string constant is present"
-    );
+
+    fn seam_tree(seam: &str, dockerfile: &str, extra: &[(&str, &str)]) -> tempfile::TempDir {
+        let mut files = vec![(SEAM_FILE, seam), ("Dockerfile", dockerfile)];
+        files.extend_from_slice(extra);
+        stage(&files)
+    }
+
+    #[test]
+    fn test_seam_passes_on_the_tree() {
+        let violations = check_integrations_test_seam(&workspace_root());
+        assert!(violations.is_empty(), "{violations:?}");
+        let violations =
+            check_integrations_test_seam(seam_tree(CLEAN_SEAM, CLEAN_BUILD, &[]).path());
+        assert!(violations.is_empty(), "{violations:?}");
+        let empty = check_integrations_test_seam(stage(&[]).path());
+        assert!(
+            empty.len() == 3
+                && empty
+                    .iter()
+                    .all(|v| v.starts_with("integrations-test-seam: "))
+                && empty[0].contains("cannot list crates/foundry-app/src")
+                && empty[1].contains(SEAM_FILE)
+                && empty[2].contains("Dockerfile"),
+            "a tree without the seam or the Dockerfile fails closed: {empty:?}"
+        );
+    }
+
+    #[test]
+    fn test_seam_refuses_an_item_outside_test_support() {
+        for (form, file, body, line) in [
+            (
+                "an ungated field",
+                SEAM_FILE,
+                CLEAN_SEAM.replacen("    #[cfg(feature = \"test-support\")]\n", "", 1),
+                3,
+            ),
+            (
+                "an ungated module",
+                SEAM_FILE,
+                CLEAN_SEAM.replacen("#[cfg(feature = \"test-support\")]\n#[allow", "#[allow", 1),
+                7,
+            ),
+            (
+                "a gate on the line before last",
+                SEAM_FILE,
+                format!("{CLEAN_SEAM}#[cfg(feature = \"test-support\")]\nfn a() {{}}\nfn b() {{ claimant_seam::took(); }}\n"),
+                13,
+            ),
+            (
+                "an ungated re-export elsewhere in the crate",
+                SEAM_LIB,
+                "// claimant_seam in a comment is fine\npub use integrations::worker::claimant_seam;\n"
+                    .to_string(),
+                2,
+            ),
+        ] {
+            let tree = if file == SEAM_FILE {
+                seam_tree(&body, CLEAN_BUILD, &[])
+            } else {
+                seam_tree(CLEAN_SEAM, CLEAN_BUILD, &[(file, &body)])
+            };
+            let violations = check_integrations_test_seam(tree.path());
+            assert!(
+                refuses_only(&violations, "integrations-test-seam: ", &format!("{file}:{line} ")),
+                "{form}: {violations:?}"
+            );
+        }
+        let gated_use = seam_tree(
+            CLEAN_SEAM,
+            CLEAN_BUILD,
+            &[(
+                SEAM_LIB,
+                "#[cfg(feature = \"test-support\")] pub use integrations::worker::claimant_seam;\n",
+            )],
+        );
+        let violations = check_integrations_test_seam(gated_use.path());
+        assert!(
+            violations.is_empty(),
+            "a gate on the same line: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn test_seam_refuses_a_dockerfile_build_with_features() {
+        let build = "-p foundry-app --bin foundry";
+        for (form, planted) in [
+            (
+                "--features",
+                "--features test-support -p foundry-app --bin foundry",
+            ),
+            ("-F", "-p foundry-app --bin foundry -F test-support"),
+            (
+                "--all-features",
+                "--all-features -p foundry-app --bin foundry",
+            ),
+            ("--workspace", "--workspace --bin foundry"),
+            ("--all", "--all"),
+            ("another package", "-p foundry-acceptance --bin foundry"),
+        ] {
+            let dockerfile = CLEAN_BUILD.replace(build, planted);
+            let violations =
+                check_integrations_test_seam(seam_tree(CLEAN_SEAM, &dockerfile, &[]).path());
+            assert!(
+                refuses_only(
+                    &violations,
+                    "integrations-test-seam: ",
+                    &format!("cargo build {planted}`")
+                ),
+                "{form}: {violations:?}"
+            );
+        }
+        for (form, dockerfile, named) in [
+            (
+                "a second build",
+                format!("RUN cargo build -p foundry-app --bin foundry\n{CLEAN_BUILD}"),
+                "runs 2 cargo builds",
+            ),
+            ("no build", "RUN true\n".to_string(), "runs 0 cargo builds"),
+            (
+                "no marker guard",
+                CLEAN_BUILD.replace(
+                    " \\\n    && ! grep -q \"seam-marker-under-test\" /usr/local/bin/foundry",
+                    "",
+                ),
+                "does not run `! grep -q",
+            ),
+            (
+                "the guard before the build",
+                format!(
+                    "RUN ! grep -q \"{MARKER}\" /usr/local/bin/foundry\n{}",
+                    CLEAN_BUILD.replace(
+                        " \\\n    && ! grep -q \"seam-marker-under-test\" /usr/local/bin/foundry",
+                        ""
+                    )
+                ),
+                "after its foundry build",
+            ),
+            (
+                "a guard on another binary",
+                CLEAN_BUILD.replace("foundry\n", "other\n"),
+                "does not run `! grep -q",
+            ),
+        ] {
+            let violations =
+                check_integrations_test_seam(seam_tree(CLEAN_SEAM, &dockerfile, &[]).path());
+            assert!(
+                refuses_only(&violations, "integrations-test-seam: ", named),
+                "{form}: {violations:?}"
+            );
+        }
+        let spelled =
+            CLEAN_BUILD.replace("--target \"$triple\"", "--target=x86_64-unknown-linux-gnu");
+        let violations = check_integrations_test_seam(seam_tree(CLEAN_SEAM, &spelled, &[]).path());
+        assert!(violations.is_empty(), "--target=<triple>: {violations:?}");
+    }
+
+    #[test]
+    fn test_seam_requires_its_marker_constant() {
+        let outside = CLEAN_SEAM.replace(
+            "    pub const CLAIMANT_SEAM_MARKER: &str = \"seam-marker-under-test\";\n",
+            "",
+        ) + "pub const CLAIMANT_SEAM_MARKER: &str = \"seam-marker-under-test\";\n";
+        for (form, seam, extra, named) in [
+            (
+                "no marker",
+                CLEAN_SEAM.replace(
+                    "    pub const CLAIMANT_SEAM_MARKER: &str = \"seam-marker-under-test\";\n",
+                    "",
+                ),
+                None,
+                "declares no `const CLAIMANT_SEAM_MARKER`",
+            ),
+            (
+                "a marker outside the module",
+                outside,
+                None,
+                "declares no `const CLAIMANT_SEAM_MARKER`",
+            ),
+            (
+                "an empty marker",
+                CLEAN_SEAM.replace("\"seam-marker-under-test\"", "\"\""),
+                None,
+                "is not a non-empty string",
+            ),
+            (
+                "a marker that is not a string",
+                CLEAN_SEAM.replace(
+                    "&str = \"seam-marker-under-test\";",
+                    "u8 = 1;\n    const LATER: &str = \"a later literal\";",
+                ),
+                None,
+                "is not a non-empty string",
+            ),
+            (
+                "no seam module",
+                "pub const CLAIMANT_SEAM_MARKER: &str = \"seam-marker-under-test\";\n".to_string(),
+                None,
+                "declares no `mod claimant_seam`",
+            ),
+            (
+                "the marker repeated in the seam file",
+                format!("{CLEAN_SEAM}// seam-marker-under-test\n"),
+                None,
+                "is not unique",
+            ),
+            (
+                "the marker in another crate",
+                CLEAN_SEAM.to_string(),
+                Some((
+                    "crates/foundry-store/src/lib.rs",
+                    "const X: &str = \"seam-marker-under-test\";\n",
+                )),
+                "crates/foundry-store/src/lib.rs",
+            ),
+        ] {
+            let extra: Vec<(&str, &str)> = extra.into_iter().collect();
+            let violations =
+                check_integrations_test_seam(seam_tree(&seam, CLEAN_BUILD, &extra).path());
+            assert!(
+                refuses_only(&violations, "integrations-test-seam: ", named),
+                "{form}: {violations:?}"
+            );
+        }
+    }
 }

@@ -21,7 +21,9 @@ path = "src/lib.rs"
 default = []
 # Propagates to foundry-store so its test-only seams
 # (`run_migrations_from_dir` slow-migration delay knob, etc.) are
-# reachable through AppState's optional test-migrations-dir field.
+# reachable through AppState's optional test-migrations-dir field. It also
+# carries the integrations worker's claimant seam (DIST-22), which must never
+# reach a shipped image (check-arch `integrations-test-seam`, DEVOPS C-13).
 test-support = ["foundry-store/test-support"]
 
 [dependencies]
