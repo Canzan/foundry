@@ -15,7 +15,7 @@
 //! Pure: no I/O, no clock.
 
 use foundry_integrations::{
-    compose, ChannelKind, ContentLevel, EventKind, EventView, MessageLines,
+    compose, issue_url, ChannelKind, ContentLevel, EventKind, EventView, MessageLines,
 };
 
 const URL: &str = "https://foundry.example/team/backend/project/identity-platform/issues/7";
@@ -347,4 +347,22 @@ fn slack_reads_a_title_with_control_characters_as_written() {
         "Fix &lt;!channel&gt; &amp; &lt;@U1&gt; &gt; 0"
     );
     assert_eq!(foundry_integrations::escape_slack("AUTH-7"), "AUTH-7");
+}
+
+// ---------------------------------------------------- where Open in Foundry goes
+
+/// The address the worker and the preview give Open in Foundry: the issue's
+/// page in the board's own route shape (/team/{team}/project/{project}/issues/
+/// {number}) under the instance's public address — slugs and a number, never
+/// an id.
+#[test]
+fn open_in_foundry_is_the_issue_page_by_team_project_and_number() {
+    assert_eq!(
+        issue_url("https://foundry.example", "backend", "identity-platform", 7),
+        URL
+    );
+    assert_eq!(
+        issue_url("http://foundry.test", "ops", "homelab-ops", 130),
+        "http://foundry.test/team/ops/project/homelab-ops/issues/130"
+    );
 }

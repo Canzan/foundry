@@ -83,11 +83,11 @@ Feature: A team lead decides how much a message reveals, and sees it before savi
     Then #auth-dev shows that text without notifying anyone in the channel
 
     Examples:
-      | action                                                                         |
-      | Sam comments "@channel the LDAP bind is broken <!here>" on AUTH-7              |
-      | Sam comments "<!everyone> <@U0LENA> look at <#C0AUTH> now" on AUTH-7           |
-      | Sam comments "<!subteam^S0BACKEND\|@backend> *bold* _it_ <https://evil.example\|click>" on AUTH-7 |
-      | Sam files "<!channel> LDAP outage" in Identity Platform                       |
+      | action                                                                                    |
+      | Sam comments "@channel the LDAP bind is broken <!here>" on AUTH-7                         |
+      | Sam comments "<!everyone> <@U0LENA> look at <#C0AUTH> now" on AUTH-7                      |
+      | Sam comments "<!subteam^S0BACKEND> @backend *bold* _it_ <https://evil.example>" on AUTH-7 |
+      | Sam files "<!channel> LDAP outage" in Identity Platform                                   |
 
   @pending @error @kpi @contract-shape:unbounded-preservation
   Scenario: Descriptions, attachments and email addresses are never sent

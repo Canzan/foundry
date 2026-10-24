@@ -608,7 +608,9 @@ pub struct EipState {
     pub cli: Option<(i32, String, String)>,
     pub startup: Option<(Option<i32>, String)>,
     pub shown_before: BTreeMap<String, usize>,
-    pub description: Option<String>,
+    /// The never-sent issue's (title, description): the title may be sent,
+    /// the description never.
+    pub description: Option<(String, String)>,
     pub comment_text: Option<String>,
     /// The title of the last issue filed in a When (user text for the ping rows).
     pub last_title: Option<String>,
@@ -1718,6 +1720,43 @@ pub fn draft_mut(world: &mut FoundryWorld) -> &mut Route {
         .expect("a Given began creating a route")
 }
 
+/// "<who> has ticked | left blank the shared-channel confirmation": ticking
+/// needs the box, so the route form for the draft's channel must render it
+/// (K-6's tick); leaving it blank sends no `shared_confirmed`.
+pub async fn given_shared_tick(world: &mut FoundryWorld, who: &str, ticked: bool) {
+    if ticked {
+        let route = world
+            .eip
+            .draft
+            .clone()
+            .expect("a Given began creating a route");
+        let channel = destination_ref(world, &route);
+        let path = format!(
+            "{}/routes/new?kind={}&destination={}",
+            integrations_path(world, &route.project),
+            route.kind.wire(),
+            urlencoding::encode(&channel)
+        );
+        let page = get(world, who, &path).await;
+        let routes = format!("{}/routes", integrations_path(world, &route.project));
+        let doc = scraper::Html::parse_document(&page.body);
+        let form = scraper::Selector::parse("form").expect("selector");
+        let tick = scraper::Selector::parse(r#"input[type="checkbox"][name="shared_confirmed"]"#)
+            .expect("selector");
+        let rendered = doc
+            .select(&form)
+            .filter(|f| f.value().attr("action") == Some(routes.as_str()))
+            .any(|f| f.select(&tick).next().is_some());
+        assert!(
+            rendered,
+            "precondition: the route form for {} offers the shared-channel tick box; {}",
+            route.destination,
+            tm::describe(&page)
+        );
+    }
+    draft_mut(world).shared_confirmed = ticked;
+}
+
 pub async fn when_save_route(world: &mut FoundryWorld, who: &str) {
     capture_before(world).await;
     let route = world
@@ -2487,7 +2526,7 @@ pub async fn file_with_secrets(
     )
     .await;
     went_through(&answer, "the description");
-    world.eip.description = Some(description.to_string());
+    world.eip.description = Some((title.to_string(), description.to_string()));
     let email = email_of(world, who);
     let cookie = cookie(world, email.as_deref()).await;
     let url = format!(
@@ -2498,12 +2537,15 @@ pub async fn file_with_secrets(
     );
     let part = reqwest::multipart::Part::bytes(b"LDAP_BIND_PASSWORD=redacted\n".to_vec())
         .file_name(attachment.to_string());
+    // A multipart post carries the double-submit token in the header, as the
+    // board's upload (static/js/csrf-upload.js) mirrors the cookie into it.
     let form = reqwest::multipart::Form::new()
         .part("file", part)
         .text("_csrf", world.eip.csrf.clone());
     let resp = http(world)
         .post(url)
         .header(COOKIE, cookie)
+        .header("x-csrf-token", world.eip.csrf.clone())
         .multipart(form)
         .send()
         .await
@@ -2916,6 +2958,17 @@ pub async fn then_shows_text(world: &mut FoundryWorld, channel: &str, wanted: &s
     .await;
 }
 
+/// A new comment's message on `key`: Summary's "<actor> commented ·
+/// <project>" line, or Link only's "<key> · <project> · New comment" (D-2's
+/// event name; the older "Issue commented on" wording also reads as one).
+fn comment_message(m: &PostedMessage, key: &str) -> bool {
+    key_line(m, key)
+        && m.texts().iter().any(|t| {
+            t.contains("commented")
+                || (t.starts_with(&format!("{key} · ")) && t.ends_with(" · New comment"))
+        })
+}
+
 /// "#auth-dev shows AUTH-7's comment message [with|without] "<text>"".
 pub async fn then_comment_message(
     world: &mut FoundryWorld,
@@ -2923,13 +2976,33 @@ pub async fn then_comment_message(
     key: &str,
     text_shown: Option<(bool, &str)>,
 ) {
-    then_message(world, channel, key, "commented", None).await;
+    let double = slack(world);
+    eventually(
+        DELIVERY_BUDGET,
+        &format!("{channel} shows {key}'s comment message"),
+        || {
+            let double = double.clone();
+            let (channel, key) = (channel.to_string(), key.to_string());
+            async move {
+                let shown = double.shown_in(&channel);
+                if shown.iter().any(|m| comment_message(m, &key)) {
+                    Ok(())
+                } else {
+                    Err(format!(
+                        "{:?}",
+                        shown.iter().map(PostedMessage::texts).collect::<Vec<_>>()
+                    ))
+                }
+            }
+        },
+    )
+    .await;
     if let Some((with, text)) = text_shown {
         let m = slack(world)
             .shown_in(channel)
             .into_iter()
             .rev()
-            .find(|m| key_line(m, key))
+            .find(|m| comment_message(m, key))
             .expect("the comment message");
         let has = m.all_text().contains(text);
         assert_eq!(
@@ -2942,7 +3015,9 @@ pub async fn then_comment_message(
     }
 }
 
-/// The 300-character excerpt rows (D-3).
+/// The 300-character excerpt rows (D-3): the message's excerpt block is the
+/// whole comment, or exactly its first 300 characters followed by "…", and
+/// nothing past the cut appears anywhere in the message.
 pub async fn then_excerpt(world: &mut FoundryWorld, channel: &str, length: usize, whole: bool) {
     let comment = world
         .eip
@@ -2956,25 +3031,48 @@ pub async fn then_excerpt(world: &mut FoundryWorld, channel: &str, length: usize
         .into_iter()
         .last()
         .expect("the comment message");
-    let all = m.texts().join("\n");
-    if whole {
-        assert!(
-            all.contains(&comment) && !all.contains(&format!("{comment}…")),
-            "the whole comment, uncut; {all}"
-        );
+    let texts = m.texts();
+    let all = texts.join("\n");
+    let excerpt = if whole {
+        comment.clone()
     } else {
         let first: String = comment.chars().take(300).collect();
+        format!("{first}…")
+    };
+    assert!(
+        texts.contains(&excerpt),
+        "the excerpt block reads {}; {all}",
+        if whole {
+            "the whole comment, uncut"
+        } else {
+            "the first 300 characters then \"…\""
+        }
+    );
+    if !whole {
+        // Nothing past the cut is sent: no text runs on beyond the 300th
+        // character, and a tail long enough to be told apart (the numbered
+        // words never repeat) appears nowhere.
+        let beyond: String = comment.chars().take(301).collect();
         let rest: String = comment.chars().skip(300).collect();
         assert!(
-            all.contains(&format!("{first}…")) && !all.contains(&rest),
-            "the first 300 characters then \"…\"; {all}"
+            !all.contains(&beyond),
+            "no text runs on past the 300th character; {all}"
+        );
+        assert!(
+            rest.chars().count() < 8 || !all.contains(&rest),
+            "nothing past the 300th character is sent; {all}"
         );
     }
 }
 
+/// A comment of exactly `n` characters whose words are numbered, so no stretch
+/// of it repeats: what lies past the 300th character appears nowhere before it.
 pub fn comment_of_length(n: usize) -> String {
-    let unit = "The LDAP bind DN moved to the new OU and staging is green. ";
-    unit.chars().cycle().take(n).collect()
+    (1..)
+        .map(|i| format!("note{i:03} "))
+        .flat_map(|word| word.chars().collect::<Vec<_>>())
+        .take(n)
+        .collect()
 }
 
 /// The never-pings oracle plus readability: every word of the user's text
@@ -3036,11 +3134,19 @@ pub async fn then_never_sent(world: &mut FoundryWorld, key: &str, attachment: &s
     for channel in ["#general", "#auth-dev", "#auth-releases"] {
         then_shows_key(world, channel, key).await;
     }
-    let description = world.eip.description.clone().expect("the description");
+    let (title, description) = world.eip.description.clone().expect("the description");
+    // A word the title also uses ("vault") is sent as the title, so only the
+    // description's own fragments ("password", "cn=admin", "secret/ldap")
+    // tell the description apart.
+    let title_words: Vec<&str> = title.split(' ').collect();
     let fragments: Vec<&str> = description
         .split([' ', ','])
-        .filter(|w| w.len() >= 5)
+        .filter(|w| w.len() >= 5 && !title_words.contains(w))
         .collect();
+    assert!(
+        !fragments.is_empty(),
+        "the description has words of its own"
+    );
     for m in slack(world).all_posts() {
         let all = m.all_text();
         for f in &fragments {

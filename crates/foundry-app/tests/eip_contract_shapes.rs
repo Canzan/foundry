@@ -848,6 +848,70 @@ mod routes {
         assert_eq!(lab.universe().await, before, "no integration_* row changed");
     }
 
+    /// The destination picker of a preview page: (value, selected) per option.
+    fn picker_of(page: &str) -> Vec<(String, bool)> {
+        let start = page
+            .find("name=\"destination\"")
+            .expect("the destination picker");
+        let picker = &page[start..start + page[start..].find("</select>").expect("its end")];
+        picker
+            .split("<option value=\"")
+            .skip(1)
+            .map(|rest| {
+                let value = rest[..rest.find('"').expect("a quoted value")].to_string();
+                let tag = &rest[..rest.find('>').expect("a closed option")];
+                (value, tag.contains("selected"))
+            })
+            .collect()
+    }
+
+    /// DDR-25 (02-03): a preview asks Slack nothing, so its picker offers only
+    /// the channel the form names, chosen — and with no channel chosen it
+    /// offers none (no empty channel, no audience notice).
+    #[tokio::test]
+    async fn preview_picker_offers_only_the_named_channel() {
+        let lab = Lab::start().await;
+        let mut pickers = Vec::new();
+        for destination in ["", AUTH_DEV] {
+            let response = lab
+                .router
+                .clone()
+                .oneshot(form(
+                    &format!("{PAGE}/routes/preview"),
+                    &lab.cookie,
+                    &[
+                        ("kind", "slack"),
+                        ("destination", destination),
+                        ("events", "issue.created"),
+                        ("content_level", "summary"),
+                    ],
+                ))
+                .await
+                .expect("response");
+            assert_eq!(response.status(), StatusCode::OK, "{destination:?}");
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            let page = String::from_utf8_lossy(&body).into_owned();
+            pickers.push((picker_of(&page), page.contains("data-audience-notice")));
+        }
+        assert_eq!(
+            pickers[0],
+            (vec![], false),
+            "no channel chosen: the picker offers none and no audience notice shows"
+        );
+        assert_eq!(
+            pickers[1],
+            (vec![(AUTH_DEV.to_string(), true)], true),
+            "the named channel alone, chosen, with its audience notice"
+        );
+        assert!(
+            lab.calls.lock().unwrap().is_empty(),
+            "the preview asked Slack nothing: {:?}",
+            lab.calls.lock().unwrap()
+        );
+    }
+
     #[tokio::test]
     async fn refused_destination_check_writes_nothing() {
         let lab = Lab::start().await;

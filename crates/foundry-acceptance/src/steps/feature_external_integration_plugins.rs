@@ -275,7 +275,7 @@ async fn creating(
 
 #[given(regex = r"^Lena (has ticked|left blank) the shared-channel confirmation$")]
 async fn shared_tick(world: &mut FoundryWorld, ticked: String) {
-    eip::draft_mut(world).shared_confirmed = ticked == "has ticked";
+    eip::given_shared_tick(world, "Lena", ticked == "has ticked").await;
 }
 
 #[when(regex = r"^(Lena|Priya) saves the route$")]
