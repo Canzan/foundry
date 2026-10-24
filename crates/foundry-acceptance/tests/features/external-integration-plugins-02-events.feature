@@ -49,7 +49,7 @@ Feature: A team lead chooses exactly which events a route carries
     When Sam moves AUTH-7 from In progress to Done
     Then #auth-releases shows exactly one message, "AUTH-7 Move Grafana sign-in to Keycloak" / "Moved In progress → Done by Sam Okafor · Identity Platform"
 
-  @pending @kpi @contract-shape:bounded-change
+  @kpi @contract-shape:bounded-change
   Scenario Outline: Each chosen event posts its own message
     Given Lena has routed <event> on Identity Platform to #auth-dev
     When <action>
@@ -68,7 +68,7 @@ Feature: A team lead chooses exactly which events a route carries
     When Sam moves AUTH-9 above AUTH-8 inside Todo
     Then nothing is posted to #auth-dev within 10 seconds
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: Editing or deleting a comment posts nothing
     Given Lena has routed every chat event on Identity Platform to #auth-dev
     And Lena has commented "Can you verify the Grafana login?" on AUTH-7 and #auth-dev has shown it
@@ -112,7 +112,7 @@ Feature: A team lead chooses exactly which events a route carries
     When Sam moves AUTH-7 from In progress to Done
     Then nothing is posted to #auth-releases within 10 seconds
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario Outline: One action that deletes many cards posts one message once there are more than five
     Given Lena has routed Issue deleted on Identity Platform to #auth-dev
     And the lane Spikes holds <cards> cards
@@ -125,7 +125,7 @@ Feature: A team lead chooses exactly which events a route carries
       | 6     | exactly one message, "6 issues deleted from Identity Platform by Lena Park" |
       | 7     | exactly one message, "7 issues deleted from Identity Platform by Lena Park" |
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: Deleting a lane that moves its cards posts one message for the move
     Given Lena has routed Issue moved on Identity Platform to #auth-dev
     And the lane Spikes holds 7 cards
