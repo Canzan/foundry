@@ -109,7 +109,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
     Then Lena's route to #auth-dev reads a status starting "Needs attention: "
     And #auth-releases shows AUTH-12's message
 
-  @pending @error @kpi @contract-shape:unbounded-preservation
+  @error @kpi @contract-shape:unbounded-preservation
   Scenario: History speaks Foundry's words, never Slack's
     Given Slack will answer Foundry's next post to #auth-dev with a refusal carrying its own raw text
     And Sam has filed "Rotate LLDAP bind password" in Identity Platform

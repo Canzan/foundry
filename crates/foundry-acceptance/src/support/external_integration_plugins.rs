@@ -629,6 +629,10 @@ pub struct EipState {
     /// The operator's Foundry was killed between two attempts and started
     /// again: a message still waiting is due at its retry, not at once.
     pub restarted_between_attempts: bool,
+    /// The channel whose next post has a scripted Slack answer ("Slack will
+    /// answer Foundry's next post to #auth-dev with …"): a later "Sam has
+    /// filed …" waits until Slack has been asked and Foundry has recorded it.
+    pub scripted_answer_channel: Option<String>,
 }
 
 impl std::fmt::Debug for EipState {
@@ -2441,6 +2445,7 @@ pub async fn when_slack_heals_and_a_minute_passes(world: &mut FoundryWorld) {
 }
 
 pub fn slack_next_answer(world: &mut FoundryWorld, channel: &str, answer: SlackAnswer) {
+    world.eip.scripted_answer_channel = Some(channel.to_owned());
     let double = slack(world);
     match &answer {
         SlackAnswer::Archived => double.archive(channel),
@@ -5202,6 +5207,18 @@ pub async fn given_filed(
     let key = file(world, who, project, title, None).await;
     if shown {
         then_shows_key(world, "#auth-dev", &key).await;
+    } else if let Some(channel) = world.eip.scripted_answer_channel.clone() {
+        // Slack has a scripted answer for this channel's next post: the
+        // delivery is settled once Slack was asked and Foundry recorded what
+        // it answered, so the When reads what Foundry made of the answer
+        // (never a delivery the dispatcher has not created yet).
+        slack_asked_to_post(
+            world,
+            &channel,
+            "Foundry has asked Slack to post the message",
+        )
+        .await;
+        delivery_settled(world, &channel, &key).await;
     } else if slack(world).leaves_posts_unanswered() {
         // Slack is silent or holding: the message's 24-hour clock starts at
         // its first attempt, so a later "24 hours pass" must not move the
@@ -5213,6 +5230,28 @@ pub async fn given_filed(
         )
         .await;
     }
+}
+
+/// Wait until the route's history shows `key`'s delivery past its first
+/// attempt: no longer "Waiting" or "Sending", so Foundry has recorded Slack's
+/// answer (delivered, retrying, failed or skipped).
+async fn delivery_settled(world: &mut FoundryWorld, channel: &str, key: &str) {
+    let start = Instant::now();
+    let mut entries = Vec::new();
+    while start.elapsed() < STATUS_BUDGET {
+        let page = open_history(world, "Lena", channel).await;
+        entries = texts_of(&page.body, "[data-delivery]");
+        let settled = entries.iter().any(|e| {
+            e.contains(&format!(" · {key} · "))
+                && !e.ends_with(" · Waiting")
+                && !e.ends_with(" · Sending")
+        });
+        if settled {
+            return;
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    panic!("Foundry records Slack's answer to {key}'s post to {channel}; history {entries:?}");
 }
 
 /// Wait until Slack has been asked at least once to post to `channel`
@@ -5335,14 +5374,25 @@ pub fn duration(n: u64, unit: &str) -> Duration {
 }
 
 /// "the visitor is sent to sign in, as from any page that needs a session":
-/// the same answer a signed-out GET of a shipped session page gets.
+/// the shipped `redirect_to("/sign-in")` answer (issues.rs, comments.rs) — a
+/// 303 See Other to `/sign-in` with no body, the shape the signed-out landing
+/// scenario checks (feature_remaining_surfaces `landing_redirects`). Control:
+/// the signed-out landing page answers exactly so, so the oracle is the
+/// product's own, not a guess.
 pub async fn then_sent_to_sign_in(world: &mut FoundryWorld) {
     let answer = tm::last(world).clone();
-    let reference = get(world, "a signed-out visitor", ACCOUNT_SETTINGS).await;
+    let landing = get(world, "a signed-out visitor", "/").await;
     assert_eq!(
-        (answer.status, answer.location.clone()),
-        (reference.status, reference.location.clone()),
-        "a signed-out visitor is sent to sign in, as from {ACCOUNT_SETTINGS}; {}",
+        (landing.status, landing.location.as_deref()),
+        (StatusCode::SEE_OTHER, Some("/sign-in")),
+        "control: a signed-out visitor is sent from the landing page to sign in; {}",
+        tm::describe(&landing)
+    );
+    assert_eq!(
+        (answer.status, answer.location.as_deref()),
+        (StatusCode::SEE_OTHER, Some("/sign-in")),
+        "a signed-out visitor at {} is sent to sign in (303 to /sign-in); {}",
+        answer.path,
         tm::describe(&answer)
     );
 }
