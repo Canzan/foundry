@@ -36,7 +36,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
     And Priya has connected Canzan Labs to Slack
     And Lena has routed every chat event on Identity Platform to #auth-dev
 
-  @pending @kpi @contract-shape:pure-function
+  @kpi @contract-shape:pure-function
   Scenario: Every delivery is listed with its outcome
     Given Sam has filed "Rotate LLDAP bind password" in Identity Platform and #auth-dev has shown it
     When Lena opens the history of the route to #auth-dev
@@ -58,7 +58,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
     When Slack answers again
     Then #auth-dev shows AUTH-12's New issue message before its Moved message
 
-  @pending @error @contract-shape:pure-function
+  @error @contract-shape:pure-function
   Scenario: After 24 hours of failure Foundry stops and says so
     Given Slack does not answer
     And Sam has filed "Expire stale LDAP sessions" in Identity Platform
@@ -116,7 +116,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
     When Lena opens the history of the route to #auth-dev
     Then the history shows none of the raw Slack text and no Slack credential
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: Only those who manage the route see its history
     When <person> opens the history of the route to #auth-dev
     Then <person> gets the same not-found page any unknown address gets

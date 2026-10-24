@@ -3,8 +3,8 @@
 
 use super::IntegrationRecords;
 use foundry_store::integrations::{
-    AuditRow, ConnectionRow, ConnectionWriteOutcome, NewConnection, NewRoute, ProjectRoute,
-    RouteWriteOutcome, SealedConnection,
+    AuditRow, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow, NewConnection, NewRoute,
+    ProjectRoute, RouteWriteOutcome, SealedConnection,
 };
 use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
@@ -79,5 +79,13 @@ impl IntegrationRecords for Store {
 
     async fn create_route(&self, route: &NewRoute) -> Result<RouteWriteOutcome, StoreError> {
         Store::create_route(self, route).await
+    }
+
+    async fn route_history(
+        &self,
+        route_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<DeliveryHistoryRow>, StoreError> {
+        Store::route_history(self, route_id, limit).await
     }
 }

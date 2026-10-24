@@ -939,6 +939,53 @@ const PROJECT_ROUTES_SQL: &str = "
      WHERE r.project_id = $1
      ORDER BY r.created_at, r.id";
 
+/// One delivery of a route, as its history lists it (US-EIP-05).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeliveryHistoryRow {
+    pub occurred_at: OffsetDateTime,
+    pub event_kind: String,
+    pub issue_key: Option<String>,
+    pub status: String,
+    pub attempts: i32,
+    pub first_attempt_at: Option<OffsetDateTime>,
+    pub finished_at: Option<OffsetDateTime>,
+    pub give_up_at: OffsetDateTime,
+    pub lease_until: Option<OffsetDateTime>,
+    pub next_attempt_at: Option<OffsetDateTime>,
+    pub last_vendor_reason: Option<String>,
+    pub final_reason: Option<String>,
+    pub slowed_down: bool,
+}
+
+/// A route's deliveries, newest first.
+const ROUTE_HISTORY_SQL: &str = "
+    SELECT occurred_at, event_kind, issue_key, status, attempts, first_attempt_at,
+           finished_at, give_up_at, lease_until, next_attempt_at, last_vendor_reason,
+           final_reason, slowed_down
+      FROM integration_deliveries
+     WHERE route_id = $1
+     ORDER BY id DESC
+     LIMIT $2";
+
+fn delivery_history_row(row: &sqlx::postgres::PgRow) -> Result<DeliveryHistoryRow, sqlx::Error> {
+    use sqlx::Row;
+    Ok(DeliveryHistoryRow {
+        occurred_at: row.try_get("occurred_at")?,
+        event_kind: row.try_get("event_kind")?,
+        issue_key: row.try_get("issue_key")?,
+        status: row.try_get("status")?,
+        attempts: row.try_get("attempts")?,
+        first_attempt_at: row.try_get("first_attempt_at")?,
+        finished_at: row.try_get("finished_at")?,
+        give_up_at: row.try_get("give_up_at")?,
+        lease_until: row.try_get("lease_until")?,
+        next_attempt_at: row.try_get("next_attempt_at")?,
+        last_vendor_reason: row.try_get("last_vendor_reason")?,
+        final_reason: row.try_get("final_reason")?,
+        slowed_down: row.try_get("slowed_down")?,
+    })
+}
+
 fn project_route(row: &sqlx::postgres::PgRow) -> Result<ProjectRoute, sqlx::Error> {
     use sqlx::Row;
     let finished_status: Option<String> = row.try_get("finished_status")?;
@@ -1200,6 +1247,23 @@ impl Store {
         Ok(rows
             .iter()
             .map(project_route)
+            .collect::<Result<Vec<_>, _>>()?)
+    }
+
+    /// The route's newest `limit` deliveries, newest first (its history).
+    pub async fn route_history(
+        &self,
+        route_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<DeliveryHistoryRow>, StoreError> {
+        let rows = sqlx::query(ROUTE_HISTORY_SQL)
+            .bind(route_id)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(delivery_history_row)
             .collect::<Result<Vec<_>, _>>()?)
     }
 

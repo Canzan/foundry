@@ -435,6 +435,18 @@ impl Services {
         integrations::route_target(&*self.store, principal, team_slug, project_slug).await
     }
 
+    /// external-integration-plugins — a route's delivery history (Manage).
+    pub async fn route_history(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        route_id: uuid::Uuid,
+    ) -> Result<integrations::RouteHistory, integrations::IntegrationError> {
+        integrations::route_history(&*self.store, principal, team_slug, project_slug, route_id)
+            .await
+    }
+
     /// external-integration-plugins — save a checked Slack route (Manage).
     pub async fn create_route(
         &self,

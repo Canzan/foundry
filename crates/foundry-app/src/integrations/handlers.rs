@@ -20,6 +20,8 @@
 //!   channel, no row written, six a minute per person (DDR-25, R-5).
 //! - `POST …/integrations/routes`: checks the channel with Slack, then saves
 //!   the route and its audit record; sends nothing (DDR-25).
+//! - `GET …/integrations/routes/{route_id}/history`: every delivery of the
+//!   route, newest first, in Foundry's words (US-EIP-05, Manage).
 
 use super::slack::{self, InstallState, SlackGrant};
 use super::{Integrations, SlackOffer};
@@ -35,15 +37,15 @@ use axum::Form;
 use foundry_auth::secret_box::SecretSlot;
 use foundry_integrations::{
     encode_slack, test_message, ChannelKind, ChannelOutcome, ConnectionState, DeliveryChannel,
-    DeliveryKey, Destination, DestinationCatalog, DestinationRef, FinishedDelivery, ReasonCode,
-    RouteFacts, RouteStatus,
+    DeliveryKey, DeliveryRecord, Destination, DestinationCatalog, DestinationRef, FinishedDelivery,
+    ReasonCode, RouteFacts, RouteStatus,
 };
 use foundry_services::integrations::{
-    IntegrationError, ProjectIntegrations, RouteDraft, RouteTarget, SlackInstall,
+    IntegrationError, ProjectIntegrations, RouteDraft, RouteHistory, RouteTarget, SlackInstall,
     WorkspaceIntegrations,
 };
 use foundry_services::{Principal, Services};
-use foundry_store::integrations::{ConnectionWriteOutcome, ProjectRoute};
+use foundry_store::integrations::{ConnectionWriteOutcome, DeliveryHistoryRow, ProjectRoute};
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -99,6 +101,16 @@ struct RouteLine {
     id: uuid::Uuid,
     destination_label: String,
     status: String,
+}
+
+#[derive(Template)]
+#[template(path = "integrations/route_history.html")]
+struct RouteHistoryPage {
+    nav: crate::nav::NavContext,
+    project_name: String,
+    destination_label: String,
+    routes_path: String,
+    deliveries: Vec<String>,
 }
 
 #[derive(Template)]
@@ -361,6 +373,47 @@ pub async fn show_project(
             base_path(&team_slug, &project_slug)
         ),
         routes: routes.iter().map(route_line).collect(),
+    };
+    render(page.render(), set_cookie)
+}
+
+pub async fn show_route_history(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
+) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let Ok(route_id) = uuid::Uuid::parse_str(&route_id) else {
+        return resource_not_found_page();
+    };
+    let history = caller
+        .services
+        .route_history(&caller.principal(), &team_slug, &project_slug, route_id)
+        .await;
+    let RouteHistory {
+        project_name,
+        kind,
+        destination_label,
+        deliveries,
+    } = match history {
+        Ok(history) => history,
+        Err(err) => return refusal(err),
+    };
+    let channel = ChannelKind::from_wire_name(&kind).unwrap_or(ChannelKind::Slack);
+    let now = state.clock.now();
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let page = RouteHistoryPage {
+        nav: caller.nav(&state, csrf).await,
+        deliveries: deliveries
+            .iter()
+            .map(|row| history_line(row, channel, &destination_label, now))
+            .collect(),
+        project_name,
+        destination_label,
+        routes_path: base_path(&team_slug, &project_slug),
     };
     render(page.render(), set_cookie)
 }
@@ -657,6 +710,32 @@ fn route_line(route: &ProjectRoute) -> RouteLine {
         destination_label: route.destination_label.clone(),
         status: RouteStatus::derive(&facts).words(&route.destination_label),
     }
+}
+
+/// A stored delivery's history line as of `now`, worded by the core (UI-7).
+fn history_line(
+    row: &DeliveryHistoryRow,
+    channel: ChannelKind,
+    destination: &str,
+    now: time::OffsetDateTime,
+) -> String {
+    DeliveryRecord {
+        channel,
+        occurred_at: row.occurred_at,
+        event_kind: &row.event_kind,
+        issue_key: row.issue_key.as_deref(),
+        status: &row.status,
+        attempts: row.attempts,
+        first_attempt_at: row.first_attempt_at,
+        finished_at: row.finished_at,
+        give_up_at: row.give_up_at,
+        lease_until: row.lease_until,
+        next_attempt_at: row.next_attempt_at,
+        last_vendor_reason: row.last_vendor_reason.as_deref(),
+        final_reason: row.final_reason.as_deref(),
+        slowed_down: row.slowed_down,
+    }
+    .line(destination, now)
 }
 
 /// Exchange the code, read the domain, seal the token for its row, save.

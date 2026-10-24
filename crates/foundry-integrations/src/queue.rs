@@ -26,6 +26,12 @@ impl QueuedDelivery {
     fn is_past_give_up_at(&self, now: OffsetDateTime) -> bool {
         self.give_up_at <= now
     }
+
+    /// At or past its give-up time with no live lease: the expiry sweep fails
+    /// it, and it is never sent again.
+    pub(crate) fn is_expired_at(&self, now: OffsetDateTime) -> bool {
+        self.is_past_give_up_at(now) && !self.is_leased_at(now)
+    }
 }
 
 /// The delivery a sender may claim on one route: the head (its lowest id), and
@@ -49,7 +55,7 @@ pub fn claimable_head(
 pub fn expiry_set(now: OffsetDateTime, deliveries: &[QueuedDelivery]) -> Vec<i64> {
     deliveries
         .iter()
-        .filter(|delivery| delivery.is_past_give_up_at(now) && !delivery.is_leased_at(now))
+        .filter(|delivery| delivery.is_expired_at(now))
         .map(|delivery| delivery.id)
         .collect()
 }

@@ -113,6 +113,16 @@ impl ChannelKind {
         by_name(&CHANNEL_KINDS, wire)
     }
 
+    /// The reason an attempt that got no answer at all reads as: the
+    /// vendor did not answer. A kind without a vendor to answer has none.
+    pub fn no_answer(self) -> Option<ReasonCode> {
+        match self {
+            ChannelKind::Slack => Some(ReasonCode::SlackNoAnswer),
+            ChannelKind::Matrix => Some(ReasonCode::HomeserverNoAnswer),
+            ChannelKind::Email | ChannelKind::Webhook => None,
+        }
+    }
+
     /// "Slack", as K-9 names a kind.
     pub fn display_name(self) -> &'static str {
         match self {

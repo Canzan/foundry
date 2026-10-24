@@ -24,7 +24,7 @@ Feature: A signed-out visitor is sent to sign in from every integration page
     And it is 14:02 on 21 Oct 2026
     And the instance has the Foundry Slack app set up
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: A signed-out visitor is sent to sign in from every integration page
     Given Priya has connected Canzan Labs to Slack
     And Lena has routed New issue on Identity Platform to #auth-dev

@@ -40,6 +40,12 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   of being queued is given up and never posted later, and its route reads "Needs attention:
   {key}'s message could not be delivered within 24 hours". A route carries only its own project's
   events, and only those that happen after it is saved.
+- **Route delivery history**: `…/integrations/routes/{route}/history` lists every delivery of a
+  route, newest first, in Foundry's words: "14:02 · New issue · AUTH-12 · Delivered", "Delivered
+  after 2 attempts (Slack asked Foundry to slow down)", "Retrying (Slack did not answer) · next
+  attempt 16:15", "Failed: gave up after 24 hours (Slack did not answer)". It never shows Slack's
+  own text or a credential. Team leads and workspace admins see it; anyone else gets the usual
+  not-found page.
 
 ### Operators
 

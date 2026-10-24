@@ -852,6 +852,11 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/project/{project_slug}/integrations/routes",
             post(integrations::handlers::create_route),
         )
+        // US-EIP-05: a route's delivery history, Manage only.
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations/routes/{route_id}/history",
+            get(integrations::handlers::show_route_history),
+        )
         .route("/", get(signin::dashboard_root))
         // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO
         // route is refused with the SAME uniform `resource_not_found_page()` the

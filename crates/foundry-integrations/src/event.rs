@@ -52,4 +52,16 @@ impl EventKind {
             .find(|(kind, _, _)| *kind == self)
             .map_or("", |(_, _, name)| name)
     }
+
+    /// The event as a person reads it, e.g. "New issue" (D-2).
+    pub fn display_name(self) -> &'static str {
+        match self {
+            EventKind::IssueCreated => "New issue",
+            EventKind::IssueMoved => "Issue moved",
+            EventKind::IssueDeleted => "Issue deleted",
+            EventKind::CommentAdded => "New comment",
+            EventKind::CommentEdited => "Comment edited",
+            EventKind::CommentDeleted => "Comment deleted",
+        }
+    }
 }

@@ -12,6 +12,7 @@
 //!   its credential still sealed (the adapters open it, ADR-EIP-004).
 //! - [`create_route`]: a route the destination check accepted becomes one
 //!   route row, its lane rows and one audit row (DDR-25: saving never sends).
+//! - [`route_history`]: a route's deliveries, newest first (Manage only).
 //!
 //! Every refusal is [`IntegrationError::NotFound`], which each door answers
 //! with its uniform 404. The use-cases read and write through
@@ -24,8 +25,8 @@ use crate::Principal;
 use foundry_auth::secret_box::SealedSecret;
 use foundry_core::TeamAccess;
 use foundry_store::integrations::{
-    AuditRow, ConnectionRow, ConnectionWriteOutcome, NewConnection, NewRoute, ProjectRoute,
-    RouteLane, RouteWriteOutcome, SealedConnection,
+    AuditRow, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow, NewConnection, NewRoute,
+    ProjectRoute, RouteLane, RouteWriteOutcome, SealedConnection,
 };
 use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
@@ -38,6 +39,10 @@ pub const SLACK: &str = "slack";
 
 /// How many activity lines the workspace page lists.
 pub const ACTIVITY_LIMIT: i64 = 50;
+
+/// How many deliveries a route's history lists, newest first. Above the
+/// retained minimum of 100 (NFR-EIP-7), so the 30-day tail stays visible.
+pub const HISTORY_LIMIT: i64 = 500;
 
 /// The persistence the integration use-cases need, and nothing more.
 pub(crate) trait IntegrationRecords: Sync {
@@ -76,6 +81,11 @@ pub(crate) trait IntegrationRecords: Sync {
     ) -> Result<Option<SealedConnection>, StoreError>;
     async fn project_lanes(&self, project_id: Uuid) -> Result<Vec<LaneRow>, StoreError>;
     async fn create_route(&self, route: &NewRoute) -> Result<RouteWriteOutcome, StoreError>;
+    async fn route_history(
+        &self,
+        route_id: Uuid,
+        limit: i64,
+    ) -> Result<Vec<DeliveryHistoryRow>, StoreError>;
 }
 
 /// The events a chat route may choose (D-2).
@@ -133,6 +143,17 @@ pub struct RouteTarget {
     pub project_name: String,
     pub key_prefix: String,
     pub connection: Option<SealedConnection>,
+}
+
+/// A route's history page facts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteHistory {
+    pub project_name: String,
+    /// The route's kind (`slack`, `matrix`, …).
+    pub kind: String,
+    pub destination_label: String,
+    /// Newest first.
+    pub deliveries: Vec<DeliveryHistoryRow>,
 }
 
 /// A route as its form submitted it, its destination already checked and
@@ -256,6 +277,31 @@ pub(crate) async fn project_view(
     Ok(ProjectIntegrations {
         project_name: project.name,
         routes,
+    })
+}
+
+/// Manage only: the route `route_id` of the project and its deliveries,
+/// newest first; a route of another project is not found.
+pub(crate) async fn route_history(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    route_id: Uuid,
+) -> Result<RouteHistory, IntegrationError> {
+    let project = managed_project(records, principal, team_slug, project_slug).await?;
+    let route = records
+        .project_routes(project.id)
+        .await?
+        .into_iter()
+        .find(|route| route.id == route_id)
+        .ok_or(IntegrationError::NotFound)?;
+    let deliveries = records.route_history(route.id, HISTORY_LIMIT).await?;
+    Ok(RouteHistory {
+        project_name: project.name,
+        kind: route.kind,
+        destination_label: route.destination_label,
+        deliveries,
     })
 }
 

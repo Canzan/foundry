@@ -12,7 +12,8 @@
 //! - [`compose`] decides a message's lines and [`encode_slack`] places them
 //!   (D-3, DDR-12); [`classify_slack`] reads Slack's answer;
 //! - [`RetryPolicy::next`] schedules a retry, never past the give-up time;
-//! - [`RouteStatus::derive`] gives a route's K-9 status (DDR-19).
+//! - [`RouteStatus::derive`] gives a route's K-9 status (DDR-19), and
+//!   [`DeliveryRecord::line`] a delivery's history line.
 //!
 //! The driven ports a channel kind implements are [`DeliveryChannel`]
 //! (write-only), [`DestinationCatalog`] (read-only), [`DestinationEnrolment`]
@@ -25,6 +26,7 @@
 mod classify;
 mod dispatch;
 mod event;
+mod history;
 mod kinds;
 mod message;
 mod ports;
@@ -37,6 +39,7 @@ mod wire;
 pub use classify::classify_slack;
 pub use dispatch::{DispatchPlan, OutboxRow, PlannedDelivery};
 pub use event::EventKind;
+pub use history::DeliveryRecord;
 pub use kinds::{ChannelKind, ChannelOutcome, ConnectionState, ContentLevel, ReasonCode};
 pub use message::{
     compose, encode_slack, escape_slack, test_message, EventView, MessageLines, OPEN_IN_FOUNDRY,
