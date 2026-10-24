@@ -536,6 +536,38 @@
             "crates/foundry-app/src/integrations/worker.rs",
             "xtask/src/check_arch.rs"
           ]
+        },
+        {
+          "id": "01-12",
+          "name": "Signed-out integration doors redirect to sign in; History link",
+          "description": "Coordinator-added fix step (2026-10-23, from the 01-09 hand-back). Integration doors answer a signed-out visitor with the uniform 404 instead of the shipped redirect_to(\"/sign-in\"); scenario 115's Then was corrected by DISTILL and re-pended. Also wires the route History link on the project integrations page (01-09 wiring debt). Un-pends 115 (5 rows).",
+          "criteria": [
+            "Every integration page sends a signed-out visitor to sign in, as any page that needs a session does",
+            "Signed-in people without the right still get the uniform not-found",
+            "Each route on the project integrations page links to its history"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-09"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers.rs",
+            "crates/foundry-app/templates/integrations/project.html",
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-signed-out.feature",
+            "CHANGELOG.md"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-01-signed-out.feature",
+          "scenario_name": [
+            "A signed-out visitor is sent to sign in from every integration page"
+          ],
+          "implementation_notes": "Reuse redirect_to(\"/sign-in\") as issues.rs does. The two public doors (/integrations/slack/events, /email/stop/one-click) are unaffected.",
+          "lanes": [
+            "eip-01",
+            "eip-03"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers.rs"
+          ]
         }
       ]
     },
