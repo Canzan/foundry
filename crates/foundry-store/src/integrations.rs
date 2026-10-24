@@ -17,6 +17,9 @@
 //! - [`Store::record_delivery`]: the fenced record, `WHERE claim_id = <claim>`;
 //! - [`Store::expire_deliveries`]: the expiry sweep, failing exactly the ids
 //!   the plan names, each still pending, past its give-up time and unleased;
+//! - [`Store::prune_deliveries`]: the retention sweep (DD-10), deleting exactly
+//!   the finished deliveries and unreferenced dispatched outbox rows the plan
+//!   names;
 //! - [`Store::beat_worker`] and [`Store::integration_backlog`]: the stall
 //!   signals (DDR-22);
 //! - [`Store::create_route`]: a route writer, opening with `lock_live_project`;
@@ -172,22 +175,41 @@ pub enum DeliveryResult {
     Skipped {
         final_reason: String,
     },
+    /// The vendor asked Foundry to wait: retry at `next_attempt_at`, and send
+    /// nothing to the destination before `not_before` (its "retry after").
+    SlowedDown {
+        next_attempt_at: OffsetDateTime,
+        not_before: Option<OffsetDateTime>,
+        vendor_reason: String,
+    },
+    /// The vendor refused the destination: the delivery waits, unscheduled,
+    /// and its route gets `vendor_reason` as its problem.
+    RouteRefused {
+        vendor_reason: String,
+    },
+    /// The vendor refused the connection: the delivery waits, unscheduled,
+    /// and a connected connection becomes lost for `vendor_reason`.
+    ConnectionRefused {
+        vendor_reason: String,
+    },
 }
 
 /// The columns a record writes: status, whether it finishes the row, the next
-/// attempt, the vendor's reason and the final reason.
+/// attempt, the vendor's reason, the final reason and whether the vendor
+/// asked Foundry to slow down.
 type RecordColumns<'a> = (
     &'a str,
     bool,
     Option<OffsetDateTime>,
     Option<&'a str>,
     Option<&'a str>,
+    bool,
 );
 
 impl DeliveryResult {
     fn columns(&self) -> RecordColumns<'_> {
         match self {
-            Self::Delivered => ("delivered", true, None, None, None),
+            Self::Delivered => ("delivered", true, None, None, None, false),
             Self::Retry {
                 next_attempt_at,
                 vendor_reason,
@@ -197,6 +219,27 @@ impl DeliveryResult {
                 Some(*next_attempt_at),
                 vendor_reason.as_deref(),
                 None,
+                false,
+            ),
+            Self::SlowedDown {
+                next_attempt_at,
+                vendor_reason,
+                ..
+            } => (
+                STATUS_PENDING,
+                false,
+                Some(*next_attempt_at),
+                Some(vendor_reason),
+                None,
+                true,
+            ),
+            Self::RouteRefused { vendor_reason } | Self::ConnectionRefused { vendor_reason } => (
+                STATUS_PENDING,
+                false,
+                None,
+                Some(vendor_reason),
+                None,
+                false,
             ),
             Self::Failed {
                 final_reason,
@@ -207,10 +250,53 @@ impl DeliveryResult {
                 None,
                 vendor_reason.as_deref(),
                 Some(final_reason),
+                false,
             ),
-            Self::Skipped { final_reason } => ("skipped", true, None, None, Some(final_reason)),
+            Self::Skipped { final_reason } => {
+                ("skipped", true, None, None, Some(final_reason), false)
+            }
         }
     }
+}
+
+/// What the retention sweep reads (DD-10): finished deliveries old enough to
+/// go, each with how many deliveries of its route (or recipient) are newer,
+/// and dispatched outbox rows old enough to go, each with whether a pending
+/// delivery still reads it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetentionView {
+    pub deliveries: Vec<RetainedRow>,
+    pub outbox: Vec<RetainedOutbox>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetainedRow {
+    pub id: i64,
+    pub finished_at: Option<OffsetDateTime>,
+    pub newer_on_target: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RetainedOutbox {
+    pub id: i64,
+    pub dispatched_at: Option<OffsetDateTime>,
+    pub referenced_by_pending: bool,
+}
+
+/// The ids the retention sweep deletes, and the heartbeat cut-off.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pruning {
+    pub deliveries: Vec<i64>,
+    pub outbox: Vec<i64>,
+    pub heartbeats_before: OffsetDateTime,
+}
+
+/// How many rows one retention sweep deleted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Pruned {
+    pub deliveries: u64,
+    pub outbox: u64,
+    pub heartbeats: u64,
 }
 
 /// What the stall gauges read (DDR-22). Ages are seconds, 0 when none.
@@ -333,8 +419,74 @@ const RECORD_SQL: &str = "
     UPDATE integration_deliveries
        SET status = $3, lease_until = NULL, next_attempt_at = $4,
            last_vendor_reason = COALESCE($5, last_vendor_reason), final_reason = $6,
-           finished_at = CASE WHEN $7 THEN $8 END
-     WHERE id = $1 AND claim_id = $2 AND status = 'pending'";
+           finished_at = CASE WHEN $7 THEN $8 END,
+           slowed_down = slowed_down OR $9
+     WHERE id = $1 AND claim_id = $2 AND status = 'pending'
+    RETURNING route_id, project_id";
+
+/// A "retry after": the route's destination waits at least until $2.
+const SLOW_DOWN_SQL: &str = "
+    INSERT INTO integration_destination_pacing (connection_id, destination_ref, not_before)
+    SELECT r.connection_id, r.destination_ref, $2 FROM integration_routes r
+     WHERE r.id = $1 AND r.connection_id IS NOT NULL
+    ON CONFLICT (connection_id, destination_ref)
+    DO UPDATE SET not_before = GREATEST(integration_destination_pacing.not_before,
+                                        EXCLUDED.not_before)";
+
+/// A refused destination: the route needs attention (kept if already set).
+const ROUTE_PROBLEM_SQL: &str = "
+    UPDATE integration_routes SET problem_reason = $2, problem_at = $3
+     WHERE id = $1 AND problem_reason IS NULL";
+
+/// A refused connection: `connected → lost`, once (compare-and-set).
+const CONNECTION_LOST_SQL: &str = "
+    UPDATE integration_connections c SET state = 'lost', lost_reason = $2, lost_at = $3
+      FROM integration_routes r
+     WHERE r.id = $1 AND c.id = r.connection_id AND c.state = 'connected'";
+
+/// The senders' candidates: routes with a pending delivery that are neither
+/// stopped by a refusal nor on a lost connection, the oldest pending first.
+const SENDABLE_ROUTES_SQL: &str = "
+    SELECT d.route_id FROM integration_deliveries d
+      JOIN integration_routes r ON r.id = d.route_id
+      LEFT JOIN integration_connections c ON c.id = r.connection_id
+     WHERE d.status = 'pending' AND r.problem_reason IS NULL
+       AND c.state IS DISTINCT FROM 'lost'
+     GROUP BY d.route_id ORDER BY min(d.id) LIMIT $1";
+
+/// The finished deliveries the retention sweep may delete, each with how
+/// many deliveries of its target are newer.
+const RETAINED_DELIVERIES_SQL: &str = "
+    SELECT id, finished_at, newer FROM (
+        SELECT id, status, finished_at,
+               row_number() OVER (PARTITION BY COALESCE(route_id, recipient_user_id)
+                                  ORDER BY id DESC) - 1 AS newer
+          FROM integration_deliveries) ranked
+     WHERE status <> 'pending' AND finished_at <= $1
+     ORDER BY id";
+
+/// The dispatched outbox rows the retention sweep may delete.
+const RETAINED_OUTBOX_SQL: &str = "
+    SELECT o.id, o.dispatched_at,
+           EXISTS (SELECT 1 FROM integration_deliveries d
+                    WHERE d.status = 'pending' AND o.id = ANY(d.outbox_ids))
+      FROM outbox o
+     WHERE o.dispatched_at <= $1
+     ORDER BY o.id";
+
+/// The retention sweep's compare-and-set on the plan's delivery ids: still
+/// finished, and finished by `$2`.
+const PRUNE_DELIVERIES_SQL: &str = "
+    DELETE FROM integration_deliveries
+     WHERE id = ANY($1) AND status <> 'pending' AND finished_at <= $2";
+
+/// ... and on its outbox ids: dispatched by `$2`, and read by no pending
+/// delivery.
+const PRUNE_OUTBOX_SQL: &str = "
+    DELETE FROM outbox o
+     WHERE o.id = ANY($1) AND o.dispatched_at <= $2
+       AND NOT EXISTS (SELECT 1 FROM integration_deliveries d
+                        WHERE d.status = 'pending' AND o.id = ANY(d.outbox_ids))";
 
 type RouteRow = (
     Uuid,
@@ -440,7 +592,8 @@ impl Store {
     }
 
     /// One sender claim on `route_id` (ADR-EIP-002 decision 4). Locks the route
-    /// (`SKIP LOCKED`: [`ClaimOutcome::RouteBusy`] when another sender holds it)
+    /// (`SKIP LOCKED`: [`ClaimOutcome::RouteBusy`] when another sender holds it,
+    /// or when a refusal stopped it or its connection is lost)
     /// and its destination pacing row, reads the route's pending deliveries,
     /// and asks `choose` for the id to claim. The claim is a compare-and-set on
     /// that row as it was read: a fresh `claim_id`, `attempts + 1`,
@@ -458,8 +611,11 @@ impl Store {
     {
         let mut tx = self.pool.begin().await?;
         let route: Option<(Option<Uuid>, String)> = sqlx::query_as(
-            "SELECT connection_id, destination_ref FROM integration_routes
-              WHERE id = $1 FOR UPDATE SKIP LOCKED",
+            "SELECT r.connection_id, r.destination_ref FROM integration_routes r
+              WHERE r.id = $1 AND r.problem_reason IS NULL
+                AND NOT EXISTS (SELECT 1 FROM integration_connections c
+                                 WHERE c.id = r.connection_id AND c.state = 'lost')
+                FOR UPDATE OF r SKIP LOCKED",
         )
         .bind(route_id)
         .fetch_optional(&mut *tx)
@@ -535,7 +691,11 @@ impl Store {
     }
 
     /// The fenced record of one attempt (ADR-EIP-002 decision 4): writes only
-    /// while `claim_id` is still the pending row's claim, releasing the lease.
+    /// while `claim_id` is still the pending row's claim, releasing the lease,
+    /// and in the same transaction applies what the answer means beyond the
+    /// row: a "retry after" on the destination's pacing, a refused
+    /// destination as its route's problem, a refused connection as its
+    /// `connected → lost` transition.
     /// A recorder whose lease was taken over gets [`RecordOutcome::LeaseLost`]
     /// and has changed nothing.
     pub async fn record_delivery(
@@ -545,8 +705,10 @@ impl Store {
         now: OffsetDateTime,
         result: DeliveryResult,
     ) -> Result<RecordOutcome, StoreError> {
-        let (status, finishes, next_attempt_at, vendor_reason, final_reason) = result.columns();
-        let written = sqlx::query(RECORD_SQL)
+        let (status, finishes, next_attempt_at, vendor_reason, final_reason, slowed_down) =
+            result.columns();
+        let mut tx = self.pool.begin().await?;
+        let written: Option<(Option<Uuid>, Uuid)> = sqlx::query_as(RECORD_SQL)
             .bind(delivery_id)
             .bind(claim_id)
             .bind(status)
@@ -555,14 +717,122 @@ impl Store {
             .bind(final_reason)
             .bind(finishes)
             .bind(now)
-            .execute(&self.pool)
-            .await?
-            .rows_affected();
-        Ok(if written == 0 {
-            RecordOutcome::LeaseLost
-        } else {
-            RecordOutcome::Recorded
-        })
+            .bind(slowed_down)
+            .fetch_optional(&mut *tx)
+            .await?;
+        let Some((route_id, project_id)) = written else {
+            tx.rollback().await?;
+            return Ok(RecordOutcome::LeaseLost);
+        };
+        match (&result, route_id) {
+            (
+                DeliveryResult::SlowedDown {
+                    not_before: Some(not_before),
+                    ..
+                },
+                Some(route_id),
+            ) => {
+                sqlx::query(SLOW_DOWN_SQL)
+                    .bind(route_id)
+                    .bind(*not_before)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            // A route of a project deleted meanwhile is left as it is.
+            (DeliveryResult::RouteRefused { vendor_reason }, Some(route_id)) => {
+                if lock_live_project(&mut tx, project_id).await? {
+                    sqlx::query(ROUTE_PROBLEM_SQL)
+                        .bind(route_id)
+                        .bind(vendor_reason)
+                        .bind(now)
+                        .execute(&mut *tx)
+                        .await?;
+                }
+            }
+            (DeliveryResult::ConnectionRefused { vendor_reason }, Some(route_id)) => {
+                sqlx::query(CONNECTION_LOST_SQL)
+                    .bind(route_id)
+                    .bind(vendor_reason)
+                    .bind(now)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+            _ => {}
+        }
+        tx.commit().await?;
+        Ok(RecordOutcome::Recorded)
+    }
+
+    /// The retention sweep (DD-10): reads the finished deliveries and the
+    /// dispatched outbox rows at or before `read_before`, asks `plan` which to
+    /// delete, and deletes exactly those ids, each only while it still
+    /// qualifies (a delivery finished, an outbox row read by no pending
+    /// delivery), with the heartbeats not renewed since the plan's cut-off,
+    /// in one transaction.
+    pub async fn prune_deliveries<P>(
+        &self,
+        read_before: OffsetDateTime,
+        plan: P,
+    ) -> Result<Pruned, StoreError>
+    where
+        P: FnOnce(&RetentionView) -> Pruning,
+    {
+        let mut tx = self.pool.begin().await?;
+        let deliveries: Vec<(i64, Option<OffsetDateTime>, i64)> =
+            sqlx::query_as(RETAINED_DELIVERIES_SQL)
+                .bind(read_before)
+                .fetch_all(&mut *tx)
+                .await?;
+        let outbox: Vec<(i64, Option<OffsetDateTime>, bool)> = sqlx::query_as(RETAINED_OUTBOX_SQL)
+            .bind(read_before)
+            .fetch_all(&mut *tx)
+            .await?;
+        let view = RetentionView {
+            deliveries: deliveries
+                .into_iter()
+                .map(|(id, finished_at, newer_on_target)| RetainedRow {
+                    id,
+                    finished_at,
+                    newer_on_target,
+                })
+                .collect(),
+            outbox: outbox
+                .into_iter()
+                .map(
+                    |(id, dispatched_at, referenced_by_pending)| RetainedOutbox {
+                        id,
+                        dispatched_at,
+                        referenced_by_pending,
+                    },
+                )
+                .collect(),
+        };
+        let pruning = plan(&view);
+        let mut pruned = Pruned::default();
+        if !pruning.deliveries.is_empty() {
+            pruned.deliveries = sqlx::query(PRUNE_DELIVERIES_SQL)
+                .bind(&pruning.deliveries)
+                .bind(read_before)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+        }
+        if !pruning.outbox.is_empty() {
+            pruned.outbox = sqlx::query(PRUNE_OUTBOX_SQL)
+                .bind(&pruning.outbox)
+                .bind(read_before)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+        }
+        pruned.heartbeats =
+            sqlx::query("DELETE FROM integration_worker_heartbeats WHERE beat_at < $1")
+                .bind(pruning.heartbeats_before)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected();
+        tx.commit().await?;
+        Ok(pruned)
     }
 
     /// The expiry sweep (ADR-EIP-002 decision 9, DDR-5): reads the pending
@@ -1397,20 +1667,17 @@ impl Store {
         .flatten())
     }
 
-    /// The routes with a pending delivery, the oldest pending first (the
-    /// senders' candidates; each is claimed under its own lock).
+    /// The routes with a pending delivery that a sender may claim from (not
+    /// stopped by a refusal, not on a lost connection), the oldest pending
+    /// first (the senders' candidates; each is claimed under its own lock).
     pub async fn routes_with_pending_deliveries(
         &self,
         limit: i64,
     ) -> Result<Vec<Uuid>, StoreError> {
-        Ok(sqlx::query_scalar(
-            "SELECT route_id FROM integration_deliveries
-              WHERE status = 'pending' AND route_id IS NOT NULL
-              GROUP BY route_id ORDER BY min(id) LIMIT $1",
-        )
-        .bind(limit)
-        .fetch_all(&self.pool)
-        .await?)
+        Ok(sqlx::query_scalar(SENDABLE_ROUTES_SQL)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?)
     }
 
     /// What a sender needs to attempt `delivery_id`, read now: the route, its

@@ -55,7 +55,7 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   {person} created the route to {channel}" to the workspace's integration activity. From then on
   each new issue of the project posts "{key} {title}" / "New issue in {project} by {person} ·
   {lane}" with **Open in Foundry**, delivered after the issue is saved (filing an issue never
-  waits on Slack), retried every 30 seconds and given up after a day; the route shows its last
+  waits on Slack), retried with backoff and given up after a day; the route shows its last
   delivery time or why it is retrying. Without a chat connection a lead reads "This workspace has
   no chat connection yet. Ask a workspace admin to connect Slack or Matrix." New settings:
   `FOUNDRY_INTEGRATIONS_POLL_MS` (1000), `FOUNDRY_INTEGRATIONS_LEASE_SECONDS` (45; under 35
@@ -77,6 +77,26 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   signed-out visitor with the redirect to `/sign-in` that every other page needing a session
   gives, instead of the not-found page. Signed-in people without the right still get the usual
   not-found page; Slack's events address and the email stop link stay public.
+
+### Changed
+
+- **Retries back off and honour Slack's "retry after"**: a chat delivery Slack did not take is
+  tried again 10 seconds after the attempt began, then 20, 40 and so on up to 15 minutes (each
+  delivery's waits spread by up to a fifth, never shrinking), and never at or after its 24-hour
+  give-up. When Slack asks Foundry to slow down, Foundry waits at least as long as Slack asked
+  before posting to that channel again, and the history reads "Delivered after 2 attempts (Slack
+  asked Foundry to slow down)". Messages to a route still arrive in the order they happened.
+- **Each Slack answer has its outcome**: a channel that was archived, is not found, or no longer
+  has Foundry in it stops only that route ("Needs attention: Foundry can no longer post to
+  #auth-dev (the channel was archived)"), and its messages wait, under the 24-hour give-up, until
+  the route is resumed; a revoked token, an inactive Slack workspace or a credential Slack no
+  longer accepts marks the connection lost ("Paused: connection lost") and every route of it
+  waits for a reconnect. An error page, no answer, or a refusal Foundry does not know is retried,
+  never treated as final.
+- **Delivery history retention**: each route keeps its newest 100 deliveries and every delivery
+  of the last 30 days; older finished deliveries, dispatched `outbox` rows older than 30 days that
+  no waiting delivery still needs, and worker heartbeats not renewed for 7 days are deleted by an
+  hourly sweep.
 
 ### Operators
 

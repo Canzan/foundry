@@ -42,7 +42,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
     When Lena opens the history of the route to #auth-dev
     Then the route's history shows "14:02 · New issue · AUTH-12 · Delivered"
 
-  @pending @error @kpi @contract-shape:bounded-change
+  @error @kpi @contract-shape:bounded-change
   Scenario: A rate-limited delivery waits and then arrives
     Given Slack asked Foundry to retry Sam's comment on AUTH-7 after 30 seconds
     When 30 seconds pass
@@ -90,7 +90,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
       | the Slack workspace is inactive         | Paused: connection lost        | once     |
       | the credential is not valid             | Paused: connection lost        | once     |
 
-  @pending @error @contract-shape:bounded-change
+  @error @contract-shape:bounded-change
   Scenario Outline: Answers Foundry cannot read are retried, never treated as final
     Given Slack will answer Foundry's next post to #auth-dev with <answer>
     When Sam files "Rotate LLDAP bind password" in Identity Platform
@@ -101,7 +101,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
       | an error page instead of an answer      |
       | a refusal Foundry does not know         |
 
-  @pending @error @contract-shape:bounded-change
+  @error @contract-shape:bounded-change
   Scenario: A channel Slack cannot find stops that route only
     Given Lena has routed every chat event on Identity Platform to #auth-releases
     And Slack will answer Foundry's next post to #auth-dev with the channel was not found
@@ -127,7 +127,7 @@ Feature: A team lead sees every delivery, and transient failures fix themselves
       | Sam                  |
       | Marco                |
 
-  @pending @edge @contract-shape:bounded-change
+  @edge @contract-shape:bounded-change
   Scenario Outline: Beyond the newest 100, the history keeps a delivery for 30 days
     Given Sam has filed "The oldest delivered issue" in Identity Platform and #auth-dev has shown it
     And <age> days have passed

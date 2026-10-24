@@ -6,7 +6,8 @@
 //! - [`DispatchLog`]: the dispatcher's tick (outbox → deliveries, one
 //!   transaction, under the dispatcher lock) and its heartbeat;
 //! - [`DeliveryClaims`]: a sender's candidates, its fenced claim and record;
-//! - [`DeliverySweeps`]: the expiry sweep's fenced failure of the plan's ids;
+//! - [`DeliverySweeps`]: the expiry sweep's fenced failure of the plan's ids
+//!   and the retention sweep's deletion of the plan's ids;
 //! - [`EventViewReads`]: read-only, what one claimed delivery needs at send
 //!   time;
 //! - [`ConnectionCredentials`]: read-only, a connection's sealed credential.
@@ -14,7 +15,7 @@
 use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DispatchBatch, DispatchOutcome,
-    NewDelivery, PendingDelivery, RecordOutcome,
+    NewDelivery, PendingDelivery, Pruned, Pruning, RecordOutcome, RetentionView,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -28,6 +29,8 @@ pub type DispatchPlanner<'a> = &'a (dyn Fn(&DispatchBatch) -> Vec<NewDelivery> +
 pub type ClaimChooser<'a> = &'a (dyn Fn(&ClaimView) -> Option<i64> + Sync);
 /// The expiry plan a sweep applies.
 pub type ExpiryPlanner<'a> = &'a (dyn Fn(&[PendingDelivery]) -> Vec<i64> + Sync);
+/// The retention plan a sweep applies.
+pub type RetentionPlanner<'a> = &'a (dyn Fn(&RetentionView) -> Pruning + Sync);
 
 #[async_trait]
 pub trait DispatchLog: Send + Sync {
@@ -50,6 +53,12 @@ pub trait DeliverySweeps: Send + Sync {
         final_reason: &str,
         plan: ExpiryPlanner<'_>,
     ) -> Result<u64, StoreError>;
+
+    async fn prune(
+        &self,
+        read_before: OffsetDateTime,
+        plan: RetentionPlanner<'_>,
+    ) -> Result<Pruned, StoreError>;
 }
 
 #[async_trait]
@@ -128,6 +137,16 @@ impl DeliverySweeps for StoreCapabilities {
     ) -> Result<u64, StoreError> {
         self.0
             .expire_deliveries(now, final_reason, |due| plan(due))
+            .await
+    }
+
+    async fn prune(
+        &self,
+        read_before: OffsetDateTime,
+        plan: RetentionPlanner<'_>,
+    ) -> Result<Pruned, StoreError> {
+        self.0
+            .prune_deliveries(read_before, |view| plan(view))
             .await
     }
 }

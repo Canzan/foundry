@@ -14,7 +14,7 @@
 
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryResult, DeliveryTarget, DispatchBatch, DispatchOutcome,
-    NewDelivery, NewRoute, RecordOutcome, RouteLane, RouteWriteOutcome,
+    NewDelivery, NewRoute, Pruned, Pruning, RecordOutcome, RouteLane, RouteWriteOutcome,
 };
 use foundry_store::{
     run_boot_migrations_from_dir, run_migrations, run_migrations_from_dir, Store, StoreError,
@@ -1361,7 +1361,297 @@ async fn late_recorder_writes_nothing() {
     assert_eq!(lab.delivery(id).await, row);
 }
 
-pending!(sweeps_apply_exactly_the_plan_ids, "03-01", "expire, cancel and prune apply one compare-and-set over exactly the ids their plan function returned");
+/// The expiry and retention sweeps apply one compare-and-set over exactly
+/// the ids their plan returned: an id the plan leaves out is untouched, and an
+/// id the plan names that no longer qualifies is untouched too. (The cancel
+/// sweep's half of this contract is 03-03's, with `cancel_set`.)
+#[tokio::test]
+async fn sweeps_apply_exactly_the_plan_ids() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let t0 = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+    let ids = [
+        lab.one_delivery().await,
+        lab.one_delivery().await,
+        lab.one_delivery().await,
+        lab.one_delivery().await,
+    ];
+
+    // Expiry: all four are past their give-up time a day later; the plan
+    // names the first and the third, and only those fail.
+    let late = t0 + GIVE_UP + Duration::from_secs(3600);
+    let mut seen_due = Vec::new();
+    let failed = lab
+        .store
+        .expire_deliveries(late, "gave_up_24h", |due| {
+            seen_due = due.iter().map(|d| d.id).collect();
+            vec![ids[0], ids[2]]
+        })
+        .await
+        .expect("expire");
+    assert_eq!(seen_due, ids.to_vec(), "the sweep reads every due delivery");
+    assert_eq!(failed, 2);
+    for (n, id) in ids.iter().enumerate() {
+        let row = lab.delivery(*id).await;
+        let want = if n == 0 || n == 2 {
+            "failed"
+        } else {
+            "pending"
+        };
+        assert_eq!(row.status, want, "delivery {n}");
+    }
+    // The fourth is delivered now; the second stays pending.
+    let ClaimOutcome::Claimed(claim) = lab
+        .store
+        .claim_delivery(lab.route, late, LEASE, |view: &ClaimView| {
+            view.deliveries
+                .iter()
+                .find(|d| d.id == ids[3])
+                .map(|d| d.id)
+        })
+        .await
+        .expect("claim the fourth")
+    else {
+        panic!("the fourth is claimable");
+    };
+    lab.store
+        .record_delivery(ids[3], claim.claim_id, late, DeliveryResult::Delivered)
+        .await
+        .expect("delivered");
+
+    // Retention, read 31 days on: the finished rows are offered with how many
+    // of the route's deliveries are newer; outbox rows with whether a pending
+    // delivery reads them.
+    let outbox_of = |id: i64| {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_scalar::<_, Vec<i64>>(
+                "SELECT outbox_ids FROM integration_deliveries WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .expect("outbox ids")[0]
+        }
+    };
+    let outbox = [
+        outbox_of(ids[0]).await,
+        outbox_of(ids[1]).await,
+        outbox_of(ids[2]).await,
+        outbox_of(ids[3]).await,
+    ];
+    lab.store
+        .beat_worker(
+            "dispatcher",
+            "replica-gone",
+            t0 - Duration::from_secs(8 * 86400),
+        )
+        .await
+        .expect("an old heartbeat");
+    lab.store
+        .beat_worker("dispatcher", "replica-alive", late)
+        .await
+        .expect("a live heartbeat");
+    let read_before = late + Duration::from_secs(31 * 86400);
+    let mut view = None;
+    let pruned = lab
+        .store
+        .prune_deliveries(read_before, |v| {
+            view = Some(v.clone());
+            Pruning {
+                // the second is pending: named, yet never deleted.
+                deliveries: vec![ids[0], ids[1], ids[3]],
+                // the second's outbox row is read by a pending delivery.
+                outbox: vec![outbox[0], outbox[1], outbox[3]],
+                heartbeats_before: t0 - Duration::from_secs(7 * 86400),
+            }
+        })
+        .await
+        .expect("prune");
+    let view = view.expect("the plan saw the view");
+    assert_eq!(
+        view.deliveries
+            .iter()
+            .map(|d| (d.id, d.newer_on_target))
+            .collect::<Vec<_>>(),
+        vec![(ids[0], 3), (ids[2], 1), (ids[3], 0)],
+        "finished rows only, each with its newer count"
+    );
+    assert_eq!(
+        view.outbox
+            .iter()
+            .filter(|o| outbox.contains(&o.id))
+            .map(|o| (o.id, o.referenced_by_pending))
+            .collect::<Vec<_>>(),
+        vec![
+            (outbox[0], false),
+            (outbox[1], true),
+            (outbox[2], false),
+            (outbox[3], false)
+        ]
+    );
+    assert_eq!(
+        pruned,
+        Pruned {
+            deliveries: 2,
+            outbox: 2,
+            heartbeats: 1
+        }
+    );
+    let left: Vec<i64> =
+        sqlx::query_scalar("SELECT id FROM integration_deliveries WHERE route_id = $1 ORDER BY id")
+            .bind(lab.route)
+            .fetch_all(&pool)
+            .await
+            .expect("left deliveries");
+    assert_eq!(left, vec![ids[1], ids[2]]);
+    let outbox_left: Vec<i64> =
+        sqlx::query_scalar("SELECT id FROM outbox WHERE id = ANY($1) ORDER BY id")
+            .bind(outbox.to_vec())
+            .fetch_all(&pool)
+            .await
+            .expect("left outbox");
+    assert_eq!(outbox_left, vec![outbox[1], outbox[2]]);
+    let replicas: Vec<String> =
+        sqlx::query_scalar("SELECT replica FROM integration_worker_heartbeats ORDER BY replica")
+            .fetch_all(&pool)
+            .await
+            .expect("heartbeats");
+    assert_eq!(replicas, vec!["replica-alive".to_string()]);
+}
+
+/// The record applies what an answer means beyond its row, fenced like the
+/// row: a "retry after" paces the destination, a refused destination stops
+/// its route, a refused connection is lost once; and a stopped route or a
+/// lost connection is no sender's candidate.
+#[tokio::test]
+async fn record_applies_slow_down_route_and_connection_refusals() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let t0 = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+    let id = lab.one_delivery().await;
+    let claim = |at: OffsetDateTime| {
+        let store = &lab.store;
+        let route = lab.route;
+        async move {
+            match store
+                .claim_delivery(route, at, LEASE, head_if_free(at))
+                .await
+                .expect("claim")
+            {
+                ClaimOutcome::Claimed(c) => c,
+                other => panic!("claimed: {other:?}"),
+            }
+        }
+    };
+
+    let first = claim(t0).await;
+    let wait_until = t0 + Duration::from_secs(30);
+    lab.store
+        .record_delivery(
+            id,
+            first.claim_id,
+            t0,
+            DeliveryResult::SlowedDown {
+                next_attempt_at: wait_until,
+                not_before: Some(wait_until),
+                vendor_reason: "slack_slow_down".to_string(),
+            },
+        )
+        .await
+        .expect("slowed down");
+    assert_eq!(lab.pacing("C0AUTHDEV").await, Some(wait_until));
+    let slowed: bool =
+        sqlx::query_scalar("SELECT slowed_down FROM integration_deliveries WHERE id = $1")
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .expect("slowed_down");
+    assert!(slowed);
+
+    let second = claim(wait_until).await;
+    lab.store
+        .record_delivery(
+            id,
+            second.claim_id,
+            wait_until,
+            DeliveryResult::RouteRefused {
+                vendor_reason: "channel_not_found".to_string(),
+            },
+        )
+        .await
+        .expect("route refused");
+    let row = lab.delivery(id).await;
+    assert_eq!(
+        (row.status.as_str(), row.next_attempt_at, row.lease_until),
+        ("pending", None, None)
+    );
+    let problem: Option<String> =
+        sqlx::query_scalar("SELECT problem_reason FROM integration_routes WHERE id = $1")
+            .bind(lab.route)
+            .fetch_one(&pool)
+            .await
+            .expect("problem");
+    assert_eq!(problem.as_deref(), Some("channel_not_found"));
+    assert!(lab
+        .store
+        .routes_with_pending_deliveries(10)
+        .await
+        .expect("candidates")
+        .is_empty());
+    assert_eq!(
+        lab.store
+            .claim_delivery(lab.route, wait_until, LEASE, head_if_free(wait_until))
+            .await
+            .expect("claim a stopped route"),
+        ClaimOutcome::RouteBusy
+    );
+
+    // Resume (03-03's door) clears the problem; a refused connection is lost.
+    exec(&pool, "UPDATE integration_routes SET problem_reason = NULL").await;
+    assert_eq!(
+        lab.store
+            .routes_with_pending_deliveries(10)
+            .await
+            .expect("candidates"),
+        vec![lab.route],
+        "a resumed route is a candidate again"
+    );
+    let later = wait_until + Duration::from_secs(60);
+    let third = claim(later).await;
+    lab.store
+        .record_delivery(
+            id,
+            third.claim_id,
+            later,
+            DeliveryResult::ConnectionRefused {
+                vendor_reason: "token_revoked".to_string(),
+            },
+        )
+        .await
+        .expect("connection refused");
+    let (state, lost_reason): (String, Option<String>) =
+        sqlx::query_as("SELECT state, lost_reason FROM integration_connections WHERE id = $1")
+            .bind(lab.connection)
+            .fetch_one(&pool)
+            .await
+            .expect("connection");
+    assert_eq!(
+        (state.as_str(), lost_reason.as_deref()),
+        ("lost", Some("token_revoked"))
+    );
+    assert!(lab
+        .store
+        .routes_with_pending_deliveries(10)
+        .await
+        .expect("candidates")
+        .is_empty());
+    assert_eq!(lab.delivery(id).await.status, "pending");
+}
 
 /// Route writers open with `lock_live_project`: a delete in flight makes the
 /// write wait and then refuse; a deleted project refuses at once.

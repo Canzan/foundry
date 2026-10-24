@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use base64::Engine;
 use foundry_integrations::{
     classify_slack, ChannelKind, ChannelOutcome, DeliveryChannel, DeliveryKey, Destination,
-    DestinationCatalog, DestinationCheck, DestinationRef, EncodedMessage, ReasonCode,
+    DestinationCatalog, DestinationCheck, DestinationRef, EncodedMessage, ReasonCode, SlackAnswer,
 };
 use rand::RngCore;
 use secrecy::{ExposeSecret, SecretString};
@@ -221,14 +221,31 @@ impl SlackBot {
             .send()
             .await
             .map_err(|_| ReasonCode::SlackNoAnswer)?;
+        let (status, retry_after) = answer_head(&response);
         let body = response.json::<Value>().await.ok();
-        match classify_slack(body.as_ref()) {
+        let answer = SlackAnswer {
+            status,
+            retry_after,
+            body: body.as_ref(),
+        };
+        match classify_slack(Some(answer)) {
             ChannelOutcome::Delivered => Ok(body.unwrap_or_default()),
             ChannelOutcome::Transient { reason, .. }
             | ChannelOutcome::RouteRefused { reason }
             | ChannelOutcome::ConnectionRefused { reason } => Err(reason),
         }
     }
+}
+
+/// An answer's status and its `Retry-After` (whole seconds, as Slack sends it).
+fn answer_head(response: &reqwest::Response) -> (u16, Option<Duration>) {
+    let retry_after = response
+        .headers()
+        .get(reqwest::header::RETRY_AFTER)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .map(Duration::from_secs);
+    (response.status().as_u16(), retry_after)
 }
 
 /// A channel Foundry can post to: public (`chat:write.public`), or private
@@ -279,8 +296,16 @@ impl DeliveryChannel for SlackBot {
         let Ok(response) = sent else {
             return classify_slack(None);
         };
-        let answer = response.json::<Value>().await.ok();
-        classify_slack(answer.as_ref())
+        let (status, retry_after) = answer_head(&response);
+        let Ok(text) = response.text().await else {
+            return classify_slack(None);
+        };
+        let body = serde_json::from_str::<Value>(&text).ok();
+        classify_slack(Some(SlackAnswer {
+            status,
+            retry_after,
+            body: body.as_ref(),
+        }))
     }
 
     async fn probe(&self) -> ChannelOutcome {

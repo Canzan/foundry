@@ -6,9 +6,11 @@
 //! (`proptest = "1"`, already locked) or a table test.
 
 use foundry_integrations::{
-    claimable_head, compose, encode_slack, expiry_set, issue_url, Attention, ChannelKind,
-    ConnectionState, ContentLevel, DispatchPlan, EventKind, EventView, FilterLane,
-    FinishedDelivery, OutboxRow, QueuedDelivery, ReasonCode, RouteFacts, RouteSpec, RouteStatus,
+    claimable_head, classify_slack, compose, encode_slack, expiry_set, issue_url, prune_set,
+    Attempt, Attention, ChannelKind, ChannelOutcome, ConnectionState, ContentLevel, DispatchPlan,
+    EventKind, EventView, FilterLane, FinishedDelivery, Jitter, OutboxRow, QueuedDelivery,
+    ReasonCode, RetainedDelivery, RetainedOutboxRow, RetryPolicy, RouteFacts, RouteSpec,
+    RouteStatus, Settlement, SlackAnswer, RETAINED_PER_ROUTE,
 };
 use proptest::prelude::*;
 use std::collections::BTreeSet;
@@ -43,28 +45,7 @@ pending!(
     "proptest over arbitrary text: no markup or header injection"
 );
 // dispatch plan (DDR-7, DDR-8).
-// retry policy (DDR-5).
-pending!(
-    retry_policy_never_schedules_past_give_up,
-    "03-01",
-    "proptest: next attempt is never after give_up_at"
-);
-pending!(
-    retry_policy_honours_a_larger_retry_after,
-    "03-01",
-    "proptest: a larger retry_after wins over the backoff"
-);
-pending!(
-    retry_policy_is_monotone_in_attempts,
-    "03-01",
-    "proptest: the delay never shrinks as attempts grow (jitter bounded)"
-);
 // classifiers (closed lists, unknown -> transient).
-pending!(
-    classify_slack_recorded_answers,
-    "03-01",
-    "table over recorded Slack answers, including 200 with ok:false; unknown codes are transient"
-);
 pending!(
     classify_matrix_recorded_answers,
     "04-02",
@@ -75,11 +56,6 @@ pending!(
     cancel_set_is_exactly_the_targets_unleased_non_terminal_rows,
     "03-03",
     "proptest: exactly the target's unleased non-terminal deliveries"
-);
-pending!(
-    prune_set_keeps_the_newest_100_and_referenced_outbox_rows,
-    "03-01",
-    "proptest: past 30 days, beyond the newest 100 per route, outbox rows unreferenced"
 );
 // address judge (DDR-14).
 pending!(judge_refuses_every_reserved_range_and_mapped_form, "04-01", "proptest: loopback, link-local, metadata, 0/8, 240/4, documentation and benchmark ranges, IPv4-mapped, NAT64, 6to4, decimal literals; private only via the allow-list; a port-less address defaults to 443 before judging. Carries the 04-matrix rows DISTILL moved out of acceptance (link-local 169.254.169.254, private 10.0.0.5, port-less https://10.0.0.5): nothing listens there, so only the judge can pin them");
@@ -969,4 +945,444 @@ proptest! {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// 03-01: the retry policy, Slack's answers and the retention plan.
+// ---------------------------------------------------------------------------
+
+fn attempt() -> impl Strategy<Value = Attempt> {
+    (1u32..=40, -100i64..=0, -400i16..=400).prop_map(|(number, started, jitter)| Attempt {
+        number,
+        started_at: at(started),
+        jitter: Jitter::thousandths(jitter),
+    })
+}
+
+fn transient(retry_after: Option<u64>) -> ChannelOutcome {
+    ChannelOutcome::Transient {
+        reason: ReasonCode::SlackNoAnswer,
+        retry_after: retry_after.map(std::time::Duration::from_secs),
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 512,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    })]
+
+    /// DDR-5: whatever the attempt, its jitter and any "retry after", a retry
+    /// is scheduled strictly before `give_up_at`, never before the answer, or
+    /// the delivery gives up.
+    #[test]
+    fn retry_policy_never_schedules_past_give_up(
+        attempt in attempt(),
+        retry_after in proptest::option::of(0u64..=4000),
+        give_up in -50i64..=3600,
+    ) {
+        let now = at(0);
+        let give_up_at = at(give_up);
+        match RetryPolicy::BACKOFF.settle(transient(retry_after), attempt, now, give_up_at) {
+            Settlement::RetryAt { at: next, reason, .. } => {
+                prop_assert!(next < give_up_at, "{next} is before {give_up_at}");
+                prop_assert!(next >= attempt.started_at);
+                prop_assert_eq!(reason, ReasonCode::SlackNoAnswer);
+            }
+            Settlement::GaveUp { vendor_reason } => {
+                prop_assert_eq!(vendor_reason, ReasonCode::SlackNoAnswer);
+                let next = RetryPolicy::BACKOFF.next(
+                    attempt,
+                    retry_after.map(std::time::Duration::from_secs),
+                    now,
+                    give_up_at,
+                );
+                prop_assert_eq!(next, None);
+            }
+            other => prop_assert!(false, "a transient answer is retried or given up: {other:?}"),
+        }
+    }
+
+    /// A vendor's "retry after" longer than the backoff wins: the retry is
+    /// that long after the answer; a shorter one leaves the backoff.
+    #[test]
+    fn retry_policy_honours_a_larger_retry_after(
+        attempt in attempt(),
+        retry_after in 0u64..=3600,
+    ) {
+        let now = at(0);
+        let far = now + Duration::days(1);
+        let wait = std::time::Duration::from_secs(retry_after);
+        let backoff = attempt.started_at + RetryPolicy::BACKOFF.delay(attempt.number, attempt.jitter);
+        let honoured = RetryPolicy::BACKOFF.next(attempt, Some(wait), now, far);
+        prop_assert_eq!(honoured, Some(backoff.max(now + wait)));
+        prop_assert!(honoured >= Some(now + wait));
+        let slowed = ChannelOutcome::Transient {
+            reason: ReasonCode::SlackSlowDown,
+            retry_after: Some(wait),
+        };
+        prop_assert_eq!(
+            RetryPolicy::BACKOFF.settle(slowed, attempt, now, far),
+            Settlement::RetryAt {
+                at: backoff.max(now + wait),
+                reason: ReasonCode::SlackSlowDown,
+                slowed_down: true,
+                not_before: Some(now + wait),
+            }
+        );
+    }
+
+    /// One delivery's wait never shrinks as its attempts grow; it starts at
+    /// 10 s, never passes 15 min, and its jitter stays within ±20%.
+    #[test]
+    fn retry_policy_is_monotone_in_attempts(
+        attempt_number in 1u32..=60,
+        jitter in -1000i16..=1000,
+        delivery_id in any::<i64>(),
+    ) {
+        let policy = RetryPolicy::BACKOFF;
+        for jitter in [Jitter::thousandths(jitter), Jitter::of(delivery_id)] {
+            let this = policy.delay(attempt_number, jitter);
+            let next = policy.delay(attempt_number + 1, jitter);
+            prop_assert!(next >= this, "{next:?} after {this:?}");
+            let bare = policy.delay(attempt_number, Jitter::NONE);
+            prop_assert!(this.as_millis() * 10 >= bare.as_millis() * 8);
+            prop_assert!(this.as_millis() * 10 <= bare.as_millis() * 12);
+            prop_assert!(bare >= std::time::Duration::from_secs(10));
+            prop_assert!(bare <= std::time::Duration::from_secs(15 * 60));
+        }
+        prop_assert_eq!(policy.delay(1, Jitter::NONE), std::time::Duration::from_secs(10));
+        prop_assert_eq!(policy.delay(2, Jitter::NONE), std::time::Duration::from_secs(20));
+        prop_assert_eq!(Jitter::of(delivery_id), Jitter::of(delivery_id));
+    }
+}
+
+/// `(name, HTTP status, Retry-After seconds, body, outcome)`.
+type AnswerRow = (
+    &'static str,
+    u16,
+    Option<u64>,
+    Option<serde_json::Value>,
+    ChannelOutcome,
+);
+
+/// Slack's answers, one row per classifier class (ADR-EIP-005 decision 5).
+/// Hand-written shapes (FOUNDRY_EIP_HANDWRITTEN_SLACK=1, the user's decision;
+/// recorded fixtures, DEVOPS H-3, replace them before release).
+#[test]
+fn classify_slack_recorded_answers() {
+    use serde_json::json;
+    let slow = |s: Option<u64>| ChannelOutcome::Transient {
+        reason: ReasonCode::SlackSlowDown,
+        retry_after: s.map(std::time::Duration::from_secs),
+    };
+    let no_answer = transient(None);
+    let route = |reason| ChannelOutcome::RouteRefused { reason };
+    let connection = |reason| ChannelOutcome::ConnectionRefused { reason };
+    let refused = |code: &str| json!({ "ok": false, "error": code });
+    let delivered = json!({ "ok": true, "channel": "C0AUTHDEV", "ts": "1761055320.000100" });
+    let rows: Vec<AnswerRow> = vec![
+        (
+            "posted",
+            200,
+            None,
+            Some(delivered),
+            ChannelOutcome::Delivered,
+        ),
+        (
+            "429 with Retry-After",
+            429,
+            Some(30),
+            Some(refused("ratelimited")),
+            slow(Some(30)),
+        ),
+        ("429 without Retry-After", 429, None, None, slow(None)),
+        (
+            "200 ok:false ratelimited",
+            200,
+            Some(5),
+            Some(refused("ratelimited")),
+            slow(Some(5)),
+        ),
+        (
+            "archived",
+            200,
+            None,
+            Some(refused("is_archived")),
+            route(ReasonCode::ChannelArchived),
+        ),
+        (
+            "channel archived",
+            200,
+            None,
+            Some(refused("channel_is_archived")),
+            route(ReasonCode::ChannelArchived),
+        ),
+        (
+            "not in channel",
+            200,
+            None,
+            Some(refused("not_in_channel")),
+            route(ReasonCode::NotInChannel),
+        ),
+        (
+            "channel not found",
+            200,
+            None,
+            Some(refused("channel_not_found")),
+            route(ReasonCode::ChannelNotFound),
+        ),
+        (
+            "token revoked",
+            200,
+            None,
+            Some(refused("token_revoked")),
+            connection(ReasonCode::TokenRevoked),
+        ),
+        (
+            "invalid auth",
+            200,
+            None,
+            Some(refused("invalid_auth")),
+            connection(ReasonCode::TokenRevoked),
+        ),
+        (
+            "not authed",
+            200,
+            None,
+            Some(refused("not_authed")),
+            connection(ReasonCode::TokenRevoked),
+        ),
+        (
+            "workspace inactive",
+            200,
+            None,
+            Some(refused("account_inactive")),
+            connection(ReasonCode::AppRemoved),
+        ),
+        (
+            "team access not granted",
+            200,
+            None,
+            Some(refused("team_access_not_granted")),
+            connection(ReasonCode::AppRemoved),
+        ),
+        (
+            "unknown code",
+            200,
+            None,
+            Some(refused("eip_code_nobody_documented")),
+            no_answer,
+        ),
+        (
+            "ok:false without a code",
+            200,
+            None,
+            Some(json!({ "ok": false })),
+            no_answer,
+        ),
+        (
+            "no ok field",
+            200,
+            None,
+            Some(json!({ "channel": "C0AUTHDEV" })),
+            no_answer,
+        ),
+        (
+            "ok is not a boolean",
+            200,
+            None,
+            Some(json!({ "ok": "true" })),
+            no_answer,
+        ),
+        ("HTML 503 from a proxy", 503, None, None, no_answer),
+        (
+            "500 with ok:false",
+            500,
+            None,
+            Some(refused("fatal_error")),
+            no_answer,
+        ),
+        (
+            "unknown code with raw text",
+            200,
+            None,
+            Some(
+                json!({ "ok": false, "error": "eip_code_nobody_documented", "warning": "Raw vendor text" }),
+            ),
+            no_answer,
+        ),
+    ];
+    for (name, status, retry_after, body, want) in rows {
+        let answer = SlackAnswer {
+            status,
+            retry_after: retry_after.map(std::time::Duration::from_secs),
+            body: body.as_ref(),
+        };
+        assert_eq!(classify_slack(Some(answer)), want, "{name}");
+    }
+    assert_eq!(classify_slack(None), no_answer, "no answer at all");
+}
+
+fn retained_deliveries() -> impl Strategy<Value = Vec<RetainedDelivery>> {
+    // Up to three routes; each delivery finished (an offset in days from now)
+    // or pending; ids ascend with insertion, as BIGSERIAL does.
+    proptest::collection::vec((0usize..3, proptest::option::of(-40i64..=0)), 0..260).prop_map(
+        |rows| {
+            let mut newer = [0u32; 3];
+            let mut out: Vec<RetainedDelivery> = rows
+                .iter()
+                .enumerate()
+                .rev()
+                .map(|(index, (route, finished))| {
+                    let d = RetainedDelivery {
+                        id: 1 + index as i64,
+                        finished_at: finished.map(|days| at(0) + Duration::days(days)),
+                        newer_on_target: newer[*route],
+                    };
+                    newer[*route] += 1;
+                    d
+                })
+                .collect();
+            out.reverse();
+            out
+        },
+    )
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig {
+        cases: 256,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    })]
+
+    /// DD-10: exactly the finished deliveries at least 30 days old beyond
+    /// their route's newest 100, and exactly the outbox rows dispatched at
+    /// least 30 days ago that no pending delivery reads.
+    #[test]
+    fn prune_set_keeps_the_newest_100_and_referenced_outbox_rows(
+        deliveries in retained_deliveries(),
+        outbox in proptest::collection::vec(
+            (proptest::option::of(-40i64..=0), any::<bool>()), 0..20
+        ).prop_map(|rows| rows.into_iter().enumerate().map(|(index, (dispatched, referenced))| {
+            RetainedOutboxRow {
+                id: 1 + index as i64,
+                dispatched_at: dispatched.map(|days| at(0) + Duration::days(days)),
+                referenced_by_pending: referenced,
+            }
+        }).collect::<Vec<_>>()),
+    ) {
+        let now = at(0);
+        let cutoff = now - Duration::days(30);
+        let plan = prune_set(now, &deliveries, &outbox);
+
+        let expected: BTreeSet<i64> = deliveries
+            .iter()
+            .filter(|d| d.finished_at.is_some_and(|f| f <= cutoff) && d.newer_on_target >= RETAINED_PER_ROUTE)
+            .map(|d| d.id)
+            .collect();
+        let chosen: BTreeSet<i64> = plan.deliveries.iter().copied().collect();
+        prop_assert_eq!(chosen.len(), plan.deliveries.len(), "no id twice");
+        prop_assert_eq!(&chosen, &expected);
+        for d in &deliveries {
+            if d.finished_at.is_none() || d.newer_on_target < RETAINED_PER_ROUTE {
+                prop_assert!(!chosen.contains(&d.id), "pending or newest-100 {} kept", d.id);
+            }
+        }
+
+        let expected_outbox: BTreeSet<i64> = outbox
+            .iter()
+            .filter(|o| o.dispatched_at.is_some_and(|d| d <= cutoff) && !o.referenced_by_pending)
+            .map(|o| o.id)
+            .collect();
+        let chosen_outbox: BTreeSet<i64> = plan.outbox.iter().copied().collect();
+        prop_assert_eq!(chosen_outbox, expected_outbox);
+        prop_assert_eq!(plan.heartbeats_before, now - Duration::days(7));
+    }
+}
+
+/// The 30-day edge: a delivery finished exactly 30 days ago beyond the newest
+/// 100 goes; one a second younger, or the 100th newest, stays.
+#[test]
+fn prune_set_cuts_at_exactly_30_days_and_the_100th_newest() {
+    let now = at(0);
+    let thirty = now - Duration::days(30);
+    let d = |id, finished_at, newer_on_target| RetainedDelivery {
+        id,
+        finished_at: Some(finished_at),
+        newer_on_target,
+    };
+    let plan = prune_set(
+        now,
+        &[
+            d(1, thirty, 100),
+            d(2, thirty + Duration::seconds(1), 100),
+            d(3, thirty, 99),
+        ],
+        &[],
+    );
+    assert_eq!(plan.deliveries, vec![1]);
+}
+
+/// DDR-5's numbers exactly: 10 s doubling to a 15-minute cap, a jitter of
+/// thousandths that scales the wait up or down by exactly that share, the
+/// give-up time itself never scheduled, and per-delivery jitter that reaches
+/// both ends of ±20%.
+#[test]
+fn retry_policy_waits_are_ddr5s_exactly() {
+    let secs = std::time::Duration::from_secs;
+    let millis = std::time::Duration::from_millis;
+    let policy = RetryPolicy::BACKOFF;
+    let waits: Vec<_> = (1..=9).map(|n| policy.delay(n, Jitter::NONE)).collect();
+    assert_eq!(
+        waits,
+        [10, 20, 40, 80, 160, 320, 640, 900, 900].map(secs).to_vec()
+    );
+    assert_eq!(policy.delay(1_000, Jitter::NONE), secs(900));
+    assert_eq!(policy.delay(1, Jitter::thousandths(150)), millis(11_500));
+    assert_eq!(policy.delay(1, Jitter::thousandths(-150)), millis(8_500));
+    assert_eq!(policy.delay(1, Jitter::thousandths(-900)), secs(8));
+    assert_eq!(policy.delay(1, Jitter::thousandths(900)), secs(12));
+
+    let started = at(0);
+    let attempt = Attempt {
+        number: 1,
+        started_at: started,
+        jitter: Jitter::NONE,
+    };
+    let due = started + Duration::seconds(10);
+    assert_eq!(
+        policy.next(attempt, None, started, due),
+        None,
+        "never at give-up"
+    );
+    assert_eq!(
+        policy.next(attempt, None, started, due + Duration::seconds(1)),
+        Some(due)
+    );
+
+    let jitters: BTreeSet<i16> = (0..20_000i64)
+        .map(|id| match Jitter::of(id) {
+            j if j == Jitter::thousandths(-200) => -200,
+            j if j == Jitter::thousandths(200) => 200,
+            j if j == Jitter::NONE => 0,
+            _ => 1,
+        })
+        .collect();
+    assert_eq!(
+        jitters,
+        BTreeSet::from([-200, 0, 1, 200]),
+        "both ends, none and the values between"
+    );
+    let shares: BTreeSet<std::time::Duration> = (0..2_000i64)
+        .map(|id| policy.delay(1, Jitter::of(id)))
+        .collect();
+    assert!(
+        shares.len() > 300,
+        "jitter spreads deliveries: {}",
+        shares.len()
+    );
+    assert!(shares.iter().any(|d| *d < secs(10)) && shares.iter().any(|d| *d > secs(10)));
 }

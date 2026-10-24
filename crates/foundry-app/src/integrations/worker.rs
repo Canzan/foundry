@@ -11,7 +11,13 @@
 //!   the pure [`expiry_set`] (so nothing is attempted at or after it), then
 //!   claims each route's head delivery through the pure [`claimable_head`]
 //!   under a fenced lease, sends it outside any transaction, and records the
-//!   outcome fenced by its `claim_id`, settled by [`RetryPolicy::settle`].
+//!   outcome fenced by its `claim_id`, settled by [`RetryPolicy::settle`]
+//!   (backoff, "retry after", a refused route or connection);
+//! - the [`Retention`] sweep, at most once an hour of the clock, deletes what
+//!   the pure [`prune_set`] names (DD-10).
+//!
+//! Dispatch and the sweeps run beside the sends, not behind them: a post a
+//! vendor holds until the call times out stalls neither.
 //!
 //! The dispatcher beats its heartbeat row each tick (DDR-22).
 //!
@@ -30,11 +36,15 @@ use foundry_integrations::{
     FilterLane, OutboxRow, PlannedDelivery, QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec,
     Settlement,
 };
+use foundry_integrations::{
+    prune_set, Attempt, Jitter, PrunePlan, RetainedDelivery, RetainedOutboxRow, RETENTION,
+};
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, ClaimedDelivery, DeliveryContext, DeliveryResult, DeliveryTarget,
     DispatchBatch, DispatchRoute, IntegrationBacklog, NewDelivery, OutboxEvent, PendingDelivery,
+    Pruning, RetentionView,
 };
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use time::OffsetDateTime;
 
@@ -46,6 +56,8 @@ const SEND_BATCH: i64 = 50;
 const IDLE_POLL: Duration = Duration::from_millis(250);
 /// The dispatcher's role in `integration_worker_heartbeats`.
 const DISPATCHER_ROLE: &str = "dispatcher";
+/// How often (on the clock) a worker runs the retention sweep.
+const RETENTION_SWEEP_EVERY: time::Duration = time::Duration::hours(1);
 
 /// The stall gauges (DDR-22; DEVOPS observability), on the database's clock.
 pub const OUTBOX_UNDISPATCHED: &str = "foundry_outbox_undispatched";
@@ -96,6 +108,7 @@ pub fn report_backlog(backlog: &IntegrationBacklog) {
 pub struct IntegrationsWorker {
     dispatcher: Dispatcher,
     sender: Sender,
+    retention: Retention,
     integrations: IntegrationsHandle,
     clock: Arc<dyn Clock>,
 }
@@ -125,7 +138,11 @@ impl IntegrationsWorker {
                 claims: capabilities.clone(),
                 sweeps: capabilities.clone(),
                 events: capabilities.clone(),
-                credentials: capabilities,
+                credentials: capabilities.clone(),
+            },
+            retention: Retention {
+                sweeps: capabilities,
+                last_swept: Mutex::new(None),
             },
             integrations,
             clock,
@@ -137,35 +154,118 @@ impl IntegrationsWorker {
         tokio::spawn(self.run())
     }
 
+    /// Housekeeping and sending run side by side in this one task, so a post
+    /// a vendor never answers (held until the call times out) delays neither
+    /// dispatch nor the give-up sweep, and stopping the task stops both.
     async fn run(self) {
+        let worker = &self;
+        tokio::join!(
+            worker.every_poll(|integrations| async move { worker.keep_house(&integrations).await }),
+            worker.every_poll(|integrations| async move { worker.send_round(&integrations).await }),
+        );
+    }
+
+    async fn every_poll<'a, F, R>(&'a self, step: F)
+    where
+        F: Fn(Arc<Integrations>) -> R,
+        R: std::future::Future<Output = ()> + 'a,
+    {
         loop {
             let integrations = self.integrations.current();
             if !integrations.runs_worker() {
                 tokio::time::sleep(IDLE_POLL).await;
                 continue;
             }
-            self.tick(&integrations).await;
-            tokio::time::sleep(integrations.settings().worker.poll).await;
+            let poll = integrations.settings().worker.poll;
+            step(integrations).await;
+            tokio::time::sleep(poll).await;
         }
     }
 
-    /// One dispatch and one round of sends.
+    /// One dispatch, one give-up sweep, one round of sends and (when due) the
+    /// retention sweep.
     pub async fn tick(&self, integrations: &Integrations) {
+        self.keep_house(integrations).await;
+        self.send_round(integrations).await;
+    }
+
+    async fn keep_house(&self, integrations: &Integrations) {
         let worker = integrations.settings().worker;
-        if let Err(err) = self
-            .dispatcher
-            .tick(self.clock.now(), worker.give_up_after)
-            .await
-        {
+        let now = self.clock.now();
+        if let Err(err) = self.dispatcher.tick(now, worker.give_up_after).await {
             tracing::warn!(error = %err, "integrations.dispatch.failed");
         }
+        if let Err(err) = self.sender.expire(self.clock.as_ref()).await {
+            tracing::warn!(error = %err, "integrations.expire.failed");
+        }
+        if let Err(err) = self.retention.tick(self.clock.now()).await {
+            tracing::warn!(error = %err, "integrations.retention.failed");
+        }
+    }
+
+    async fn send_round(&self, integrations: &Integrations) {
+        let lease = integrations.settings().worker.lease;
         if let Err(err) = self
             .sender
-            .tick(integrations, self.clock.as_ref(), worker.lease)
+            .tick(integrations, self.clock.as_ref(), lease)
             .await
         {
             tracing::warn!(error = %err, "integrations.send.failed");
         }
+    }
+}
+
+/// The retention sweep (DD-10): once an hour of the clock, per worker.
+struct Retention {
+    sweeps: Arc<dyn DeliverySweeps>,
+    last_swept: Mutex<Option<OffsetDateTime>>,
+}
+
+impl Retention {
+    async fn tick(&self, now: OffsetDateTime) -> Result<(), foundry_store::StoreError> {
+        let due = {
+            let last = self.last_swept.lock().unwrap_or_else(|p| p.into_inner());
+            last.is_none_or(|at| now - at >= RETENTION_SWEEP_EVERY)
+        };
+        if !due {
+            return Ok(());
+        }
+        let plan = |view: &RetentionView| pruning_of(view, now);
+        self.sweeps.prune(now - RETENTION, &plan).await?;
+        *self.last_swept.lock().unwrap_or_else(|p| p.into_inner()) = Some(now);
+        Ok(())
+    }
+}
+
+/// The retention plan over the store's view.
+fn pruning_of(view: &RetentionView, now: OffsetDateTime) -> Pruning {
+    let deliveries: Vec<RetainedDelivery> = view
+        .deliveries
+        .iter()
+        .map(|d| RetainedDelivery {
+            id: d.id,
+            finished_at: d.finished_at,
+            newer_on_target: u32::try_from(d.newer_on_target).unwrap_or(u32::MAX),
+        })
+        .collect();
+    let outbox: Vec<RetainedOutboxRow> = view
+        .outbox
+        .iter()
+        .map(|o| RetainedOutboxRow {
+            id: o.id,
+            dispatched_at: o.dispatched_at,
+            referenced_by_pending: o.referenced_by_pending,
+        })
+        .collect();
+    let PrunePlan {
+        deliveries,
+        outbox,
+        heartbeats_before,
+    } = prune_set(now, &deliveries, &outbox);
+    Pruning {
+        deliveries,
+        outbox,
+        heartbeats_before,
     }
 }
 
@@ -275,10 +375,7 @@ impl Sender {
         clock: &dyn Clock,
         lease: Duration,
     ) -> Result<(), foundry_store::StoreError> {
-        let expire = |due: &[PendingDelivery]| expiry_of(due, clock.now());
-        self.sweeps
-            .expire(clock.now(), ReasonCode::GaveUp24h.wire_name(), &expire)
-            .await?;
+        self.expire(clock).await?;
         for route_id in self.claims.routes_with_pending(SEND_BATCH).await? {
             let now = clock.now();
             let choose = |view: &ClaimView| head_of(view, now);
@@ -287,10 +384,25 @@ impl Sender {
             {
                 #[cfg(feature = "test-support")]
                 self.claimant.took(claim.claim_id);
-                self.attempt(integrations, clock, claim).await?;
+                let attempt = Attempt {
+                    number: u32::try_from(claim.attempts).unwrap_or(1),
+                    started_at: now,
+                    jitter: Jitter::of(claim.id),
+                };
+                self.attempt(integrations, clock, claim, attempt).await?;
             }
         }
         Ok(())
+    }
+
+    /// The give-up sweep: every delivery past its give-up time fails, so
+    /// nothing is attempted at or after it.
+    async fn expire(&self, clock: &dyn Clock) -> Result<(), foundry_store::StoreError> {
+        let expire = |due: &[PendingDelivery]| expiry_of(due, clock.now());
+        self.sweeps
+            .expire(clock.now(), ReasonCode::GaveUp24h.wire_name(), &expire)
+            .await
+            .map(|_| ())
     }
 
     async fn attempt(
@@ -298,9 +410,13 @@ impl Sender {
         integrations: &Integrations,
         clock: &dyn Clock,
         claim: ClaimedDelivery,
+        attempt: Attempt,
     ) -> Result<(), foundry_store::StoreError> {
         let result = match self.events.delivery_context(claim.id).await? {
-            Some(context) => self.send(integrations, clock, &context, claim.id).await?,
+            Some(context) => {
+                self.send(integrations, clock, &context, claim.id, attempt)
+                    .await?
+            }
             None => skipped(ReasonCode::IssueGone),
         };
         self.claims
@@ -316,6 +432,7 @@ impl Sender {
         clock: &dyn Clock,
         context: &DeliveryContext,
         delivery_id: i64,
+        attempt: Attempt,
     ) -> Result<DeliveryResult, foundry_store::StoreError> {
         if context.route_paused {
             return Ok(skipped(ReasonCode::RoutePaused));
@@ -346,7 +463,8 @@ impl Sender {
                 retry_after: None,
             },
         };
-        let settled = RetryPolicy::FIXED_30S.settle(outcome, clock.now(), context.give_up_at);
+        let settled =
+            RetryPolicy::BACKOFF.settle(outcome, attempt, clock.now(), context.give_up_at);
         Ok(delivery_result(settled))
     }
 }
@@ -476,9 +594,25 @@ fn skipped(reason: ReasonCode) -> DeliveryResult {
 fn delivery_result(settled: Settlement) -> DeliveryResult {
     match settled {
         Settlement::Delivered => DeliveryResult::Delivered,
-        Settlement::RetryAt { at, reason } => DeliveryResult::Retry {
+        Settlement::RetryAt {
+            at,
+            reason,
+            slowed_down: true,
+            not_before,
+        } => DeliveryResult::SlowedDown {
+            next_attempt_at: at,
+            not_before,
+            vendor_reason: reason.wire_name().to_string(),
+        },
+        Settlement::RetryAt { at, reason, .. } => DeliveryResult::Retry {
             next_attempt_at: at,
             vendor_reason: Some(reason.wire_name().to_string()),
+        },
+        Settlement::RouteStopped { reason } => DeliveryResult::RouteRefused {
+            vendor_reason: reason.wire_name().to_string(),
+        },
+        Settlement::ConnectionLost { reason } => DeliveryResult::ConnectionRefused {
+            vendor_reason: reason.wire_name().to_string(),
         },
         Settlement::GaveUp { vendor_reason } => DeliveryResult::Failed {
             final_reason: ReasonCode::GaveUp24h.wire_name().to_string(),

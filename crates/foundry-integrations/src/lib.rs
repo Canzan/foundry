@@ -9,11 +9,14 @@
 //!   kind is given, never a reorder, more than five of one kind from one
 //!   action as one burst (D-11);
 //! - [`claimable_head`] chooses the one delivery a sender may claim on a
-//!   route, and [`expiry_set`] the deliveries the expiry sweep fails
-//!   (ADR-EIP-002 decisions 4 and 9);
+//!   route, [`expiry_set`] the deliveries the expiry sweep fails
+//!   (ADR-EIP-002 decisions 4 and 9), and [`prune_set`] what the retention
+//!   sweep deletes (DD-10);
 //! - [`compose`] decides a message's lines from the event as it happened
 //!   and [`encode_slack`] places them (D-3, D-11, DDR-12); [`classify_slack`] reads Slack's answer;
-//! - [`RetryPolicy::next`] schedules a retry, never past the give-up time;
+//! - [`RetryPolicy::settle`] schedules a retry with backoff and the vendor's
+//!   "retry after", never past the give-up time, or stops a route or a
+//!   connection on a refusal;
 //! - [`RouteStatus::derive`] gives a route's K-9 status (DDR-19), and
 //!   [`DeliveryRecord::line`] a delivery's history line.
 //!
@@ -38,7 +41,7 @@ mod route;
 mod status;
 mod wire;
 
-pub use classify::classify_slack;
+pub use classify::{classify_slack, SlackAnswer};
 pub use dispatch::{DispatchPlan, OutboxRow, PlannedDelivery};
 pub use event::EventKind;
 pub use history::DeliveryRecord;
@@ -52,7 +55,10 @@ pub use ports::{
     DestinationEnrolment, DestinationRef, EmailTransport, EmailTransportError, EncodedMessage,
     OutboundEmail,
 };
-pub use queue::{claimable_head, expiry_set, QueuedDelivery};
-pub use retry::{RetryPolicy, Settlement};
+pub use queue::{
+    claimable_head, expiry_set, prune_set, PrunePlan, QueuedDelivery, RetainedDelivery,
+    RetainedOutboxRow, HEARTBEAT_RETENTION, RETAINED_PER_ROUTE, RETENTION,
+};
+pub use retry::{Attempt, Jitter, RetryPolicy, Settlement};
 pub use route::{FilterLane, RouteSpec};
 pub use status::{Attention, FinishedDelivery, RouteFacts, RouteStatus};

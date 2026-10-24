@@ -131,6 +131,9 @@ impl RouteStatus {
 impl Attention {
     fn words(&self, destination: &str) -> String {
         match self {
+            Attention::Problem(ReasonCode::ChannelArchived) => {
+                format!("Foundry can no longer post to {destination} (the channel was archived)")
+            }
             Attention::Problem(reason) => reason.words(destination),
             Attention::LaneMissing { label } => {
                 format!("the lane {label} no longer exists. Choose lanes again.")
