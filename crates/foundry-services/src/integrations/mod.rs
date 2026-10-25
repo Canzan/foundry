@@ -18,7 +18,9 @@
 //! - [`change_route`]: pause, resume, edit or delete a route, one change and
 //!   its audit record (Manage only). A pause skips the route's waiting
 //!   deliveries the pure `cancel_set` names (DD-8); asking for what already
-//!   is so writes nothing.
+//!   is so writes nothing. Resuming a route a vendor refusal stopped first
+//!   asks the vendor about its destination again ([`DestinationCatalogs`]);
+//!   while the problem lasts the route stays stopped (D-8).
 //!
 //! Every refusal is [`IntegrationError::NotFound`], which each door answers
 //! with its uniform 404. The use-cases read and write through
@@ -30,7 +32,9 @@ mod store_impls;
 use crate::Principal;
 use foundry_auth::secret_box::SealedSecret;
 use foundry_core::TeamAccess;
-use foundry_integrations::{cancel_set, TargetedDelivery};
+use foundry_integrations::{
+    cancel_set, DestinationCatalog, DestinationRef, ReasonCode, TargetedDelivery,
+};
 use foundry_store::integrations::{
     AuditRow, CancelCandidate, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow,
     DeliveryIssue, NewConnection, NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome,
@@ -51,6 +55,12 @@ pub const ACTIVITY_LIMIT: i64 = 50;
 /// How many deliveries a route's history lists, newest first. Above the
 /// retained minimum of 100 (NFR-EIP-7), so the 30-day tail stays visible.
 pub const HISTORY_LIMIT: i64 = 500;
+
+/// Opens the read-only destination catalogue of a connection, its credential
+/// opened inside the adapter (ADR-EIP-004); `None` when this Foundry cannot.
+pub trait DestinationCatalogs: Sync {
+    fn catalogue(&self, connection: &SealedConnection) -> Option<Box<dyn DestinationCatalog>>;
+}
 
 /// The persistence the integration use-cases need, and nothing more.
 pub(crate) trait IntegrationRecords: Sync {
@@ -241,10 +251,12 @@ pub struct RouteEditDraft {
 }
 
 /// The four route changes a lead may ask for.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RouteAction {
+#[derive(Clone)]
+pub enum RouteAction<'a> {
     Pause,
-    Resume,
+    /// Resume, re-checking a stopped route's destination through the
+    /// connection's catalogue first.
+    Resume(&'a dyn DestinationCatalogs),
     Edit(RouteEditDraft),
     Delete,
 }
@@ -536,7 +548,7 @@ pub(crate) async fn change_route(
     team_slug: &str,
     project_slug: &str,
     route_id: Uuid,
-    action: RouteAction,
+    action: RouteAction<'_>,
     now: OffsetDateTime,
 ) -> Result<RouteChangeOutcome, IntegrationError> {
     let target = route_target(records, principal, team_slug, project_slug).await?;
@@ -555,7 +567,12 @@ pub(crate) async fn change_route(
                 })
                 .await?
         }
-        RouteAction::Resume => records.resume_route(&change).await?,
+        RouteAction::Resume(catalogs) => {
+            if !problem_cleared(records, catalogs, &target, route_id).await? {
+                return Ok(RouteChangeOutcome::Unchanged);
+            }
+            records.resume_route(&change).await?
+        }
         RouteAction::Edit(draft) => {
             let lanes =
                 checked_choices(&target, &draft.events, &draft.content_level, &draft.lanes)?;
@@ -572,6 +589,35 @@ pub(crate) async fn change_route(
         RouteChangeOutcome::ProjectDeleted => Err(IntegrationError::NotFound),
         outcome => Ok(outcome),
     }
+}
+
+/// Whether the route `route_id` may resume: it has no channel problem, or
+/// the vendor now shows that problem gone.
+async fn problem_cleared(
+    records: &impl IntegrationRecords,
+    catalogs: &dyn DestinationCatalogs,
+    target: &RouteTarget,
+    route_id: Uuid,
+) -> Result<bool, IntegrationError> {
+    let Some(settings) = records.route_settings(target.project_id, route_id).await? else {
+        return Ok(true);
+    };
+    let Some(problem) = settings.problem_reason else {
+        return Ok(true);
+    };
+    let Some(catalog) = target
+        .connection
+        .as_ref()
+        .and_then(|c| catalogs.catalogue(c))
+    else {
+        return Ok(false);
+    };
+    let destination = DestinationRef(settings.destination_ref);
+    Ok(match catalog.check_destination(&destination).await {
+        Ok(check) => ReasonCode::from_wire_name(&problem)
+            .map_or(check.can_post, |problem| check.clears(problem)),
+        Err(_) => false,
+    })
 }
 
 fn targeted(candidates: &[CancelCandidate]) -> Vec<TargetedDelivery> {

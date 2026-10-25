@@ -103,6 +103,15 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ### Changed
 
+- **Reconnecting delivers what was missed**: when a workspace admin reconnects a lost Slack
+  connection (Reconnect, then approving Foundry for the same Slack workspace), the routes read
+  "Delivering" again and what happened while it was lost (up to 24 hours) is posted, in the
+  order it happened. Approving another Slack workspace by mistake changes nothing and reads
+  "This is a different Slack workspace (Canzan Personal). Routes stay paused. Reconnect to
+  Canzan Labs, or disconnect." A channel problem (archived, Foundry removed, not found) stops
+  only that channel's route; Resume asks Slack about the channel again and, while the problem
+  lasts, the route keeps saying what is wrong. Once the channel is usable again, Resume sends
+  what that route was waiting to send.
 - **Retries back off and honour Slack's "retry after"**: a chat delivery Slack did not take is
   tried again 10 seconds after the attempt began, then 20, 40 and so on up to 15 minutes (each
   delivery's waits spread by up to a fifth, never shrinking), and never at or after its 24-hour

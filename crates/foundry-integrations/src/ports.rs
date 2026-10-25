@@ -24,8 +24,54 @@ pub struct Destination {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct DestinationCheck {
     pub can_post: bool,
+    /// The bot is a member of the destination (Slack `is_member`).
+    pub member: bool,
     pub shared_with_another_organisation: bool,
     pub encrypted: bool,
+}
+
+impl DestinationCheck {
+    /// Whether this check shows the channel problem `problem` gone, so Resume
+    /// may clear it (D-8: a route that needs attention is not sent until
+    /// Resume re-checks its destination). Removing the bot from a channel is
+    /// only undone by inviting it back, even where it could post unasked.
+    pub fn clears(&self, problem: ReasonCode) -> bool {
+        match problem {
+            ReasonCode::NotInChannel | ReasonCode::BotNotInRoom => self.can_post && self.member,
+            _ => self.can_post,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check(can_post: bool, member: bool) -> DestinationCheck {
+        DestinationCheck {
+            can_post,
+            member,
+            shared_with_another_organisation: false,
+            encrypted: false,
+        }
+    }
+
+    #[test]
+    fn removed_bot_needs_to_be_invited_back() {
+        for problem in [ReasonCode::NotInChannel, ReasonCode::BotNotInRoom] {
+            assert!(check(true, true).clears(problem));
+            assert!(!check(true, false).clears(problem));
+            assert!(!check(false, true).clears(problem));
+        }
+    }
+
+    #[test]
+    fn other_problems_clear_once_the_bot_can_post() {
+        for problem in [ReasonCode::ChannelArchived, ReasonCode::ChannelNotFound] {
+            assert!(check(true, false).clears(problem));
+            assert!(!check(false, true).clears(problem));
+        }
+    }
 }
 
 /// A kind's encoded message, as its encoder produced it.

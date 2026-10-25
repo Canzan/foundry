@@ -22,11 +22,6 @@ macro_rules! pending {
 }
 
 // Handlers (slices 01-03).
-pending!(
-    reconnect_to_another_slack_team_changes_nothing,
-    "03-02",
-    "connection upsert: a different team id on the return leaves the row and audit untouched"
-);
 pending!(csrf_exempt_set_is_exactly_three_paths, "03-02", "check-arch rule 5: is_exempt_path is /bootstrap, /integrations/slack/events, /email/stop/one-click and nothing else");
 
 // DDR-23 (03-02): the connection-lost admin email is a suppressible account
@@ -187,6 +182,46 @@ mod audit {
         .expect("seed admin");
     }
 
+    /// The app's state over `store`, with `integrations` and `notifier`.
+    fn app_state(
+        store: Arc<Store>,
+        integrations: IntegrationsHandle,
+        notifier: Arc<Notifier>,
+    ) -> AppState {
+        AppState {
+            oidc: None,
+            store,
+            session_secret: Arc::new(SecretString::new(
+                "eip-audit-secret-thirty-two-bytes-or-more-yes-please".into(),
+            )),
+            machine_token_verifier: Arc::new(
+                foundry_auth::MachineTokenVerifier::from_public_keys(&[
+                    "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\n-----END PUBLIC KEY-----\n"
+                        .to_string(),
+                ])
+                .expect("fixed test public key is valid"),
+            ),
+            machine_token_signer: None,
+            session_cookie_secure: false,
+            db_schema: "public".into(),
+            public_url: "http://foundry.test".into(),
+            clock: Arc::new(SystemClock),
+            integrations,
+            notifier,
+            revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
+            realtime_tx: foundry_realtime::build_broadcast(),
+            sse_heartbeat_ms: foundry_app::DEFAULT_SSE_HEARTBEAT_MS,
+            file_upload_max_mb: foundry_app::DEFAULT_FILE_UPLOAD_MAX_MB,
+            db_unreachable: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            force_board_render_failure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            test_migrations_dir: None,
+            applied_migrations: Arc::new(std::sync::Mutex::new(
+                foundry_store::MigrationReport::default(),
+            )),
+            test_migration_delay_ms: 0,
+        }
+    }
+
     async fn send(router: &Router, req: Request<Body>) -> axum::response::Response {
         router.clone().oneshot(req).await.expect("response")
     }
@@ -228,38 +263,11 @@ mod audit {
         run_migrations(&pool).await.expect("run migrations");
         let store = Arc::new(Store::from_pool(pool));
         seed_admin(&store).await;
-        let state = AppState {
-            oidc: None,
-            store: store.clone(),
-            session_secret: Arc::new(SecretString::new(
-                "eip-audit-secret-thirty-two-bytes-or-more-yes-please".into(),
-            )),
-            machine_token_verifier: Arc::new(
-                foundry_auth::MachineTokenVerifier::from_public_keys(&[
-                    "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\n-----END PUBLIC KEY-----\n"
-                        .to_string(),
-                ])
-                .expect("fixed test public key is valid"),
-            ),
-            machine_token_signer: None,
-            session_cookie_secure: false,
-            db_schema: "public".into(),
-            public_url: "http://foundry.test".into(),
-            clock: Arc::new(SystemClock),
-            integrations: IntegrationsHandle::new(Integrations::new(settings(&slack().await))),
-            notifier: Arc::new(Notifier::new(vec![])),
-            revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
-            realtime_tx: foundry_realtime::build_broadcast(),
-            sse_heartbeat_ms: foundry_app::DEFAULT_SSE_HEARTBEAT_MS,
-            file_upload_max_mb: foundry_app::DEFAULT_FILE_UPLOAD_MAX_MB,
-            db_unreachable: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            force_board_render_failure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            test_migrations_dir: None,
-            applied_migrations: Arc::new(std::sync::Mutex::new(
-                foundry_store::MigrationReport::default(),
-            )),
-            test_migration_delay_ms: 0,
-        };
+        let state = app_state(
+            store.clone(),
+            IntegrationsHandle::new(Integrations::new(settings(&slack().await))),
+            Arc::new(Notifier::new(vec![])),
+        );
         let router = build_router(state);
 
         let form = serde_urlencoded::to_string([
@@ -463,38 +471,7 @@ mod audit {
         let notifier = Arc::new(Notifier::new(vec![Arc::new(Inbox(mailbox.clone()))]));
         let integrations = IntegrationsHandle::new(Integrations::new(settings(&slack().await)));
         integrations.admin_mail().use_notifier(notifier.clone());
-        let state = AppState {
-            oidc: None,
-            store: store.clone(),
-            session_secret: Arc::new(SecretString::new(
-                "eip-audit-secret-thirty-two-bytes-or-more-yes-please".into(),
-            )),
-            machine_token_verifier: Arc::new(
-                foundry_auth::MachineTokenVerifier::from_public_keys(&[
-                    "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\n-----END PUBLIC KEY-----\n"
-                        .to_string(),
-                ])
-                .expect("fixed test public key is valid"),
-            ),
-            machine_token_signer: None,
-            session_cookie_secure: false,
-            db_schema: "public".into(),
-            public_url: "http://foundry.test".into(),
-            clock: Arc::new(SystemClock),
-            integrations,
-            notifier,
-            revoke_rate_limiter: Arc::new(foundry_app::rate_limit::RevokeRateLimiter::default()),
-            realtime_tx: foundry_realtime::build_broadcast(),
-            sse_heartbeat_ms: foundry_app::DEFAULT_SSE_HEARTBEAT_MS,
-            file_upload_max_mb: foundry_app::DEFAULT_FILE_UPLOAD_MAX_MB,
-            db_unreachable: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            force_board_render_failure: Arc::new(std::sync::atomic::AtomicBool::new(false)),
-            test_migrations_dir: None,
-            applied_migrations: Arc::new(std::sync::Mutex::new(
-                foundry_store::MigrationReport::default(),
-            )),
-            test_migration_delay_ms: 0,
-        };
+        let state = app_state(store.clone(), integrations, notifier);
         let router = build_router(state);
         let connection = || async {
             sqlx::query_as::<_, (String, Option<String>)>(
@@ -611,6 +588,167 @@ mod audit {
         );
         assert!(!page.contains("Connected to"), "{page}");
     }
+
+    /// A local Slack whose approval is for the team `team` holds now.
+    async fn slack_of(team: Arc<std::sync::Mutex<(&'static str, &'static str)>>) -> String {
+        let exchange = {
+            let team = team.clone();
+            move || {
+                let (id, name) = *team.lock().unwrap();
+                async move {
+                    axum::Json(serde_json::json!({
+                        "ok": true, "access_token": TOKEN, "token_type": "bot",
+                        "bot_user_id": "U0FOUNDRYBOT", "app_id": "A0EIPFOUNDRY",
+                        "team": { "id": id, "name": name }
+                    }))
+                }
+            }
+        };
+        let app = Router::new()
+            .route("/oauth.v2.access", post(exchange))
+            .route(
+                "/auth.test",
+                post(|| async {
+                    axum::Json(serde_json::json!({
+                        "ok": true, "url": "https://canzanlabs.slack.com/", "team_id": "T0CANZANLABS"
+                    }))
+                }),
+            );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        format!("http://{addr}")
+    }
+
+    /// Add to Slack, approved, back on Foundry's return address.
+    async fn install(router: &Router, cookie: &str) -> axum::response::Response {
+        let start = send(router, get("/workspace/integrations/slack/install", cookie)).await;
+        let to_slack = start.headers()[header::LOCATION]
+            .to_str()
+            .expect("location")
+            .to_string();
+        let state = to_slack
+            .split("state=")
+            .nth(1)
+            .expect("the approval address carries the state")
+            .to_string();
+        send(
+            router,
+            get(
+                &format!("/workspace/integrations/slack/return?code={CODE}&state={state}"),
+                cookie,
+            ),
+        )
+        .await
+    }
+
+    // US-EIP-06 example 5 (03-04): reconnecting a lost Slack connection to
+    // another Slack workspace, through the router, says so and leaves the
+    // connection row and the audit as they were; reconnecting to the same
+    // Slack workspace restores it with one record.
+    #[tokio::test]
+    async fn reconnect_to_another_slack_team_changes_nothing() {
+        let pg = Postgres::default()
+            .with_tag("16-alpine")
+            .start()
+            .await
+            .expect("start postgres container");
+        let url = format!(
+            "postgres://postgres:postgres@{}:{}/postgres",
+            pg.get_host().await.expect("host"),
+            pg.get_host_port_ipv4(5432).await.expect("port")
+        );
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .acquire_timeout(Duration::from_secs(10))
+            .connect(&url)
+            .await
+            .expect("connect pool");
+        run_migrations(&pool).await.expect("run migrations");
+        let store = Arc::new(Store::from_pool(pool));
+        seed_admin(&store).await;
+        let team = Arc::new(std::sync::Mutex::new(("T0CANZANLABS", "Canzan Labs")));
+        let router = build_router(app_state(
+            store.clone(),
+            IntegrationsHandle::new(Integrations::new(settings(&slack_of(team.clone()).await))),
+            Arc::new(Notifier::new(vec![])),
+        ));
+        let form = serde_urlencoded::to_string([
+            ("_csrf", CSRF),
+            ("email", ADMIN),
+            ("password", PASSWORD),
+        ])
+        .expect("form");
+        let signed_in = send(
+            &router,
+            Request::builder()
+                .method("POST")
+                .uri("/sign-in")
+                .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                .header(header::COOKIE, format!("foundry_csrf={CSRF}"))
+                .body(Body::from(form))
+                .expect("request"),
+        )
+        .await;
+        let mut jar = cookies(&signed_in);
+        jar.push(format!("foundry_csrf={CSRF}"));
+        let cookie = jar.join("; ");
+        let connected = install(&router, &cookie).await;
+        assert_eq!(connected.status(), StatusCode::SEE_OTHER, "Priya connects");
+        sqlx::query(
+            "UPDATE integration_connections
+                SET state = 'lost', lost_reason = 'app_removed', lost_at = now()",
+        )
+        .execute(store.pool())
+        .await
+        .expect("the connection is lost");
+        let universe = || async {
+            let connection: String =
+                sqlx::query_scalar("SELECT row_to_json(c)::text FROM integration_connections c")
+                    .fetch_one(store.pool())
+                    .await
+                    .expect("connection");
+            let audit: Vec<String> = sqlx::query_scalar(
+                "SELECT action FROM integration_audit_events ORDER BY created_at, id",
+            )
+            .fetch_all(store.pool())
+            .await
+            .expect("audit");
+            (connection, audit)
+        };
+        let before = universe().await;
+
+        *team.lock().unwrap() = ("T0CANZANPERS", "Canzan Personal");
+        let other = install(&router, &cookie).await;
+        assert_eq!(other.status(), StatusCode::OK, "Priya stays on the page");
+        let page = text(other).await;
+        assert!(
+            page.contains(
+                "This is a different Slack workspace (Canzan Personal). Routes stay paused. \
+                 Reconnect to Canzan Labs, or disconnect."
+            ),
+            "{page}"
+        );
+        assert_eq!(universe().await, before, "nothing changed");
+
+        *team.lock().unwrap() = ("T0CANZANLABS", "Canzan Labs");
+        let same = install(&router, &cookie).await;
+        assert_eq!(same.status(), StatusCode::SEE_OTHER, "Priya reconnects");
+        let (connection, audit) = universe().await;
+        assert!(
+            connection.contains("\"state\":\"connected\""),
+            "{connection}"
+        );
+        assert!(connection.contains("\"lost_reason\":null"), "{connection}");
+        assert_eq!(
+            audit,
+            vec!["connection_connected", "connection_reconnected"]
+        );
+    }
 }
 
 // DDR-25 (01-06): Send test, its per-person limit, and the route save, through
@@ -654,9 +792,30 @@ mod routes {
     /// Slack's calls as the double received them: (method, body).
     type Calls = Arc<Mutex<Vec<(String, Value)>>>;
 
-    async fn slack() -> (String, Calls) {
+    /// Whether the Foundry bot is a member of #auth-dev, as
+    /// `conversations.info` answers.
+    type Member = Arc<std::sync::atomic::AtomicBool>;
+
+    async fn slack() -> (String, Calls, Member) {
         let calls: Calls = Arc::default();
+        let member: Member = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let info = {
+            let (calls, member) = (calls.clone(), member.clone());
+            move || async move {
+                calls
+                    .lock()
+                    .unwrap()
+                    .push(("conversations.info".into(), Value::Null));
+                let is_member = member.load(std::sync::atomic::Ordering::SeqCst);
+                axum::Json(json!({
+                    "ok": true,
+                    "channel": { "id": AUTH_DEV, "name": "auth-dev", "is_private": false,
+                                 "is_member": is_member, "is_archived": false }
+                }))
+            }
+        };
         let app = Router::new()
+            .route("/conversations.info", get(info.clone()).post(info))
             .route(
                 "/conversations.list",
                 get(|State(calls): State<Calls>| async move {
@@ -693,7 +852,7 @@ mod routes {
         tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
-        (format!("http://{addr}"), calls)
+        (format!("http://{addr}"), calls, member)
     }
 
     fn settings(slack: &str) -> IntegrationSettings {
@@ -823,6 +982,7 @@ mod routes {
         router: Router,
         cookie: String,
         calls: Calls,
+        member: Member,
     }
 
     impl Lab {
@@ -845,7 +1005,7 @@ mod routes {
                 .expect("connect pool");
             run_migrations(&pool).await.expect("run migrations");
             let store = Arc::new(Store::from_pool(pool));
-            let (slack, calls) = slack().await;
+            let (slack, calls, member) = slack().await;
             let settings = settings(&slack);
             seed(&store, &settings).await;
             let state = AppState {
@@ -906,6 +1066,7 @@ mod routes {
                 router,
                 cookie: jar.join("; "),
                 calls,
+                member,
             }
         }
 
@@ -964,6 +1125,90 @@ mod routes {
             }
             rows
         }
+    }
+
+    // US-EIP-06 (03-04), D-8: Resume on a route a refusal stopped asks Slack
+    // about its channel first. While Foundry is still out of the channel the
+    // route keeps its problem and nothing is recorded; once invited back, the
+    // problem clears with one record and the route's boundary stays, so what
+    // waited is sent. A route with no problem resumes without asking Slack.
+    #[tokio::test]
+    async fn resume_rechecks_a_stopped_route_with_slack() {
+        let lab = Lab::start().await;
+        let (status, _) = lab.submit("routes", AUTH_DEV).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "Lena saves the route");
+        let route: Uuid = sqlx::query_scalar("SELECT id FROM integration_routes")
+            .fetch_one(lab.store.pool())
+            .await
+            .expect("the route");
+        exec(
+            &lab.store,
+            "UPDATE integration_routes SET problem_reason = 'not_in_channel', problem_at = now()
+              WHERE id = $1",
+            &[route],
+        )
+        .await;
+        let resume = || async {
+            lab.router
+                .clone()
+                .oneshot(form(
+                    &format!("{PAGE}/routes/{route}/resume"),
+                    &lab.cookie,
+                    &[],
+                ))
+                .await
+                .expect("resume")
+                .status()
+        };
+        let asked = || {
+            lab.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(method, _)| method == "conversations.info")
+                .count()
+        };
+        let before = lab.universe().await;
+
+        lab.member.store(false, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(resume().await, StatusCode::SEE_OTHER);
+        assert_eq!(asked(), 1, "Slack is asked about the channel");
+        assert_eq!(lab.universe().await, before, "the route stays stopped");
+
+        lab.member.store(true, std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(resume().await, StatusCode::SEE_OTHER);
+        assert_eq!(asked(), 2);
+        let (problem, kept): (Option<String>, bool) = sqlx::query_as(
+            "SELECT problem_reason, receives_from = created_at FROM integration_routes",
+        )
+        .fetch_one(lab.store.pool())
+        .await
+        .expect("the route");
+        assert_eq!(problem, None, "the problem is cleared");
+        assert!(kept, "what waited is still the route's to send");
+        let audit: Vec<String> = sqlx::query_scalar(
+            "SELECT action FROM integration_audit_events
+              WHERE action LIKE 'route_%' ORDER BY created_at, id",
+        )
+        .fetch_all(lab.store.pool())
+        .await
+        .expect("audit");
+        assert_eq!(audit, vec!["route_created", "route_resumed"]);
+
+        let paused = lab
+            .router
+            .clone()
+            .oneshot(form(
+                &format!("{PAGE}/routes/{route}/pause"),
+                &lab.cookie,
+                &[],
+            ))
+            .await
+            .expect("pause");
+        assert_eq!(paused.status(), StatusCode::SEE_OTHER);
+        assert_eq!(resume().await, StatusCode::SEE_OTHER);
+        assert_eq!(asked(), 2, "a paused route resumes without asking Slack");
+        assert_eq!(lab.posts().len(), 0, "resuming sends nothing itself");
     }
 
     fn form(uri: &str, cookie: &str, fields: &[(&str, &str)]) -> Request<Body> {

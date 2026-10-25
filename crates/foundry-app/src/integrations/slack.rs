@@ -491,6 +491,7 @@ impl DestinationCatalog for SlackBot {
         let channel = &answer["channel"];
         Ok(DestinationCheck {
             can_post: postable(channel).is_some(),
+            member: channel["is_member"].as_bool().unwrap_or(false),
             shared_with_another_organisation: shared_with_another_organisation(channel),
             encrypted: false,
         })

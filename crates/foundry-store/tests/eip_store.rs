@@ -13,9 +13,9 @@
 //! never makes one); the pure planners arrive in the core crate (01-04).
 
 use foundry_store::integrations::{
-    CancelCandidate, ClaimOutcome, ClaimView, DeliveryResult, DeliveryTarget, DispatchBatch,
-    DispatchOutcome, NewDelivery, NewRoute, Pruned, Pruning, RecordOutcome, RouteChange,
-    RouteChangeOutcome, RouteLane, RouteWriteOutcome,
+    CancelCandidate, ClaimOutcome, ClaimView, ConnectionWriteOutcome, DeliveryResult,
+    DeliveryTarget, DispatchBatch, DispatchOutcome, NewConnection, NewDelivery, NewRoute, Pruned,
+    Pruning, RecordOutcome, RouteChange, RouteChangeOutcome, RouteLane, RouteWriteOutcome,
 };
 use foundry_store::{
     run_boot_migrations_from_dir, run_migrations, run_migrations_from_dir, Store, StoreError,
@@ -2256,4 +2256,177 @@ async fn pause_applies_exactly_the_cancel_plan_ids() {
             .await
             .expect("count");
     assert_eq!(left, 0, "the route's deliveries went with it");
+}
+
+// US-EIP-06 (03-04): resuming a route that only a vendor refusal stopped
+// keeps the deliveries waiting for it (D-8: drained once Resume re-checked
+// the channel), unlike resuming a paused route (DDR-27).
+#[tokio::test]
+async fn resuming_a_route_a_refusal_stopped_keeps_its_waiting_deliveries() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let waiting = lab.one_delivery().await;
+    sqlx::query(
+        "UPDATE integration_routes SET problem_reason = 'not_in_channel', problem_at = now()
+          WHERE id = $1",
+    )
+    .bind(lab.route)
+    .execute(&pool)
+    .await
+    .expect("the refusal");
+    let settings = |lab: &Lab| {
+        let store = lab.store.clone();
+        let (project, route) = (lab.auth, lab.route);
+        async move {
+            store
+                .route_settings(project, route)
+                .await
+                .expect("settings")
+                .expect("the route")
+        }
+    };
+    assert_eq!(
+        settings(&lab).await.problem_reason.as_deref(),
+        Some("not_in_channel"),
+        "the edit form's settings carry the route's problem"
+    );
+    let receives_from = || {
+        let pool = pool.clone();
+        let route = lab.route;
+        async move {
+            sqlx::query_scalar::<_, OffsetDateTime>(
+                "SELECT receives_from FROM integration_routes WHERE id = $1",
+            )
+            .bind(route)
+            .fetch_one(&pool)
+            .await
+            .expect("receives_from")
+        }
+    };
+    let before = receives_from().await;
+    let change = RouteChange {
+        project_id: lab.auth,
+        route_id: lab.route,
+        actor_id: lab.lena,
+        via: "web".to_string(),
+        at: OffsetDateTime::now_utc(),
+    };
+    assert_eq!(
+        lab.store.resume_route(&change).await.expect("resume"),
+        RouteChangeOutcome::Changed { cancelled: 0 }
+    );
+    assert_eq!(
+        settings(&lab).await.problem_reason,
+        None,
+        "the problem is cleared"
+    );
+    assert_eq!(receives_from().await, before, "the route's boundary stays");
+    let context = lab
+        .store
+        .delivery_context(waiting)
+        .await
+        .expect("context")
+        .expect("the waiting delivery is still there");
+    assert!(
+        !context.route_paused,
+        "what waited is sent after the resume"
+    );
+    assert_eq!(lab.delivery(waiting).await.status, "pending");
+}
+
+// US-EIP-06 (03-04): a Slack install for another team than the connection's
+// changes nothing (state, team, credential, audit); one for the same team
+// restores the lost connection in place, with its new credential.
+#[tokio::test]
+async fn reconnect_keeps_its_slack_team() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    sqlx::query(
+        "UPDATE integration_connections
+            SET state = 'lost', lost_reason = 'app_removed', lost_at = now()
+          WHERE id = $1",
+    )
+    .bind(lab.connection)
+    .execute(&pool)
+    .await
+    .expect("lose the connection");
+    let row = || {
+        let pool = pool.clone();
+        let id = lab.connection;
+        async move {
+            sqlx::query_as::<_, (String, Option<String>, String, String, Vec<u8>)>(
+                "SELECT state, lost_reason, external_id, label, sealed_credential
+                   FROM integration_connections WHERE id = $1",
+            )
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .expect("the connection")
+        }
+    };
+    let audit = || {
+        let pool = pool.clone();
+        let ws = lab.ws;
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT action FROM integration_audit_events
+                  WHERE workspace_id = $1 AND action <> 'route_created' ORDER BY id",
+            )
+            .bind(ws)
+            .fetch_all(&pool)
+            .await
+            .expect("audit")
+        }
+    };
+    let install = |team: &str, label: &str| NewConnection {
+        id: lab.connection,
+        workspace_id: lab.ws,
+        kind: "slack".to_string(),
+        external_id: team.to_string(),
+        app_id: Some("A0EIPFOUNDRY".to_string()),
+        bot_user_id: Some("U0FOUNDRYBOT".to_string()),
+        label: label.to_string(),
+        detail: Some("canzan.slack.com".to_string()),
+        sealed_credential: vec![7, 7, 7],
+        connected_by: lab.lena,
+        connected_at: OffsetDateTime::now_utc(),
+    };
+    let lost = row().await;
+
+    let other = lab
+        .store
+        .upsert_connection(&install("T0PERSONAL", "Canzan Personal"))
+        .await
+        .expect("the other team's install");
+    assert_eq!(
+        other,
+        ConnectionWriteOutcome::OtherWorkspace {
+            connected_label: "Canzan Labs".to_string()
+        }
+    );
+    assert_eq!(row().await, lost, "the connection is untouched");
+    assert!(audit().await.is_empty(), "nothing is recorded");
+
+    let same = lab
+        .store
+        .upsert_connection(&install("T0CANZAN", "Canzan Labs"))
+        .await
+        .expect("the same team's install");
+    assert_eq!(same, ConnectionWriteOutcome::Reconnected);
+    assert_eq!(
+        row().await,
+        (
+            "connected".to_string(),
+            None,
+            "T0CANZAN".to_string(),
+            "Canzan Labs".to_string(),
+            vec![7, 7, 7]
+        ),
+        "the connection is restored with its new credential"
+    );
+    assert_eq!(audit().await, vec!["connection_reconnected"]);
 }

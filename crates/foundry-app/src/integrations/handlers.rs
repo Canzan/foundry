@@ -78,6 +78,10 @@ pub const RETURN_PATH: &str = slack::RETURN_PATH;
 
 /// K-3.
 pub const NOT_CONNECTED: &str = "Slack was not connected. Nothing changed.";
+/// US-EIP-06 example 5, for the `{approved}` Slack workspace when the
+/// connection is to `{connected}`.
+pub const OTHER_SLACK_WORKSPACE: &str =
+    "This is a different Slack workspace ({approved}). Routes stay paused. Reconnect to {connected}, or disconnect.";
 /// K-4.
 pub const NO_CHAT_CONNECTION: &str =
     "This workspace has no chat connection yet. Ask a workspace admin to connect Slack or Matrix.";
@@ -450,8 +454,18 @@ pub async fn finish_slack_install(
         _ => return workspace_page(&state, &caller, &headers, Some(NOT_CONNECTED)).await,
     };
     match connect(&state, &caller, &principal, code).await {
-        Ok(_) => Redirect::to(WORKSPACE_PATH).into_response(),
-        Err(why) => {
+        Ok(()) => Redirect::to(WORKSPACE_PATH).into_response(),
+        Err(NotConnected::OtherWorkspace {
+            approved,
+            connected,
+        }) => {
+            tracing::warn!(reason = "other_workspace", "slack install: not connected");
+            let words = OTHER_SLACK_WORKSPACE
+                .replace("{approved}", &approved)
+                .replace("{connected}", &connected);
+            workspace_page(&state, &caller, &headers, Some(&words)).await
+        }
+        Err(NotConnected::Failed(why)) => {
             tracing::warn!(reason = why, "slack install: not connected");
             workspace_page(&state, &caller, &headers, Some(NOT_CONNECTED)).await
         }
@@ -759,13 +773,14 @@ pub async fn resume_route(
     session: Session,
     Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
 ) -> Response {
+    let integrations = state.integrations.current();
     change_route(
         &state,
         &session,
         &team_slug,
         &project_slug,
         &route_id,
-        RouteAction::Resume,
+        RouteAction::Resume(&*integrations),
     )
     .await
 }
@@ -818,7 +833,7 @@ async fn change_route(
     team_slug: &str,
     project_slug: &str,
     route_id: &str,
-    action: RouteAction,
+    action: RouteAction<'_>,
 ) -> Response {
     let Some(caller) = Caller::of(state, session).await else {
         return sign_in();
@@ -1172,18 +1187,34 @@ fn history_line(
 }
 
 /// Exchange the code, read the domain, seal the token for its row, save.
+/// Why a Slack install left the workspace's connection as it was.
+enum NotConnected {
+    /// The approval was for another Slack workspace than the connected one.
+    OtherWorkspace {
+        approved: String,
+        connected: String,
+    },
+    Failed(&'static str),
+}
+
+impl From<&'static str> for NotConnected {
+    fn from(why: &'static str) -> Self {
+        Self::Failed(why)
+    }
+}
+
 async fn connect(
     state: &AppState,
     caller: &Caller,
     principal: &Principal,
     code: &str,
-) -> Result<ConnectionWriteOutcome, &'static str> {
+) -> Result<(), NotConnected> {
     let integrations: std::sync::Arc<Integrations> = state.integrations.current();
     let (Some(app), Some(secrets)) = (
         integrations.slack(),
         integrations.settings().secrets.as_ref(),
     ) else {
-        return Err("slack_not_offered");
+        return Err("slack_not_offered".into());
     };
     let grant: SlackGrant = app
         .exchange(code, &integrations.slack_return_url())
@@ -1206,6 +1237,7 @@ async fn connect(
     let sealed = secrets
         .seal(&grant.access_token, &slot)
         .map_err(|_| "seal")?;
+    let approved = grant.team_name.clone();
     let install = SlackInstall {
         team_id: grant.team_id,
         team_name: grant.team_name,
@@ -1218,9 +1250,15 @@ async fn connect(
         .connect_slack(principal, install, connection_id, sealed, state.clock.now())
         .await
     {
-        Ok(ConnectionWriteOutcome::StaleRow) => Err("stale_row"),
-        Ok(outcome) => Ok(outcome),
-        Err(_) => Err("store"),
+        Ok(ConnectionWriteOutcome::StaleRow) => Err("stale_row".into()),
+        Ok(ConnectionWriteOutcome::OtherWorkspace { connected_label }) => {
+            Err(NotConnected::OtherWorkspace {
+                approved,
+                connected: connected_label,
+            })
+        }
+        Ok(_) => Ok(()),
+        Err(_) => Err("store".into()),
     }
 }
 

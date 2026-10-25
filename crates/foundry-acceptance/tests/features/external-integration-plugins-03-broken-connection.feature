@@ -79,7 +79,7 @@ Feature: A broken connection is flagged at once and fixed with one reconnect
     When Slack verifies Foundry's Slack events address
     Then Slack's confirmation of Foundry's events address succeeds
 
-  @pending @kpi @contract-shape:bounded-change
+  @kpi @contract-shape:bounded-change
   Scenario: Reconnecting resumes the routes and delivers what was missed
     Given Slack has told Foundry the Foundry app was uninstalled from Canzan Labs
     And Sam has filed "Pin the Keycloak realm export" in Identity Platform
@@ -89,14 +89,14 @@ Feature: A broken connection is flagged at once and fixed with one reconnect
     Then the routes to #auth-dev, #auth-releases and #ops-alerts each read "Delivering"
     And #auth-dev shows AUTH-12's message before AUTH-13's message
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: Reconnecting to the wrong Slack workspace changes nothing
     Given Slack has told Foundry the Foundry app was uninstalled from Canzan Labs
     When Priya reconnects Slack and approves Foundry for the Slack workspace "Canzan Personal"
     Then Priya reads "This is a different Slack workspace (Canzan Personal). Routes stay paused. Reconnect to Canzan Labs, or disconnect."
     And the routes to #auth-dev, #auth-releases and #ops-alerts each read "Paused: connection lost"
 
-  @pending @error @contract-shape:bounded-change
+  @error @contract-shape:bounded-change
   Scenario Outline: A problem with one channel affects only its own route
     Given <problem>
     When Sam files "Rotate LLDAP bind password" in Identity Platform
@@ -109,7 +109,7 @@ Feature: A broken connection is flagged at once and fixed with one reconnect
       | #auth-dev has been archived in Slack            | Needs attention: Foundry can no longer post to #auth-dev (the channel was archived)      |
       | Foundry has been removed from #auth-dev in Slack | Needs attention: Foundry is no longer in #auth-dev. Invite @Foundry back, then Resume. |
 
-  @pending @error @contract-shape:bounded-change
+  @error @contract-shape:bounded-change
   Scenario Outline: Resuming a route checks its channel again
     Given Foundry has been removed from #auth-dev in Slack
     And Sam has filed "Rotate LLDAP bind password" in Identity Platform

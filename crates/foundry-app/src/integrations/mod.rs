@@ -204,6 +204,19 @@ impl Integrations {
     }
 }
 
+/// A route's destination is re-checked through the connection's Slack bot
+/// (Resume, D-8).
+impl foundry_services::integrations::DestinationCatalogs for Integrations {
+    fn catalogue(
+        &self,
+        connection: &foundry_store::integrations::SealedConnection,
+    ) -> Option<Box<dyn foundry_integrations::DestinationCatalog>> {
+        let sealed = connection.sealed_credential.clone()?;
+        let bot = self.slack_bot(connection.id, sealed)?;
+        Some(Box::new(bot))
+    }
+}
+
 /// The shared, replaceable [`Integrations`] (cloning shares it), and the
 /// Send test limit that outlives a replacement.
 #[derive(Clone)]

@@ -485,14 +485,16 @@ impl Services {
     }
 
     /// Pause, resume, edit or delete the project's route (Manage only), with
-    /// its audit record; what is already so changes nothing.
+    /// its audit record; what is already so changes nothing. A route a vendor
+    /// refusal stopped resumes only once the vendor shows its destination
+    /// usable again.
     pub async fn change_route(
         &self,
         principal: &Principal,
         team_slug: &str,
         project_slug: &str,
         route_id: uuid::Uuid,
-        action: integrations::RouteAction,
+        action: integrations::RouteAction<'_>,
         now: time::OffsetDateTime,
     ) -> Result<foundry_store::integrations::RouteChangeOutcome, integrations::IntegrationError>
     {

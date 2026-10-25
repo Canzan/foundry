@@ -643,7 +643,15 @@ type RouteRow = (
 
 /// `route_settings`' row: kind, destination ref and label, events, content
 /// level, lane slugs.
-type SettingsRow = (String, String, String, Vec<String>, String, Vec<String>);
+type SettingsRow = (
+    String,
+    String,
+    String,
+    Vec<String>,
+    String,
+    Vec<String>,
+    Option<String>,
+);
 
 type EventRow = (i64, Uuid, String, String, serde_json::Value, OffsetDateTime);
 
@@ -1227,11 +1235,12 @@ impl Store {
         Ok(RouteChangeOutcome::Changed { cancelled })
     }
 
-    /// Resume a paused route, or one a refusal stopped (DDR-27): it receives
-    /// the events from this transaction's `now()` on, never what it skipped,
-    /// and its problem is cleared; one transaction opening with
-    /// `lock_live_project`, with its `route_resumed` record. A live route
-    /// changes nothing.
+    /// Resume a paused route, or one a refusal stopped, and clear its
+    /// problem; one transaction opening with `lock_live_project`, with its
+    /// `route_resumed` record. A paused route receives the events from this
+    /// transaction's `now()` on, never what it skipped (DDR-27); a route only
+    /// a refusal stopped keeps its waiting deliveries, which are sent now
+    /// (D-8). A live route changes nothing.
     pub async fn resume_route(
         &self,
         change: &RouteChange,
@@ -1244,7 +1253,9 @@ impl Store {
         let resumed = sqlx::query(
             "UPDATE integration_routes
                 SET paused_at = NULL, paused_by = NULL, problem_reason = NULL,
-                    problem_at = NULL, receives_from = now(), updated_at = now()
+                    problem_at = NULL, updated_at = now(),
+                    receives_from = CASE WHEN paused_at IS NULL THEN receives_from
+                                         ELSE now() END
               WHERE id = $1 AND project_id = $2
                 AND (paused_at IS NOT NULL OR problem_reason IS NOT NULL)",
         )
@@ -1495,7 +1506,7 @@ pub struct NewConnection {
     pub connected_at: OffsetDateTime,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConnectionWriteOutcome {
     /// No connection of the kind existed: one row and its audit row.
     Connected,
@@ -1504,6 +1515,11 @@ pub enum ConnectionWriteOutcome {
     /// The workspace's connection of the kind is another row than the one the
     /// credential was sealed for; nothing was written.
     StaleRow,
+    /// The workspace's connection of the kind is to another vendor workspace
+    /// (`external_id`) than the one just approved, labelled
+    /// `connected_label`; nothing was written (US-EIP-06: reconnecting to a
+    /// different Slack workspace changes nothing).
+    OtherWorkspace { connected_label: String },
 }
 
 /// A workspace's connection as its pages show it. Never the credential.
@@ -1562,6 +1578,8 @@ pub struct RouteSettings {
     pub content_level: String,
     /// Slugs of the filter lanes the project still has.
     pub lanes: Vec<String>,
+    /// Why a vendor refusal stopped the route, if one did.
+    pub problem_reason: Option<String>,
 }
 
 /// The newest finished delivery of a route.
@@ -1855,21 +1873,31 @@ impl Store {
         connection: &NewConnection,
     ) -> Result<ConnectionWriteOutcome, StoreError> {
         let mut tx = self.pool.begin().await?;
-        let existing: Option<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM integration_connections
+        let existing: Option<(Uuid, String, String)> = sqlx::query_as(
+            "SELECT id, external_id, label FROM integration_connections
               WHERE workspace_id = $1 AND kind = $2 FOR UPDATE",
         )
         .bind(connection.workspace_id)
         .bind(&connection.kind)
         .fetch_optional(&mut *tx)
         .await?;
-        let outcome = match existing {
-            Some(id) if id != connection.id => {
-                tx.rollback().await?;
-                return Ok(ConnectionWriteOutcome::StaleRow);
+        let refused = match &existing {
+            Some((id, _, _)) if *id != connection.id => Some(ConnectionWriteOutcome::StaleRow),
+            Some((_, external_id, label)) if *external_id != connection.external_id => {
+                Some(ConnectionWriteOutcome::OtherWorkspace {
+                    connected_label: label.clone(),
+                })
             }
-            Some(_) => ConnectionWriteOutcome::Reconnected,
-            None => ConnectionWriteOutcome::Connected,
+            _ => None,
+        };
+        if let Some(refused) = refused {
+            tx.rollback().await?;
+            return Ok(refused);
+        }
+        let outcome = if existing.is_some() {
+            ConnectionWriteOutcome::Reconnected
+        } else {
+            ConnectionWriteOutcome::Connected
         };
         sqlx::query(
             "INSERT INTO integration_connections
@@ -2016,7 +2044,8 @@ impl Store {
         let row: Option<SettingsRow> = sqlx::query_as(
             "SELECT r.kind, r.destination_ref, r.destination_label, r.events, r.content_level,
                     COALESCE(array_agg(x.slug ORDER BY x.position)
-                             FILTER (WHERE x.slug IS NOT NULL), '{}')
+                             FILTER (WHERE x.slug IS NOT NULL), '{}'),
+                    r.problem_reason
                FROM integration_routes r
                LEFT JOIN integration_route_lanes l ON l.route_id = r.id
                LEFT JOIN lanes x ON x.id = l.lane_id AND x.project_id = r.project_id
@@ -2028,7 +2057,15 @@ impl Store {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row.map(
-            |(kind, destination_ref, destination_label, events, content_level, lanes)| {
+            |(
+                kind,
+                destination_ref,
+                destination_label,
+                events,
+                content_level,
+                lanes,
+                problem_reason,
+            )| {
                 RouteSettings {
                     id: route_id,
                     kind,
@@ -2037,6 +2074,7 @@ impl Store {
                     events,
                     content_level,
                     lanes,
+                    problem_reason,
                 }
             },
         ))
