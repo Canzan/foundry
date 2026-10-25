@@ -2986,3 +2986,83 @@ async fn a_destination_is_routed_while_a_route_of_the_workspace_sends_to_it() {
         "no route sends to it once its route is deleted"
     );
 }
+
+// US-EIP-09 (04-04): two routes of the workspace share one Matrix room (from
+// two projects). Deleting one leaves the room routed, so the bot stays for
+// the other; deleting the last one leaves it unrouted, so the bot may leave.
+#[tokio::test]
+async fn a_matrix_room_two_routes_share_stays_routed_until_the_last_is_deleted() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let matrix = Id::now_v7();
+    lab.store
+        .upsert_connection(&NewConnection {
+            id: matrix,
+            workspace_id: lab.ws,
+            kind: "matrix".to_string(),
+            external_id: "https://matrix.canzan.dev".to_string(),
+            app_id: None,
+            bot_user_id: Some("@foundry:canzan.dev".to_string()),
+            label: "matrix.canzan.dev".to_string(),
+            detail: Some("@foundry:canzan.dev".to_string()),
+            sealed_credential: vec![4, 2],
+            connected_by: lab.lena,
+            connected_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .expect("connect Matrix");
+    let ops = Id::now_v7();
+    lab.store
+        .insert_project(ops, lab.ws, lab.team, "Homelab Ops", "ops", "OPS")
+        .await
+        .expect("a second project");
+    const ROOM: &str = "!auth:canzan.dev";
+    let to_the_room = |project: Id| NewRoute {
+        project_id: project,
+        connection_id: Some(matrix),
+        kind: "matrix".to_string(),
+        destination_ref: ROOM.to_string(),
+        destination_label: "#auth:canzan.dev".to_string(),
+        lanes: Vec::new(),
+        ..lab.route_spec(ROOM)
+    };
+    let mut routes = Vec::new();
+    for project in [lab.auth, ops] {
+        match lab.store.create_route(&to_the_room(project)).await {
+            Ok(RouteWriteOutcome::Created(id)) => routes.push((project, id)),
+            other => panic!("the route to the room is created: {other:?}"),
+        }
+    }
+    let routed = || async {
+        lab.store
+            .destination_routed(lab.ws, "matrix", ROOM)
+            .await
+            .expect("routed")
+    };
+    let delete = |(project, route): (Id, Id)| RouteChange {
+        project_id: project,
+        route_id: route,
+        actor_id: lab.lena,
+        via: "web".to_string(),
+        at: OffsetDateTime::now_utc(),
+    };
+    assert!(routed().await, "control: both routes send to the room");
+    lab.store
+        .delete_route(&delete(routes[0]))
+        .await
+        .expect("delete the first route");
+    assert!(
+        routed().await,
+        "the other project's route still sends to the room"
+    );
+    lab.store
+        .delete_route(&delete(routes[1]))
+        .await
+        .expect("delete the last route");
+    assert!(
+        !routed().await,
+        "no route sends to the room once both are deleted"
+    );
+}

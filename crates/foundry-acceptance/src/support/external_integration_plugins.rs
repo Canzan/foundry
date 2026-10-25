@@ -651,6 +651,13 @@ pub struct EipState {
     /// answer Foundry's next post to #auth-dev with …"): a later "Sam has
     /// filed …" waits until Slack has been asked and Foundry has recorded it.
     pub scripted_answer_channel: Option<String>,
+    /// The homeserver has a scripted answer for Foundry's next send (a fault
+    /// armed, or no answer at all): a later "Sam has filed …" waits until
+    /// Foundry's first send has reached the homeserver, as Slack's does.
+    pub homeserver_scripted: bool,
+    /// The room of the scenario's last Matrix route (whose history tells
+    /// when Foundry has recorded the homeserver's answer).
+    pub matrix_destination: Option<String>,
 }
 
 impl std::fmt::Debug for EipState {
@@ -1707,6 +1714,9 @@ pub async fn given_routed(world: &mut FoundryWorld, who: &str, route: Route) {
     let answer = post(world, who, &path, &fields, true).await;
     let answer = follow(world, who, answer).await;
     went_through(&answer, &format!("{who}'s route to {}", route.destination));
+    if route.kind == Kind::Matrix {
+        world.eip.matrix_destination = Some(route.destination.clone());
+    }
     let status = route_status(world, &route.project, &route.destination).await;
     assert!(
         status.is_some(),
@@ -5531,9 +5541,13 @@ pub async fn then_notice(world: &mut FoundryWorld, room: &str, bold: &str, line:
     panic!("{room} shows a notice with {bold:?} within {DELIVERY_BUDGET:?}");
 }
 
+/// The room shows a notice carrying `wanted`, within the arrival window (the
+/// 10 s delivery budget, or 45 s once the homeserver was silent: a send left
+/// hanging must hit Foundry's client timeout before its retry can deliver).
 pub async fn then_notice_text(world: &mut FoundryWorld, room: &str, wanted: &str) {
+    let window = arrival_window(world);
     let start = Instant::now();
-    while start.elapsed() < DELIVERY_BUDGET {
+    while start.elapsed() < window {
         if matrix_notices(world, room).await.iter().any(|n| {
             n["content"]["body"]
                 .as_str()
@@ -5544,7 +5558,7 @@ pub async fn then_notice_text(world: &mut FoundryWorld, room: &str, wanted: &str
         }
         tokio::time::sleep(POLL).await;
     }
-    panic!("{room} shows a notice {wanted:?}");
+    panic!("{room} shows a notice {wanted:?} within {window:?}");
 }
 
 pub async fn then_no_notice_about(world: &mut FoundryWorld, room: &str, key: &str) {
@@ -5715,6 +5729,11 @@ pub async fn given_filed(
     title: &str,
     shown: bool,
 ) {
+    let attempts_before = world
+        .eip
+        .proxy
+        .as_ref()
+        .map(|p| p.requests_to(mx::ATTEMPT_PATH));
     let key = file(world, who, project, title).await;
     if shown {
         then_shows_key(world, "#auth-dev", &key).await;
@@ -5742,12 +5761,73 @@ pub async fn given_filed(
             "Foundry has asked Slack to post the message",
         )
         .await;
+    } else if world.eip.homeserver_scripted {
+        // The homeserver has a scripted answer for Foundry's next send (as
+        // Slack's path above): the filing is a precondition only once
+        // Foundry's first attempt has reached the homeserver (its pre-send
+        // read of the room's encryption) and the route's history shows it,
+        // so the When's clock move or healing comes after that attempt, never
+        // before the dispatcher has created the delivery. An armed answer is
+        // settled once Foundry has recorded it; a send the homeserver never
+        // answers stays in flight into the When.
+        homeserver_attempted(world, attempts_before.unwrap_or(0)).await;
+        let room = world
+            .eip
+            .matrix_destination
+            .clone()
+            .expect("a Given routed the project to a Matrix room");
+        delivery_attempted(world, &room, &key).await;
+        if !world.eip.silence_seen {
+            delivery_settled(world, &room, &key).await;
+        }
     }
 }
 
+/// Wait until Foundry has begun more send attempts at the homeserver than
+/// `before`: the delivery has been dispatched and its first attempt made.
+async fn homeserver_attempted(world: &FoundryWorld, before: usize) {
+    let proxy = world
+        .eip
+        .proxy
+        .as_ref()
+        .expect("the homeserver's fault proxy");
+    let start = Instant::now();
+    while start.elapsed() < DELIVERY_BUDGET {
+        if proxy.requests_to(mx::ATTEMPT_PATH) > before {
+            return;
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    panic!(
+        "Foundry attempts to send the notice to the homeserver within {DELIVERY_BUDGET:?}; \
+         {} attempt(s) reached it, {before} before the filing",
+        proxy.requests_to(mx::ATTEMPT_PATH)
+    );
+}
+
+/// Wait until the route's history shows `key`'s delivery attempted: no
+/// longer "Waiting" (Foundry has claimed it and begun its first attempt).
+async fn delivery_attempted(world: &mut FoundryWorld, channel: &str, key: &str) {
+    let start = Instant::now();
+    let mut entries = Vec::new();
+    while start.elapsed() < STATUS_BUDGET {
+        let page = open_history(world, "Lena", channel).await;
+        entries = texts_of(&page.body, "[data-delivery]");
+        if entries
+            .iter()
+            .any(|e| e.contains(&format!(" · {key} · ")) && !e.ends_with(" · Waiting"))
+        {
+            return;
+        }
+        tokio::time::sleep(POLL).await;
+    }
+    panic!("Foundry begins sending {key}'s message to {channel}; history {entries:?}");
+}
+
 /// Wait until the route's history shows `key`'s delivery past its first
-/// attempt: no longer "Waiting" or "Sending", so Foundry has recorded Slack's
-/// answer (delivered, retrying, failed or skipped).
+/// attempt: no longer "Waiting" or "Sending", so Foundry has recorded what
+/// Slack or the homeserver answered, or its silence (delivered, retrying,
+/// failed or skipped).
 async fn delivery_settled(world: &mut FoundryWorld, channel: &str, key: &str) {
     let start = Instant::now();
     let mut entries = Vec::new();
@@ -5764,7 +5844,7 @@ async fn delivery_settled(world: &mut FoundryWorld, channel: &str, key: &str) {
         }
         tokio::time::sleep(POLL).await;
     }
-    panic!("Foundry records Slack's answer to {key}'s post to {channel}; history {entries:?}");
+    panic!("Foundry records the answer to {key}'s message to {channel}; history {entries:?}");
 }
 
 /// Wait until Slack has been asked at least once to post to `channel`
@@ -5996,6 +6076,7 @@ pub async fn then_history_lists(
 pub fn homeserver_answers(world: &mut FoundryWorld, answers: bool) {
     if !answers {
         world.eip.silence_seen = true;
+        world.eip.homeserver_scripted = true;
     }
     let proxy = world
         .eip
@@ -6030,6 +6111,7 @@ pub fn then_in_front_reads(world: &FoundryWorld, wanted: &str) {
 
 /// "the homeserver will answer Foundry's next send with …".
 pub fn homeserver_next_answer(world: &mut FoundryWorld, answer: &str) {
+    world.eip.homeserver_scripted = true;
     let proxy = world
         .eip
         .proxy

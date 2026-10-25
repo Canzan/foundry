@@ -283,7 +283,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
       | chooses Disconnect Matrix       |
       | confirms a disconnect of Matrix |
 
-  @pending @us-eip-09 @error @contract-shape:bounded-change
+  @us-eip-09 @error @contract-shape:bounded-change
   Scenario: A notice waiting for an unreachable homeserver arrives when it answers again
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -323,7 +323,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
       | Summary                   | without |
       | Summary with comment text | with    |
 
-  @pending @us-eip-09 @error @contract-shape:bounded-change
+  @us-eip-09 @error @contract-shape:bounded-change
   Scenario Outline: A homeserver that asks Foundry to wait, or fails, is retried
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -340,7 +340,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
       | a request to slow down for 30 seconds  |
       | a server error                         |
 
-  @pending @us-eip-09 @error @contract-shape:unbounded-preservation
+  @us-eip-09 @error @contract-shape:unbounded-preservation
   Scenario: A homeserver's request to wait longer than Foundry's own backoff is honoured
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev

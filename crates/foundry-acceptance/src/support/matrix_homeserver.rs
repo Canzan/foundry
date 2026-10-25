@@ -487,6 +487,10 @@ pub const PROXY_SILENT: u8 = 1;
 /// The client-server path of a message send.
 pub const SEND_PATH: &str = "/send/m.room.message/";
 
+/// The read every send attempt begins with: Foundry reads the room's
+/// encryption again before it sends (an encrypted room is never sent to).
+pub const ATTEMPT_PATH: &str = "/state/m.room.encryption/";
+
 struct CountingListener {
     inner: TcpListener,
     state: Arc<ProxyState>,
