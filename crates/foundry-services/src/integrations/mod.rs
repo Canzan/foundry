@@ -13,6 +13,12 @@
 //! - [`create_route`]: a route the destination check accepted becomes one
 //!   route row, its lane rows and one audit row (DDR-25: saving never sends).
 //! - [`route_history`]: a route's deliveries, newest first (Manage only).
+//! - [`managed_route`]: what the edit form and the delete dialog show of a
+//!   route (Manage only).
+//! - [`change_route`]: pause, resume, edit or delete a route, one change and
+//!   its audit record (Manage only). A pause skips the route's waiting
+//!   deliveries the pure `cancel_set` names (DD-8); asking for what already
+//!   is so writes nothing.
 //!
 //! Every refusal is [`IntegrationError::NotFound`], which each door answers
 //! with its uniform 404. The use-cases read and write through
@@ -24,9 +30,11 @@ mod store_impls;
 use crate::Principal;
 use foundry_auth::secret_box::SealedSecret;
 use foundry_core::TeamAccess;
+use foundry_integrations::{cancel_set, TargetedDelivery};
 use foundry_store::integrations::{
-    AuditRow, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow, DeliveryIssue,
-    NewConnection, NewRoute, ProjectRoute, RouteLane, RouteWriteOutcome, SealedConnection,
+    AuditRow, CancelCandidate, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow,
+    DeliveryIssue, NewConnection, NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome,
+    RouteEdit, RouteLane, RouteSettings, RouteWriteOutcome, SealedConnection,
 };
 use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
@@ -87,6 +95,23 @@ pub(crate) trait IntegrationRecords: Sync {
         route_id: Uuid,
         limit: i64,
     ) -> Result<Vec<DeliveryHistoryRow>, StoreError>;
+    async fn route_settings(
+        &self,
+        project_id: Uuid,
+        route_id: Uuid,
+    ) -> Result<Option<RouteSettings>, StoreError>;
+    async fn pause_route(
+        &self,
+        change: &RouteChange,
+        plan: impl FnOnce(&[CancelCandidate]) -> Vec<i64> + Send,
+    ) -> Result<RouteChangeOutcome, StoreError>;
+    async fn resume_route(&self, change: &RouteChange) -> Result<RouteChangeOutcome, StoreError>;
+    async fn edit_route(
+        &self,
+        change: &RouteChange,
+        edit: &RouteEdit,
+    ) -> Result<RouteChangeOutcome, StoreError>;
+    async fn delete_route(&self, change: &RouteChange) -> Result<RouteChangeOutcome, StoreError>;
 }
 
 /// The events a chat route may choose (D-2).
@@ -196,6 +221,32 @@ pub struct RouteDraft {
     /// Lane slugs Issue moved is limited to (empty: any lane).
     pub lanes: Vec<String>,
     pub shared_confirmed: bool,
+}
+
+/// A route as its edit form and delete dialog show it, with the door's
+/// target (the project, its lanes and the workspace's Slack connection).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ManagedRoute {
+    pub target: RouteTarget,
+    pub route: RouteSettings,
+}
+
+/// A route edit as its form submitted it (the destination stays).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteEditDraft {
+    pub events: Vec<String>,
+    pub content_level: String,
+    /// Lane slugs Issue moved is limited to (empty: any lane).
+    pub lanes: Vec<String>,
+}
+
+/// The four route changes a lead may ask for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouteAction {
+    Pause,
+    Resume,
+    Edit(RouteEditDraft),
+    Delete,
 }
 
 /// Admins only, else [`IntegrationError::NotFound`].
@@ -401,30 +452,11 @@ pub(crate) async fn create_route(
     now: OffsetDateTime,
 ) -> Result<Uuid, IntegrationError> {
     let target = route_target(records, principal, team_slug, project_slug).await?;
-    let connection = target.connection.ok_or(IntegrationError::NotFound)?;
-    let events_ok = !draft.events.is_empty()
-        && draft
-            .events
-            .iter()
-            .all(|event| CHAT_EVENTS.contains(&event.as_str()));
-    if !events_ok || !CONTENT_LEVELS.contains(&draft.content_level.as_str()) {
-        return Err(IntegrationError::NotFound);
-    }
-    let lanes = draft
-        .lanes
-        .iter()
-        .map(|slug| {
-            target
-                .lanes
-                .iter()
-                .find(|lane| &lane.slug == slug)
-                .map(|lane| RouteLane {
-                    lane_id: lane.id,
-                    label_at_save: lane.label.clone(),
-                })
-                .ok_or(IntegrationError::NotFound)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let connection = target
+        .connection
+        .clone()
+        .ok_or(IntegrationError::NotFound)?;
+    let lanes = checked_choices(&target, &draft.events, &draft.content_level, &draft.lanes)?;
     let route = NewRoute {
         workspace_id: target.workspace_id,
         project_id: target.project_id,
@@ -444,6 +476,114 @@ pub(crate) async fn create_route(
         RouteWriteOutcome::Created(id) => Ok(id),
         RouteWriteOutcome::ProjectDeleted => Err(IntegrationError::NotFound),
     }
+}
+
+/// Events within the chat events and at least one, a known content level,
+/// and lanes of the project (by slug), else not found.
+fn checked_choices(
+    target: &RouteTarget,
+    events: &[String],
+    content_level: &str,
+    lane_slugs: &[String],
+) -> Result<Vec<RouteLane>, IntegrationError> {
+    let events_ok = !events.is_empty()
+        && events
+            .iter()
+            .all(|event| CHAT_EVENTS.contains(&event.as_str()));
+    if !events_ok || !CONTENT_LEVELS.contains(&content_level) {
+        return Err(IntegrationError::NotFound);
+    }
+    lane_slugs
+        .iter()
+        .map(|slug| {
+            target
+                .lanes
+                .iter()
+                .find(|lane| &lane.slug == slug)
+                .map(|lane| RouteLane {
+                    lane_id: lane.id,
+                    label_at_save: lane.label.clone(),
+                })
+                .ok_or(IntegrationError::NotFound)
+        })
+        .collect()
+}
+
+/// Manage only: the project's route `route_id` as its edit form and delete
+/// dialog show it; a route of another project is not found.
+pub(crate) async fn managed_route(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    route_id: Uuid,
+) -> Result<ManagedRoute, IntegrationError> {
+    let target = route_target(records, principal, team_slug, project_slug).await?;
+    let route = records
+        .route_settings(target.project_id, route_id)
+        .await?
+        .ok_or(IntegrationError::NotFound)?;
+    Ok(ManagedRoute { target, route })
+}
+
+/// Manage only: one change of the project's route `route_id`, with its audit
+/// record. A pause skips exactly what [`cancel_set`] names at `now`; an edit
+/// is checked as a new route is. A route already so (or already gone)
+/// changes nothing.
+pub(crate) async fn change_route(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    team_slug: &str,
+    project_slug: &str,
+    route_id: Uuid,
+    action: RouteAction,
+    now: OffsetDateTime,
+) -> Result<RouteChangeOutcome, IntegrationError> {
+    let target = route_target(records, principal, team_slug, project_slug).await?;
+    let change = RouteChange {
+        project_id: target.project_id,
+        route_id,
+        actor_id: principal.user_id(),
+        via: "web".to_string(),
+        at: now,
+    };
+    let outcome = match action {
+        RouteAction::Pause => {
+            records
+                .pause_route(&change, |candidates| {
+                    cancel_set(route_id, now, &targeted(candidates))
+                })
+                .await?
+        }
+        RouteAction::Resume => records.resume_route(&change).await?,
+        RouteAction::Edit(draft) => {
+            let lanes =
+                checked_choices(&target, &draft.events, &draft.content_level, &draft.lanes)?;
+            let edit = RouteEdit {
+                events: draft.events,
+                content_level: draft.content_level,
+                lanes,
+            };
+            records.edit_route(&change, &edit).await?
+        }
+        RouteAction::Delete => records.delete_route(&change).await?,
+    };
+    match outcome {
+        RouteChangeOutcome::ProjectDeleted => Err(IntegrationError::NotFound),
+        outcome => Ok(outcome),
+    }
+}
+
+fn targeted(candidates: &[CancelCandidate]) -> Vec<TargetedDelivery> {
+    candidates
+        .iter()
+        .map(|candidate| TargetedDelivery {
+            id: candidate.id,
+            target: candidate.route_id,
+            finished: candidate.finished,
+            lease_until: candidate.lease_until,
+        })
+        .collect()
 }
 
 /// K-1: "Connected to {slack_team} ({slack_domain}) · by {admin_name} · {date}".

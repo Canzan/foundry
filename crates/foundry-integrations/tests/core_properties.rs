@@ -6,11 +6,11 @@
 //! (`proptest = "1"`, already locked) or a table test.
 
 use foundry_integrations::{
-    claimable_head, classify_slack, compose, encode_slack, expiry_set, issue_url, prune_set,
-    Attempt, Attention, ChannelKind, ChannelOutcome, ConnectionState, ContentLevel, DispatchPlan,
-    EventKind, EventView, FilterLane, FinishedDelivery, Jitter, OutboxRow, QueuedDelivery,
-    ReasonCode, RetainedDelivery, RetainedOutboxRow, RetryPolicy, RouteFacts, RouteSpec,
-    RouteStatus, Settlement, SlackAnswer, RETAINED_PER_ROUTE,
+    cancel_set, claimable_head, classify_slack, compose, encode_slack, expiry_set, issue_url,
+    prune_set, Attempt, Attention, ChannelKind, ChannelOutcome, ConnectionState, ContentLevel,
+    DispatchPlan, EventKind, EventView, FilterLane, FinishedDelivery, Jitter, OutboxRow,
+    QueuedDelivery, ReasonCode, RetainedDelivery, RetainedOutboxRow, RetryPolicy, RouteFacts,
+    RouteSpec, RouteStatus, Settlement, SlackAnswer, TargetedDelivery, RETAINED_PER_ROUTE,
 };
 use proptest::prelude::*;
 use std::collections::BTreeSet;
@@ -52,11 +52,6 @@ pending!(
     "table over recorded Matrix answers (401, 403, 429 retry_after_ms, 5xx, unknown errcode)"
 );
 // plan functions (claim and sweeps).
-pending!(
-    cancel_set_is_exactly_the_targets_unleased_non_terminal_rows,
-    "03-03",
-    "proptest: exactly the target's unleased non-terminal deliveries"
-);
 // address judge (DDR-14).
 pending!(judge_refuses_every_reserved_range_and_mapped_form, "04-01", "proptest: loopback, link-local, metadata, 0/8, 240/4, documentation and benchmark ranges, IPv4-mapped, NAT64, 6to4, decimal literals; private only via the allow-list; a port-less address defaults to 443 before judging. Carries the 04-matrix rows DISTILL moved out of acceptance (link-local 169.254.169.254, private 10.0.0.5, port-less https://10.0.0.5): nothing listens there, so only the judge can pin them");
 
@@ -305,6 +300,47 @@ proptest! {
             .collect();
 
         let chosen = expiry_set(now, &deliveries);
+        let as_set: BTreeSet<i64> = chosen.iter().copied().collect();
+
+        prop_assert_eq!(chosen.len(), as_set.len(), "no id twice");
+        prop_assert_eq!(as_set, expected);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 03-03: the cancel set of a pause (DD-8).
+// ---------------------------------------------------------------------------
+
+/// Two targets, so another target's rows are always in play.
+fn target(index: u8) -> Uuid {
+    Uuid::from_u128(0x0303_0000 + u128::from(index))
+}
+
+proptest! {
+    #[test]
+    fn cancel_set_is_exactly_the_targets_unleased_non_terminal_rows(
+        deliveries in proptest::collection::vec(
+            (0u8..2, any::<bool>(), maybe_at()), 0..10
+        ).prop_map(|rows| rows.into_iter().enumerate().map(|(index, (whose, finished, lease))| {
+            TargetedDelivery {
+                id: 1 + index as i64,
+                target: target(whose),
+                finished,
+                lease_until: lease,
+            }
+        }).collect::<Vec<_>>()),
+        whose in 0u8..2,
+        now in (-3i64..=3).prop_map(at),
+    ) {
+        let chosen_target = target(whose);
+        let expected: BTreeSet<i64> = deliveries
+            .iter()
+            .filter(|d| d.target == chosen_target && !d.finished)
+            .filter(|d| d.lease_until.is_none_or(|until| until <= now))
+            .map(|d| d.id)
+            .collect();
+
+        let chosen = cancel_set(chosen_target, now, &deliveries);
         let as_set: BTreeSet<i64> = chosen.iter().copied().collect();
 
         prop_assert_eq!(chosen.len(), as_set.len(), "no id twice");

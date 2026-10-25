@@ -868,6 +868,26 @@ pub fn build_router(state: AppState) -> Router {
             "/team/{team_slug}/project/{project_slug}/integrations/routes/{route_id}/history",
             get(integrations::handlers::show_route_history),
         )
+        // US-EIP-07: pause, resume, edit and delete a route (Manage only),
+        // each audited. Delete is a GET dialog plus a POST confirm; every
+        // POST carries the double-submit token.
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations/routes/{route_id}/pause",
+            post(integrations::handlers::pause_route),
+        )
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations/routes/{route_id}/resume",
+            post(integrations::handlers::resume_route),
+        )
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations/routes/{route_id}/edit",
+            get(integrations::handlers::show_edit_route).post(integrations::handlers::edit_route),
+        )
+        .route(
+            "/team/{team_slug}/project/{project_slug}/integrations/routes/{route_id}/delete",
+            get(integrations::handlers::show_delete_route)
+                .post(integrations::handlers::delete_route),
+        )
         .route("/", get(signin::dashboard_root))
         // Non-enumerability (ADR-002, web-provisioning-flow): a path with NO
         // route is refused with the SAME uniform `resource_not_found_page()` the

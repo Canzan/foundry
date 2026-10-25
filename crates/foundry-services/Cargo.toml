@@ -29,6 +29,9 @@ test-support = []
 foundry-core = { path = "../foundry-core" }
 foundry-store = { path = "../foundry-store" }
 foundry-auth = { path = "../foundry-auth" }
+# external-integration-plugins: the pure planners a use-case applies (the
+# pause's cancel_set); deny.toml lets foundry-services wrap the core.
+foundry-integrations = { path = "../foundry-integrations" }
 uuid = { workspace = true }
 thiserror = { workspace = true }
 time = { workspace = true }

@@ -9,6 +9,17 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ### Added
 
+- **Pause, resume, edit and delete a route**: a project's integrations page offers Pause (or
+  Resume), Edit and Delete on each route, for its team's leads and workspace admins. A paused
+  route reads "Paused"; what it was still waiting to send is dropped, and what happens while it
+  is paused is never sent later. A resumed route posts what happens from the resume on, and
+  Resume also restarts a route Slack had stopped. Editing a route's events, content level or
+  lanes applies to the next event. Delete asks first ("Delete the route to #auth-dev? Identity
+  Platform stops posting there. Messages already in Slack stay.") and then removes the route and
+  what it was waiting to send; messages already in Slack stay. Each change adds an activity
+  line ("21 Oct 2026 · Lena Park paused the route to #auth-dev", and resumed, edited, deleted);
+  pausing a paused route or resuming a live one changes nothing and adds none. All of it works
+  without scripting.
 - **Slack connection for workspace admins**: `/workspace/integrations` lets a workspace admin
   connect the workspace's Slack in one approval (Add to Slack), then shows "Connected to {team}
   ({domain}) · by {admin} · {date}" and an activity list ("21 Oct 2026 · Priya Raman connected

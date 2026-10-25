@@ -471,6 +471,43 @@ impl Services {
             .await
     }
 
+    /// The project's route as its edit form and delete dialog show it
+    /// (Manage only), else [`integrations::IntegrationError::NotFound`].
+    pub async fn managed_route(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        route_id: uuid::Uuid,
+    ) -> Result<integrations::ManagedRoute, integrations::IntegrationError> {
+        integrations::managed_route(&*self.store, principal, team_slug, project_slug, route_id)
+            .await
+    }
+
+    /// Pause, resume, edit or delete the project's route (Manage only), with
+    /// its audit record; what is already so changes nothing.
+    pub async fn change_route(
+        &self,
+        principal: &Principal,
+        team_slug: &str,
+        project_slug: &str,
+        route_id: uuid::Uuid,
+        action: integrations::RouteAction,
+        now: time::OffsetDateTime,
+    ) -> Result<foundry_store::integrations::RouteChangeOutcome, integrations::IntegrationError>
+    {
+        integrations::change_route(
+            &*self.store,
+            principal,
+            team_slug,
+            project_slug,
+            route_id,
+            action,
+            now,
+        )
+        .await
+    }
+
     /// multi-workspace-provisioning (US-MWT07, ADR-002/003) — provision a NEW
     /// isolated workspace + its first admin, gated by the INSTANCE super-admin
     /// authority. Delegates to [`provisioning::provision_workspace`].

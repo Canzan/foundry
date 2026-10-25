@@ -26,6 +26,15 @@
 //!   with another organisation is saved only with the K-6 tick.
 //! - `GET …/integrations/routes/{route_id}/history`: every delivery of the
 //!   route, newest first, in Foundry's words (US-EIP-05, Manage).
+//! - `POST …/integrations/routes/{route_id}/pause` and `…/resume`: pause
+//!   (its waiting deliveries skipped, DD-8) or resume (receives what happens
+//!   from now, DDR-27; a refusal's stop cleared) the route, audited; asking
+//!   for what is already so changes nothing (Manage).
+//! - `GET`/`POST …/integrations/routes/{route_id}/edit`: the route form for
+//!   the route, and its save: events, content level and lanes (Manage).
+//! - `GET …/integrations/routes/{route_id}/delete`: the delete question; its
+//!   `POST` deletes the route and what it was waiting to send, never a
+//!   message already posted (Manage).
 //! - `POST /integrations/slack/events`: Slack's Events API (DDR-11,
 //!   ADR-EIP-005 decision 6), a machine post with no session, believed only
 //!   when Slack signed it (401 otherwise): it answers Slack's address check
@@ -54,8 +63,8 @@ use foundry_integrations::{
     FinishedDelivery, MessageLines, ReasonCode, RouteFacts, RouteStatus,
 };
 use foundry_services::integrations::{
-    IntegrationError, LostSlack, ProjectIntegrations, RouteDraft, RouteHistory, RoutePreview,
-    RouteTarget, SlackInstall, WorkspaceIntegrations,
+    IntegrationError, LostSlack, ManagedRoute, ProjectIntegrations, RouteAction, RouteDraft,
+    RouteEditDraft, RouteHistory, RoutePreview, RouteTarget, SlackInstall, WorkspaceIntegrations,
 };
 use foundry_services::{Principal, Services};
 use foundry_store::integrations::{ConnectionWriteOutcome, DeliveryHistoryRow, ProjectRoute};
@@ -82,6 +91,9 @@ pub const CANNOT_POST: &str = "Foundry cannot post to that channel. Choose anoth
 /// K-5, for the chosen `{destination}`.
 pub const AUDIENCE: &str =
     "Everyone who can read {destination} will see what this route sends. Foundry cannot check who that is.";
+/// US-EIP-07's delete question, for the route to `{destination}`.
+pub const DELETE_QUESTION: &str =
+    "Delete the route to {destination}? {project} stops posting there. Messages already in {kind} stay.";
 /// K-6, for the chosen `{destination}`.
 pub const SHARED_CHANNEL: &str =
     "{destination} is shared with another organisation. Tick to confirm that is intended.";
@@ -112,6 +124,7 @@ struct SetupPage {
 #[template(path = "integrations/project.html")]
 struct ProjectPage {
     nav: crate::nav::NavContext,
+    csrf: String,
     project_name: String,
     new_route_path: String,
     routes: Vec<RouteLine>,
@@ -123,6 +136,22 @@ struct RouteLine {
     destination_label: String,
     status: String,
     history_path: String,
+    edit_path: String,
+    delete_path: String,
+    /// Pause, or Resume for a route paused or stopped by a refusal.
+    toggle_path: String,
+    toggle_label: &'static str,
+}
+
+#[derive(Template)]
+#[template(path = "integrations/route_delete.html")]
+struct RouteDeletePage {
+    nav: crate::nav::NavContext,
+    csrf: String,
+    destination_label: String,
+    question: String,
+    delete_path: String,
+    routes_path: String,
 }
 
 #[derive(Template)]
@@ -140,8 +169,9 @@ struct RouteHistoryPage {
 struct RouteFormPage {
     nav: crate::nav::NavContext,
     csrf: String,
-    project_name: String,
-    routes_path: String,
+    heading: String,
+    /// Where Save posts: the new route, or the edited one.
+    action_path: String,
     test_path: String,
     preview_path: String,
     notice: Option<String>,
@@ -451,7 +481,8 @@ pub async fn show_project(
     let base = base_path(&team_slug, &project_slug);
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
     let page = ProjectPage {
-        nav: caller.nav(&state, csrf).await,
+        nav: caller.nav(&state, csrf.clone()).await,
+        csrf,
         project_name,
         new_route_path: format!("{base}/routes/new?kind=slack"),
         routes: routes
@@ -707,6 +738,190 @@ pub async fn create_route(
     }
 }
 
+pub async fn pause_route(
+    State(state): State<AppState>,
+    session: Session,
+    Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
+) -> Response {
+    change_route(
+        &state,
+        &session,
+        &team_slug,
+        &project_slug,
+        &route_id,
+        RouteAction::Pause,
+    )
+    .await
+}
+
+pub async fn resume_route(
+    State(state): State<AppState>,
+    session: Session,
+    Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
+) -> Response {
+    change_route(
+        &state,
+        &session,
+        &team_slug,
+        &project_slug,
+        &route_id,
+        RouteAction::Resume,
+    )
+    .await
+}
+
+pub async fn edit_route(
+    State(state): State<AppState>,
+    session: Session,
+    Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
+    Form(fields): Form<Vec<(String, String)>>,
+) -> Response {
+    let form = RouteForm::read(&fields);
+    let draft = RouteEditDraft {
+        events: form.events,
+        content_level: form.content_level,
+        lanes: form.lanes,
+    };
+    let action = RouteAction::Edit(draft);
+    change_route(
+        &state,
+        &session,
+        &team_slug,
+        &project_slug,
+        &route_id,
+        action,
+    )
+    .await
+}
+
+pub async fn delete_route(
+    State(state): State<AppState>,
+    session: Session,
+    Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
+) -> Response {
+    change_route(
+        &state,
+        &session,
+        &team_slug,
+        &project_slug,
+        &route_id,
+        RouteAction::Delete,
+    )
+    .await
+}
+
+/// One route change, then back to the project's integrations page (also
+/// when the route already was so).
+async fn change_route(
+    state: &AppState,
+    session: &Session,
+    team_slug: &str,
+    project_slug: &str,
+    route_id: &str,
+    action: RouteAction,
+) -> Response {
+    let Some(caller) = Caller::of(state, session).await else {
+        return sign_in();
+    };
+    let Ok(route_id) = uuid::Uuid::parse_str(route_id) else {
+        return resource_not_found_page();
+    };
+    let changed = caller
+        .services
+        .change_route(
+            &caller.principal(),
+            team_slug,
+            project_slug,
+            route_id,
+            action,
+            state.clock.now(),
+        )
+        .await;
+    match changed {
+        Ok(_) => Redirect::to(&base_path(team_slug, project_slug)).into_response(),
+        Err(err) => refusal(err),
+    }
+}
+
+/// The project's route `route_id` for its edit form or delete dialog.
+async fn managed_route(
+    caller: &Caller,
+    team_slug: &str,
+    project_slug: &str,
+    route_id: &str,
+) -> Result<ManagedRoute, Response> {
+    let route_id = uuid::Uuid::parse_str(route_id).map_err(|_| resource_not_found_page())?;
+    caller
+        .services
+        .managed_route(&caller.principal(), team_slug, project_slug, route_id)
+        .await
+        .map_err(refusal)
+}
+
+pub async fn show_edit_route(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
+) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return sign_in();
+    };
+    let ManagedRoute { target, route } =
+        match managed_route(&caller, &team_slug, &project_slug, &route_id).await {
+            Ok(managed) => managed,
+            Err(response) => return response,
+        };
+    let form = RouteForm {
+        destination: route.destination_ref.clone(),
+        events: route.events,
+        content_level: route.content_level,
+        lanes: route.lanes,
+        ..RouteForm::default()
+    };
+    let door = RouteDoor::at(&state, target, &team_slug, &project_slug).editing(
+        route.id,
+        Destination {
+            reference: DestinationRef(route.destination_ref),
+            label: route.destination_label,
+            shared_with_another_organisation: false,
+        },
+    );
+    door.form(&state, &caller, &headers, &form, FormAnswer::plain())
+        .await
+}
+
+pub async fn show_delete_route(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
+) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return sign_in();
+    };
+    let ManagedRoute { target, route } =
+        match managed_route(&caller, &team_slug, &project_slug, &route_id).await {
+            Ok(managed) => managed,
+            Err(response) => return response,
+        };
+    let kind = ChannelKind::from_wire_name(&route.kind).unwrap_or(ChannelKind::Slack);
+    let base = base_path(&team_slug, &project_slug);
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let page = RouteDeletePage {
+        nav: caller.nav(&state, csrf.clone()).await,
+        csrf,
+        question: DELETE_QUESTION
+            .replace("{destination}", &route.destination_label)
+            .replace("{project}", &target.project_name)
+            .replace("{kind}", kind.display_name()),
+        destination_label: route.destination_label,
+        delete_path: format!("{base}/routes/{}/delete", route.id),
+        routes_path: base,
+    };
+    render(page.render(), set_cookie)
+}
+
 /// The channel the form names, when Slack lists it among those Foundry can
 /// post to (the destination check before any write).
 async fn postable_destination(
@@ -727,6 +942,11 @@ struct RouteDoor {
     target: RouteTarget,
     bot: Option<super::slack::SlackBot>,
     routes_path: String,
+    /// Where Save posts: `routes_path`, or the edited route's edit path.
+    action_path: String,
+    /// The edited route's destination: the only channel its form offers
+    /// (an edit keeps its destination and asks Slack nothing).
+    editing: Option<Destination>,
 }
 
 impl RouteDoor {
@@ -754,16 +974,31 @@ impl RouteDoor {
                 .current()
                 .slack_bot(connection.id, sealed)
         });
+        let routes_path = format!("{}/routes", base_path(team_slug, project_slug));
         Self {
             target,
             bot,
-            routes_path: format!("{}/routes", base_path(team_slug, project_slug)),
+            action_path: routes_path.clone(),
+            routes_path,
+            editing: None,
+        }
+    }
+
+    /// The door for editing the route `route_id` to `destination`.
+    fn editing(self, route_id: uuid::Uuid, destination: Destination) -> Self {
+        Self {
+            action_path: format!("{}/{route_id}/edit", self.routes_path),
+            editing: Some(destination),
+            ..self
         }
     }
 
     /// The channels the picker offers: Slack's list, or for a preview only the
     /// channel the form names, since a preview asks Slack nothing.
     async fn channels(&self, form: &RouteForm, answer: &FormAnswer) -> Vec<Destination> {
+        if let Some(destination) = &self.editing {
+            return vec![destination.clone()];
+        }
         match &self.bot {
             Some(bot) if answer.asks_slack() => bot.list_destinations().await.unwrap_or_default(),
             Some(_) if !form.destination.is_empty() => vec![Destination {
@@ -795,8 +1030,11 @@ impl RouteDoor {
         let page = RouteFormPage {
             nav: caller.nav(state, csrf.clone()).await,
             csrf,
-            project_name: self.target.project_name.clone(),
-            routes_path: self.routes_path.clone(),
+            heading: match &self.editing {
+                Some(destination) => format!("Edit the route to {}", destination.label),
+                None => format!("New Slack route for {}", self.target.project_name),
+            },
+            action_path: self.action_path.clone(),
             test_path: format!("{}/test", self.routes_path),
             preview_path: format!("{}/preview", self.routes_path),
             notice: answer.notice,
@@ -888,11 +1126,22 @@ fn route_line(route: &ProjectRoute, base: &str) -> RouteLine {
             .map(|reason| reason.as_deref().and_then(ReasonCode::from_wire_name)),
         last_delivered_at: route.last_delivered_at,
     };
+    let stopped = route.paused || route.problem_reason.is_some();
+    let (toggle, toggle_label) = if stopped {
+        ("resume", "Resume")
+    } else {
+        ("pause", "Pause")
+    };
+    let route_path = format!("{base}/routes/{}", route.id);
     RouteLine {
         id: route.id,
         destination_label: route.destination_label.clone(),
         status: RouteStatus::derive(&facts).words(&route.destination_label),
-        history_path: format!("{base}/routes/{}/history", route.id),
+        history_path: format!("{route_path}/history"),
+        edit_path: format!("{route_path}/edit"),
+        delete_path: format!("{route_path}/delete"),
+        toggle_path: format!("{route_path}/{toggle}"),
+        toggle_label,
     }
 }
 

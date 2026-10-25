@@ -25,7 +25,11 @@
 //!   names;
 //! - [`Store::beat_worker`] and [`Store::integration_backlog`]: the stall
 //!   signals (DDR-22);
-//! - [`Store::create_route`]: a route writer, opening with `lock_live_project`;
+//! - [`Store::create_route`], [`Store::pause_route`], [`Store::resume_route`],
+//!   [`Store::edit_route`] and [`Store::delete_route`]: the route writers,
+//!   each opening with `lock_live_project` and writing its audit record in
+//!   the same transaction; a pause skips exactly the ids its cancel plan
+//!   names, each still pending and holding no live lease (DD-8);
 //! - [`Store::upsert_connection`]: a connection and its audit record, one
 //!   transaction (ADR-EIP-005 decision 4).
 //!
@@ -400,6 +404,61 @@ pub enum RouteWriteOutcome {
     ProjectDeleted,
 }
 
+/// Who changes a route, and when (the injected clock's time: the audit
+/// record's date, and the "now" a lease is judged against).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteChange {
+    pub project_id: Uuid,
+    pub route_id: Uuid,
+    pub actor_id: Uuid,
+    pub via: String,
+    pub at: OffsetDateTime,
+}
+
+/// What a route's edit sets (its destination stays).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteEdit {
+    pub events: Vec<String>,
+    pub content_level: String,
+    pub lanes: Vec<RouteLane>,
+}
+
+/// One delivery of a route as a pause's cancel plan sees it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CancelCandidate {
+    pub id: i64,
+    pub route_id: Uuid,
+    pub finished: bool,
+    pub lease_until: Option<OffsetDateTime>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RouteChangeOutcome {
+    /// The route changed and its audit record was written; a pause also
+    /// skipped `cancelled` deliveries.
+    Changed { cancelled: u64 },
+    /// The route already was so (paused, live, gone): nothing was written.
+    Unchanged,
+    /// The project is deleted (or being deleted); nothing was written.
+    ProjectDeleted,
+}
+
+/// A pause's compare-and-set on the plan's ids: still the route's, pending,
+/// and holding no live lease at `$3`.
+const CANCEL_SQL: &str = "
+    UPDATE integration_deliveries
+       SET status = 'skipped', final_reason = $4, finished_at = $3,
+           next_attempt_at = NULL, lease_until = NULL
+     WHERE id = ANY($1) AND route_id = $2 AND status = 'pending'
+       AND (lease_until IS NULL OR lease_until <= $3)";
+
+/// A route's audit record (DDR-21), its subject the route's destination.
+const ROUTE_AUDIT_SQL: &str = "
+    INSERT INTO integration_audit_events
+           (id, workspace_id, project_id, actor_id, via, action, kind, subject, created_at)
+    SELECT $1, r.workspace_id, r.project_id, $2, $3, $4, r.kind, r.destination_label, $5
+      FROM integration_routes r WHERE r.id = $6";
+
 /// Whole source transactions, oldest first, never split: up to `$1`
 /// `source_txid` values in `min(id)` order, then every undispatched row of
 /// them. Rows at or below the dispatch start, or without an event id, are
@@ -581,6 +640,10 @@ type RouteRow = (
     Vec<Uuid>,
     Vec<Option<String>>,
 );
+
+/// `route_settings`' row: kind, destination ref and label, events, content
+/// level, lane slugs.
+type SettingsRow = (String, String, String, Vec<String>, String, Vec<String>);
 
 type EventRow = (i64, Uuid, String, String, serde_json::Value, OffsetDateTime);
 
@@ -1100,6 +1163,185 @@ impl Store {
         Ok(RouteWriteOutcome::Created(id))
     }
 
+    /// Pause a live route (DD-8), one transaction opening with
+    /// `lock_live_project`: stamps it paused, reads its pending deliveries,
+    /// skips exactly the ids `plan` names that are still pending and hold no
+    /// live lease at `change.at` (a leased one is left to its sender), and
+    /// writes its `route_paused` record. A paused or missing route changes
+    /// nothing.
+    pub async fn pause_route<P>(
+        &self,
+        change: &RouteChange,
+        plan: P,
+    ) -> Result<RouteChangeOutcome, StoreError>
+    where
+        P: FnOnce(&[CancelCandidate]) -> Vec<i64>,
+    {
+        let mut tx = self.pool.begin().await?;
+        if !lock_live_project(&mut tx, change.project_id).await? {
+            tx.rollback().await?;
+            return Ok(RouteChangeOutcome::ProjectDeleted);
+        }
+        let paused = sqlx::query(
+            "UPDATE integration_routes SET paused_at = $3, paused_by = $4, updated_at = now()
+              WHERE id = $1 AND project_id = $2 AND paused_at IS NULL",
+        )
+        .bind(change.route_id)
+        .bind(change.project_id)
+        .bind(change.at)
+        .bind(change.actor_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if paused == 0 {
+            tx.rollback().await?;
+            return Ok(RouteChangeOutcome::Unchanged);
+        }
+        let rows: Vec<(i64, Option<OffsetDateTime>)> = sqlx::query_as(
+            "SELECT id, lease_until FROM integration_deliveries
+              WHERE route_id = $1 AND status = 'pending' ORDER BY id",
+        )
+        .bind(change.route_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let candidates: Vec<CancelCandidate> = rows
+            .into_iter()
+            .map(|(id, lease_until)| CancelCandidate {
+                id,
+                route_id: change.route_id,
+                finished: false,
+                lease_until,
+            })
+            .collect();
+        let ids = plan(&candidates);
+        let cancelled = sqlx::query(CANCEL_SQL)
+            .bind(&ids)
+            .bind(change.route_id)
+            .bind(change.at)
+            .bind("route_paused")
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        route_audit(&mut tx, change, "route_paused").await?;
+        tx.commit().await?;
+        Ok(RouteChangeOutcome::Changed { cancelled })
+    }
+
+    /// Resume a paused route, or one a refusal stopped (DDR-27): it receives
+    /// the events from this transaction's `now()` on, never what it skipped,
+    /// and its problem is cleared; one transaction opening with
+    /// `lock_live_project`, with its `route_resumed` record. A live route
+    /// changes nothing.
+    pub async fn resume_route(
+        &self,
+        change: &RouteChange,
+    ) -> Result<RouteChangeOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        if !lock_live_project(&mut tx, change.project_id).await? {
+            tx.rollback().await?;
+            return Ok(RouteChangeOutcome::ProjectDeleted);
+        }
+        let resumed = sqlx::query(
+            "UPDATE integration_routes
+                SET paused_at = NULL, paused_by = NULL, problem_reason = NULL,
+                    problem_at = NULL, receives_from = now(), updated_at = now()
+              WHERE id = $1 AND project_id = $2
+                AND (paused_at IS NOT NULL OR problem_reason IS NOT NULL)",
+        )
+        .bind(change.route_id)
+        .bind(change.project_id)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if resumed == 0 {
+            tx.rollback().await?;
+            return Ok(RouteChangeOutcome::Unchanged);
+        }
+        route_audit(&mut tx, change, "route_resumed").await?;
+        tx.commit().await?;
+        Ok(RouteChangeOutcome::Changed { cancelled: 0 })
+    }
+
+    /// Edit a route's events, content level and lane filter, one transaction
+    /// opening with `lock_live_project`, with its `route_edited` record. The
+    /// next event the dispatcher reads is judged by the edited route.
+    pub async fn edit_route(
+        &self,
+        change: &RouteChange,
+        edit: &RouteEdit,
+    ) -> Result<RouteChangeOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        if !lock_live_project(&mut tx, change.project_id).await? {
+            tx.rollback().await?;
+            return Ok(RouteChangeOutcome::ProjectDeleted);
+        }
+        let edited = sqlx::query(
+            "UPDATE integration_routes SET events = $3, content_level = $4, updated_at = now()
+              WHERE id = $1 AND project_id = $2",
+        )
+        .bind(change.route_id)
+        .bind(change.project_id)
+        .bind(&edit.events)
+        .bind(&edit.content_level)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+        if edited == 0 {
+            tx.rollback().await?;
+            return Ok(RouteChangeOutcome::Unchanged);
+        }
+        sqlx::query("DELETE FROM integration_route_lanes WHERE route_id = $1")
+            .bind(change.route_id)
+            .execute(&mut *tx)
+            .await?;
+        for lane in &edit.lanes {
+            sqlx::query(
+                "INSERT INTO integration_route_lanes (route_id, lane_id, label_at_save)
+                 VALUES ($1, $2, $3)",
+            )
+            .bind(change.route_id)
+            .bind(lane.lane_id)
+            .bind(&lane.label_at_save)
+            .execute(&mut *tx)
+            .await?;
+        }
+        route_audit(&mut tx, change, "route_edited").await?;
+        tx.commit().await?;
+        Ok(RouteChangeOutcome::Changed { cancelled: 0 })
+    }
+
+    /// Delete a route with its deliveries (messages already sent stay where
+    /// they are), one transaction opening with `lock_live_project`, with its
+    /// `route_deleted` record. A route already gone changes nothing.
+    pub async fn delete_route(
+        &self,
+        change: &RouteChange,
+    ) -> Result<RouteChangeOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        if !lock_live_project(&mut tx, change.project_id).await? {
+            tx.rollback().await?;
+            return Ok(RouteChangeOutcome::ProjectDeleted);
+        }
+        let exists: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM integration_routes WHERE id = $1 AND project_id = $2 FOR UPDATE",
+        )
+        .bind(change.route_id)
+        .bind(change.project_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if exists.is_none() {
+            tx.rollback().await?;
+            return Ok(RouteChangeOutcome::Unchanged);
+        }
+        route_audit(&mut tx, change, "route_deleted").await?;
+        sqlx::query("DELETE FROM integration_routes WHERE id = $1")
+            .bind(change.route_id)
+            .execute(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(RouteChangeOutcome::Changed { cancelled: 0 })
+    }
+
     /// U-D7: every INVALID index in the active schema (a failed
     /// `CREATE INDEX CONCURRENTLY`, e.g. 0029's), as one boot warning each,
     /// naming the remedy (runbook R-7). `Store::migrate` logs them.
@@ -1308,6 +1550,20 @@ pub struct ProjectRoute {
     pub last_delivered_at: Option<OffsetDateTime>,
 }
 
+/// A route as its edit form shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteSettings {
+    pub id: Uuid,
+    /// `slack`, `matrix`, …
+    pub kind: String,
+    pub destination_ref: String,
+    pub destination_label: String,
+    pub events: Vec<String>,
+    pub content_level: String,
+    /// Slugs of the filter lanes the project still has.
+    pub lanes: Vec<String>,
+}
+
 /// The newest finished delivery of a route.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FinishedDeliveryRow {
@@ -1446,6 +1702,8 @@ pub struct DeliveryContext {
     pub give_up_at: OffsetDateTime,
     pub route_kind: String,
     pub content_level: String,
+    /// The route is paused, or the event happened before the route was last
+    /// resumed (DDR-27): either way it is not sent.
     pub route_paused: bool,
     pub connection_id: Option<Uuid>,
     pub connection_state: Option<String>,
@@ -1499,7 +1757,8 @@ pub struct DeliveryIssue {
 /// transaction wrote (ADR-EIP-003 decision 4).
 const DELIVERY_CONTEXT_SQL: &str = "
     SELECT d.event_kind, d.give_up_at, r.kind, r.content_level,
-           r.paused_at IS NOT NULL, r.connection_id, c.state, r.destination_ref,
+           r.paused_at IS NOT NULL OR COALESCE(o.created_at < r.receives_from, FALSE),
+           r.connection_id, c.state, r.destination_ref,
            p.name, p.key_prefix, p.slug, t.slug,
            i.number, i.title, i.state, u.display_name,
            cardinality(d.outbox_ids), (o.payload->>'number')::int, o.payload->>'title',
@@ -1746,6 +2005,43 @@ impl Store {
             .collect::<Result<Vec<_>, _>>()?)
     }
 
+    /// What the edit form shows of the project's route `route_id`: its
+    /// destination, events, content level and the slugs of its filter lanes
+    /// the project still has. `None` for a route of another project.
+    pub async fn route_settings(
+        &self,
+        project_id: Uuid,
+        route_id: Uuid,
+    ) -> Result<Option<RouteSettings>, StoreError> {
+        let row: Option<SettingsRow> = sqlx::query_as(
+            "SELECT r.kind, r.destination_ref, r.destination_label, r.events, r.content_level,
+                    COALESCE(array_agg(x.slug ORDER BY x.position)
+                             FILTER (WHERE x.slug IS NOT NULL), '{}')
+               FROM integration_routes r
+               LEFT JOIN integration_route_lanes l ON l.route_id = r.id
+               LEFT JOIN lanes x ON x.id = l.lane_id AND x.project_id = r.project_id
+              WHERE r.id = $1 AND r.project_id = $2
+              GROUP BY r.id",
+        )
+        .bind(route_id)
+        .bind(project_id)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(kind, destination_ref, destination_label, events, content_level, lanes)| {
+                RouteSettings {
+                    id: route_id,
+                    kind,
+                    destination_ref,
+                    destination_label,
+                    events,
+                    content_level,
+                    lanes,
+                }
+            },
+        ))
+    }
+
     /// The route's newest `limit` deliveries, newest first (its history).
     pub async fn route_history(
         &self,
@@ -1899,6 +2195,24 @@ impl Store {
             event,
         }))
     }
+}
+
+/// A route change's audit record, in the change's transaction.
+async fn route_audit(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    change: &RouteChange,
+    action: &str,
+) -> Result<(), StoreError> {
+    sqlx::query(ROUTE_AUDIT_SQL)
+        .bind(Uuid::now_v7())
+        .bind(change.actor_id)
+        .bind(&change.via)
+        .bind(action)
+        .bind(change.at)
+        .bind(change.route_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
 }
 
 /// One key's check value (`integration_key_checks`, DDR-9): a fixed canary

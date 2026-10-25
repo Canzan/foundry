@@ -1,7 +1,7 @@
 {% extends "app_shell.html" %}
-{% block title %}New route · {{ project_name }}{% endblock %}
+{% block title %}{{ heading }}{% endblock %}
 {% block app_content %}
-<h1>New Slack route for {{ project_name }}</h1>
+<h1>{{ heading }}</h1>
 {% if let Some(notice) = notice %}<p class="notice" role="status" data-route-notice>{{ notice }}</p>{% endif %}
 {% if let Some(preview) = preview %}
 <section data-route-preview aria-labelledby="route-preview-heading">
@@ -19,7 +19,7 @@
 {% if no_connection %}
 <p data-no-connection>{{ no_chat_connection }}</p>
 {% else %}
-<form method="post" action="{{ routes_path }}">
+<form method="post" action="{{ action_path }}">
   <input type="hidden" name="_csrf" value="{{ csrf }}">
   <input type="hidden" name="kind" value="slack">
   <p>

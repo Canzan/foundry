@@ -3,8 +3,9 @@
 
 use super::IntegrationRecords;
 use foundry_store::integrations::{
-    AuditRow, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow, DeliveryIssue,
-    NewConnection, NewRoute, ProjectRoute, RouteWriteOutcome, SealedConnection,
+    AuditRow, CancelCandidate, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow,
+    DeliveryIssue, NewConnection, NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome,
+    RouteEdit, RouteSettings, RouteWriteOutcome, SealedConnection,
 };
 use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
@@ -91,5 +92,37 @@ impl IntegrationRecords for Store {
         limit: i64,
     ) -> Result<Vec<DeliveryHistoryRow>, StoreError> {
         Store::route_history(self, route_id, limit).await
+    }
+
+    async fn route_settings(
+        &self,
+        project_id: Uuid,
+        route_id: Uuid,
+    ) -> Result<Option<RouteSettings>, StoreError> {
+        Store::route_settings(self, project_id, route_id).await
+    }
+
+    async fn pause_route(
+        &self,
+        change: &RouteChange,
+        plan: impl FnOnce(&[CancelCandidate]) -> Vec<i64> + Send,
+    ) -> Result<RouteChangeOutcome, StoreError> {
+        Store::pause_route(self, change, plan).await
+    }
+
+    async fn resume_route(&self, change: &RouteChange) -> Result<RouteChangeOutcome, StoreError> {
+        Store::resume_route(self, change).await
+    }
+
+    async fn edit_route(
+        &self,
+        change: &RouteChange,
+        edit: &RouteEdit,
+    ) -> Result<RouteChangeOutcome, StoreError> {
+        Store::edit_route(self, change, edit).await
+    }
+
+    async fn delete_route(&self, change: &RouteChange) -> Result<RouteChangeOutcome, StoreError> {
+        Store::delete_route(self, change).await
     }
 }

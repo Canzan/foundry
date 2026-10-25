@@ -1,7 +1,9 @@
 //! The sender's claim choice, the expiry sweep's set (ADR-EIP-002
-//! decisions 4 and 9) and the retention sweep's plan (DD-10).
+//! decisions 4 and 9), the cancel set of a paused route (DD-8) and the
+//! retention sweep's plan (DD-10).
 
 use time::{Duration, OffsetDateTime};
+use uuid::Uuid;
 
 /// One pending delivery of a route.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +58,28 @@ pub fn expiry_set(now: OffsetDateTime, deliveries: &[QueuedDelivery]) -> Vec<i64
     deliveries
         .iter()
         .filter(|delivery| delivery.is_expired_at(now))
+        .map(|delivery| delivery.id)
+        .collect()
+}
+
+/// One delivery as the cancel set sees it: whose it is (a route, or a
+/// recipient), whether it has finished, and its lease.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TargetedDelivery {
+    pub id: i64,
+    pub target: Uuid,
+    pub finished: bool,
+    pub lease_until: Option<OffsetDateTime>,
+}
+
+/// The deliveries a pause (or a disconnect) cancels at `now` (DD-8): exactly
+/// `target`'s deliveries that have not finished and hold no live lease. A
+/// leased one is left to its sender, which finishes it or is fenced.
+pub fn cancel_set(target: Uuid, now: OffsetDateTime, deliveries: &[TargetedDelivery]) -> Vec<i64> {
+    deliveries
+        .iter()
+        .filter(|delivery| delivery.target == target && !delivery.finished)
+        .filter(|delivery| delivery.lease_until.is_none_or(|until| until <= now))
         .map(|delivery| delivery.id)
         .collect()
 }

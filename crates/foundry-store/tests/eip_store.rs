@@ -13,8 +13,9 @@
 //! never makes one); the pure planners arrive in the core crate (01-04).
 
 use foundry_store::integrations::{
-    ClaimOutcome, ClaimView, DeliveryResult, DeliveryTarget, DispatchBatch, DispatchOutcome,
-    NewDelivery, NewRoute, Pruned, Pruning, RecordOutcome, RouteLane, RouteWriteOutcome,
+    CancelCandidate, ClaimOutcome, ClaimView, DeliveryResult, DeliveryTarget, DispatchBatch,
+    DispatchOutcome, NewDelivery, NewRoute, Pruned, Pruning, RecordOutcome, RouteChange,
+    RouteChangeOutcome, RouteLane, RouteWriteOutcome,
 };
 use foundry_store::{
     run_boot_migrations_from_dir, run_migrations, run_migrations_from_dir, Store, StoreError,
@@ -1364,7 +1365,7 @@ async fn late_recorder_writes_nothing() {
 /// The expiry and retention sweeps apply one compare-and-set over exactly
 /// the ids their plan returned: an id the plan leaves out is untouched, and an
 /// id the plan names that no longer qualifies is untouched too. (The cancel
-/// sweep's half of this contract is 03-03's, with `cancel_set`.)
+/// sweep's half of this contract is `pause_applies_exactly_the_cancel_plan_ids`.)
 #[tokio::test]
 async fn sweeps_apply_exactly_the_plan_ids() {
     let pg = postgres().await;
@@ -2116,4 +2117,143 @@ async fn record_key_check_keeps_the_first_value_per_key_and_reads_back() {
         expected,
         "key_checks returns every stored value, in key id order"
     );
+}
+
+/// The cancel half of the sweeps' contract (DD-8): a pause hands the route's
+/// pending deliveries to the plan and skips exactly the ids it names that are
+/// still pending and hold no live lease; the leased one is left to its sender.
+/// Each route change writes one audit record, and asking for what is already
+/// so writes nothing. A resumed route's earlier deliveries read as paused to
+/// their sender (DDR-27), and a delete takes the route's deliveries with it.
+#[tokio::test]
+async fn pause_applies_exactly_the_cancel_plan_ids() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let ids = [
+        lab.one_delivery().await,
+        lab.one_delivery().await,
+        lab.one_delivery().await,
+        lab.one_delivery().await,
+    ];
+    let now = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+    let ClaimOutcome::Claimed(claim) = lab
+        .store
+        .claim_delivery(lab.route, now, LEASE, head_if_free(now))
+        .await
+        .expect("claim the head")
+    else {
+        panic!("the head is claimable");
+    };
+    assert_eq!(claim.id, ids[0]);
+    let audit = || {
+        let pool = pool.clone();
+        let ws = lab.ws;
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT action FROM integration_audit_events
+                  WHERE workspace_id = $1 AND action <> 'route_created'
+                  ORDER BY created_at, id",
+            )
+            .bind(ws)
+            .fetch_all(&pool)
+            .await
+            .expect("audit")
+        }
+    };
+    let change = RouteChange {
+        project_id: lab.auth,
+        route_id: lab.route,
+        actor_id: lab.lena,
+        via: "web".to_string(),
+        at: now + Duration::from_secs(1),
+    };
+
+    let mut seen: Vec<CancelCandidate> = Vec::new();
+    let paused = lab
+        .store
+        .pause_route(&change, |candidates| {
+            seen = candidates.to_vec();
+            // the leased head is named, yet never skipped; the fourth is left out.
+            vec![ids[0], ids[1], ids[2]]
+        })
+        .await
+        .expect("pause");
+    assert_eq!(paused, RouteChangeOutcome::Changed { cancelled: 2 });
+    assert_eq!(
+        seen.iter().map(|c| c.id).collect::<Vec<_>>(),
+        ids.to_vec(),
+        "the plan sees every pending delivery of the route"
+    );
+    assert_eq!(
+        seen[0].lease_until,
+        Some(claim.lease_until),
+        "with the head's live lease"
+    );
+    for (n, id) in ids.iter().enumerate() {
+        let row = lab.delivery(*id).await;
+        let want = if n == 1 || n == 2 {
+            ("skipped", Some("route_paused"))
+        } else {
+            ("pending", None)
+        };
+        assert_eq!(
+            (row.status.as_str(), row.final_reason.as_deref()),
+            want,
+            "delivery {n}"
+        );
+    }
+    assert_eq!(audit().await, vec!["route_paused"]);
+
+    // Pausing a paused route changes nothing and asks no plan.
+    let again = lab
+        .store
+        .pause_route(&change, |_| panic!("no plan for a paused route"))
+        .await
+        .expect("pause again");
+    assert_eq!(again, RouteChangeOutcome::Unchanged);
+    assert_eq!(audit().await, vec!["route_paused"]);
+
+    // Resume: one record; resuming a live route changes nothing.
+    assert_eq!(
+        lab.store.resume_route(&change).await.expect("resume"),
+        RouteChangeOutcome::Changed { cancelled: 0 }
+    );
+    assert_eq!(
+        lab.store.resume_route(&change).await.expect("resume again"),
+        RouteChangeOutcome::Unchanged
+    );
+    assert_eq!(audit().await, vec!["route_paused", "route_resumed"]);
+    let context = lab
+        .store
+        .delivery_context(ids[3])
+        .await
+        .expect("context")
+        .expect("the fourth is still there");
+    assert!(
+        context.route_paused,
+        "an event from before the resume is never sent"
+    );
+
+    // Delete: the route and its deliveries go, with one record; again, nothing.
+    assert_eq!(
+        lab.store.delete_route(&change).await.expect("delete"),
+        RouteChangeOutcome::Changed { cancelled: 0 }
+    );
+    assert_eq!(
+        lab.store.delete_route(&change).await.expect("delete again"),
+        RouteChangeOutcome::Unchanged
+    );
+    assert_eq!(
+        audit().await,
+        vec!["route_paused", "route_resumed", "route_deleted"]
+    );
+    let left: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM integration_deliveries WHERE route_id = $1")
+            .bind(lab.route)
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+    assert_eq!(left, 0, "the route's deliveries went with it");
 }

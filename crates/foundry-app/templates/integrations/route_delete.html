@@ -1,0 +1,13 @@
+{% extends "app_shell.html" %}
+{% block title %}Delete the route to {{ destination_label }}{% endblock %}
+{% block app_content %}
+<h1>Delete the route to {{ destination_label }}</h1>
+<p data-route-delete-question>{{ question }}</p>
+<form method="post" action="{{ delete_path }}">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <p>
+    <button type="submit" class="danger">Delete route</button>
+    <a href="{{ routes_path }}">Cancel</a>
+  </p>
+</form>
+{% endblock %}

@@ -38,12 +38,12 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
     And Priya has connected Canzan Labs to Slack
     And Lena has routed every chat event on Identity Platform to #auth-dev
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: Pausing a route shows it paused
     When Lena pauses the route to #auth-dev
     Then Lena's route to #auth-dev reads "Paused"
 
-  @pending @contract-shape:unbounded-preservation
+  @contract-shape:unbounded-preservation
   Scenario: A paused route skips events and does not send them later
     Given Lena has paused the route to #auth-dev
     And Sam has filed "Freeze LDAP writes during the migration" in Identity Platform
@@ -51,14 +51,14 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
     Then nothing is posted to #auth-dev within 10 seconds
     And Lena's route to #auth-dev reads "Delivering"
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: A resumed route carries what happens after the resume
     Given Lena has paused the route to #auth-dev
     And Lena has resumed the route to #auth-dev
     When Sam files "Unfreeze LDAP writes" in Identity Platform
     Then #auth-dev shows AUTH-17's message
 
-  @pending @edge @contract-shape:unbounded-preservation
+  @edge @contract-shape:unbounded-preservation
   Scenario: Pausing a route that waits for Slack drops what it was waiting to send
     Given Slack does not answer
     And Sam has filed "Freeze LDAP writes during the migration" in Identity Platform
@@ -67,20 +67,20 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
     When Slack answers again
     Then nothing is posted to #auth-dev within 10 seconds
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: Editing a route's events takes effect on the next event
     Given Lena has routed Issue moved into Done on Identity Platform to #auth-releases
     And Lena has added New comment to the route to #auth-releases
     When Sam comments "Grafana login verified." on AUTH-7
     Then #auth-releases shows AUTH-7's comment message
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: Deleting a route asks first
     When Lena chooses Delete on the route to #auth-dev
     Then Lena reads "Delete the route to #auth-dev? Identity Platform stops posting there. Messages already in Slack stay."
     And Identity Platform's integrations page still lists the route to #auth-dev
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: Confirming the delete removes the route and leaves Slack's messages alone
     Given Sam has filed "Freeze LDAP writes during the migration" in Identity Platform and #auth-dev has shown it
     And Lena has chosen Delete on the route to #auth-dev
@@ -142,7 +142,7 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
       | Lena   | adds Issue deleted to the route to #auth-dev | 21 Oct 2026 · Lena Park edited the route to #auth-dev      |
       | Priya  | disconnects Slack                            | 21 Oct 2026 · Priya Raman disconnected Slack (Canzan Labs) |
 
-  @pending @edge @contract-shape:unbounded-preservation
+  @edge @contract-shape:unbounded-preservation
   Scenario Outline: Asking for what is already so changes nothing
     Given Lena has <state> the route to #auth-dev
     When Lena <asks> the route to #auth-dev

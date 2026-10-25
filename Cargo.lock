@@ -1411,6 +1411,7 @@ version = "0.17.0"
 dependencies = [
  "foundry-auth",
  "foundry-core",
+ "foundry-integrations",
  "foundry-services",
  "foundry-store",
  "proptest",

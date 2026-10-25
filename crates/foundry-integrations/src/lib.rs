@@ -10,7 +10,8 @@
 //!   action as one burst (D-11);
 //! - [`claimable_head`] chooses the one delivery a sender may claim on a
 //!   route, [`expiry_set`] the deliveries the expiry sweep fails
-//!   (ADR-EIP-002 decisions 4 and 9), and [`prune_set`] what the retention
+//!   (ADR-EIP-002 decisions 4 and 9), [`cancel_set`] those a pause cancels
+//!   (DD-8), and [`prune_set`] what the retention
 //!   sweep deletes (DD-10);
 //! - [`compose`] decides a message's lines from the event as it happened
 //!   and [`encode_slack`] places them (D-3, D-11, DDR-12); [`classify_slack`] reads Slack's answer;
@@ -56,8 +57,8 @@ pub use ports::{
     OutboundEmail,
 };
 pub use queue::{
-    claimable_head, expiry_set, prune_set, PrunePlan, QueuedDelivery, RetainedDelivery,
-    RetainedOutboxRow, HEARTBEAT_RETENTION, RETAINED_PER_ROUTE, RETENTION,
+    cancel_set, claimable_head, expiry_set, prune_set, PrunePlan, QueuedDelivery, RetainedDelivery,
+    RetainedOutboxRow, TargetedDelivery, HEARTBEAT_RETENTION, RETAINED_PER_ROUTE, RETENTION,
 };
 pub use retry::{Attempt, Jitter, RetryPolicy, Settlement};
 pub use route::{FilterLane, RouteSpec};
