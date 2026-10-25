@@ -89,7 +89,7 @@ use crate::world::FoundryWorld;
 use cucumber::gherkin::Step;
 use reqwest::header::{CONTENT_TYPE, COOKIE, LOCATION};
 use reqwest::StatusCode;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -542,6 +542,11 @@ pub struct Universe {
     pub slack_uninstalls: usize,
     /// `recipient -> emails received`.
     pub emails: BTreeMap<String, usize>,
+    /// Projects read while deleted: their page answered "not found", as a
+    /// deleted project's page must. Only a step that deleted the project on
+    /// purpose may read it this way; everywhere else a page that does not
+    /// answer leaves the universe unreadable.
+    pub gone: BTreeSet<String>,
 }
 
 /// One declared movement of the universe.
@@ -3773,13 +3778,21 @@ pub async fn then_board_quick(world: &mut FoundryWorld, key: &str, budget: Durat
 /// recorder. Fails (panics) if a page it must read is not readable: an
 /// unreadable universe would make every delta check vacuous.
 pub async fn universe(world: &mut FoundryWorld) -> Universe {
+    universe_with_gone(world, &[]).await
+}
+
+/// The universe while the named projects are deleted: each of their pages
+/// must answer "not found" (and is recorded as gone); every other page must
+/// still be readable.
+pub async fn universe_with_gone(world: &mut FoundryWorld, gone: &[&str]) -> Universe {
     let workspace = get(world, "Priya", WORKSPACE_INTEGRATIONS).await;
     let mut projects = Vec::new();
     for project in ["Identity Platform", "Homelab Ops"] {
         let page = get(world, "Priya", &integrations_path(world, project)).await;
         projects.push((project.to_string(), page));
     }
-    let mut u = universe_from_pages(&workspace, &projects).unwrap_or_else(|why| panic!("{why}"));
+    let mut u =
+        universe_from_pages(&workspace, &projects, gone).unwrap_or_else(|why| panic!("{why}"));
     if let Some(double) = &world.eip.slack {
         for c in [
             "#auth-dev",
@@ -3800,10 +3813,12 @@ pub async fn universe(world: &mut FoundryWorld) -> Universe {
     u
 }
 
-/// The page part of the universe, pure: every page must have answered 200.
+/// The page part of the universe, pure: every page must have answered 200,
+/// except the pages of projects named `gone`, which must answer 404.
 pub fn universe_from_pages(
     workspace: &Answer,
     projects: &[(String, Answer)],
+    gone: &[&str],
 ) -> Result<Universe, String> {
     let readable = |a: &Answer| {
         if a.status == StatusCode::OK {
@@ -3835,6 +3850,16 @@ pub fn universe_from_pages(
         ..Universe::default()
     };
     for (project, page) in projects {
+        if gone.contains(&project.as_str()) {
+            if page.status != StatusCode::NOT_FOUND {
+                return Err(format!(
+                    "the universe cannot be read: {project} should be deleted, yet {} answered {}",
+                    page.path, page.status
+                ));
+            }
+            u.gone.insert(project.clone());
+            continue;
+        }
         readable(page)?;
         seam(page, "[data-routes]")?;
         let doc = parse(&page.body);
@@ -5703,8 +5728,10 @@ pub async fn when_delete_lane(
     delete_lane(world, who, lane, move_to).await;
 }
 
+/// The before-image is read while the project is still deleted: its page
+/// answers "not found" (recorded as gone), the rest is read as usual.
 pub async fn when_restore(world: &mut FoundryWorld, project: &str) {
-    capture_before(world).await;
+    world.eip.before = Some(universe_with_gone(world, &[project]).await);
     restore_project(world, project).await;
 }
 
@@ -6174,6 +6201,47 @@ mod universe_oracle_tests {
     const ROUTES: &str = r##"<div data-routes><div data-route-destination="#auth-dev" data-route-id="r1">#auth-dev Delivering</div></div>"##;
 
     #[test]
+    fn a_project_deleted_on_purpose_is_read_as_gone_and_only_then() {
+        let ws = page(WORKSPACE_INTEGRATIONS, 200, WS);
+        let not_found = page("/p", 404, "Not found");
+        let u = universe_from_pages(
+            &ws,
+            &[("Identity Platform".into(), not_found.clone())],
+            &["Identity Platform"],
+        )
+        .unwrap();
+        assert!(u.gone.contains("Identity Platform") && u.routes.is_empty());
+        assert!(
+            universe_from_pages(
+                &ws,
+                &[("Identity Platform".into(), page("/p", 200, ROUTES))],
+                &["Identity Platform"],
+            )
+            .is_err(),
+            "a project expected deleted whose page still answers is caught"
+        );
+        assert!(
+            universe_from_pages(
+                &ws,
+                &[("Homelab Ops".into(), not_found)],
+                &["Identity Platform"],
+            )
+            .is_err(),
+            "only the named project may be unreadable"
+        );
+        let back = universe_from_pages(
+            &ws,
+            &[("Identity Platform".into(), page("/p", 200, ROUTES))],
+            &[],
+        )
+        .unwrap();
+        assert!(
+            delta_violation(&u, &back, &[]).is_some(),
+            "a gone project coming back is an undeclared change"
+        );
+    }
+
+    #[test]
     fn an_unreadable_page_fails_the_universe() {
         let ws = page(WORKSPACE_INTEGRATIONS, 200, WS);
         let gone = page(
@@ -6181,20 +6249,22 @@ mod universe_oracle_tests {
             404,
             "Not found",
         );
-        assert!(universe_from_pages(&ws, &[("Identity Platform".into(), gone)]).is_err());
-        assert!(universe_from_pages(&page(WORKSPACE_INTEGRATIONS, 404, ""), &[]).is_err());
+        assert!(universe_from_pages(&ws, &[("Identity Platform".into(), gone)], &[]).is_err());
+        assert!(universe_from_pages(&page(WORKSPACE_INTEGRATIONS, 404, ""), &[], &[]).is_err());
     }
 
     #[test]
     fn a_page_without_its_seams_fails_the_universe() {
         let bare = page(WORKSPACE_INTEGRATIONS, 200, WS_NO_SEAM);
         assert!(
-            universe_from_pages(&bare, &[]).is_err(),
+            universe_from_pages(&bare, &[], &[]).is_err(),
             "a 200 page without its seams is unreadable"
         );
         let ws = page(WORKSPACE_INTEGRATIONS, 200, WS);
         let no_routes_seam = page("/p", 200, "<p>Identity Platform</p>");
-        assert!(universe_from_pages(&ws, &[("Identity Platform".into(), no_routes_seam)]).is_err());
+        assert!(
+            universe_from_pages(&ws, &[("Identity Platform".into(), no_routes_seam)], &[]).is_err()
+        );
     }
 
     #[test]
@@ -6203,6 +6273,7 @@ mod universe_oracle_tests {
         let u = universe_from_pages(
             &ws,
             &[("Identity Platform".into(), page("/p", 200, ROUTES))],
+            &[],
         )
         .unwrap();
         let declared = [Change::RouteStatus {
@@ -6230,12 +6301,14 @@ mod universe_oracle_tests {
         let before = universe_from_pages(
             &ws,
             &[("Identity Platform".into(), page("/p", 200, ROUTES))],
+            &[],
         )
         .unwrap();
         let paused = ROUTES.replace("Delivering", "Paused");
         let after = universe_from_pages(
             &ws,
             &[("Identity Platform".into(), page("/p", 200, &paused))],
+            &[],
         )
         .unwrap();
         assert!(

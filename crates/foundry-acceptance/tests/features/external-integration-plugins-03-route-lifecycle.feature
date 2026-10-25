@@ -122,7 +122,7 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
     Then #auth-dev shows AUTH-17's message
     And Lena's route to #auth-dev reads "Delivering" with the time of that delivery
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: What was waiting when a project was deleted is never sent
     Given Slack does not answer
     And Sam has filed "Freeze LDAP writes during the migration" in Identity Platform
