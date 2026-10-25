@@ -4638,7 +4638,7 @@ pub async fn given_smtp_relay(world: &mut FoundryWorld) {
         .with_exposed_port(8025.tcp())
         .with_mount(testcontainers::core::Mount::bind_mount(tls, "/tls"))
         .with_env_var("MP_SMTP_TLS_CERT", "/tls/mailpit-test.crt")
-        .with_env_var("MP_SMTP_TLS_KEY", "/tls/mailpit-test.key")
+        .with_env_var("MP_SMTP_TLS_KEY", "/tls/mailpit-test.private-key")
         .with_env_var("MP_SMTP_REQUIRE_STARTTLS", "true")
         .with_label("foundry-acceptance", "eip")
         .start()
@@ -5223,9 +5223,14 @@ async fn account(world: &mut FoundryWorld, scenario_name: &str) -> Account {
     a
 }
 
+/// "the homeserver matrix.canzan.dev has the bot account … and Lena's account …"
+/// — the Matrix feature's instance step: besides the accounts it hands the
+/// scenario's settings (secrets key, delivery worker) to the app, as the Slack
+/// features' "the instance has the Foundry Slack app set up" does.
 pub async fn given_homeserver_accounts(world: &mut FoundryWorld, bot: &str, lena: &str) {
     account(world, bot).await;
     account(world, lena).await;
+    rewire(world).await;
 }
 
 pub async fn given_room(

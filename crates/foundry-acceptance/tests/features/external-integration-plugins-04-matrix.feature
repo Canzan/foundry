@@ -45,7 +45,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     And Lena has the unencrypted room #auth:canzan.dev named "Identity Platform" and 5 members
     And Lena has the end-to-end encrypted room #backend-private:canzan.dev
 
-  @pending @us-eip-08 @driving_port @kpi @contract-shape:bounded-change
+  @us-eip-08 @driving_port @kpi @contract-shape:bounded-change
   Scenario: A workspace admin connects the Matrix bot and sees who it is
     When Priya connects Matrix with https://matrix.canzan.dev and the bot's access token
     Then Priya reads "Connected as @foundry:canzan.dev on matrix.canzan.dev · by Priya Raman · 21 Oct 2026"
@@ -53,7 +53,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     And the bot's access token appears nowhere on the workspace integrations page
     And the workspace's integration activity gains the line "21 Oct 2026 · Priya Raman connected Matrix (matrix.canzan.dev)"
 
-  @pending @us-eip-08 @error @contract-shape:unbounded-preservation
+  @us-eip-08 @error @contract-shape:unbounded-preservation
   Scenario Outline: A Matrix connection that cannot be checked is not saved
     Given the homeserver <state>
     When Priya connects Matrix with https://matrix.canzan.dev and <token>
@@ -65,7 +65,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
       | answers         | an access token the homeserver refuses | The homeserver did not accept this access token. Nothing was saved.   |
       | does not answer | the bot's access token                 | Foundry could not reach https://matrix.canzan.dev. Nothing was saved. |
 
-  @pending @us-eip-08 @error @kpi @contract-shape:unbounded-preservation
+  @us-eip-08 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A homeserver on this machine is refused before it is contacted
     When Priya connects Matrix with a homeserver listening on this machine, written <form>
     Then Priya reads "Foundry will not send to this address. An instance operator can allow it."
@@ -91,7 +91,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
       | Lena   |
       | Marco  |
 
-  @pending @us-eip-09 @walking_skeleton @driving_port @kpi @contract-shape:bounded-change
+  @us-eip-09 @walking_skeleton @driving_port @kpi @contract-shape:bounded-change
   Scenario: A new issue appears in the Matrix room as a formatted notice
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -100,7 +100,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then #auth:canzan.dev shows within 10 seconds a notice from @foundry:canzan.dev with "AUTH-12 Rotate LLDAP bind password" in bold, "New issue in Identity Platform by Sam Okafor · Backlog" and an Open in Foundry link
     And the notice's plain text carries the same two lines
 
-  @pending @us-eip-09 @contract-shape:bounded-change
+  @us-eip-09 @contract-shape:bounded-change
   Scenario: Saving a Matrix route brings the bot into the room and says so
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -109,7 +109,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then Lena reads "Foundry is in #auth:canzan.dev (room "Identity Platform", 6 members)"
     And @foundry:canzan.dev is a member of #auth:canzan.dev
 
-  @pending @us-eip-09 @error @contract-shape:unbounded-preservation
+  @us-eip-09 @error @contract-shape:unbounded-preservation
   Scenario Outline: A room Foundry's bot cannot use is explained and no route is saved
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And <precondition>
@@ -124,7 +124,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
       | @foundry:canzan.dev has not been invited to #auth:canzan.dev      | #auth:canzan.dev             | Invite @foundry:canzan.dev to #auth:canzan.dev in your Matrix client first, then try again.                  |
       | Lena has invited @foundry:canzan.dev to #backend-private:canzan.dev | #backend-private:canzan.dev | #backend-private:canzan.dev is end-to-end encrypted. Foundry's bot cannot post to encrypted rooms yet. Choose an unencrypted room. |
 
-  @pending @us-eip-09 @contract-shape:bounded-change
+  @us-eip-09 @contract-shape:bounded-change
   Scenario: A saved Matrix route sends its test message
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -243,7 +243,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then #auth:canzan.dev shows a notice from @foundry:canzan.dev about AUTH-12
     And no notice in #auth:canzan.dev carries the bot's access token or the secrets key
 
-  @pending @us-eip-09 @contract-shape:unbounded-preservation
+  @us-eip-09 @contract-shape:unbounded-preservation
   Scenario: A Matrix route form names the room's audience
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
