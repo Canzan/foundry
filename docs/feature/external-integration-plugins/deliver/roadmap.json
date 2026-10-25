@@ -8,7 +8,7 @@
       "docs/feature/external-integration-plugins/feature-delta.md",
       "docs/feature/external-integration-plugins/distill/red-classification.md"
     ],
-    "scenario_ownership_invariant": "131 scenarios (219 rows) and 78 stubs, each owned by one step; 01-11 owns scenario 131 (authored by nw-acceptance-designer, 2026-10-22). Ignored stubs left, in order: 77, 66, 58, 45, 44, 39, 39, 38, 38, 38, 35, 33, 33, 29, 23, 22, 21, 20, 20, 20, 10, 9, 8, 8, 1, 0.",
+    "scenario_ownership_invariant": "135 scenarios (224 rows) and 78 stubs, each owned by one step; 01-11 owns scenario 131 (authored by nw-acceptance-designer, 2026-10-22); 04-04 owns the four Matrix disconnect scenarios (5 rows, authored 2026-10-25). Ignored stubs left, in order: 77, 66, 58, 45, 44, 39, 39, 38, 38, 38, 35, 33, 33, 29, 23, 22, 21, 20, 20, 20, 10, 9, 8, 8, 1, 0.",
     "deviations_from_distill": "Steps over about 8 scenarios split; history page (51, 54, 58, 59, 115) moved to 01-09 because 66 and 123 read a route's history; failover is 01-11. See pending_id_remap.",
     "prerequisites": [
       "H-3 recorded Slack fixtures: USER DECISION 2026-10-22 — build 01-05 onward against the Slack double's hand-written answers; the gate moves to release time. 01-05 adds an explicit opt-in (FOUNDRY_EIP_HANDWRITTEN_SLACK=1) so the double serves hand-written shapes with a loud notice; without it the double still refuses. No release (tag) of slice 01 until recorded fixtures replace the hand-written shapes and the slice-01..03 scenarios pass on them (gate G-fixtures).",
@@ -16,9 +16,10 @@
     ],
     "open_items": [
       {
-        "item": "Matrix disconnect door has no scenario",
+        "item": "Matrix disconnect door has no scenario: decided 2026-10-25",
         "owners": "nw-acceptance-designer (scenario), product owner (scope)",
-        "gate": "Decided before 04-04 starts; not built until then"
+        "gate": "Decided; built in 04-04",
+        "decision": "USER DECISION 2026-10-25: \"Build it like Slack\". GET/POST /workspace/integrations/matrix/disconnect, workspace admin only (uniform 404 for others); a counted dialog; confirm forgets the bot's token, routes read \"Paused: Matrix was disconnected\", no admin email, audited (R-4 line); reconnecting resumes without sending what happened while disconnected (R-9). The bot does not leave its rooms (chosen over leaving them). Scenarios authored by nw-acceptance-designer in the 04-matrix feature (4 scenarios, 5 rows), owned by 04-04. The dialog question and activity line were ratified by the user, 2026-10-25 (feature-delta DISTILL DIST-25)."
       },
       {
         "item": "Matrix track (04-01..04-04) blocked on failover scenario authoring (01-11): resolved 2026-10-22, scenario 131 authored",
@@ -1181,23 +1182,28 @@
         },
         {
           "id": "04-04",
-          "name": "Matrix route history, edit, pause, delete and retries",
-          "description": "Matrix history, edit, pause, delete leaving the room, and retries. Un-pends 117-121, 129, 130 (8 rows). Matrix disconnect is not covered (open item).",
+          "name": "Matrix route history, edit, pause, delete, disconnect and retries",
+          "description": "Matrix history, edit, pause, delete leaving the room, retries, and disconnect built like Slack's (user decision 2026-10-25; the bot stays in its rooms). Un-pends 117-121, 129, 130 and the four Matrix disconnect scenarios (13 rows).",
           "criteria": [
             "Matrix deliveries are in history; edits apply; paused routes never catch up",
-            "Deleting the last route takes the bot out",
+            "Deleting the last route takes the bot out; disconnecting Matrix asks first, pauses its routes, forgets the token and sends nothing from the gap",
             "Unreachable, waiting or failing homeservers are retried, honouring long waits"
           ],
           "estimate": "1.5 days",
           "dependencies": [
-            "04-03",
-            "external: Matrix disconnect decision (open item)"
+            "04-03"
           ],
           "files_to_modify": [
             "crates/foundry-app/src/integrations/matrix.rs",
             "crates/foundry-app/src/integrations/worker.rs",
             "crates/foundry-app/src/integrations/handlers.rs",
             "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/workspace.html",
+            "crates/foundry-app/templates/integrations/slack_disconnect.html",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-services/src/integrations/store_impls.rs",
+            "crates/foundry-store/src/integrations.rs",
             "CHANGELOG.md",
             "crates/foundry-acceptance/tests/features/external-integration-plugins-04-matrix.feature"
           ],
@@ -1209,9 +1215,13 @@
             "Deleting a Matrix route takes the bot out of the room",
             "A notice waiting for an unreachable homeserver arrives when it answers again",
             "A homeserver that asks Foundry to wait, or fails, is retried",
-            "A homeserver's request to wait longer than Foundry's own backoff is honoured"
+            "A homeserver's request to wait longer than Foundry's own backoff is honoured",
+            "Disconnecting Matrix asks first and counts what stops",
+            "Confirming the Matrix disconnect pauses the routes and forgets the bot's token",
+            "What happens while Matrix is disconnected is not sent after reconnecting",
+            "Only a workspace admin disconnects Matrix"
           ],
-          "implementation_notes": "Proxy faults are one-shot (DIST B4). CHANGELOG: Added: Matrix route lifecycle and retries.",
+          "implementation_notes": "Proxy faults are one-shot (DIST B4). Matrix disconnect mirrors 03-03's Slack door (show_slack_disconnect/disconnect_slack, DisconnectPreview); no leave-room call; slack_disconnect.html generalised to both kinds, or a new matrix_disconnect.html; copy ratified 2026-10-25 (DIST-25). CHANGELOG: Added: Matrix route lifecycle, retries and disconnect.",
           "lanes": [
             "needs-matrix"
           ],
@@ -1219,7 +1229,9 @@
             "crates/foundry-app/src/integrations/matrix.rs",
             "crates/foundry-app/src/integrations/worker.rs",
             "crates/foundry-app/src/integrations/handlers.rs",
-            "crates/foundry-services/src/integrations/mod.rs"
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-services/src/integrations/store_impls.rs",
+            "crates/foundry-store/src/integrations.rs"
           ]
         }
       ]
@@ -1433,8 +1445,8 @@
     "quality_gate_self_check": {
       "criteria": "outcomes only, 2-3 per step",
       "decomposition_ratio": "26 / 49 = 0.53",
-      "distill_linkage": "131 scenarios and 78 stubs mapped once; orphans 0; no TBD (01-11 owns scenario 131)",
-      "sizing": "reviewer rule (8+ scenarios): 01-06, 02-03, 03-03, 03-05, 04-02, 05-01, 05-02; also rows > 15 or stubs > 10: 01-02, 01-04, 01-05",
+      "distill_linkage": "135 scenarios and 78 stubs mapped once; orphans 0; no TBD (01-11 owns scenario 131)",
+      "sizing": "reviewer rule (8+ scenarios): 01-06, 02-03, 03-03, 03-05, 04-02, 04-04, 05-01, 05-02; also rows > 15 or stubs > 10: 01-02, 01-04, 01-05",
       "changelog": "every step with CHANGELOG.md in files_to_modify names 'CHANGELOG: <section>: <line>' in its notes; 01-01..01-04, 01-10, 01-11 change nothing user-visible and do not touch CHANGELOG.md",
       "decisions": "U-D12 lock_timeout 2 s accepted by the coordinator, 2026-10-22",
       "lanes_and_mutation": "every step carries lanes and mutation_targets; [] for 01-01 (bench, no production Rust) and 01-10 (verification)"

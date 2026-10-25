@@ -382,9 +382,11 @@ async fn routes_each(world: &mut FoundryWorld, dests: String, status: String) {
     eip::then_routes_each_read(world, &list(&dests), &status).await;
 }
 
-#[then(regex = r#"^Canzan Labs' Slack stays connected and every route reads "Delivering"$"#)]
-async fn stays_connected(world: &mut FoundryWorld) {
-    eip::then_connected_and_delivering(world).await;
+#[then(
+    regex = r#"^Canzan Labs' (Slack|Matrix) stays connected and every route reads "Delivering"$"#
+)]
+async fn stays_connected(world: &mut FoundryWorld, kind: String) {
+    eip::then_connected_and_delivering(world, Kind::parse(&kind)).await;
 }
 
 #[then(regex = r"^the channel picker offers (#[\w-]+, #[\w-]+ and #[\w-]+)$")]
@@ -541,34 +543,34 @@ async fn history_clean(world: &mut FoundryWorld) {
 
 // =========================================================================== Disconnect, events, broken connections
 
-#[when(regex = r"^(Priya|Lena) chooses Disconnect Slack$")]
-async fn disconnect_dialog(world: &mut FoundryWorld, who: String) {
-    eip::when_disconnect_dialog(world, &who).await;
+#[when(regex = r"^(Priya|Lena) chooses Disconnect (Slack|Matrix)$")]
+async fn disconnect_dialog(world: &mut FoundryWorld, who: String, kind: String) {
+    eip::when_disconnect_dialog(world, &who, Kind::parse(&kind)).await;
 }
 
-#[given(regex = r"^Priya has chosen Disconnect Slack$")]
-async fn has_chosen_disconnect(world: &mut FoundryWorld) {
-    eip::when_disconnect_dialog(world, "Priya").await;
+#[given(regex = r"^Priya has chosen Disconnect (Slack|Matrix)$")]
+async fn has_chosen_disconnect(world: &mut FoundryWorld, kind: String) {
+    eip::when_disconnect_dialog(world, "Priya", Kind::parse(&kind)).await;
 }
 
 #[when(regex = r"^Priya (?:confirms the disconnect|disconnects Slack)$")]
 async fn confirm_disconnect(world: &mut FoundryWorld) {
-    eip::when_disconnect(world, "Priya", true).await;
+    eip::when_disconnect(world, "Priya", Kind::Slack, true).await;
 }
 
-#[when(regex = r"^(Lena|Priya) confirms a disconnect of Slack$")]
-async fn confirm_disconnect_as(world: &mut FoundryWorld, who: String) {
-    eip::when_disconnect(world, &who, true).await;
+#[when(regex = r"^(Lena|Priya) confirms (?:a|the) disconnect of (Slack|Matrix)$")]
+async fn confirm_disconnect_as(world: &mut FoundryWorld, who: String, kind: String) {
+    eip::when_disconnect(world, &who, Kind::parse(&kind), true).await;
 }
 
-#[when(regex = r"^(Lena|Priya) confirms a disconnect of Slack from outside the page$")]
-async fn confirm_disconnect_outside(world: &mut FoundryWorld, who: String) {
-    eip::when_disconnect(world, &who, false).await;
+#[when(regex = r"^(Lena|Priya) confirms a disconnect of (Slack|Matrix) from outside the page$")]
+async fn confirm_disconnect_outside(world: &mut FoundryWorld, who: String, kind: String) {
+    eip::when_disconnect(world, &who, Kind::parse(&kind), false).await;
 }
 
-#[given(regex = r"^Priya has disconnected Slack$")]
-async fn has_disconnected(world: &mut FoundryWorld) {
-    eip::given_disconnected(world).await;
+#[given(regex = r"^Priya has disconnected (Slack|Matrix)$")]
+async fn has_disconnected(world: &mut FoundryWorld, kind: String) {
+    eip::given_disconnected(world, Kind::parse(&kind)).await;
 }
 
 #[then(regex = r"^Slack was asked once to remove Foundry's access to Canzan Labs$")]
@@ -992,9 +994,16 @@ async fn exactly_one_email(world: &mut FoundryWorld, subject: String) {
     eip::then_email_count(world, "Priya", &subject, 1, Duration::from_secs(10)).await;
 }
 
-#[then(regex = r"^(Priya|Lena) receives no email about (?:it|the Slack connection)$")]
-async fn no_connection_email(world: &mut FoundryWorld, who: String) {
-    eip::then_no_connection_email(world, &who).await;
+#[then(
+    regex = r"^(Priya|Lena) receives no email about (?:it|the Slack connection|the (Matrix) connection)$"
+)]
+async fn no_connection_email(world: &mut FoundryWorld, who: String, matrix: String) {
+    let kind = if matrix.is_empty() {
+        Kind::Slack
+    } else {
+        Kind::Matrix
+    };
+    eip::then_no_connection_email(world, &who, kind).await;
 }
 
 #[given(regex = r"^(Priya|Sam) has muted Canzan Labs$")]
@@ -1404,6 +1413,21 @@ async fn token_field(world: &mut FoundryWorld, wanted: String) {
 #[then(regex = r"^the bot's access token appears nowhere on the workspace integrations page$")]
 async fn token_hidden(world: &mut FoundryWorld) {
     eip::then_matrix_token_hidden(world).await;
+}
+
+#[then(regex = r"^Priya is offered Connect Matrix on the workspace integrations page$")]
+async fn connect_matrix_offered(world: &mut FoundryWorld) {
+    eip::then_connect_matrix_offered(world).await;
+}
+
+#[then(regex = r"^Priya still finds Disconnect (Slack|Matrix) on the workspace integrations page$")]
+async fn disconnect_offered(world: &mut FoundryWorld, kind: String) {
+    eip::then_disconnect_offered(world, Kind::parse(&kind)).await;
+}
+
+#[then(regex = r"^Foundry no longer holds the bot's access token$")]
+async fn matrix_token_forgotten(world: &mut FoundryWorld) {
+    eip::then_matrix_token_forgotten(world).await;
 }
 
 #[then(regex = r"^Canzan Labs has no Matrix connection$")]

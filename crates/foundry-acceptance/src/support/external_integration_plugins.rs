@@ -115,6 +115,9 @@ pub const SLACK_INSTALL: &str = "/workspace/integrations/slack/install";
 pub const SLACK_RETURN: &str = "/workspace/integrations/slack/return";
 pub const SLACK_DISCONNECT: &str = "/workspace/integrations/slack/disconnect";
 pub const MATRIX_CONNECT: &str = "/workspace/integrations/matrix";
+/// US-EIP-07 for Matrix (DESIGN Driving Ports; user decision 2026-10-25:
+/// built like Slack's).
+pub const MATRIX_DISCONNECT: &str = "/workspace/integrations/matrix/disconnect";
 pub const SLACK_EVENTS: &str = "/integrations/slack/events";
 pub const ACCOUNT_SETTINGS: &str = "/account/settings";
 pub const PROJECT_EMAILS: &str = "/account/settings/project-emails";
@@ -221,6 +224,13 @@ impl Kind {
         match self {
             Self::Slack => "slack",
             Self::Matrix => "matrix",
+        }
+    }
+    /// The workspace admin's disconnect door: GET asks, POST confirms.
+    pub fn disconnect_path(self) -> &'static str {
+        match self {
+            Self::Slack => SLACK_DISCONNECT,
+            Self::Matrix => MATRIX_DISCONNECT,
         }
     }
 }
@@ -1566,21 +1576,27 @@ pub fn given_app_removed(world: &mut FoundryWorld) {
     slack(world).remove_app("token_revoked");
 }
 
-pub async fn when_disconnect_dialog(world: &mut FoundryWorld, who: &str) {
+pub async fn when_disconnect_dialog(world: &mut FoundryWorld, who: &str, kind: Kind) {
     capture_before(world).await;
-    let answer = get(world, who, SLACK_DISCONNECT).await;
+    let answer = get(world, who, kind.disconnect_path()).await;
     world.eip.when_answer = Some(answer);
 }
 
-pub async fn disconnect(world: &mut FoundryWorld, who: &str, with_token: bool) -> Answer {
-    let dialog = get(world, who, SLACK_DISCONNECT).await;
-    let fields = form_fields(&dialog, SLACK_DISCONNECT);
-    let answer = post(world, who, SLACK_DISCONNECT, &fields, with_token).await;
+pub async fn disconnect(
+    world: &mut FoundryWorld,
+    who: &str,
+    kind: Kind,
+    with_token: bool,
+) -> Answer {
+    let door = kind.disconnect_path();
+    let dialog = get(world, who, door).await;
+    let fields = form_fields(&dialog, door);
+    let answer = post(world, who, door, &fields, with_token).await;
     follow(world, who, answer).await
 }
 
-pub async fn given_disconnected(world: &mut FoundryWorld) {
-    let answer = disconnect(world, "Priya", true).await;
+pub async fn given_disconnected(world: &mut FoundryWorld, kind: Kind) {
+    let answer = disconnect(world, "Priya", kind, true).await;
     went_through(&answer, "Priya's disconnect");
 }
 
@@ -4017,14 +4033,16 @@ pub async fn then_only_connection_changed(world: &mut FoundryWorld) {
     assert_state_delta(world, &[Change::SlackConnection, Change::ActivityLines(1)]).await;
 }
 
-pub async fn then_connected_and_delivering(world: &mut FoundryWorld) {
-    let page = get(world, "Priya", WORKSPACE_INTEGRATIONS).await;
-    assert!(
-        text(&page).contains("Connected to Canzan Labs"),
-        "Canzan Labs' Slack stays connected; {}",
-        tm::describe(&page)
-    );
+pub async fn then_connected_and_delivering(world: &mut FoundryWorld, kind: Kind) {
     let u = universe(world).await;
+    let (line, connected) = match kind {
+        Kind::Slack => (&u.slack_connection, "Connected to Canzan Labs"),
+        Kind::Matrix => (&u.matrix_connection, "Connected as "),
+    };
+    assert!(
+        line.contains(connected),
+        "Canzan Labs' {kind:?} stays connected; its line reads {line:?}"
+    );
     for ((p, d), s) in &u.routes {
         assert!(
             s.contains("Delivering"),
@@ -4163,8 +4181,12 @@ pub async fn then_email_count(
     );
 }
 
-pub async fn then_no_connection_email(world: &mut FoundryWorld, who: &str) {
-    then_email_count(world, who, "lost its Slack connection", 0, DELIVERY_BUDGET).await;
+pub async fn then_no_connection_email(world: &mut FoundryWorld, who: &str, kind: Kind) {
+    let subject = match kind {
+        Kind::Slack => "lost its Slack connection",
+        Kind::Matrix => "lost its Matrix connection",
+    };
+    then_email_count(world, who, subject, 0, DELIVERY_BUDGET).await;
 }
 
 pub fn then_received_footer(world: &FoundryWorld, footer: &str) {
@@ -5020,7 +5042,7 @@ pub async fn then_not_lost(world: &mut FoundryWorld) {
         "the connection is not marked lost; {}",
         tm::describe(&page)
     );
-    then_no_connection_email(world, "Priya").await;
+    then_no_connection_email(world, "Priya", Kind::Slack).await;
 }
 
 pub async fn then_board_opens(world: &mut FoundryWorld, who: &str, project: &str) {
@@ -5360,6 +5382,74 @@ pub async fn then_no_matrix_connection(world: &mut FoundryWorld) {
     );
 }
 
+/// "Priya is offered Connect Matrix on the workspace integrations page": the
+/// Matrix form asks for a homeserver and a token afresh (its button reads
+/// Connect Matrix, not Replace token) and no connection line remains.
+pub async fn then_connect_matrix_offered(world: &mut FoundryWorld) {
+    let page = get(world, "Priya", WORKSPACE_INTEGRATIONS).await;
+    assert_eq!(
+        page.status,
+        StatusCode::OK,
+        "control: Priya opens the workspace integrations page"
+    );
+    let form = tm::forms(&page.body)
+        .into_iter()
+        .any(|f| f.action == MATRIX_CONNECT || f.action.ends_with(MATRIX_CONNECT));
+    let seen = text(&page);
+    assert!(
+        form && seen.contains("Connect Matrix") && !seen.contains("Replace token"),
+        "Priya is offered Connect Matrix; {}",
+        tm::describe(&page)
+    );
+    assert!(
+        !seen.contains("Connected as"),
+        "no Matrix connection line remains; {}",
+        tm::describe(&page)
+    );
+}
+
+/// "Priya still finds Disconnect Matrix on the workspace integrations page":
+/// the control for a refused disconnect — the admin's page offers the door
+/// (so the refusal is about the person, not a missing door), and it opens.
+pub async fn then_disconnect_offered(world: &mut FoundryWorld, kind: Kind) {
+    let page = get(world, "Priya", WORKSPACE_INTEGRATIONS).await;
+    let door = kind.disconnect_path();
+    let links = attr_of(&page.body, "a[href]", "href");
+    assert!(
+        links.iter().any(|h| h.ends_with(door))
+            && text(&page).contains(&format!("Disconnect {kind:?}")),
+        "control: Priya finds Disconnect {kind:?} on the workspace integrations page; {}",
+        tm::describe(&page)
+    );
+    let dialog = get(world, "Priya", door).await;
+    assert_eq!(
+        dialog.status,
+        StatusCode::OK,
+        "control: Priya's Disconnect {kind:?} opens; {}",
+        tm::describe(&dialog)
+    );
+}
+
+/// "Foundry no longer holds the bot's access token": no saved-token stamp on
+/// the page, and the workspace's Matrix connection holds no sealed credential
+/// (DDR-9: a disconnected connection holds none).
+pub async fn then_matrix_token_forgotten(world: &mut FoundryWorld) {
+    let page = get(world, "Priya", WORKSPACE_INTEGRATIONS).await;
+    assert!(
+        select_all(&parse(&page.body), "[data-token-saved]").is_empty(),
+        "the access token field shows no saved token; {}",
+        tm::describe(&page)
+    );
+    let (held,): (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM integration_connections \
+         WHERE kind = 'matrix' AND sealed_credential IS NOT NULL",
+    )
+    .fetch_one(&tm::pool(world))
+    .await
+    .expect("the Matrix connection's credential (operator view)");
+    assert_eq!(held, 0, "Foundry holds no Matrix access token");
+}
+
 /// "nothing reached the listener on this machine or the homeserver".
 pub fn then_homeserver_untouched(world: &FoundryWorld) {
     let before = world.eip.proxy_before.unwrap_or(0);
@@ -5592,9 +5682,9 @@ pub async fn then_history_still_opens(world: &mut FoundryWorld, destination: &st
     );
 }
 
-pub async fn when_disconnect(world: &mut FoundryWorld, who: &str, with_token: bool) {
+pub async fn when_disconnect(world: &mut FoundryWorld, who: &str, kind: Kind, with_token: bool) {
     capture_before(world).await;
-    let answer = disconnect(world, who, with_token).await;
+    let answer = disconnect(world, who, kind, with_token).await;
     world.eip.when_answer = Some(answer);
 }
 

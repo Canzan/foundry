@@ -224,6 +224,65 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then Identity Platform's integrations page no longer lists the route to #auth:canzan.dev
     And @foundry:canzan.dev is not a member of #auth:canzan.dev
 
+  # Matrix disconnect (US-EIP-07 for Matrix; DESIGN door
+  # /workspace/integrations/matrix/disconnect). USER DECISION 2026-10-25: built
+  # like Slack's (03 route-lifecycle, scenarios 76-78 and the admin-only rows):
+  # a counted GET dialog and POST confirm, the routes read K-9 "Paused: Matrix
+  # was disconnected", the bot's access token is forgotten, no admin email, the
+  # R-4 activity line, and what is filed while disconnected is never sent (R-9).
+  # The bot stays in its rooms (chosen over leaving them). The dialog question
+  # and the activity line were ratified by the user on 2026-10-25
+  # (feature-delta DISTILL DIST-25).
+
+  @pending @us-eip-07 @error @contract-shape:unbounded-preservation
+  Scenario: Disconnecting Matrix asks first and counts what stops
+    Given Priya has connected Canzan Labs to Matrix with the bot's access token
+    And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
+    And Lena has routed New issue on Identity Platform to #auth:canzan.dev
+    When Priya chooses Disconnect Matrix
+    Then Priya reads "Disconnect Matrix? 1 route in 1 project stops posting. Foundry forgets the bot's access token."
+    And Canzan Labs' Matrix stays connected and every route reads "Delivering"
+
+  @pending @us-eip-07 @contract-shape:bounded-change
+  Scenario: Confirming the Matrix disconnect pauses the routes and forgets the bot's token
+    Given Priya has connected Canzan Labs to Matrix with the bot's access token
+    And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
+    And Lena has routed New issue on Identity Platform to #auth:canzan.dev
+    And Priya has chosen Disconnect Matrix
+    When Priya confirms the disconnect of Matrix
+    Then Lena's route to #auth:canzan.dev reads "Paused: Matrix was disconnected"
+    And Priya is offered Connect Matrix on the workspace integrations page
+    And Foundry no longer holds the bot's access token
+    And @foundry:canzan.dev is a member of #auth:canzan.dev
+    And the workspace's integration activity gains the line "21 Oct 2026 · Priya Raman disconnected Matrix (matrix.canzan.dev)"
+    And Priya receives no email about the Matrix connection
+
+  @pending @us-eip-07 @edge @contract-shape:unbounded-preservation
+  Scenario: What happens while Matrix is disconnected is not sent after reconnecting
+    Given Priya has connected Canzan Labs to Matrix with the bot's access token
+    And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
+    And Lena has routed New issue on Identity Platform to #auth:canzan.dev
+    And Priya has disconnected Matrix
+    And Sam has filed "Rotate LLDAP bind password" in Identity Platform
+    When Priya connects Matrix with https://matrix.canzan.dev and the bot's access token
+    Then Lena's route to #auth:canzan.dev reads "Delivering"
+    And #auth:canzan.dev shows no notice from @foundry:canzan.dev about AUTH-12
+
+  @pending @us-eip-07 @error @contract-shape:unbounded-preservation
+  Scenario Outline: Only a workspace admin disconnects Matrix
+    Given Priya has connected Canzan Labs to Matrix with the bot's access token
+    And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
+    And Lena has routed New issue on Identity Platform to #auth:canzan.dev
+    When Lena <asks>
+    Then Lena gets the same not-found page any unknown address gets
+    And Canzan Labs' Matrix stays connected and every route reads "Delivering"
+    And Priya still finds Disconnect Matrix on the workspace integrations page
+
+    Examples:
+      | asks                            |
+      | chooses Disconnect Matrix       |
+      | confirms a disconnect of Matrix |
+
   @pending @us-eip-09 @error @contract-shape:bounded-change
   Scenario: A notice waiting for an unreachable homeserver arrives when it answers again
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
