@@ -116,7 +116,7 @@ Feature: The operator keeps integrations safe and observable
     Then #auth-dev shows AUTH-12's message
     And the history of the route to #auth-dev reads "New issue · AUTH-12 · Delivered after 2 attempts"
 
-  @pending @us-eip-06 @eip-03 @eip-replica @error @kpi @contract-shape:bounded-change
+  @us-eip-06 @eip-03 @eip-replica @error @kpi @contract-shape:bounded-change
   Scenario: Two replicas email each workspace admin once when the connection is lost
     Given Foundry runs as two replicas on one database with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack

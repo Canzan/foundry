@@ -78,6 +78,7 @@ use crate::support::harness::{ensure_postgres, InProcHarness};
 use crate::support::html_assertions::{parse, select_all};
 use crate::support::matrix_homeserver::{self as mx, Account, FaultProxy, Homeserver, Names};
 use crate::support::multi_replica_harness::{MultiReplicaHarness, ReplicaTime, WallTickingClock};
+use crate::support::notify_recorder::DeliveryRecorder;
 use crate::support::slack_double::{
     self as sd, Approval, Mood, PostedMessage, SlackDouble, SlackTeam,
 };
@@ -4011,16 +4012,33 @@ pub async fn then_connected_and_delivering(world: &mut FoundryWorld) {
 // Emails
 // ===========================================================================
 
-/// What a person has received: the recorder today (account mail through the
-/// Notifier; DELIVER routes the EmailTransport recorder into the same
-/// surface, with headers), or the mailpit relay for `@needs-smtp`.
-pub fn received_emails(world: &FoundryWorld, email: &str) -> Vec<ReceivedEmail> {
-    let Some(h) = world.harness.as_ref() else {
-        return Vec::new();
-    };
-    h.fake_email
-        .sent()
+/// Every recorder that can deliver mail in this scenario: the in-process
+/// app's and, when Foundry runs as replicas, theirs. A recorder shared by
+/// both is listed once, so no email is counted twice.
+fn email_recorders(world: &FoundryWorld) -> Vec<Arc<DeliveryRecorder>> {
+    let mut recorders: Vec<Arc<DeliveryRecorder>> = Vec::new();
+    let candidates = world
+        .harness
+        .as_ref()
+        .map(|h| &h.fake_email)
         .into_iter()
+        .chain(world.eip.replicas.as_ref().map(|r| &r.fake_email));
+    for recorder in candidates {
+        if !recorders.iter().any(|known| Arc::ptr_eq(known, recorder)) {
+            recorders.push(Arc::clone(recorder));
+        }
+    }
+    recorders
+}
+
+/// What a person has received: every recorder that can deliver mail in the
+/// scenario (account mail through the Notifier; DELIVER routes the
+/// EmailTransport recorder into the same surface, with headers), or the
+/// mailpit relay for `@needs-smtp`.
+pub fn received_emails(world: &FoundryWorld, email: &str) -> Vec<ReceivedEmail> {
+    email_recorders(world)
+        .iter()
+        .flat_map(|r| r.sent())
         .filter(|d| d.to.eq_ignore_ascii_case(email) && d.outcome == "delivered")
         .map(|d| ReceivedEmail {
             to: d.to,
@@ -4567,12 +4585,9 @@ pub async fn then_reset_email(world: &mut FoundryWorld, who: &str) {
     let email = tm::resolve_person(world, who).email;
     let start = Instant::now();
     while start.elapsed() < DELIVERY_BUDGET {
-        if world
-            .harness
-            .as_ref()
-            .map(|h| h.fake_email.recorded("log", "password_reset", "delivered"))
-            .unwrap_or(0)
-            > 0
+        if email_recorders(world)
+            .iter()
+            .any(|r| r.recorded("log", "password_reset", "delivered") > 0)
             || received_emails(world, &email)
                 .iter()
                 .any(|e| e.subject.to_ascii_lowercase().contains("reset"))
