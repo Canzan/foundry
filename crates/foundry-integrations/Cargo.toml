@@ -17,6 +17,7 @@ path = "src/lib.rs"
 # else — reqwest, sqlx, tokio, any other Foundry crate — fails the build.
 [dependencies]
 async-trait = { workspace = true }
+ipnet = "2"
 serde_json = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }

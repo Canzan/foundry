@@ -53,27 +53,191 @@ fn connection_lost_event_is_registered_at_zero() {
     }
 }
 
-// Outbound address policy (slice 04).
-pending!(
-    outbound_refuses_a_name_that_rebinds_to_loopback,
-    "04-01",
-    "DNS rebinding: the judging resolver refuses at connect time"
-);
-pending!(
-    outbound_ignores_an_https_proxy_pointed_at_metadata,
-    "04-01",
-    "no_proxy(): HTTPS_PROXY set to a forwarder for 169.254.169.254 is never used"
-);
-pending!(
-    outbound_follows_no_redirect_to_metadata,
-    "04-01",
-    "redirect::Policy::none(): a 302 to 169.254.169.254 is an error, not a request"
-);
-pending!(
-    outbound_without_the_test_seam_refuses_loopback,
-    "04-01",
-    "C-7: with the test-support seam off, a 127.0.0.1 homeserver is refused"
-);
+// Outbound address policy (slice 04, DELIVER 04-01; DDR-14, ADR-EIP-006
+// decision 6, DEVOPS C-7). Each request goes to a loopback listener that
+// counts what reaches it, so "refused" means "never contacted".
+mod outbound {
+    use axum::http::{header, StatusCode};
+    use axum::routing::get;
+    use axum::Router;
+    use foundry_app::integrations::config::IntegrationSettings;
+    use foundry_app::integrations::outbound::{outbound_seam, OutboundError, OutboundHttp};
+    use foundry_app::integrations::Integrations;
+    use foundry_integrations::OutboundAllow;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    const METADATA: &str = "169.254.169.254";
+
+    /// A loopback listener that accepts and drops, counting connections.
+    async fn counting_listener() -> (SocketAddr, Arc<AtomicUsize>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let accepted = Arc::new(AtomicUsize::new(0));
+        let counter = accepted.clone();
+        tokio::spawn(async move {
+            while let Ok((stream, _)) = listener.accept().await {
+                counter.fetch_add(1, Ordering::SeqCst);
+                drop(stream);
+            }
+        });
+        (addr, accepted)
+    }
+
+    async fn get_from(http: &OutboundHttp, url: &str) -> Result<StatusCode, OutboundError> {
+        let response = http.send(http.request(reqwest::Method::GET, url)).await?;
+        Ok(StatusCode::from_u16(response.status().as_u16()).expect("status"))
+    }
+
+    #[tokio::test]
+    async fn outbound_refuses_a_name_that_rebinds_to_loopback() {
+        let (listener, accepted) = counting_listener().await;
+        let lookups = Arc::new(AtomicUsize::new(0));
+        let counted = lookups.clone();
+        // What the name answers by the time Foundry connects: loopback, in
+        // both of its families' spellings.
+        let http = outbound_seam::resolving(
+            OutboundAllow::parse("127.0.0.0/8, rebind.canzan.dev").expect("allow-list"),
+            move |_| {
+                counted.fetch_add(1, Ordering::SeqCst);
+                vec![
+                    IpAddr::V4(Ipv4Addr::LOCALHOST),
+                    "::ffff:127.0.0.1".parse().expect("mapped"),
+                ]
+            },
+        );
+        let url = format!(
+            "http://rebind.canzan.dev:{}/_matrix/client/versions",
+            listener.port()
+        );
+        assert_eq!(get_from(&http, &url).await, Err(OutboundError::Refused));
+        assert!(
+            lookups.load(Ordering::SeqCst) >= 1,
+            "judged when connecting"
+        );
+        assert_eq!(
+            accepted.load(Ordering::SeqCst),
+            0,
+            "loopback never contacted"
+        );
+    }
+
+    #[tokio::test]
+    async fn outbound_ignores_an_https_proxy_pointed_at_metadata() {
+        let (forwarder, forwarded) = counting_listener().await;
+        let proxy = format!("http://{forwarder}");
+        let saved: Vec<(&str, Option<String>)> =
+            ["HTTPS_PROXY", "https_proxy", "NO_PROXY", "no_proxy"]
+                .into_iter()
+                .map(|name| (name, std::env::var(name).ok()))
+                .collect();
+        // A forwarder for the metadata address, offered the way an operator's
+        // environment would; read when the client is built.
+        std::env::set_var("HTTPS_PROXY", &proxy);
+        std::env::set_var("https_proxy", &proxy);
+        std::env::remove_var("NO_PROXY");
+        std::env::remove_var("no_proxy");
+        let http = outbound_seam::resolving(OutboundAllow::default(), |_| {
+            vec![METADATA.parse().expect("metadata")]
+        });
+        for (name, value) in saved {
+            match value {
+                Some(value) => std::env::set_var(name, value),
+                None => std::env::remove_var(name),
+            }
+        }
+        let outcome = get_from(&http, "https://metadata.canzan.dev/latest/meta-data/").await;
+        assert_eq!(outcome, Err(OutboundError::Refused));
+        assert_eq!(
+            forwarded.load(Ordering::SeqCst),
+            0,
+            "the proxy is never used"
+        );
+    }
+
+    #[tokio::test]
+    async fn outbound_follows_no_redirect_to_metadata() {
+        let asked = Arc::new(AtomicUsize::new(0));
+        let counter = asked.clone();
+        let app = Router::new().route(
+            "/",
+            get(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+                async {
+                    (
+                        StatusCode::FOUND,
+                        [(
+                            header::LOCATION,
+                            format!("http://{METADATA}/latest/meta-data/"),
+                        )],
+                    )
+                }
+            }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
+            .await
+            .expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        tokio::spawn(async move {
+            let _ = axum::serve(listener, app).await;
+        });
+        let http = outbound_seam::admitting(
+            OutboundAllow::default(),
+            "redirector.canzan.dev",
+            addr,
+            None,
+        );
+        let outcome = get_from(&http, "http://redirector.canzan.dev/").await;
+        assert_eq!(outcome, Err(OutboundError::Redirected));
+        assert_eq!(asked.load(Ordering::SeqCst), 1, "one request, not followed");
+    }
+
+    #[tokio::test]
+    async fn outbound_without_the_test_seam_refuses_loopback() {
+        let (homeserver, accepted) = counting_listener().await;
+        // Even an operator listing loopback cannot open it: the production
+        // client, as the settings build it, with no seam.
+        let settings = IntegrationSettings::from_lookup(
+            |name| {
+                (name == "FOUNDRY_OUTBOUND_ALLOW")
+                    .then(|| "127.0.0.0/8, ::1/128, localhost".to_string())
+            },
+            "https://foundry.canzan.dev",
+        )
+        .expect("settings");
+        let integrations = Integrations::new(settings);
+        let port = homeserver.port();
+        for url in [
+            format!("http://127.0.0.1:{port}/_matrix/client/v3/account/whoami"),
+            format!("http://[::ffff:127.0.0.1]:{port}/"),
+            format!("http://2130706433:{port}/"),
+            format!("http://0x7f.1:{port}/"),
+            format!("http://localhost:{port}/"),
+        ] {
+            let outcome = get_from(integrations.outbound(), &url).await;
+            assert_eq!(outcome, Err(OutboundError::Refused), "{url}");
+        }
+        assert_eq!(
+            accepted.load(Ordering::SeqCst),
+            0,
+            "the homeserver is never contacted"
+        );
+        // The contrast: through the seam the same listener is reached (it
+        // hangs up, so the request is unreachable, not refused).
+        let seamed = outbound_seam::admitting(
+            OutboundAllow::default(),
+            "matrix.canzan.dev",
+            homeserver,
+            None,
+        );
+        let outcome = get_from(&seamed, "http://matrix.canzan.dev/").await;
+        assert_eq!(outcome, Err(OutboundError::Unreachable));
+        assert!(accepted.load(Ordering::SeqCst) >= 1, "the seam reaches it");
+    }
+}
 
 // D-16, SC-3 (01-05): a Slack install through the router leaves one audit row,
 // and no column of it holds the bot token, the code, a Foundry Slack app

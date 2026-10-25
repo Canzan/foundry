@@ -144,6 +144,17 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ### Operators
 
+- **`FOUNDRY_OUTBOUND_ALLOW`** (ConfigMap; unset by default): the private ranges and host names
+  Foundry may reach at an admin- or lead-supplied address, comma-separated, as CIDR ranges
+  (`10.0.0.0/8`, `fd12:3456::/48`), bare addresses or host names (`matrix.home.lan`). RFC 1918,
+  CGNAT (`100.64.0.0/10`) and unique-local (`fc00::/7`) addresses are refused unless listed.
+  Loopback, link-local, the cloud metadata address (`169.254.169.254`, `fd00:ec2::254`), "this
+  network", reserved, documentation and benchmarking ranges, multicast and broadcast are refused
+  whatever the list says, including in IPv4-mapped, IPv4-compatible, NAT64 and 6to4 forms and in
+  decimal, hex or octal spellings. Addresses are judged when Foundry connects, so a name that
+  later resolves elsewhere cannot be reached; such requests follow no redirect and use no proxy
+  (`HTTPS_PROXY` and friends are ignored for them). A malformed entry refuses start
+  (`health.startup.refused`, probe `integrations`, naming the entry's position, never its text).
 - **Outbox stall gauges**: `foundry_outbox_undispatched`, `foundry_outbox_undispatched_oldest_seconds`,
   `foundry_integration_deliveries_pending{kind}` (`slack`, `matrix`, `email`) and
   `foundry_integration_deliveries_pending_oldest_seconds`, registered at 0 and refreshed with the

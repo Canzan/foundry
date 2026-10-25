@@ -91,7 +91,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARG
     && rustup target add "$triple" \
     && cargo build --locked --release --target "$triple" -p foundry-app --bin foundry \
     && cp "/work/target/$triple/release/foundry" /usr/local/bin/foundry \
-    && ! grep -q "foundry-test-seam:integrations-claimant-v1" /usr/local/bin/foundry
+    && ! grep -q "foundry-test-seam:integrations-claimant-v1" /usr/local/bin/foundry \
+    && ! grep -q "foundry-test-seam:integrations-outbound-v1" /usr/local/bin/foundry
 
 FROM gcr.io/distroless/cc-debian12 AS runtime
 WORKDIR /app

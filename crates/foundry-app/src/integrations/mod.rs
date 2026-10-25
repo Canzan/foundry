@@ -1,6 +1,7 @@
 //! external-integration-plugins — foundry-app's integrations module (DESIGN
-//! [REF] Component Decomposition slice 01): settings ([`config`]), the Slack
-//! adapter ([`slack`]) and the doors ([`handlers`]).
+//! [REF] Component Decomposition slices 01 and 04): settings ([`config`]), the
+//! Slack adapter ([`slack`]), the client for user-supplied addresses
+//! ([`outbound`]) and the doors ([`handlers`]).
 //!
 //! [`Integrations`] is what the settings built; [`IntegrationsHandle`] is how
 //! [`crate::AppState`] holds it. Production installs it once at boot; the
@@ -9,6 +10,7 @@
 
 pub mod config;
 pub mod handlers;
+pub mod outbound;
 pub mod slack;
 pub mod store_capabilities;
 pub mod worker;
@@ -17,6 +19,7 @@ use crate::rate_limit::RevokeRateLimiter;
 use config::IntegrationSettings;
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
 use foundry_store::integrations::KeyCheck;
+use outbound::OutboundHttp;
 use secrecy::{ExposeSecret, SecretString};
 use slack::{SlackApp, SlackBot};
 use std::collections::BTreeSet;
@@ -87,17 +90,25 @@ impl SecretsCheck {
 pub struct Integrations {
     settings: IntegrationSettings,
     slack: Option<SlackApp>,
+    outbound: OutboundHttp,
     secrets: SecretsCheck,
 }
 
 impl Integrations {
     pub fn new(settings: IntegrationSettings) -> Self {
         let slack = settings.slack.as_ref().map(SlackApp::new);
+        let outbound = OutboundHttp::new(settings.outbound.clone());
         Self {
             settings,
             slack,
+            outbound,
             secrets: SecretsCheck::default(),
         }
+    }
+
+    /// The client for admin- and lead-supplied addresses (ADR-EIP-006).
+    pub fn outbound(&self) -> &OutboundHttp {
+        &self.outbound
     }
 
     /// These integrations as the boot secrets probe found them.

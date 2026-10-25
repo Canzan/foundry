@@ -128,6 +128,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_integrations_store_capability(root));
     violations.extend(check_integrations_secret_seam(root));
     violations.extend(check_integrations_test_seam(root));
+    violations.extend(check_integrations_outbound_client_seam(root));
     violations.extend(check_project_lifecycle_live_reads(root));
     violations.extend(check_store_natural_key_scoped(root));
     violations.extend(check_api_openapi_operations(root));
@@ -171,7 +172,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), every naming of the worker's claimant seam is gated on test-support, the seam carries its unique marker and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying that marker (integrations-test-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), every naming of the worker's claimant seam is gated on test-support, the seam carries its unique marker and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying that marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -4085,6 +4086,18 @@ mod tests {
             (
                 "crates/foundry-integrations/Cargo.toml",
                 "[package]\nname = \"foundry-integrations\"\n\n[dependencies]\n",
+            ),
+            // `check_integrations_outbound_client_seam` fails closed on a
+            // missing OutboundHttp or Slack client, so the clean tree carries
+            // both, each with its required settings.
+            (
+                "crates/foundry-app/src/integrations/outbound.rs",
+                "fn c() { reqwest::Client::builder().no_proxy()\
+                 .redirect(Policy::none()).build(); }\n",
+            ),
+            (
+                "crates/foundry-app/src/integrations/slack.rs",
+                "fn c() { reqwest::Client::builder().redirect(Policy::none()).build(); }\n",
             ),
         ]);
         let clean_args = vec!["--root".to_string(), clean.path().display().to_string()];
@@ -14828,6 +14841,12 @@ const TEST_SEAM_FILE: &str = "crates/foundry-app/src/integrations/worker.rs";
 const TEST_SEAM_MODULE: &str = "claimant_seam";
 /// The seam's marker constant, declared inside the module.
 const TEST_SEAM_MARKER: &str = "CLAIMANT_SEAM_MARKER";
+/// Every test-support seam module of foundry-app, by what it is: the
+/// worker's claimant seam (01-11) and the outbound seam (U-D1, 04-01).
+const TEST_SEAMS: [(&str, &str); 2] = [
+    (TEST_SEAM_MODULE, "the claimant seam"),
+    ("outbound_seam", "the outbound seam"),
+];
 const TEST_SEAM_GATE: &str = "#[cfg(feature = \"test-support\")]";
 /// The one cargo build the Dockerfile may run, once its `--locked`,
 /// `--release` and `--target` flags are set aside.
@@ -14836,7 +14855,8 @@ const TEST_SEAM_BUILD: &str = "-p foundry-app --bin foundry";
 const TEST_SEAM_BINARY: &str = "/usr/local/bin/foundry";
 
 /// Rule `integrations-test-seam` (DEVOPS C-13): (a) every naming of the
-/// worker's claimant seam in foundry-app's sources is gated on
+/// worker's claimant seam or the outbound seam in foundry-app's sources is
+/// gated on
 /// `#[cfg(feature = "test-support")]`; (b) the Dockerfile runs exactly one
 /// cargo build, of `-p foundry-app --bin foundry` (no features, no workspace),
 /// and after it refuses a binary carrying the seam's marker; (c) the seam
@@ -14883,15 +14903,17 @@ fn test_seam_ungated(root: &Path) -> Vec<String> {
         };
         let code = RustSource::scan(&contents).code;
         let lines: Vec<&str> = contents.lines().collect();
-        for at in word_positions(&code, TEST_SEAM_MODULE) {
-            let line = line_at(&code, at);
-            if !gated(&lines, line) {
-                violations.push(format!(
-                    "{TEST_SEAM_ID}: {}:{line} names the claimant seam outside \
-                     {TEST_SEAM_GATE} — the seam must never reach a production build \
-                     ({TEST_SEAM_REFERENCE}).",
-                    rel(root, &file)
-                ));
+        for (module, seam) in TEST_SEAMS {
+            for at in word_positions(&code, module) {
+                let line = line_at(&code, at);
+                if !gated(&lines, line) {
+                    violations.push(format!(
+                        "{TEST_SEAM_ID}: {}:{line} names {seam} outside \
+                         {TEST_SEAM_GATE} — the seam must never reach a production build \
+                         ({TEST_SEAM_REFERENCE}).",
+                        rel(root, &file)
+                    ));
+                }
             }
         }
     }
@@ -15032,6 +15054,123 @@ fn build_arguments(rest: &str) -> String {
         }
     }
     kept.join(" ")
+}
+
+const OUTBOUND_SEAM_ID: &str = "integrations-outbound-client-seam";
+const OUTBOUND_SEAM_REFERENCE: &str =
+    "external-integration-plugins DESIGN check-arch rule 3, ADR-EIP-006 decision 6";
+/// The module whose clients the rule governs.
+const OUTBOUND_SEAM_DIR: &str = "crates/foundry-app/src/integrations";
+/// The two files allowed to build a client, what each builds, and the
+/// settings each client's builder must carry.
+const OUTBOUND_CLIENTS: [(&str, &str, &[&str]); 2] = [
+    (
+        "crates/foundry-app/src/integrations/outbound.rs",
+        "OutboundHttp",
+        &["Policy::none()", ".no_proxy()"],
+    ),
+    (
+        "crates/foundry-app/src/integrations/slack.rs",
+        "the fixed-host Slack client",
+        &["Policy::none()"],
+    ),
+];
+/// The ways to make a `reqwest` client.
+const CLIENT_CONSTRUCTORS: [&str; 4] = [
+    "Client::new",
+    "Client::builder",
+    "ClientBuilder::new",
+    "Client::default",
+];
+
+/// Rule `integrations-outbound-client-seam` (DESIGN check-arch rule 3,
+/// ADR-EIP-006): under foundry-app's integrations module a client is built
+/// only by `Client::builder` in OutboundHttp's file and the Slack client's;
+/// OutboundHttp's builder statement carries `redirect(Policy::none())` and
+/// `no_proxy()`, the Slack client's `redirect(Policy::none())`. Fails closed:
+/// each of the two must build its client. Comments and strings are ignored.
+fn check_integrations_outbound_client_seam(root: &Path) -> Vec<String> {
+    let (sources, unreadable) = files_under(&root.join(OUTBOUND_SEAM_DIR), "rs", &|_| false);
+    let mut violations: Vec<String> = unreadable
+        .iter()
+        .map(|dir| {
+            format!(
+                "{OUTBOUND_SEAM_ID}: cannot list {} ({OUTBOUND_SEAM_REFERENCE}).",
+                rel(root, dir)
+            )
+        })
+        .collect();
+    let mut built: BTreeSet<&str> = BTreeSet::new();
+    for file in sources {
+        let file_rel = rel(root, &file);
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            violations.push(format!(
+                "{OUTBOUND_SEAM_ID}: cannot read {file_rel} ({OUTBOUND_SEAM_REFERENCE})."
+            ));
+            continue;
+        };
+        let code = RustSource::scan(&contents).code;
+        let allowed = OUTBOUND_CLIENTS
+            .iter()
+            .find(|(allowed, _, _)| *allowed == file_rel);
+        for constructor in CLIENT_CONSTRUCTORS {
+            for at in word_positions(&code, constructor) {
+                let line = line_at(&code, at);
+                let Some((client_file, client, required)) =
+                    allowed.filter(|_| constructor == "Client::builder")
+                else {
+                    violations.push(format!(
+                        "{OUTBOUND_SEAM_ID}: {file_rel}:{line} builds a reqwest client with \
+                         `{constructor}` — under the integrations module only OutboundHttp and \
+                         the fixed-host Slack client build one, with `Client::builder` \
+                         ({OUTBOUND_SEAM_REFERENCE})."
+                    ));
+                    continue;
+                };
+                built.insert(client_file);
+                let statement = builder_statement(&code, at);
+                violations.extend(
+                    required
+                        .iter()
+                        .filter(|needed| !statement.contains(*needed))
+                        .map(|needed| {
+                            format!(
+                                "{OUTBOUND_SEAM_ID}: {file_rel}:{line} builds {client} without \
+                             `{needed}` in the same statement ({OUTBOUND_SEAM_REFERENCE})."
+                            )
+                        }),
+                );
+            }
+        }
+    }
+    violations.extend(
+        OUTBOUND_CLIENTS
+            .iter()
+            .filter(|(file, _, _)| !built.contains(file))
+            .map(|(file, client, _)| {
+                format!(
+                    "{OUTBOUND_SEAM_ID}: {file} does not build {client} with `Client::builder` \
+                     ({OUTBOUND_SEAM_REFERENCE})."
+                )
+            }),
+    );
+    violations
+}
+
+/// The builder statement starting at `at`, whitespace removed: up to its
+/// `;`, or the end of the innermost `fn` body around it.
+fn builder_statement(code: &str, at: usize) -> String {
+    let body_end = fn_spans(code)
+        .into_iter()
+        .map(|span| span.body)
+        .filter(|&(open, close)| (open..close).contains(&at))
+        .map(|(_, close)| close)
+        .min()
+        .unwrap_or(code.len());
+    let end = code[at..body_end]
+        .find(';')
+        .map_or(body_end, |offset| at + offset);
+    code[at..end].split_whitespace().collect()
 }
 
 #[cfg(test)]
@@ -15419,32 +15558,237 @@ cc = "1"
         "05-01",
         "an email-choice writer that does not open with lock_live_project is refused"
     );
-    // Rule 3 `integrations-outbound-client-seam`, slice 04.
-    pending_gold!(
-        outbound_seam_passes_on_the_tree,
-        "04-01",
-        "integrations-outbound-client-seam passes on the real tree"
+    // --- Rule 3 `integrations-outbound-client-seam`, slice 04 (DELIVER 04-01)
+
+    const OUTBOUND_FILE: &str = "crates/foundry-app/src/integrations/outbound.rs";
+    const SLACK_FILE: &str = "crates/foundry-app/src/integrations/slack.rs";
+    const HANDLERS_FILE: &str = "crates/foundry-app/src/integrations/handlers.rs";
+
+    /// OutboundHttp's one builder, with both settings; a comment and a string
+    /// naming a constructor are not code.
+    const CLEAN_OUTBOUND: &str = concat!(
+        "pub struct OutboundHttp;\n",
+        "impl OutboundHttp {\n",
+        "    fn build() -> reqwest::Client {\n",
+        "        // reqwest::Client::new() would follow redirects\n",
+        "        let _ = \"reqwest::Client::new()\";\n",
+        "        let builder = reqwest::Client::builder()\n",
+        "            .no_proxy()\n",
+        "            .redirect(reqwest::redirect::Policy::none())\n",
+        "            .timeout(CALL_TIMEOUT);\n",
+        "        builder.build().expect(\"builds\")\n",
+        "    }\n",
+        "}\n",
     );
-    pending_gold!(
-        outbound_seam_refuses_a_stray_client,
-        "04-01",
-        "a reqwest::Client::builder under integrations/ outside OutboundHttp is refused"
+
+    /// The Slack client's builder, a tail expression.
+    const CLEAN_SLACK: &str = concat!(
+        "fn client() -> reqwest::Client {\n",
+        "    reqwest::Client::builder()\n",
+        "        .redirect(reqwest::redirect::Policy::none())\n",
+        "        .build()\n",
+        "        .unwrap_or_default()\n",
+        "}\n",
+        "fn other() {}\n",
     );
-    pending_gold!(
-        outbound_seam_refuses_a_removed_redirect_policy,
-        "04-01",
-        "OutboundHttp without redirect::Policy::none() is refused"
-    );
-    pending_gold!(
-        outbound_seam_refuses_a_removed_no_proxy,
-        "04-01",
-        "OutboundHttp without no_proxy() is refused"
-    );
-    pending_gold!(
-        outbound_seam_refuses_a_slack_client_that_follows_redirects,
-        "04-01",
-        "the fixed-host Slack client without redirect::Policy::none() is refused"
-    );
+
+    fn clients_tree(outbound: &str, slack: &str, extra: &[(&str, &str)]) -> tempfile::TempDir {
+        let mut files = vec![(OUTBOUND_FILE, outbound), (SLACK_FILE, slack)];
+        files.extend_from_slice(extra);
+        stage(&files)
+    }
+
+    const OUTBOUND_PREFIX: &str = "integrations-outbound-client-seam: ";
+
+    #[test]
+    fn outbound_seam_passes_on_the_tree() {
+        let violations = check_integrations_outbound_client_seam(&workspace_root());
+        assert!(violations.is_empty(), "{violations:?}");
+        let violations = check_integrations_outbound_client_seam(
+            clients_tree(CLEAN_OUTBOUND, CLEAN_SLACK, &[]).path(),
+        );
+        assert!(violations.is_empty(), "{violations:?}");
+        assert!(
+            source_violations(&workspace_root()).is_empty(),
+            "the rule runs in check-arch and passes there"
+        );
+        let empty = check_integrations_outbound_client_seam(stage(&[]).path());
+        assert!(
+            empty.len() == 3
+                && empty.iter().all(|v| v.starts_with(OUTBOUND_PREFIX))
+                && empty[0].contains("cannot list crates/foundry-app/src/integrations")
+                && empty[1].contains(OUTBOUND_FILE)
+                && empty[1].contains("does not build OutboundHttp")
+                && empty[2].contains(SLACK_FILE)
+                && empty[2].contains("does not build the fixed-host Slack client"),
+            "a tree without either client fails closed: {empty:?}"
+        );
+        let no_slack = check_integrations_outbound_client_seam(
+            clients_tree(CLEAN_OUTBOUND, "fn client() {}\n", &[]).path(),
+        );
+        assert!(
+            refuses_only(
+                &no_slack,
+                OUTBOUND_PREFIX,
+                "does not build the fixed-host Slack client"
+            ),
+            "{no_slack:?}"
+        );
+    }
+
+    #[test]
+    fn outbound_seam_refuses_a_stray_client() {
+        for (form, file, body, named) in [
+            (
+                "a builder in the handlers",
+                HANDLERS_FILE,
+                "fn h() {\n    let c = reqwest::Client::builder().build();\n}\n".to_string(),
+                format!("{HANDLERS_FILE}:2 builds a reqwest client with `Client::builder`"),
+            ),
+            (
+                "Client::new in the worker",
+                "crates/foundry-app/src/integrations/worker.rs",
+                "fn w() { let c = reqwest::Client::new(); }\n".to_string(),
+                "worker.rs:1 builds a reqwest client with `Client::new`".to_string(),
+            ),
+            (
+                "a ClientBuilder in a nested module",
+                "crates/foundry-app/src/integrations/matrix/client.rs",
+                "\n\nfn m() { reqwest::ClientBuilder::new(); }\n".to_string(),
+                "matrix/client.rs:3 builds a reqwest client with `ClientBuilder::new`".to_string(),
+            ),
+            (
+                "Client::default beside OutboundHttp",
+                OUTBOUND_FILE,
+                format!(
+                    "{CLEAN_OUTBOUND}fn d() -> reqwest::Client {{ reqwest::Client::default() }}\n"
+                ),
+                format!("{OUTBOUND_FILE}:13 builds a reqwest client with `Client::default`"),
+            ),
+            (
+                "Client::new in the Slack client's file",
+                SLACK_FILE,
+                format!("{CLEAN_SLACK}fn n() {{ reqwest::Client::new(); }}\n"),
+                format!("{SLACK_FILE}:8 builds a reqwest client with `Client::new`"),
+            ),
+        ] {
+            let tree = match file {
+                OUTBOUND_FILE => clients_tree(&body, CLEAN_SLACK, &[]),
+                SLACK_FILE => clients_tree(CLEAN_OUTBOUND, &body, &[]),
+                _ => clients_tree(CLEAN_OUTBOUND, CLEAN_SLACK, &[(file, &body)]),
+            };
+            let violations = check_integrations_outbound_client_seam(tree.path());
+            assert!(
+                refuses_only(&violations, OUTBOUND_PREFIX, &named),
+                "{form}: {violations:?}"
+            );
+        }
+        let outside = clients_tree(
+            CLEAN_OUTBOUND,
+            CLEAN_SLACK,
+            &[(
+                "crates/foundry-app/src/notify.rs",
+                "fn n() { reqwest::Client::new(); }\n",
+            )],
+        );
+        let violations = check_integrations_outbound_client_seam(outside.path());
+        assert!(
+            violations.is_empty(),
+            "outside the integrations module: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn outbound_seam_refuses_a_removed_redirect_policy() {
+        let redirect = "            .redirect(reqwest::redirect::Policy::none())\n";
+        for (form, outbound) in [
+            ("removed", CLEAN_OUTBOUND.replace(redirect, "")),
+            (
+                "in a later statement",
+                CLEAN_OUTBOUND.replace(redirect, "").replace(
+                    "        builder.build()",
+                    "        let _ = reqwest::redirect::Policy::none();\n        builder.build()",
+                ),
+            ),
+            (
+                "following redirects",
+                CLEAN_OUTBOUND.replace("Policy::none()", "Policy::limited(10)"),
+            ),
+        ] {
+            let violations = check_integrations_outbound_client_seam(
+                clients_tree(&outbound, CLEAN_SLACK, &[]).path(),
+            );
+            assert!(
+                refuses_only(
+                    &violations,
+                    OUTBOUND_PREFIX,
+                    &format!("{OUTBOUND_FILE}:6 builds OutboundHttp without `Policy::none()`")
+                ),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn outbound_seam_refuses_a_removed_no_proxy() {
+        let outbound = CLEAN_OUTBOUND.replace("            .no_proxy()\n", "");
+        let violations = check_integrations_outbound_client_seam(
+            clients_tree(&outbound, CLEAN_SLACK, &[]).path(),
+        );
+        assert!(
+            refuses_only(
+                &violations,
+                OUTBOUND_PREFIX,
+                &format!("{OUTBOUND_FILE}:6 builds OutboundHttp without `.no_proxy()`")
+            ),
+            "{violations:?}"
+        );
+        let both = CLEAN_OUTBOUND
+            .replace("            .no_proxy()\n", "")
+            .replace(
+                "            .redirect(reqwest::redirect::Policy::none())\n",
+                "",
+            );
+        let violations =
+            check_integrations_outbound_client_seam(clients_tree(&both, CLEAN_SLACK, &[]).path());
+        assert_eq!(
+            violations.len(),
+            2,
+            "each missing setting is named: {violations:?}"
+        );
+    }
+
+    #[test]
+    fn outbound_seam_refuses_a_slack_client_that_follows_redirects() {
+        let slack =
+            CLEAN_SLACK.replace("        .redirect(reqwest::redirect::Policy::none())\n", "");
+        let violations = check_integrations_outbound_client_seam(
+            clients_tree(CLEAN_OUTBOUND, &slack, &[]).path(),
+        );
+        assert!(
+            refuses_only(
+                &violations,
+                OUTBOUND_PREFIX,
+                &format!(
+                    "{SLACK_FILE}:2 builds the fixed-host Slack client without `Policy::none()`"
+                )
+            ),
+            "{violations:?}"
+        );
+        let later = CLEAN_SLACK
+            .replace("        .redirect(reqwest::redirect::Policy::none())\n", "")
+            .replace(
+                "fn other() {}",
+                "fn other() { reqwest::redirect::Policy::none(); }",
+            );
+        let violations = check_integrations_outbound_client_seam(
+            clients_tree(CLEAN_OUTBOUND, &later, &[]).path(),
+        );
+        assert!(
+            refuses_only(&violations, OUTBOUND_PREFIX, "Slack client without"),
+            "a Policy::none() in another fn does not count: {violations:?}"
+        );
+    }
     // --- DEVOPS C-13 `integrations-test-seam` (DELIVER 01-11) ----------------
 
     const SEAM_FILE: &str = "crates/foundry-app/src/integrations/worker.rs";

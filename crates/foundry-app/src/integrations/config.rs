@@ -3,8 +3,8 @@
 //!
 //! Read once through a lookup (the environment in production, the scenario's
 //! settings in the acceptance harness), so both read the same names the same
-//! way. A malformed secrets key or a partial Slack trio refuses start naming
-//! the setting; a missing secrets key is not an error (integrations are simply
+//! way. A malformed secrets key, a partial Slack trio or a malformed
+//! `FOUNDRY_OUTBOUND_ALLOW` entry refuses start naming the setting; a missing secrets key is not an error (integrations are simply
 //! not offered: DD-2, R-3). The delivery worker's settings (poll, lease,
 //! give-up, on/off) are read here too, so the acceptance harness hands them to
 //! the in-process worker the same way (ADR-EIP-002 decisions 4 and 11).
@@ -12,6 +12,7 @@
 use foundry_auth::secret_box::{
     SecretBox, SecretBoxError, SECRETS_KEY_PREVIOUS_SETTING, SECRETS_KEY_SETTING,
 };
+use foundry_integrations::{MalformedAllowEntry, OutboundAllow, OUTBOUND_ALLOW_SETTING};
 use secrecy::SecretString;
 use std::time::Duration;
 
@@ -49,6 +50,8 @@ pub enum ConfigError {
     NotANumber { setting: &'static str },
     #[error("FOUNDRY_INTEGRATIONS_LEASE_SECONDS is under {MIN_LEASE_SECONDS}: a delivery's lease could expire during its send")]
     LeaseTooShort,
+    #[error(transparent)]
+    OutboundAllow(#[from] MalformedAllowEntry),
 }
 
 /// The delivery worker's settings.
@@ -111,6 +114,9 @@ pub struct IntegrationSettings {
     /// `None` when `FOUNDRY_SECRETS_KEY` is not set (DD-2: integrations off).
     pub secrets: Option<SecretBox>,
     pub worker: WorkerSettings,
+    /// `FOUNDRY_OUTBOUND_ALLOW`: the private ranges and hosts outbound
+    /// requests may reach (ADR-EIP-006 decision 6); empty when unset.
+    pub outbound: OutboundAllow,
 }
 
 impl IntegrationSettings {
@@ -135,6 +141,7 @@ impl IntegrationSettings {
             slack: slack_settings(&get)?,
             secrets: secrets(&get)?,
             worker: WorkerSettings::read(&get)?,
+            outbound: OutboundAllow::parse(&get(OUTBOUND_ALLOW_SETTING).unwrap_or_default())?,
         })
     }
 
@@ -145,6 +152,7 @@ impl IntegrationSettings {
             slack: None,
             secrets: None,
             worker: WorkerSettings::off(),
+            outbound: OutboundAllow::default(),
         }
     }
 }

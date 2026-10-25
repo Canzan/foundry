@@ -20,6 +20,8 @@
 //!   connection on a refusal;
 //! - [`RouteStatus::derive`] gives a route's K-9 status (DDR-19), and
 //!   [`DeliveryRecord::line`] a delivery's history line;
+//! - [`judge`] decides whether Foundry may connect to an address (DDR-14),
+//!   with the operator's [`OutboundAllow`] and [`OutboundTarget::parse`];
 //! - [`delivery_series`], [`delivery_labels`], [`connection_census`] and
 //!   [`route_census`] name the operator's metric series over closed label
 //!   sets (DDR-22, U-D8).
@@ -39,6 +41,7 @@ mod history;
 mod kinds;
 mod message;
 mod meter;
+mod outbound;
 mod ports;
 mod queue;
 mod retry;
@@ -58,6 +61,10 @@ pub use message::{
 pub use meter::{
     connection_census, delivery_labels, delivery_series, route_census, DeliveryOutcome, Series,
     CONNECTED_KINDS, METERED_KINDS, ROUTE_STATES,
+};
+pub use outbound::{
+    judge, judge_host, MalformedAllowEntry, OutboundAllow, OutboundTarget, Refusal, TargetError,
+    TargetHost, Verdict, OUTBOUND_ALLOW_SETTING,
 };
 pub use ports::{
     DeliveryChannel, DeliveryKey, Destination, DestinationCatalog, DestinationCheck,

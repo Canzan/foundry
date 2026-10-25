@@ -12,8 +12,12 @@ use foundry_integrations::{
     QueuedDelivery, ReasonCode, RetainedDelivery, RetainedOutboxRow, RetryPolicy, RouteFacts,
     RouteSpec, RouteStatus, Settlement, SlackAnswer, TargetedDelivery, RETAINED_PER_ROUTE,
 };
+use foundry_integrations::{
+    judge, judge_host, OutboundAllow, OutboundTarget, Refusal, TargetHost, Verdict,
+};
 use proptest::prelude::*;
 use std::collections::BTreeSet;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -53,7 +57,7 @@ pending!(
 );
 // plan functions (claim and sweeps).
 // address judge (DDR-14).
-pending!(judge_refuses_every_reserved_range_and_mapped_form, "04-01", "proptest: loopback, link-local, metadata, 0/8, 240/4, documentation and benchmark ranges, IPv4-mapped, NAT64, 6to4, decimal literals; private only via the allow-list; a port-less address defaults to 443 before judging. Carries the 04-matrix rows DISTILL moved out of acceptance (link-local 169.254.169.254, private 10.0.0.5, port-less https://10.0.0.5): nothing listens there, so only the judge can pin them");
+// (04-01, below the plan functions: judge_refuses_every_reserved_range_and_mapped_form.)
 
 // ---------------------------------------------------------------------------
 // 01-04: the dispatch plan and the claim and expiry planners.
@@ -1421,4 +1425,260 @@ fn retry_policy_waits_are_ddr5s_exactly() {
         shares.len()
     );
     assert!(shares.iter().any(|d| *d < secs(10)) && shares.iter().any(|d| *d > secs(10)));
+}
+
+// ---------------------------------------------------------------------------
+// 04-01: the outbound address judge (DDR-14, ADR-EIP-006 decision 6). The
+// ranges below are the ADR's own list, written out here as the oracle.
+// ---------------------------------------------------------------------------
+
+/// Always refused, whatever the allow-list says: (network, prefix length).
+const ALWAYS_REFUSED: [([u8; 4], u8); 9] = [
+    ([0, 0, 0, 0], 8),
+    ([127, 0, 0, 0], 8),
+    ([169, 254, 0, 0], 16),
+    ([192, 0, 2, 0], 24),
+    ([198, 51, 100, 0], 24),
+    ([203, 0, 113, 0], 24),
+    ([198, 18, 0, 0], 15),
+    ([224, 0, 0, 0], 4),
+    ([240, 0, 0, 0], 4),
+];
+/// Refused unless allow-listed: RFC 1918 and CGNAT.
+const PRIVATE: [([u8; 4], u8); 4] = [
+    ([10, 0, 0, 0], 8),
+    ([172, 16, 0, 0], 12),
+    ([192, 168, 0, 0], 16),
+    ([100, 64, 0, 0], 10),
+];
+
+fn within(range: ([u8; 4], u8), host_bits: u32) -> Ipv4Addr {
+    let (net, len) = range;
+    let mask = if len == 0 {
+        0
+    } else {
+        u32::MAX << (32 - u32::from(len))
+    };
+    Ipv4Addr::from((u32::from(Ipv4Addr::from(net)) & mask) | (host_bits & !mask))
+}
+
+fn in_any(ranges: &[([u8; 4], u8)], ip: Ipv4Addr) -> bool {
+    ranges
+        .iter()
+        .any(|&range| within(range, u32::from(ip)) == ip)
+}
+
+fn v4_in(ranges: &'static [([u8; 4], u8)]) -> impl Strategy<Value = Ipv4Addr> {
+    (0..ranges.len(), any::<u32>()).prop_map(move |(i, bits)| within(ranges[i], bits))
+}
+
+fn public_v4() -> impl Strategy<Value = Ipv4Addr> {
+    any::<u32>()
+        .prop_map(Ipv4Addr::from)
+        .prop_filter("public", |ip| {
+            !in_any(&ALWAYS_REFUSED, *ip) && !in_any(&PRIVATE, *ip)
+        })
+}
+
+/// Every IPv6 form that embeds `v4`, by name.
+fn embeddings(v4: Ipv4Addr) -> Vec<(&'static str, Ipv6Addr)> {
+    let [a, b, c, d] = v4.octets();
+    let hi = u16::from_be_bytes([a, b]);
+    let lo = u16::from_be_bytes([c, d]);
+    vec![
+        ("IPv4-mapped", v4.to_ipv6_mapped()),
+        ("IPv4-compatible", Ipv6Addr::new(0, 0, 0, 0, 0, 0, hi, lo)),
+        ("NAT64", Ipv6Addr::new(0x64, 0xff9b, 0, 0, 0, 0, hi, lo)),
+        (
+            "NAT64 local",
+            Ipv6Addr::new(0x64, 0xff9b, 1, 0, 0, 0, hi, lo),
+        ),
+        ("6to4", Ipv6Addr::new(0x2002, hi, lo, 0, 0, 0, 0, 1)),
+    ]
+}
+
+/// The spellings of `v4` a browser reads as that address.
+fn literals(v4: Ipv4Addr) -> Vec<String> {
+    let [a, b, c, d] = v4.octets();
+    let whole = u32::from(v4);
+    vec![
+        v4.to_string(),
+        whole.to_string(),
+        format!("0x{whole:x}"),
+        format!("0{a:o}.0{b:o}.0{c:o}.0{d:o}"),
+        format!("0x{a:x}.{b}.0x{c:X}.{d}"),
+        format!("{a}.{}", whole & 0x00ff_ffff),
+        format!("{a}.{b}.{}", whole & 0xffff),
+        format!("{v4}."),
+    ]
+}
+
+fn everything() -> OutboundAllow {
+    OutboundAllow::parse("0.0.0.0/0, ::/0, matrix.canzan.dev").expect("allow-list")
+}
+
+/// Carries the rows DISTILL moved out of acceptance (B2: link-local
+/// 169.254.169.254, private 10.0.0.5, port-less https://10.0.0.5): nothing
+/// listens there, so only the judge can pin them.
+#[test]
+fn judge_refuses_every_reserved_range_and_mapped_form() {
+    rows_moved_out_of_acceptance();
+    proptest!(ProptestConfig::with_cases(512), |(
+        reserved in v4_in(&ALWAYS_REFUSED),
+        private in v4_in(&PRIVATE),
+        public in public_v4(),
+        ula_bits in any::<u128>(),
+        global in (any::<[u16; 8]>(), any::<bool>()),
+    )| {
+        let none = OutboundAllow::default();
+        let refused = Verdict::Refuse(Refusal::Reserved);
+        let needs_listing = Verdict::Refuse(Refusal::Private);
+        // Always refused, even when every range and the host are listed.
+        for allow in [&none, &everything()] {
+            prop_assert_eq!(judge(reserved.into(), allow), refused, "{}", reserved);
+            prop_assert_eq!(judge_host("matrix.canzan.dev", reserved.into(), allow), refused);
+            for (form, v6) in embeddings(reserved) {
+                prop_assert_eq!(judge(v6.into(), allow), refused, "{} {}", form, v6);
+            }
+        }
+        // Private: refused unless a listed range holds it or the listed host
+        // resolved to it; the embedded forms are judged the same way.
+        let own = OutboundAllow::parse(&format!("{private}/32")).expect("own range");
+        let by_name = OutboundAllow::parse("Matrix.Canzan.Dev.").expect("host");
+        prop_assert_eq!(judge(private.into(), &none), needs_listing, "{}", private);
+        prop_assert_eq!(judge(private.into(), &by_name), needs_listing);
+        prop_assert_eq!(judge_host("elsewhere.canzan.dev", private.into(), &by_name), needs_listing);
+        prop_assert_eq!(judge_host("matrix.canzan.dev", private.into(), &by_name), Verdict::Allow);
+        prop_assert_eq!(judge(private.into(), &own), Verdict::Allow);
+        prop_assert_eq!(judge(private.into(), &everything()), Verdict::Allow);
+        for (form, v6) in embeddings(private) {
+            prop_assert_eq!(judge(v6.into(), &none), needs_listing, "{} {}", form, v6);
+            prop_assert_eq!(judge(v6.into(), &own), Verdict::Allow, "{} {}", form, v6);
+        }
+        // Public addresses, and their embedded forms, need no listing.
+        prop_assert_eq!(judge(public.into(), &none), Verdict::Allow, "{}", public);
+        for (form, v6) in embeddings(public) {
+            prop_assert_eq!(judge(v6.into(), &none), Verdict::Allow, "{} {}", form, v6);
+        }
+        // A global IPv6 address embeds nothing, even with ffff or zeros where
+        // a mapped address has them.
+        let (mut segments, ffff) = global;
+        segments[0] = 0x2400 | (segments[0] & 0x0fff);
+        if ffff {
+            segments[5] = 0xffff;
+            segments[..5].iter_mut().skip(1).for_each(|s| *s = 0);
+        }
+        let global = Ipv6Addr::from(segments);
+        prop_assert_eq!(judge(global.into(), &none), Verdict::Allow, "{}", global);
+        // IPv6's own ranges: link-local, multicast, documentation always;
+        // unique-local only by listing; the metadata address never.
+        let tail = |prefix: u128, len: u32| {
+            Ipv6Addr::from((prefix & !(u128::MAX >> len)) | (ula_bits & (u128::MAX >> len)))
+        };
+        for (net, len) in [(0xfe80u128 << 112, 10), (0xff00 << 112, 8), (0x2001_0db8 << 96, 32)] {
+            let v6 = tail(net, len);
+            prop_assert_eq!(judge(v6.into(), &everything()), refused, "{}", v6);
+        }
+        let ula = tail(0xfc00 << 112, 7);
+        prop_assume!(ula != "fd00:ec2::254".parse::<Ipv6Addr>().expect("v6"));
+        prop_assert_eq!(judge(ula.into(), &none), needs_listing, "{}", ula);
+        prop_assert_eq!(judge(ula.into(), &everything()), Verdict::Allow, "{}", ula);
+        let metadata: IpAddr = "fd00:ec2::254".parse().expect("v6");
+        prop_assert_eq!(judge(metadata, &everything()), refused);
+        prop_assert_eq!(judge(Ipv6Addr::LOCALHOST.into(), &everything()), refused);
+        prop_assert_eq!(judge(Ipv6Addr::UNSPECIFIED.into(), &everything()), refused);
+        // Every literal spelling reads as the address it names, so the judge
+        // sees it; a port-less address is its scheme's port.
+        for v4 in [reserved, private, public] {
+            for literal in literals(v4) {
+                let target = OutboundTarget::parse(&format!("https://{literal}/x?y#z"))
+                    .expect("a literal target");
+                prop_assert_eq!(&target.host, &TargetHost::Ip(v4.into()), "{}", literal);
+                prop_assert_eq!(target.port, 443);
+                prop_assert_eq!(target.verdict(&none), Some(judge(v4.into(), &none)));
+            }
+        }
+    });
+}
+
+/// The moved rows, and the URL and allow-list reading the judge relies on.
+fn rows_moved_out_of_acceptance() {
+    let none = OutboundAllow::default();
+    let ten = OutboundAllow::parse("10.0.0.0/8").expect("range");
+    let target = |url: &str| OutboundTarget::parse(url).expect(url);
+    assert_eq!(
+        target("https://169.254.169.254/latest/meta-data/").verdict(&ten),
+        Some(Verdict::Refuse(Refusal::Reserved))
+    );
+    assert_eq!(
+        target("https://10.0.0.5:8448").verdict(&none),
+        Some(Verdict::Refuse(Refusal::Private))
+    );
+    let port_less = target("https://10.0.0.5");
+    assert_eq!(port_less.port, 443);
+    assert_eq!(
+        port_less.verdict(&none),
+        Some(Verdict::Refuse(Refusal::Private))
+    );
+    assert_eq!(port_less.verdict(&ten), Some(Verdict::Allow));
+    assert_eq!(target("HTTP://10.0.0.5").port, 80);
+    assert_eq!(target("https://user:pw@10.0.0.5:8448/").port, 8448);
+    assert_eq!(
+        target("https://[::ffff:127.0.0.1]:8448/").host,
+        TargetHost::Ip("::ffff:127.0.0.1".parse().expect("v6"))
+    );
+    assert_eq!(target("https://[::1]").port, 443);
+    assert_eq!(
+        target("https://Matrix.Canzan.Dev/_matrix"),
+        OutboundTarget {
+            host: TargetHost::Name("matrix.canzan.dev".into()),
+            port: 443
+        }
+    );
+    assert_eq!(target("https://matrix.canzan.dev").verdict(&none), None);
+    for refused in [
+        "ftp://10.0.0.5",
+        "10.0.0.5",
+        "https://",
+        "https://:443",
+        "https://10.0.0.5:http",
+        "https://10.0.0.5:70000",
+        "https://[::1",
+        "https://[::1]x",
+        "https://256.0.0.1",
+        "https://1.2.3.4.5",
+        "https://127.0.0.256.",
+        "https://1.16777216",
+        "https://exa_mple.com",
+    ] {
+        assert!(OutboundTarget::parse(refused).is_err(), "{refused}");
+    }
+    for malformed in [
+        "10.0.0.0/33",
+        "999.1.1.1",
+        "not a host",
+        "-bad.example",
+        "10.0.0.0/8,,999.1.1.1/8",
+    ] {
+        assert!(OutboundAllow::parse(malformed).is_err(), "{malformed}");
+    }
+    let error = OutboundAllow::parse("10.0.0.0/8, x/y").expect_err("malformed");
+    assert_eq!(error.position, 2);
+    assert_eq!(
+        error.to_string(),
+        "FOUNDRY_OUTBOUND_ALLOW entry 2 is neither a CIDR range nor a host name"
+    );
+    assert_eq!(
+        OutboundAllow::parse(" , ").expect("blank"),
+        OutboundAllow::default()
+    );
+    let bare = OutboundAllow::parse("192.168.1.9").expect("bare address");
+    assert_eq!(
+        judge("192.168.1.9".parse().expect("v4"), &bare),
+        Verdict::Allow
+    );
+    assert_eq!(
+        judge("192.168.1.10".parse().expect("v4"), &bare),
+        Verdict::Refuse(Refusal::Private)
+    );
 }
