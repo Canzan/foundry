@@ -1615,7 +1615,8 @@ fn route_line(route: &ProjectRoute, base: &str) -> RouteLine {
     RouteLine {
         id: route.id,
         destination_label: route.destination_label.clone(),
-        status: RouteStatus::derive(&facts).words(&route.destination_label),
+        status: RouteStatus::derive(&facts)
+            .words_naming(&route.destination_label, route.bot_user_id.as_deref()),
         history_path: format!("{route_path}/history"),
         edit_path: format!("{route_path}/edit"),
         delete_path: format!("{route_path}/delete"),

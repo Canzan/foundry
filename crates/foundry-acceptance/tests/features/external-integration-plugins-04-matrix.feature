@@ -132,7 +132,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     When Lena chooses Send test on the route to #auth:canzan.dev
     Then #auth:canzan.dev shows a notice "Test message from Foundry for Identity Platform (AUTH). This route will post here."
 
-  @pending @us-eip-09 @error @contract-shape:bounded-change
+  @us-eip-09 @error @contract-shape:bounded-change
   Scenario: A bot removed from the room flags the route
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -141,7 +141,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     When Sam files "Rotate LLDAP bind password" in Identity Platform
     Then Lena's route to #auth:canzan.dev reads "Needs attention: @foundry:canzan.dev was removed from #auth:canzan.dev. Invite it back, then Resume."
 
-  @pending @us-eip-09 @error @kpi @contract-shape:unbounded-preservation
+  @us-eip-09 @error @kpi @contract-shape:unbounded-preservation
   Scenario: A room that became encrypted after the route was saved receives nothing in the clear
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -151,7 +151,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then Lena's route to #auth:canzan.dev reads "Needs attention: #auth:canzan.dev is now end-to-end encrypted. Foundry's bot cannot post to encrypted rooms yet."
     And #auth:canzan.dev shows no notice from @foundry:canzan.dev about AUTH-12
 
-  @pending @us-eip-08 @error @kpi @contract-shape:bounded-change
+  @us-eip-08 @error @kpi @contract-shape:bounded-change
   Scenario: A logged-out bot pauses the Matrix routes
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -173,7 +173,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then Lena's route to #auth:canzan.dev reads "Delivering" with the time of that delivery
     And #auth:canzan.dev shows a notice from @foundry:canzan.dev about AUTH-12
 
-  @pending @us-eip-09 @error @kpi @contract-shape:bounded-change
+  @us-eip-09 @error @kpi @contract-shape:bounded-change
   Scenario Outline: Text from people can never ping a Matrix room
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -234,7 +234,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     When the homeserver answers again
     Then #auth:canzan.dev shows a notice from @foundry:canzan.dev about AUTH-12
 
-  @pending @us-eip-09 @error @kpi @contract-shape:unbounded-preservation
+  @us-eip-09 @error @kpi @contract-shape:unbounded-preservation
   Scenario: No notice carries the bot's access token or the secrets key
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev

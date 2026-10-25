@@ -1730,6 +1730,8 @@ pub struct ProjectRoute {
     pub paused: bool,
     /// `integration_connections.state`; `None` for a webhook route.
     pub connection_state: Option<String>,
+    /// The connection's bot account (`integration_connections.bot_user_id`).
+    pub bot_user_id: Option<String>,
     pub problem_reason: Option<String>,
     /// The label at save of a filter lane the project no longer has.
     pub missing_lane: Option<String>,
@@ -1767,7 +1769,7 @@ pub struct FinishedDeliveryRow {
 /// A project's routes with their status facts, oldest first.
 const PROJECT_ROUTES_SQL: &str = "
     SELECT r.id, r.kind, r.destination_label, r.paused_at IS NOT NULL AS paused,
-           c.state AS connection_state, r.problem_reason,
+           c.state AS connection_state, c.bot_user_id, r.problem_reason,
            (SELECT l.label_at_save FROM integration_route_lanes l
              WHERE l.route_id = r.id
                AND NOT EXISTS (SELECT 1 FROM lanes x
@@ -1850,6 +1852,7 @@ fn project_route(row: &sqlx::postgres::PgRow) -> Result<ProjectRoute, sqlx::Erro
         destination_label: row.try_get("destination_label")?,
         paused: row.try_get("paused")?,
         connection_state: row.try_get("connection_state")?,
+        bot_user_id: row.try_get("bot_user_id")?,
         problem_reason: row.try_get("problem_reason")?,
         missing_lane: row.try_get("missing_lane")?,
         newest_finished: match finished_status {

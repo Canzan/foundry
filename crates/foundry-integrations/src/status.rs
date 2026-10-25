@@ -101,6 +101,12 @@ impl RouteStatus {
 
     /// The status in K-9's words for the route to `destination`.
     pub fn words(&self, destination: &str) -> String {
+        self.words_naming(destination, None)
+    }
+
+    /// [`RouteStatus::words`], naming the connection's bot account `bot`
+    /// where the words are about it (US-EIP-09: a bot removed from a room).
+    pub fn words_naming(&self, destination: &str, bot: Option<&str>) -> String {
         match self {
             RouteStatus::Paused => "Paused".to_string(),
             RouteStatus::Disconnected(kind) => {
@@ -108,7 +114,7 @@ impl RouteStatus {
             }
             RouteStatus::ConnectionLost => "Paused: connection lost".to_string(),
             RouteStatus::NeedsAttention(attention) => {
-                format!("Needs attention: {}", attention.words(destination))
+                format!("Needs attention: {}", attention.words(destination, bot))
             }
             RouteStatus::Retrying(Some(reason)) => {
                 format!("Retrying: {}", reason.words(destination))
@@ -129,16 +135,19 @@ impl RouteStatus {
 }
 
 impl Attention {
-    fn words(&self, destination: &str) -> String {
-        match self {
-            Attention::Problem(ReasonCode::ChannelArchived) => {
+    fn words(&self, destination: &str, bot: Option<&str>) -> String {
+        match (self, bot) {
+            (Attention::Problem(ReasonCode::ChannelArchived), _) => {
                 format!("Foundry can no longer post to {destination} (the channel was archived)")
             }
-            Attention::Problem(reason) => reason.words(destination),
-            Attention::LaneMissing { label } => {
+            (Attention::Problem(ReasonCode::BotNotInRoom), Some(bot)) => {
+                format!("{bot} was removed from {destination}. Invite it back, then Resume.")
+            }
+            (Attention::Problem(reason), _) => reason.words(destination),
+            (Attention::LaneMissing { label }, _) => {
                 format!("the lane {label} no longer exists. Choose lanes again.")
             }
-            Attention::GaveUp { issue_key } => {
+            (Attention::GaveUp { issue_key }, _) => {
                 format!("{issue_key}'s message could not be delivered within 24 hours")
             }
         }

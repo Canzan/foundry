@@ -22,6 +22,17 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   and no route is saved. New issues and the other chosen events arrive as formatted notices
   (the key and title in bold, an Open in Foundry link) that can never ping the room or anyone
   in it, through the same durable delivery as Slack; a saved Matrix route offers Send test.
+- **Matrix connection loss and content levels**: a Matrix route whose bot a moderator removed
+  from the room reads "Needs attention: @foundry:canzan.dev was removed from #auth:canzan.dev.
+  Invite it back, then Resume.", and a room that became end-to-end encrypted after the route was
+  saved reads "Needs attention: #auth:canzan.dev is now end-to-end encrypted. Foundry's bot cannot
+  post to encrypted rooms yet." and receives nothing in the clear; neither is retried. A bot that
+  was logged out pauses every Matrix route ("Paused: connection lost") and each workspace admin
+  gets one email, "Foundry lost its Matrix connection for Canzan Labs"; connecting Matrix again
+  with a new token for the same bot resumes the routes and delivers what waited. Matrix notices
+  follow the route's content level (comment text only with Summary with comment text, cut at
+  300 characters), can never ping the room or anyone in it, and never carry the bot's access
+  token or the secrets key.
 - **Disconnect Slack**: a workspace admin's integrations page offers Disconnect Slack, which asks
   first and counts what stops ("Disconnect Slack? 3 routes in 2 projects stop posting. Foundry's
   access to Canzan Labs' Slack is removed."). Confirming it forgets the stored Slack credential,
