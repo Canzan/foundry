@@ -416,12 +416,17 @@ impl Store {
         }
         // external-integration-plugins (ADR-EIP-002 Earned Trust): the
         // dispatcher and senders need 0028's outbox columns and dispatch start,
-        // 0029's index and 0030's tables; refuse readiness without them.
+        // 0029's index and 0030's tables, and project emails 0031's table;
+        // refuse readiness without them.
         // Scoped as above.
-        let (dispatch_objects, index_present, integration_tables): (i64, bool, i64) =
-            sqlx::query_as(integrations::PROBE_SQL)
-                .fetch_one(&self.pool)
-                .await?;
+        let (dispatch_objects, index_present, integration_tables, choices_present): (
+            i64,
+            bool,
+            i64,
+            bool,
+        ) = sqlx::query_as(integrations::PROBE_SQL)
+            .fetch_one(&self.pool)
+            .await?;
         if dispatch_objects < integrations::PROBE_0028_OBJECTS {
             return Err(ProbeError::Failed(format!(
                 "outbox missing migration-0028 dispatch columns and start \
@@ -439,6 +444,11 @@ impl Store {
                 "missing migration-0030 integration tables (found {integration_tables} of {})",
                 integrations::PROBE_0030_TABLES
             )));
+        }
+        if !choices_present {
+            return Err(ProbeError::Failed(
+                "missing migration-0031 table integration_email_choices".to_string(),
+            ));
         }
         Ok(ProbeReport {
             select_one_ok: true,

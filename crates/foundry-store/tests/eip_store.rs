@@ -33,22 +33,6 @@ use testcontainers_modules::testcontainers::runners::AsyncRunner;
 use testcontainers_modules::testcontainers::{ContainerAsync, ImageExt};
 use time::OffsetDateTime;
 
-macro_rules! pending {
-    ($name:ident, $step:literal, $what:literal) => {
-        #[test]
-        #[ignore = concat!("pending: external-integration-plugins ", $step, " ", $what)]
-        fn $name() {
-            panic!(concat!(
-                "Not yet implemented -- RED scaffold (external-integration-plugins ",
-                $step,
-                ": ",
-                $what,
-                ")"
-            ));
-        }
-    };
-}
-
 type Id = uuid::Uuid;
 
 /// U-D12: 0028's `lock_timeout`.
@@ -757,11 +741,32 @@ async fn old_writer_rows_after_0028_get_event_and_txid() {
     assert_eq!(delivery_count(&pool).await, 2);
 }
 
-pending!(
-    previous_release_migrator_accepts_0028_to_0031,
-    "01-02",
-    "C-9: the rollback floor; an older binary's Store::migrate boots on the newer schema"
-);
+/// C-9, the rollback floor: the previous release's boot migrator
+/// (`Store::migrate`, built without 0028-0031, so it knows 0001-0027) boots
+/// on a database carrying them, ignoring the applied versions it does not
+/// know. It undoes nothing: the newer objects are all still there, the
+/// schema is still ready for this release, and an old outbox writer still
+/// writes.
+#[tokio::test]
+async fn previous_release_migrator_accepts_0028_to_0031() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    let store = Store::from_pool(pool.clone());
+    run_migrations(&pool)
+        .await
+        .expect("this release migrates to 0031");
+    store.probe().await.expect("ready at 0031");
+    let previous_release = staged("0027");
+    run_boot_migrations_from_dir(&pool, &previous_release)
+        .await
+        .expect("the previous release boots on 0028-0031");
+    store
+        .probe()
+        .await
+        .expect("nothing of 0028-0031 was undone");
+    assert!(has_column(&pool, "integration_email_choices", "scope").await);
+    old_write(&pool, None).await;
+}
 
 /// `Store::probe` refuses readiness until the 0028 columns, the 0029 index and
 /// the 0030 tables exist, naming the missing migration.

@@ -110,7 +110,8 @@ fn excerpt(view: &EventView, level: ContentLevel) -> Option<String> {
     Some(cut)
 }
 
-fn actor(view: &EventView) -> &str {
+/// Who acted, or how an unknown actor reads.
+pub(crate) fn actor(view: &EventView) -> &str {
     match view.actor_name.as_str() {
         "" => UNKNOWN_ACTOR,
         name => name,

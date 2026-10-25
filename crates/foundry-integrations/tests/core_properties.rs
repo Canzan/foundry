@@ -22,29 +22,33 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
-macro_rules! pending {
-    ($name:ident, $step:literal, $what:literal) => {
-        #[test]
-        #[ignore = concat!("pending: external-integration-plugins ", $step, " ", $what)]
-        fn $name() {
-            panic!(concat!(
-                "Not yet implemented -- RED scaffold (external-integration-plugins ",
-                $step,
-                ": ",
-                $what,
-                ")"
-            ));
-        }
-    };
-}
-
 // encoders (never pings, DDR-12, DDR-13).
 // (04-02, below: encode_matrix_never_mentions_the_room_or_a_user.)
-pending!(
-    encode_email_carries_user_text_as_plain_text,
-    "05-01",
-    "proptest over arbitrary text: no markup or header injection"
-);
+proptest! {
+    /// 05-01: whatever people wrote (a title, a name, a comment, line breaks,
+    /// markup, header-shaped text) reaches the body exactly as written, with
+    /// no markup added, and never starts a header: the recipient and subject
+    /// are one line each, every control character read as a space.
+    #[test]
+    fn encode_email_carries_user_text_as_plain_text(
+        recipient in ".{0,40}",
+        subject in ".{0,80}|[\\r\\n\\t]{0,3}Bcc: x@y.z[\\r\\n]{0,2}.{0,20}",
+        body in proptest::collection::vec("(.|\\n|\\r){0,120}", 0..6),
+    ) {
+        let lines = foundry_integrations::EmailLines { subject: subject.clone(), body: body.clone() };
+        let email = foundry_integrations::encode_email(&recipient, &lines);
+        prop_assert_eq!(&email.text_body, &body.join("\n"));
+        for (field, original) in [(&email.recipient, &recipient), (&email.subject, &subject)] {
+            prop_assert!(!field.chars().any(char::is_control), "{:?}", field);
+            let spaced: String = original
+                .chars()
+                .map(|c| if c.is_control() { ' ' } else { c })
+                .collect();
+            prop_assert_eq!(field, &spaced);
+        }
+        prop_assert_eq!(email.unsubscribe, None);
+    }
+}
 // dispatch plan (DDR-7, DDR-8).
 // classifiers (closed lists, unknown -> transient).
 // (04-02, below: classify_matrix_recorded_answers.)

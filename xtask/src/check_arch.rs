@@ -15536,28 +15536,57 @@ cc = "1"
         );
     }
 
-    macro_rules! pending_gold {
-        ($name:ident, $step:literal, $what:literal) => {
-            #[test]
-            #[ignore = concat!("pending: external-integration-plugins ", $step, " ", $what)]
-            fn $name() {
-                panic!(concat!(
-                    "Not yet implemented -- RED scaffold (external-integration-plugins ",
-                    $step,
-                    ": ",
-                    $what,
-                    ")"
-                ));
-            }
-        };
-    }
-
     // Rule 4 `project-lifecycle-write-guard` extended, slice 05 half.
-    pending_gold!(
-        write_guard_refuses_a_choice_writer_without_the_lock,
-        "05-01",
-        "an email-choice writer that does not open with lock_live_project is refused"
-    );
+
+    /// 05-01: a member's email-choice writer opens with `lock_live_project`
+    /// on the transaction that then writes, as the shipped
+    /// `save_email_choices` does; one that writes a choice without it (an
+    /// insert, an upsert, a delete, a stop's delete, an update of the scope,
+    /// a write before the lock) is refused, naming its file and its `fn`.
+    #[test]
+    fn write_guard_refuses_a_choice_writer_without_the_lock() {
+        let guarded = "pub async fn save_email_choices(&self, user_id: Uuid, project_id: Uuid) -> Result<bool, StoreError> {\n    let mut tx = self.pool.begin().await?;\n    if !lock_live_project(&mut tx, project_id).await? {\n        tx.rollback().await?;\n        return Ok(false);\n    }\n    sqlx::query(\"DELETE FROM integration_email_choices WHERE user_id = $1 AND project_id = $2\").execute(&mut *tx).await?;\n    sqlx::query(\"INSERT INTO integration_email_choices (user_id, project_id, event, scope) VALUES ($1, $2, $3, $4) ON CONFLICT (user_id, project_id, event) DO UPDATE SET scope = EXCLUDED.scope\").execute(&mut *tx).await?;\n    tx.commit().await?;\n    Ok(true)\n}\n";
+        let clean = check_project_lifecycle_write_guard(stage(&[(ROUTE_STORE, guarded)]).path());
+        assert!(clean.is_empty(), "{clean:?}");
+        for (form, writer, body) in [
+            (
+                "a choice insert in a transaction",
+                "save_email_choices",
+                "pub async fn save_email_choices(&self) -> Result<(), StoreError> {\n    let mut tx = self.pool.begin().await?;\n    sqlx::query(\"INSERT INTO integration_email_choices (user_id) VALUES ($1)\").execute(&mut *tx).await?;\n    tx.commit().await?;\n    Ok(())\n}\n",
+            ),
+            (
+                "an upsert of a scope",
+                "choose",
+                "pub async fn choose(&self) -> Result<(), StoreError> {\n    sqlx::query(\"INSERT INTO integration_email_choices (user_id) VALUES ($1) ON CONFLICT (user_id, project_id, event) DO UPDATE SET scope = $2\").execute(&self.pool).await?;\n    Ok(())\n}\n",
+            ),
+            (
+                "a stop's delete",
+                "stop_email_choice",
+                "pub async fn stop_email_choice(&self) -> Result<(), StoreError> {\n    sqlx::query(\"DELETE FROM integration_email_choices WHERE user_id = $1\").execute(&self.pool).await?;\n    Ok(())\n}\n",
+            ),
+            (
+                "a scope update",
+                "rescope",
+                "pub async fn rescope(&self) -> Result<(), StoreError> {\n    sqlx::query(\"UPDATE integration_email_choices SET scope = 'all'\").execute(&self.pool).await?;\n    Ok(())\n}\n",
+            ),
+            (
+                "a write before the lock",
+                "save_email_choices",
+                "pub async fn save_email_choices(&self, project_id: Uuid) -> Result<(), StoreError> {\n    let mut tx = self.pool.begin().await?;\n    sqlx::query(\"DELETE FROM integration_email_choices WHERE project_id = $1\").execute(&mut *tx).await?;\n    if !lock_live_project(&mut tx, project_id).await? {\n        return Ok(());\n    }\n    Ok(())\n}\n",
+            ),
+        ] {
+            let tree = stage(&[(ROUTE_STORE, body)]);
+            let violations = check_project_lifecycle_write_guard(tree.path());
+            assert!(
+                refuses_only(&violations, "project-lifecycle-write-guard: ", ROUTE_STORE),
+                "{form}: {violations:?}"
+            );
+            assert!(
+                violations.iter().any(|v| v.contains(&format!("fn `{writer}`"))),
+                "{form} names its writer: {violations:?}"
+            );
+        }
+    }
     // --- Rule 3 `integrations-outbound-client-seam`, slice 04 (DELIVER 04-01)
 
     const OUTBOUND_FILE: &str = "crates/foundry-app/src/integrations/outbound.rs";

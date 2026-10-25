@@ -5,7 +5,8 @@
 //!
 //! - [`DispatchLog`]: the dispatcher's tick (outbox → deliveries, one
 //!   transaction, under the dispatcher lock) and its heartbeat;
-//! - [`DeliveryClaims`]: a sender's candidates, its fenced claim and record;
+//! - [`DeliveryClaims`]: a sender's candidates (routes and members), its
+//!   fenced claim and record;
 //! - [`DeliverySweeps`]: the expiry sweep's fenced failure of the plan's ids
 //!   and the retention sweep's deletion of the plan's ids;
 //! - [`EventViewReads`]: read-only, what one claimed delivery needs at send
@@ -17,8 +18,8 @@
 use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
-    DispatchOutcome, LostConnection, NewDelivery, PendingDelivery, Pruned, Pruning, RecordOutcome,
-    RetentionView,
+    DispatchOutcome, EmailSendFacts, LostConnection, NewDelivery, PendingDelivery, Pruned, Pruning,
+    RecordOutcome, RetentionView,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -83,6 +84,18 @@ pub trait DeliveryClaims: Send + Sync {
         now: OffsetDateTime,
         result: DeliveryResult,
     ) -> Result<RecordOutcome, StoreError>;
+
+    /// The members with a pending project email (ADR-EIP-007).
+    async fn recipients_with_pending(&self, limit: i64) -> Result<Vec<Uuid>, StoreError>;
+
+    /// A fenced claim on one member's project emails.
+    async fn claim_email(
+        &self,
+        recipient_user_id: Uuid,
+        now: OffsetDateTime,
+        lease: Duration,
+        choose: ClaimChooser<'_>,
+    ) -> Result<ClaimOutcome, StoreError>;
 }
 
 /// Read-only: it has no method that writes.
@@ -92,6 +105,12 @@ pub trait EventViewReads: Send + Sync {
         &self,
         delivery_id: i64,
     ) -> Result<Option<DeliveryContext>, StoreError>;
+
+    /// What a project email's send-time checks read now.
+    async fn email_send_facts(
+        &self,
+        delivery_id: i64,
+    ) -> Result<Option<EmailSendFacts>, StoreError>;
 }
 
 /// Read-only: a connection's sealed credential, opened only by the adapters.
@@ -198,6 +217,22 @@ impl DeliveryClaims for StoreCapabilities {
             .record_delivery(delivery_id, claim_id, now, result)
             .await
     }
+
+    async fn recipients_with_pending(&self, limit: i64) -> Result<Vec<Uuid>, StoreError> {
+        self.0.recipients_with_pending_deliveries(limit).await
+    }
+
+    async fn claim_email(
+        &self,
+        recipient_user_id: Uuid,
+        now: OffsetDateTime,
+        lease: Duration,
+        choose: ClaimChooser<'_>,
+    ) -> Result<ClaimOutcome, StoreError> {
+        self.0
+            .claim_email_delivery(recipient_user_id, now, lease, |view| choose(view))
+            .await
+    }
 }
 
 #[async_trait]
@@ -207,6 +242,13 @@ impl EventViewReads for StoreCapabilities {
         delivery_id: i64,
     ) -> Result<Option<DeliveryContext>, StoreError> {
         self.0.delivery_context(delivery_id).await
+    }
+
+    async fn email_send_facts(
+        &self,
+        delivery_id: i64,
+    ) -> Result<Option<EmailSendFacts>, StoreError> {
+        self.0.email_send_facts(delivery_id).await
     }
 }
 

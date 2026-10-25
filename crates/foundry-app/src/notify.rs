@@ -16,6 +16,7 @@
 //! appears in a log line, error, or debug output.
 
 use async_trait::async_trait;
+use foundry_integrations::{EmailTransport, EmailTransportError, OutboundEmail};
 use hmac::{Hmac, Mac};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::{Tls, TlsParameters};
@@ -66,6 +67,12 @@ pub enum NotificationEvent {
     /// external-integration-plugins (D-15, DDR-23): a workspace's chat
     /// connection was lost; its admins are told once.
     IntegrationConnectionLost,
+    /// external-integration-plugins (ADR-EIP-007): a member's project email.
+    /// It never passes through [`Notifier::notify`] (so it is not in
+    /// [`NotificationEvent::ALL`]'s metric series nor the suppression gate):
+    /// the delivery worker sends it through the [`EmailTransport`] port and
+    /// counts it in `foundry_integration_deliveries_total`.
+    ProjectEmail,
 }
 
 impl NotificationEvent {
@@ -78,6 +85,7 @@ impl NotificationEvent {
             NotificationEvent::MemberRemoved => "member_removed",
             NotificationEvent::PasswordChanged => "password_changed",
             NotificationEvent::IntegrationConnectionLost => "integration_connection_lost",
+            NotificationEvent::ProjectEmail => "project_email",
         }
     }
 
@@ -231,6 +239,48 @@ pub trait NotificationProvider: Send + Sync + 'static {
     /// Startup health probe (wire → probe → use). A provider is admitted to the
     /// active set only after `probe()` returns `Ok`.
     async fn probe(&self) -> Result<(), DeliveryError>;
+
+    /// external-integration-plugins (ADR-EIP-007): send one project email
+    /// through this channel's transport, as the [`EmailTransport`] port asks.
+    /// By default it is delivered as a plain notification (recipient,
+    /// subject, text body).
+    async fn send_email(&self, email: &OutboundEmail) -> Result<(), DeliveryError> {
+        self.deliver(&Notification {
+            event: NotificationEvent::ProjectEmail,
+            recipient: email.recipient.clone(),
+            subject: email.subject.clone(),
+            body: email.text_body.clone(),
+            workspace_id: None,
+        })
+        .await
+    }
+}
+
+/// external-integration-plugins (ADR-EIP-007 decision 4): one email-capable
+/// provider as the [`EmailTransport`] port, each send bounded by the
+/// notifier's delivery timeout (a timeout is transient).
+struct ProviderEmailTransport {
+    provider: Arc<dyn NotificationProvider>,
+    timeout: Duration,
+}
+
+#[async_trait]
+impl EmailTransport for ProviderEmailTransport {
+    async fn send(&self, email: &OutboundEmail) -> Result<(), EmailTransportError> {
+        match tokio::time::timeout(self.timeout, self.provider.send_email(email)).await {
+            Ok(Ok(())) => Ok(()),
+            Ok(Err(DeliveryError::Permanent(_))) => Err(EmailTransportError::Permanent),
+            Ok(Err(DeliveryError::Transient(_))) | Err(_) => Err(EmailTransportError::Transient),
+        }
+    }
+}
+
+/// Whether a provider of `kind` sends email a member reads: `smtp` and
+/// `email_api`, and (test-support builds only) `log`, the acceptance
+/// harness's recorder (ADR-EIP-007 decision 4).
+fn sends_member_email(kind: ProviderKind) -> bool {
+    matches!(kind, ProviderKind::Smtp | ProviderKind::EmailApi)
+        || (cfg!(feature = "test-support") && kind == ProviderKind::Log)
 }
 
 /// recipient-notification-preferences (ADR-003) — a suppression-lookup failure.
@@ -322,6 +372,21 @@ pub struct Notifier {
 }
 
 impl Notifier {
+    /// external-integration-plugins (ADR-EIP-007 decision 4): the first
+    /// active `smtp` or `email_api` provider as the project emails'
+    /// [`EmailTransport`]; `None` when there is none, and project emails are
+    /// unavailable (K-13).
+    pub fn email_transport(&self) -> Option<Arc<dyn EmailTransport>> {
+        let provider = self
+            .providers
+            .iter()
+            .find(|provider| sends_member_email(provider.kind()))?;
+        Some(Arc::new(ProviderEmailTransport {
+            provider: provider.clone(),
+            timeout: self.delivery_timeout,
+        }))
+    }
+
     /// Build a notifier over an ordered active provider set at the default
     /// per-provider delivery timeout ([`DEFAULT_DELIVERY_TIMEOUT_MS`]).
     pub fn new(providers: Vec<Arc<dyn NotificationProvider>>) -> Self {

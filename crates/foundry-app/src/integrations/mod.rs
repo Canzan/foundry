@@ -1,7 +1,8 @@
 //! external-integration-plugins — foundry-app's integrations module (DESIGN
 //! [REF] Component Decomposition slices 01 and 04): settings ([`config`]), the
 //! Slack adapter ([`slack`]), the Matrix adapter ([`matrix`]), the client for
-//! user-supplied addresses ([`outbound`]) and the doors ([`handlers`]).
+//! user-supplied addresses ([`outbound`]), the doors ([`handlers`]) and
+//! members' project emails ([`project_emails`]).
 //!
 //! [`Integrations`] is what the settings built; [`IntegrationsHandle`] is how
 //! [`crate::AppState`] holds it. Production installs it once at boot; the
@@ -12,6 +13,7 @@ pub mod config;
 pub mod handlers;
 pub mod matrix;
 pub mod outbound;
+pub mod project_emails;
 pub mod slack;
 pub mod store_capabilities;
 pub mod worker;
@@ -21,6 +23,7 @@ use config::IntegrationSettings;
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
 use foundry_store::integrations::KeyCheck;
 use outbound::OutboundHttp;
+use project_emails::ProjectMail;
 use secrecy::{ExposeSecret, SecretString};
 use slack::{SlackApp, SlackBot};
 use std::collections::BTreeSet;
@@ -291,6 +294,7 @@ pub struct IntegrationsHandle {
     current: Arc<RwLock<Arc<Integrations>>>,
     test_messages: Arc<RevokeRateLimiter>,
     admin_mail: AdminMail,
+    project_mail: ProjectMail,
 }
 
 impl IntegrationsHandle {
@@ -299,6 +303,7 @@ impl IntegrationsHandle {
             current: Arc::new(RwLock::new(Arc::new(integrations))),
             test_messages: Arc::new(RevokeRateLimiter::test_messages()),
             admin_mail: AdminMail::default(),
+            project_mail: ProjectMail::default(),
         }
     }
 
@@ -306,6 +311,12 @@ impl IntegrationsHandle {
     /// composition root hands it the shipped `Notifier`.
     pub fn admin_mail(&self) -> &AdminMail {
         &self.admin_mail
+    }
+
+    /// The transport members' project emails go through (ADR-EIP-007); the
+    /// composition root hands it the notifier's.
+    pub fn project_mail(&self) -> &ProjectMail {
+        &self.project_mail
     }
 
     /// Send test's per-person limit (DDR-25, R-5).

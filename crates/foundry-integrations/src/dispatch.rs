@@ -94,7 +94,7 @@ impl DispatchPlan {
 /// An outbox row the plan can route: a known kind and its project.
 #[derive(Clone, Copy)]
 pub(crate) struct RoutableEvent<'a> {
-    row: &'a OutboxRow,
+    pub(crate) row: &'a OutboxRow,
     pub(crate) kind: EventKind,
     pub(crate) project_id: Uuid,
     pub(crate) occurred_at: OffsetDateTime,
@@ -103,7 +103,7 @@ pub(crate) struct RoutableEvent<'a> {
 }
 
 impl<'a> RoutableEvent<'a> {
-    fn read(row: &'a OutboxRow) -> Option<RoutableEvent<'a>> {
+    pub(crate) fn read(row: &'a OutboxRow) -> Option<RoutableEvent<'a>> {
         let kind = EventKind::from_outbox_type(&row.event_type)?;
         if kind == EventKind::IssueMoved && is_reposition(&row.payload) {
             return None;
@@ -151,6 +151,6 @@ fn is_reposition(payload: &serde_json::Value) -> bool {
     payload["from_state"].is_string() && payload["from_state"] == payload["state"]
 }
 
-fn payload_uuid(payload: &serde_json::Value, field: &str) -> Option<Uuid> {
+pub(crate) fn payload_uuid(payload: &serde_json::Value, field: &str) -> Option<Uuid> {
     payload[field].as_str()?.parse().ok()
 }

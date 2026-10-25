@@ -51,6 +51,14 @@ pub enum ReasonCode {
     RoutePaused,
     NoAccess,
     Muted,
+    /// The member no longer has the email choice that queued it.
+    ChoiceGone,
+    /// "Issues I created or commented on": the member is neither.
+    NotInvolved,
+    /// The email relay did not answer, or this Foundry has none right now.
+    EmailNoAnswer,
+    /// The email relay refused the message.
+    EmailRefused,
     /// A credential this replica cannot open (ADR-EIP-004): a local fault,
     /// never a lost connection.
     SecretUnavailable,

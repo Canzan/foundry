@@ -300,6 +300,19 @@ pub async fn show_settings(
         Ok(Some(user)) => user,
         _ => return crate::bootstrap::resource_not_found_page(),
     };
+    render_settings(&state, &user, &headers, None).await
+}
+
+/// The settings page for the signed-in `user`, with the Project emails
+/// section (external-integration-plugins US-EIP-10) and, after a save, its
+/// confirmation `saved`.
+pub(crate) async fn render_settings(
+    state: &AppState,
+    user: &SessionUser,
+    headers: &HeaderMap,
+    saved: Option<String>,
+) -> Response {
+    let state = state.clone();
     let email_lower = match state.store.find_user_email_lower_by_id(user.user_id).await {
         Ok(Some(email)) => email,
         Ok(None) => {
@@ -333,7 +346,17 @@ pub async fn show_settings(
     // the acting user's REAL instance-admin authority (fail-closed) + a per-request
     // double-submit CSRF token (also rendered into each row form's `_csrf`). Home
     // stays the active primary — settings is a footer destination (NFR-3).
-    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let project_emails =
+        match crate::integrations::project_emails::section(&state, user.user_id, &muted, saved)
+            .await
+        {
+            Ok(section) => section,
+            Err(err) => {
+                tracing::error!(%err, "project emails section failed on settings page");
+                return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+            }
+        };
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, headers);
     let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, user.user_id).await;
     let nav = crate::nav::NavContext::home_for(
         &state,
@@ -351,9 +374,14 @@ pub async fn show_settings(
             workspace_id: workspace_id.to_string(),
         })
         .collect();
-    let body = SettingsPage { rows, csrf, nav }
-        .render()
-        .expect("settings.html renders");
+    let body = SettingsPage {
+        rows,
+        csrf,
+        nav,
+        project_emails,
+    }
+    .render()
+    .expect("settings.html renders");
     response_with_optional_cookie(StatusCode::OK, Html(body).into_response(), set_cookie)
 }
 

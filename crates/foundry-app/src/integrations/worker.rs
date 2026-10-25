@@ -9,7 +9,8 @@
 //!   dispatcher, the store's advisory lock);
 //! - the [`Sender`] first fails every delivery past its give-up time through
 //!   the pure [`expiry_set`] (so nothing is attempted at or after it), then
-//!   claims each route's head delivery through the pure [`claimable_head`]
+//!   claims each route's head delivery, and each member's head project email
+//!   (ADR-EIP-007), through the pure [`claimable_head`]
 //!   under a fenced lease, sends it outside any transaction, and records the
 //!   outcome fenced by its `claim_id`, settled by [`RetryPolicy::settle`]
 //!   (backoff, "retry after", a refused route or connection);
@@ -29,6 +30,7 @@
 //! [`super::store_capabilities`], never the store. Every time is the injected
 //! [`Clock`]'s.
 
+use super::project_emails::ProjectMail;
 use super::store_capabilities::{
     ConnectionCredentials, DeliveryClaims, DeliverySweeps, DispatchLog, EventViewReads,
 };
@@ -42,6 +44,10 @@ use foundry_integrations::{
     QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec, Settlement,
 };
 use foundry_integrations::{
+    compose_email, email_gate, encode_email, plan_emails, ChannelOutcome, EmailChoice, EmailFacts,
+    EmailScope, EmailTransportError, PlannedEmail,
+};
+use foundry_integrations::{
     connection_census, delivery_labels, delivery_series, route_census, DeliveryOutcome,
 };
 use foundry_integrations::{
@@ -49,9 +55,9 @@ use foundry_integrations::{
 };
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, ClaimedDelivery, DeliveryContext, DeliveryResult, DeliveryTally,
-    DeliveryTarget, DispatchBatch, DispatchRoute, IntegrationBacklog, IntegrationCensus,
-    LostConnection, NewDelivery, OutboxEvent, PendingDelivery, Pruning, RecordOutcome,
-    RetentionView,
+    DeliveryTarget, DispatchBatch, DispatchEmailChoice, DispatchRoute, EmailSendFacts,
+    IntegrationBacklog, IntegrationCensus, LostConnection, NewDelivery, OutboxEvent,
+    PendingDelivery, Pruning, RecordOutcome, RetentionView,
 };
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -205,6 +211,7 @@ impl IntegrationsWorker {
                 events: capabilities.clone(),
                 credentials: capabilities.clone(),
                 admin_mail: integrations.admin_mail().clone(),
+                project_mail: integrations.project_mail().clone(),
             },
             retention: Retention {
                 sweeps: capabilities,
@@ -356,15 +363,49 @@ impl Dispatcher {
     }
 }
 
-/// The store's batch through the pure plan, back to the store's rows.
+/// The store's batch through the pure plans (routes, then members' project
+/// emails), back to the store's rows.
 fn plan_deliveries(batch: &DispatchBatch) -> Vec<NewDelivery> {
     let rows: Vec<OutboxRow> = batch.events.iter().map(outbox_row).collect();
     let routes: Vec<RouteSpec> = batch.routes.iter().filter_map(route_spec).collect();
-    DispatchPlan::build(&rows, &routes)
+    let choices: Vec<EmailChoice> = batch
+        .email_choices
+        .iter()
+        .filter_map(email_choice)
+        .collect();
+    let routed = DispatchPlan::build(&rows, &routes);
+    routed
         .deliveries()
         .iter()
         .map(new_delivery)
+        .chain(plan_emails(&rows, &choices).iter().map(new_email))
         .collect()
+}
+
+/// A stored choice the core can read; an event or scope it does not know
+/// chooses nothing.
+fn email_choice(choice: &DispatchEmailChoice) -> Option<EmailChoice> {
+    Some(EmailChoice {
+        user_id: choice.user_id,
+        workspace_id: choice.workspace_id,
+        project_id: choice.project_id,
+        event: EventKind::from_wire_name(&choice.event)?,
+        scope: EmailScope::from_wire_name(&choice.scope)?,
+    })
+}
+
+fn new_email(planned: &PlannedEmail) -> NewDelivery {
+    NewDelivery {
+        workspace_id: planned.workspace_id,
+        project_id: planned.project_id,
+        target: DeliveryTarget::Recipient(planned.recipient_user_id),
+        event_kind: planned.event_kind.wire_name().to_string(),
+        event_id: planned.event_id,
+        outbox_ids: vec![planned.outbox_id],
+        issue_id: planned.issue_id,
+        issue_key: planned.issue_key.clone(),
+        occurred_at: planned.occurred_at,
+    }
 }
 
 fn outbox_row(event: &OutboxEvent) -> OutboxRow {
@@ -433,6 +474,7 @@ struct Sender {
     events: Arc<dyn EventViewReads>,
     credentials: Arc<dyn ConnectionCredentials>,
     admin_mail: AdminMail,
+    project_mail: ProjectMail,
 }
 
 impl Sender {
@@ -446,20 +488,40 @@ impl Sender {
         for route_id in self.claims.routes_with_pending(SEND_BATCH).await? {
             let now = clock.now();
             let choose = |view: &ClaimView| head_of(view, now);
-            if let ClaimOutcome::Claimed(claim) =
-                self.claims.claim(route_id, now, lease, &choose).await?
-            {
-                #[cfg(feature = "test-support")]
-                self.claimant.took(claim.claim_id);
-                let attempt = Attempt {
-                    number: u32::try_from(claim.attempts).unwrap_or(1),
-                    started_at: now,
-                    jitter: Jitter::of(claim.id),
-                };
-                self.attempt(integrations, clock, claim, attempt).await?;
-            }
+            let claimed = self.claims.claim(route_id, now, lease, &choose).await?;
+            self.take(integrations, clock, claimed, now).await?;
+        }
+        for recipient in self.claims.recipients_with_pending(SEND_BATCH).await? {
+            let now = clock.now();
+            let choose = |view: &ClaimView| head_of(view, now);
+            let claimed = self
+                .claims
+                .claim_email(recipient, now, lease, &choose)
+                .await?;
+            self.take(integrations, clock, claimed, now).await?;
         }
         Ok(())
+    }
+
+    /// Attempt the delivery a claim took, if it took one.
+    async fn take(
+        &self,
+        integrations: &Integrations,
+        clock: &dyn Clock,
+        claimed: ClaimOutcome,
+        now: OffsetDateTime,
+    ) -> Result<(), foundry_store::StoreError> {
+        let ClaimOutcome::Claimed(claim) = claimed else {
+            return Ok(());
+        };
+        #[cfg(feature = "test-support")]
+        self.claimant.took(claim.claim_id);
+        let attempt = Attempt {
+            number: u32::try_from(claim.attempts).unwrap_or(1),
+            started_at: now,
+            jitter: Jitter::of(claim.id),
+        };
+        self.attempt(integrations, clock, claim, attempt).await
     }
 
     /// The give-up sweep: every delivery past its give-up time fails, so
@@ -482,6 +544,10 @@ impl Sender {
         attempt: Attempt,
     ) -> Result<(), foundry_store::StoreError> {
         let result = match self.events.delivery_context(claim.id).await? {
+            Some(context) if context.route_kind == ChannelKind::Email.wire_name() => {
+                self.send_email(integrations, clock, &context, attempt)
+                    .await?
+            }
             Some(context) => {
                 self.send(integrations, clock, &context, claim.id, attempt)
                     .await?
@@ -554,6 +620,38 @@ impl Sender {
 }
 
 impl Sender {
+    /// A member's project email (ADR-EIP-007 decision 3): the send-time
+    /// checks through the pure [`email_gate`], then the email composed and
+    /// sent through the project mail transport.
+    async fn send_email(
+        &self,
+        integrations: &Integrations,
+        clock: &dyn Clock,
+        context: &DeliveryContext,
+        attempt: Attempt,
+    ) -> Result<DeliveryResult, foundry_store::StoreError> {
+        let Some(facts) = self.events.email_send_facts(context.delivery_id).await? else {
+            return Ok(skipped(ReasonCode::ChoiceGone));
+        };
+        let scope = match email_gate(&email_facts(&facts)) {
+            Ok(scope) => scope,
+            Err(reason) => return Ok(skipped(reason)),
+        };
+        let Some(view) = event_view(integrations, context) else {
+            return Ok(skipped(gone_reason(context)));
+        };
+        let settings_url = format!("{}{}", integrations.settings().public_url, SETTINGS_PATH);
+        let email = encode_email(
+            &facts.recipient,
+            &compose_email(&view, scope, &settings_url),
+        );
+        let sent = match self.project_mail.transport() {
+            Some(transport) => transport.send(&email).await,
+            None => Err(EmailTransportError::Transient),
+        };
+        Ok(email_result(sent, attempt, clock.now(), context.give_up_at))
+    }
+
     /// The route kind's channel on the connection `connection_id`, when this
     /// Foundry can open its credential.
     async fn channel(
@@ -685,6 +783,45 @@ pub mod claimant_seam {
     fn identity(handle: &IntegrationsHandle) -> usize {
         std::sync::Arc::as_ptr(&handle.current) as usize
     }
+}
+
+/// Where a member changes what they get (K-12).
+const SETTINGS_PATH: &str = "/account/settings";
+
+/// The store's send-time facts as the core's gate reads them; a scope it
+/// does not know reads as a choice gone.
+fn email_facts(facts: &EmailSendFacts) -> EmailFacts {
+    EmailFacts {
+        scope: facts.scope.as_deref().and_then(EmailScope::from_wire_name),
+        can_open: facts.can_open,
+        muted: facts.muted,
+        involved: facts.involved,
+    }
+}
+
+/// A transport's answer as the delivery's record: sent is delivered, a
+/// transient failure is retried with backoff within the give-up time, and a
+/// refusal fails the email at once (an email has no route to stop).
+fn email_result(
+    sent: Result<(), EmailTransportError>,
+    attempt: Attempt,
+    now: OffsetDateTime,
+    give_up_at: OffsetDateTime,
+) -> DeliveryResult {
+    let outcome = match sent {
+        Ok(()) => ChannelOutcome::Delivered,
+        Err(EmailTransportError::Transient) => ChannelOutcome::Transient {
+            reason: ReasonCode::EmailNoAnswer,
+            retry_after: None,
+        },
+        Err(EmailTransportError::Permanent) => {
+            return DeliveryResult::Failed {
+                final_reason: ReasonCode::EmailRefused.wire_name().to_string(),
+                vendor_reason: Some(ReasonCode::EmailRefused.wire_name().to_string()),
+            }
+        }
+    };
+    delivery_result(RetryPolicy::BACKOFF.settle(outcome, attempt, now, give_up_at))
 }
 
 /// The claim choice over the store's view of one route.

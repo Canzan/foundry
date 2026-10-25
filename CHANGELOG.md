@@ -9,6 +9,20 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ### Added
 
+- **Project email choices**: in Notification settings, a member's new Project emails section
+  lists only the projects they can open, with nothing chosen for them. For each project they can
+  tick New issue, Issue moved, New comment and Issue deleted, for all issues or only issues they
+  created or commented on; saving says exactly what will be emailed ("Saved. Foundry will email
+  sam.okafor@canzan.dev about: New comment (issues you created or commented on) in Identity
+  Platform."). Each chosen event then sends one plain-text email ("[AUTH-7] Lena Park commented:
+  Move Grafana sign-in to Keycloak") with what happened, an Open in Foundry link and a footer
+  naming the choice that caused it. Nobody is emailed about their own actions, a muted
+  workspace sends no project email ("Canzan Labs is muted. These choices apply when you
+  resubscribe."), and access, the mute and the choice are checked again when each email is
+  sent. Project emails go through the instance's first `smtp` or `email_api` notification
+  provider with the same durable, retried delivery as chat routes; an instance without one says
+  "This Foundry cannot send email yet. An instance operator needs to set up email delivery." A
+  choice for a project the member cannot open gets the usual not-found page and saves nothing.
 - **Matrix connection and room routes**: a workspace admin connects Foundry's Matrix bot on the
   integrations page with the homeserver's `https` address and the bot's access token. The
   address is checked against the outbound address policy before anything is contacted (a
@@ -245,6 +259,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   board writes; the next pod start retries), `0029` builds its index concurrently.
 - Set `FOUNDRY_SECRETS_KEY` before any workspace connects Slack. Without it the board runs and Slack
   is simply not offered.
+- Migration `0031_integration_email_choices` applies at boot: one new table for members' project
+  email choices, nothing else changed.
 - **Rollback:** the previous release runs on the new schema (it never reads the new columns or
   tables, and its outbox writes still get an event id). Events written while it runs are delivered
   late after you upgrade again, unless you mark them dispatched first (`RELEASING.md`, R-6).
@@ -259,6 +275,9 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   the pod; Foundry logs a warning at boot while an invalid index exists. **`0030_integrations`**
   creates the `integration_*` tables. Runtime on a 100k-issue database: seconds (no data is
   rewritten). All three are forward-compatible with the previous release (rolling deploys).
+- **`0031_integration_email_choices`** creates `integration_email_choices` (member, project,
+  event, scope; no default rows). Additive, so the previous release boots on it (its boot
+  migrator ignores the versions it does not know).
 
 ## [v0.17.0] - 2026-10-20
 

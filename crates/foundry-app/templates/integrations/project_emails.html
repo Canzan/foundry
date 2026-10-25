@@ -1,0 +1,35 @@
+{#- external-integration-plugins US-EIP-10: the Project emails section of
+    /account/settings (ADR-EIP-007). Only projects the member can open; no
+    choice is ticked for them (OD-10); K-13 and no form without an email
+    transport. Included by settings.html with `project_emails` and `csrf`. -#}
+<section data-project-emails aria-labelledby="project-emails-heading">
+<h2 id="project-emails-heading">Project emails</h2>
+{%- match project_emails.saved %}{% when Some with (saved) %}
+<p role="status">{{ saved }}</p>
+{%- when None %}{% endmatch %}
+{%- if project_emails.can_send %}
+{%- for line in project_emails.muted %}
+<p>{{ line }}</p>
+{%- endfor %}
+<p>Choose which events in your projects Foundry emails you about. You are never emailed about what you did yourself.</p>
+<form method="post" action="/account/settings/project-emails">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+{%- for project in project_emails.projects %}
+<fieldset>
+<legend>{{ project.name }}</legend>
+{%- for event in project.events %}
+<div>
+<span>{{ event.label }}</span>
+{%- for choice in event.boxes %}
+<label><input type="checkbox" name="choice" value="{{ choice.value }}"{% if choice.checked %} checked{% endif %}> {{ choice.words }}</label>
+{%- endfor %}
+</div>
+{%- endfor %}
+</fieldset>
+{%- endfor %}
+<button type="submit">Save</button>
+</form>
+{%- else %}
+<p>{{ project_emails.unavailable }}</p>
+{%- endif %}
+</section>

@@ -13,9 +13,13 @@
 //!   (ADR-EIP-002 decisions 4 and 9), [`cancel_set`] those a pause cancels
 //!   (DD-8), and [`prune_set`] what the retention
 //!   sweep deletes (DD-10);
+//! - [`plan_emails`] turns the same rows and members' email choices into
+//!   the project emails to queue, never to the member who acted, and
+//!   [`email_gate`] re-checks each at send time (ADR-EIP-007);
 //! - [`compose`] decides a message's lines from the event as it happened
 //!   and [`encode_slack`] and [`encode_matrix`] place them (D-3, D-11, DDR-12,
-//!   DDR-13); [`classify_slack`] and [`classify_matrix`] read the vendor's answer;
+//!   DDR-13), [`compose_email`] and [`encode_email`] an email's (plain
+//!   text, K-12 footer); [`classify_slack`] and [`classify_matrix`] read the vendor's answer;
 //! - [`RetryPolicy::settle`] schedules a retry with backoff and the vendor's
 //!   "retry after", never past the give-up time, or stops a route or a
 //!   connection on a refusal;
@@ -37,6 +41,7 @@
 
 mod classify;
 mod dispatch;
+mod email;
 mod event;
 mod history;
 mod kinds;
@@ -52,6 +57,10 @@ mod wire;
 
 pub use classify::{classify_matrix, classify_slack, MatrixAnswer, SlackAnswer};
 pub use dispatch::{DispatchPlan, OutboxRow, PlannedDelivery};
+pub use email::{
+    compose_email, email_events, email_footer, email_gate, encode_email, plan_emails, EmailChoice,
+    EmailFacts, EmailLines, EmailScope, PlannedEmail,
+};
 pub use event::EventKind;
 pub use history::DeliveryRecord;
 pub use kinds::{ChannelKind, ChannelOutcome, ConnectionState, ContentLevel, ReasonCode};

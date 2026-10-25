@@ -24,7 +24,7 @@ const CONTENT_LEVELS: [(ContentLevel, &str); 3] = [
 
 /// `(code, stored name, words)`. `{destination}` stands for the route's
 /// destination label.
-const REASONS: [(ReasonCode, &str, &str); 18] = [
+const REASONS: [(ReasonCode, &str, &str); 22] = [
     (
         ReasonCode::SlackNoAnswer,
         "slack_no_answer",
@@ -94,6 +94,26 @@ const REASONS: [(ReasonCode, &str, &str); 18] = [
     (ReasonCode::RoutePaused, "route_paused", "the route was paused"),
     (ReasonCode::NoAccess, "no_access", "no access to the project"),
     (ReasonCode::Muted, "muted", "muted"),
+    (
+        ReasonCode::ChoiceGone,
+        "choice_gone",
+        "the email choice was removed",
+    ),
+    (
+        ReasonCode::NotInvolved,
+        "not_involved",
+        "not an issue the member created or commented on",
+    ),
+    (
+        ReasonCode::EmailNoAnswer,
+        "email_no_answer",
+        "the email relay did not answer",
+    ),
+    (
+        ReasonCode::EmailRefused,
+        "email_refused",
+        "the email relay refused the message",
+    ),
     (
         ReasonCode::SecretUnavailable,
         "secret_unavailable",

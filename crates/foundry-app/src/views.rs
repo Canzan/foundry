@@ -1383,6 +1383,8 @@ pub struct SettingsPage {
     /// page via `NavContext::home_for`. `app_shell.html` injects
     /// `partials/sidebar.html`, which reads `nav.*`.
     pub nav: crate::nav::NavContext,
+    /// external-integration-plugins (US-EIP-10): the Project emails section.
+    pub project_emails: crate::integrations::project_emails::ProjectEmailsSection,
 }
 
 /// The htmx fragment returned by the in-place mute/resubscribe POSTs

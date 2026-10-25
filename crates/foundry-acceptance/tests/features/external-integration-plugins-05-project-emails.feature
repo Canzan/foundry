@@ -37,7 +37,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     And it is 14:02 on 21 Oct 2026
     And the instance can send email
 
-  @pending @us-eip-10 @walking_skeleton @driving_port @kpi @contract-shape:bounded-change
+  @us-eip-10 @walking_skeleton @driving_port @kpi @contract-shape:bounded-change
   Scenario: A member chooses an event for a project and gets the email it describes
     Given Sam has chosen New comment for issues he created or commented on in Identity Platform
     When Lena comments "The new bind DN is live on staging; can you verify the Grafana login?" on AUTH-7
@@ -52,14 +52,14 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     Then Sam reads "Saved. Foundry will email sam.okafor@canzan.dev about: New comment (issues you created or commented on) in Identity Platform."
     And Sam's Project emails show New comment chosen for Identity Platform
 
-  @pending @us-eip-10 @contract-shape:pure-function
+  @us-eip-10 @contract-shape:pure-function
   Scenario: A member sees only projects they can open, with nothing chosen for them
     When Sam opens Project emails in his settings
     Then Sam is offered Identity Platform and not Homelab Ops
     And no event is ticked for Identity Platform
     And Identity Platform offers New issue, Issue moved, New comment and Issue deleted, for all issues or only issues he created or commented on
 
-  @pending @us-eip-10 @kpi @contract-shape:bounded-change
+  @us-eip-10 @kpi @contract-shape:bounded-change
   Scenario Outline: Each chosen event emails what happened and why
     Given Sam has chosen <event> for all issues in Identity Platform
     When <action>
@@ -72,7 +72,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
       | New comment   | Lena comments "Retiring on Friday." on AUTH-9                | AUTH-9  |
       | Issue deleted | Lena deletes AUTH-9                                          | AUTH-9  |
 
-  @pending @us-eip-10 @edge @contract-shape:bounded-change
+  @us-eip-10 @edge @contract-shape:bounded-change
   Scenario Outline: "Issues I created or commented on" means exactly that
     Given Sam has chosen Issue moved for issues he created or commented on in Identity Platform
     And <involvement>
@@ -85,7 +85,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
       | Sam has commented "I can take this." on AUTH-9                | receives within 2 minutes an email |
       | Sam has commented "I can take this." on AUTH-9 and deleted it | receives no email                 |
 
-  @pending @us-eip-10 @error @contract-shape:unbounded-preservation
+  @us-eip-10 @error @contract-shape:unbounded-preservation
   Scenario Outline: A member is not emailed about their own actions
     Given Sam has chosen <event> for all issues in Identity Platform
     When <action>
@@ -97,7 +97,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
       | New issue   | Sam files "Rotate the bind password" in Identity Platform  | AUTH-20 |
       | Issue moved | Sam moves AUTH-7 from In progress to Done                  | AUTH-7  |
 
-  @pending @us-eip-10 @error @contract-shape:unbounded-preservation
+  @us-eip-10 @error @contract-shape:unbounded-preservation
   Scenario: A muted workspace sends no project email
     Given Sam has chosen New issue for all issues in Identity Platform
     And Sam has muted Canzan Labs
@@ -112,7 +112,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     Then Sam reads "This Foundry cannot send email yet. An instance operator needs to set up email delivery."
     And Sam is offered no way to save project email choices
 
-  @pending @us-eip-10 @error @contract-shape:unbounded-preservation
+  @us-eip-10 @error @contract-shape:unbounded-preservation
   Scenario: A choice for a project the member cannot open is refused
     When Sam submits a project email choice of New issue for all issues in Homelab Ops
     Then Sam gets the same not-found page any unknown address gets

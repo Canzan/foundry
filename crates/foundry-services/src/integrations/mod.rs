@@ -35,6 +35,14 @@
 //!   deliberate disconnect queues nothing). The credential it held comes
 //!   back still sealed, for the Slack adapter to withdraw at Slack.
 //!
+//! - [`project_emails`]: a member's Project emails section: the projects
+//!   they can open and their choices there (US-EIP-10; nothing is chosen
+//!   for them, OD-10).
+//! - [`save_project_emails`]: a member's choices replace theirs in every
+//!   project they can open, each project in one transaction that takes the
+//!   live-project lock; a choice naming any other project refuses the whole
+//!   save, nothing written (ADR-EIP-007 decision 1).
+//!
 //! Every refusal is [`IntegrationError::NotFound`], which each door answers
 //! with its uniform 404. The use-cases read and write through
 //! [`IntegrationRecords`], implemented over the store in `store_impls.rs`
@@ -48,11 +56,12 @@ use foundry_core::TeamAccess;
 use foundry_integrations::{
     cancel_set, DestinationCatalog, DestinationRef, ReasonCode, TargetedDelivery,
 };
+use foundry_integrations::{EmailScope, EventKind};
 use foundry_store::integrations::{
     AuditRow, CancelCandidate, ConnectionChange, ConnectionRow, ConnectionWriteOutcome,
-    DeliveryHistoryRow, DeliveryIssue, DisconnectOutcome, DisconnectPreview, NewConnection,
-    NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome, RouteEdit, RouteLane, RouteSettings,
-    RouteWriteOutcome, SealedConnection,
+    DeliveryHistoryRow, DeliveryIssue, DisconnectOutcome, DisconnectPreview, EmailChoiceRow,
+    EmailProject, NewConnection, NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome,
+    RouteEdit, RouteLane, RouteSettings, RouteWriteOutcome, SealedConnection,
 };
 use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
@@ -153,6 +162,14 @@ pub(crate) trait IntegrationRecords: Sync {
         change: &ConnectionChange,
         plan: impl FnOnce(&[CancelCandidate]) -> Vec<i64> + Send,
     ) -> Result<DisconnectOutcome, StoreError>;
+    async fn email_projects(&self, user_id: Uuid) -> Result<Vec<EmailProject>, StoreError>;
+    async fn email_choices(&self, user_id: Uuid) -> Result<Vec<EmailChoiceRow>, StoreError>;
+    async fn save_email_choices(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+        choices: &[(String, String)],
+    ) -> Result<bool, StoreError>;
 }
 
 /// The events a chat route may choose (D-2).
@@ -950,4 +967,90 @@ mod copy {
     fn single_digit_days_are_not_padded() {
         assert_eq!(display_date(datetime!(2026-09-05 08:00 UTC)), "5 Sep 2026");
     }
+}
+
+/// A member's Project emails section: the projects they can open, and their
+/// choices in them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectEmails {
+    pub projects: Vec<EmailProject>,
+    pub choices: Vec<EmailChoiceRow>,
+}
+
+/// One choice as a member submits it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmailChoiceInput {
+    pub project_id: Uuid,
+    pub event: EventKind,
+    pub scope: EmailScope,
+}
+
+/// One saved choice, as the confirmation names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedEmailChoice {
+    pub project_name: String,
+    pub event: EventKind,
+    pub scope: EmailScope,
+}
+
+/// The member's Project emails: only projects they can open, with only the
+/// choices they made.
+pub(crate) async fn project_emails(
+    records: &impl IntegrationRecords,
+    user_id: Uuid,
+) -> Result<ProjectEmails, IntegrationError> {
+    let projects = records.email_projects(user_id).await?;
+    let choices = records
+        .email_choices(user_id)
+        .await?
+        .into_iter()
+        .filter(|c| projects.iter().any(|p| p.project_id == c.project_id))
+        .collect();
+    Ok(ProjectEmails { projects, choices })
+}
+
+/// Replace the member's choices with `submitted` in every project they can
+/// open. A choice for any other project refuses the save, nothing written.
+/// Ticking both scopes of one event keeps "all issues".
+pub(crate) async fn save_project_emails(
+    records: &impl IntegrationRecords,
+    user_id: Uuid,
+    submitted: &[EmailChoiceInput],
+) -> Result<Vec<SavedEmailChoice>, IntegrationError> {
+    let projects = records.email_projects(user_id).await?;
+    if !submitted
+        .iter()
+        .all(|c| projects.iter().any(|p| p.project_id == c.project_id))
+    {
+        return Err(IntegrationError::NotFound);
+    }
+    let mut saved = Vec::new();
+    for project in &projects {
+        let mut chosen: Vec<(EventKind, EmailScope)> = Vec::new();
+        for choice in submitted
+            .iter()
+            .filter(|c| c.project_id == project.project_id)
+        {
+            match chosen.iter_mut().find(|(event, _)| *event == choice.event) {
+                Some((_, scope)) if choice.scope == EmailScope::All => *scope = EmailScope::All,
+                Some(_) => {}
+                None => chosen.push((choice.event, choice.scope)),
+            }
+        }
+        let rows: Vec<(String, String)> = chosen
+            .iter()
+            .map(|(event, scope)| (event.wire_name().to_string(), scope.wire_name().to_string()))
+            .collect();
+        if records
+            .save_email_choices(user_id, project.project_id, &rows)
+            .await?
+        {
+            saved.extend(chosen.into_iter().map(|(event, scope)| SavedEmailChoice {
+                project_name: project.project_name.clone(),
+                event,
+                scope,
+            }));
+        }
+    }
+    Ok(saved)
 }

@@ -4,23 +4,7 @@
 //! scaffolded RED): each is `#[ignore]`d with its DELIVER step id and panics
 //! with the RED marker until DELIVER replaces its body. DELIVER moves a test
 //! into `src/secret_box.rs` / the stop-token module if it prefers unit tests;
-//! the names are the contract.
-
-macro_rules! pending {
-    ($name:ident, $step:literal, $what:literal) => {
-        #[test]
-        #[ignore = concat!("pending: external-integration-plugins ", $step, " ", $what)]
-        fn $name() {
-            panic!(concat!(
-                "Not yet implemented -- RED scaffold (external-integration-plugins ",
-                $step,
-                ": ",
-                $what,
-                ")"
-            ));
-        }
-    };
-}
+//! the names are the contract. DELIVER 01-03 and 05-01 replaced every body.
 
 // SecretBox (slice 01): seal returns a value, open returns SecretString, no I/O.
 
@@ -296,23 +280,124 @@ fn sealed_secret_has_no_debug_display_or_serialize() {
 }
 
 // ProjectEmailStopToken (slice 05).
-pending!(
-    stop_token_binds_member_project_and_event,
-    "05-01",
-    "the signed link names exactly one (member, project, event) choice"
-);
-pending!(
-    stop_token_with_an_altered_signature_is_refused,
-    "05-01",
-    "any change to the token or its fields fails verification"
-);
-pending!(
-    stop_token_never_expires,
-    "05-01",
-    "DD-7: a token minted long ago still verifies"
-);
-pending!(
-    stop_token_is_not_an_unsubscribe_token,
-    "05-01",
-    "a shipped workspace UnsubscribeToken does not verify as a stop token, and the reverse"
-);
+use foundry_auth::stop_token::ProjectEmailStopToken;
+use foundry_auth::UnsubscribeToken;
+
+const STOP_SECRET: &str = "eip-stop-token-session-secret-at-least-32-bytes";
+const EMAIL_EVENTS: [&str; 4] = [
+    "issue.created",
+    "issue.moved",
+    "issue.deleted",
+    "comment.added",
+];
+
+fn session_secret() -> SecretString {
+    SecretString::from(STOP_SECRET)
+}
+
+fn uuid_from(bits: u128) -> uuid::Uuid {
+    uuid::Uuid::from_u128(bits)
+}
+
+fn a_choice() -> impl Strategy<Value = (uuid::Uuid, uuid::Uuid, &'static str)> {
+    (any::<u128>(), any::<u128>(), 0..EMAIL_EVENTS.len()).prop_map(|(user, project, event)| {
+        (uuid_from(user), uuid_from(project), EMAIL_EVENTS[event])
+    })
+}
+
+proptest! {
+    /// The signed link names exactly one (member, project, event) choice: it
+    /// verifies, carries its three fields back through its link parameters,
+    /// and a token for any other member, project or event does not verify
+    /// with its signature.
+    #[test]
+    fn stop_token_binds_member_project_and_event(
+        (user, project, event) in a_choice(),
+        (other_user, other_project, other_event) in a_choice(),
+    ) {
+        let secret = session_secret();
+        let token = ProjectEmailStopToken::new(user, project, event, &secret).expect("sign");
+        prop_assert!(token.verify(&secret).is_ok());
+        let carried = ProjectEmailStopToken::from_params(&token.choice_param(), &token.signature)
+            .expect("its own link parameters name a choice");
+        prop_assert_eq!(&carried, &token);
+        prop_assert!(carried.verify(&secret).is_ok());
+        for (u, p, e) in [
+            (other_user, project, event),
+            (user, other_project, event),
+            (user, project, other_event),
+        ] {
+            let moved = ProjectEmailStopToken {
+                user_id: u,
+                project_id: p,
+                event: e.to_string(),
+                signature: token.signature.clone(),
+            };
+            prop_assert_eq!(
+                moved.verify(&secret).is_ok(),
+                (u, p, e) == (user, project, event),
+                "{:?}", moved
+            );
+        }
+    }
+
+    /// Any change to the signature fails verification, as does the right
+    /// signature under another secret.
+    #[test]
+    fn stop_token_with_an_altered_signature_is_refused(
+        (user, project, event) in a_choice(),
+        flip in any::<prop::sample::Index>(),
+        replacement in "[A-Za-z0-9_-]{0,50}",
+    ) {
+        let secret = session_secret();
+        let token = ProjectEmailStopToken::new(user, project, event, &secret).expect("sign");
+        let mut bytes = token.signature.clone().into_bytes();
+        let at = flip.index(bytes.len());
+        bytes[at] = if bytes[at] == b'A' { b'B' } else { b'A' };
+        let flipped = ProjectEmailStopToken {
+            signature: String::from_utf8(bytes).expect("ascii"),
+            ..token.clone()
+        };
+        prop_assert!(flipped.verify(&secret).is_err());
+        let replaced = ProjectEmailStopToken { signature: replacement.clone(), ..token.clone() };
+        prop_assert_eq!(replaced.verify(&secret).is_ok(), replacement == token.signature);
+        let other_secret = SecretString::from("another-session-secret-of-at-least-32-bytes");
+        prop_assert!(token.verify(&other_secret).is_err());
+    }
+
+    /// DD-7: the token carries no time, so one minted long ago is the token
+    /// minted now: the same link, and it still verifies.
+    #[test]
+    fn stop_token_never_expires((user, project, event) in a_choice()) {
+        let secret = session_secret();
+        let long_ago = ProjectEmailStopToken::new(user, project, event, &secret).expect("sign");
+        let now = ProjectEmailStopToken::new(user, project, event, &secret).expect("sign");
+        prop_assert_eq!(&long_ago, &now);
+        prop_assert!(long_ago.verify(&secret).is_ok());
+    }
+
+    /// Domain separation: a shipped workspace UnsubscribeToken signature
+    /// never verifies as a stop token, nor a stop token's as an unsubscribe,
+    /// even when the stop token's member id is spelled as the unsubscribe's
+    /// address and its project as the workspace.
+    #[test]
+    fn stop_token_is_not_an_unsubscribe_token(
+        (user, project, event) in a_choice(),
+        email in "[a-z]{1,12}@[a-z]{1,8}\\.example",
+    ) {
+        let secret = session_secret();
+        let unsubscribe = UnsubscribeToken::new(&email, project, &secret).expect("sign");
+        let posing = ProjectEmailStopToken {
+            user_id: user,
+            project_id: project,
+            event: event.to_string(),
+            signature: unsubscribe.signature.clone(),
+        };
+        prop_assert!(posing.verify(&secret).is_err());
+        let stop = ProjectEmailStopToken::new(user, project, event, &secret).expect("sign");
+        prop_assert!(UnsubscribeToken::verify(&email, project, &stop.signature, &secret).is_err());
+        prop_assert!(
+            UnsubscribeToken::verify(&user.to_string(), project, &stop.signature, &secret).is_err()
+        );
+    }
+}

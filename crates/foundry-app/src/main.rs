@@ -741,6 +741,12 @@ async fn main() -> anyhow::Result<()> {
         .integrations
         .admin_mail()
         .use_notifier(state.notifier.clone());
+    // ADR-EIP-007 decision 4: members' project emails go through the first
+    // configured `smtp` or `email_api` provider; none, and they are off (K-13).
+    state
+        .integrations
+        .project_mail()
+        .use_transport(state.notifier.email_transport());
     let _integrations_worker = foundry_app::integrations::worker::IntegrationsWorker::new(
         foundry_app::integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
         state.integrations.clone(),

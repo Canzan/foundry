@@ -385,6 +385,24 @@ impl Services {
         integrations::require_admin(&*self.store, principal).await
     }
 
+    /// external-integration-plugins — the member's Project emails section.
+    pub async fn project_emails(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<integrations::ProjectEmails, integrations::IntegrationError> {
+        integrations::project_emails(&*self.store, user_id).await
+    }
+
+    /// external-integration-plugins — save the member's project email
+    /// choices; a choice for a project they cannot open refuses the save.
+    pub async fn save_project_emails(
+        &self,
+        user_id: uuid::Uuid,
+        choices: &[integrations::EmailChoiceInput],
+    ) -> Result<Vec<integrations::SavedEmailChoice>, integrations::IntegrationError> {
+        integrations::save_project_emails(&*self.store, user_id, choices).await
+    }
+
     /// external-integration-plugins — the workspace integrations page.
     pub async fn workspace_integrations(
         &self,

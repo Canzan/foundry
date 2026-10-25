@@ -568,6 +568,13 @@ pub fn build_router(state: AppState) -> Router {
             "/account/settings/mute",
             post(unsubscribe::mute_notifications),
         )
+        // external-integration-plugins US-EIP-10 (ADR-EIP-007): the member's
+        // project email choices; CSRF-checked, the SESSION user's only, and a
+        // choice for a project they cannot open gets the uniform 404.
+        .route(
+            integrations::project_emails::PROJECT_EMAILS_PATH,
+            post(integrations::project_emails::save),
+        )
         .route(
             "/team/{team_slug}/projects/new",
             get(projects::show_create_form),
@@ -1103,6 +1110,10 @@ pub mod test_support {
             .integrations
             .admin_mail()
             .use_notifier(state.notifier.clone());
+        state
+            .integrations
+            .project_mail()
+            .use_transport(state.notifier.email_transport());
         let worker_task = integrations::worker::IntegrationsWorker::new(
             integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
             state.integrations.clone(),

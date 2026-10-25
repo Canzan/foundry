@@ -11,6 +11,7 @@
 #![deny(clippy::all)]
 
 pub mod secret_box;
+pub mod stop_token;
 
 use argon2::{Algorithm, Argon2, Params, PasswordHash, PasswordHasher, PasswordVerifier, Version};
 use base64::Engine;

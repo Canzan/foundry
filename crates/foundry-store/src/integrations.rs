@@ -33,6 +33,11 @@
 //! - [`Store::upsert_connection`]: a connection and its audit record, one
 //!   transaction (ADR-EIP-005 decision 4); after a disconnect its routes
 //!   receive from the reconnect on (R-9);
+//! - [`Store::claim_email_delivery`] and [`Store::email_send_facts`]: a
+//!   member's project emails, claimed under the member's lock by the same
+//!   compare-and-set, and what their send-time checks read (ADR-EIP-007);
+//! - [`Store::save_email_choices`]: a member's choices in one project,
+//!   opening with `lock_live_project`;
 //! - [`Store::disconnect_connection`]: a disconnect skips exactly the ids its
 //!   cancel plan names across the connection's routes, forgets the credential
 //!   and writes its audit record, one transaction (US-EIP-07).
@@ -98,13 +103,36 @@ pub struct DispatchLane {
 pub struct DispatchBatch {
     pub events: Vec<OutboxEvent>,
     pub routes: Vec<DispatchRoute>,
+    pub email_choices: Vec<DispatchEmailChoice>,
 }
 
-/// Who a delivery goes to. Slice 05 adds `Recipient` (one member by email;
-/// the table's `recipient_user_id` already exists).
+/// Who a delivery goes to: a route's destination, or one member by email
+/// (slice 05, `recipient_user_id`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DeliveryTarget {
     Route(Uuid),
+    Recipient(Uuid),
+}
+
+impl DeliveryTarget {
+    /// The row's `route_id` and `recipient_user_id`: exactly one is set.
+    fn columns(self) -> (Option<Uuid>, Option<Uuid>) {
+        match self {
+            DeliveryTarget::Route(route_id) => (Some(route_id), None),
+            DeliveryTarget::Recipient(user_id) => (None, Some(user_id)),
+        }
+    }
+}
+
+/// A member's email choice in a live project an event of the batch names
+/// (ADR-EIP-007 decision 2).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DispatchEmailChoice {
+    pub user_id: Uuid,
+    pub workspace_id: Uuid,
+    pub project_id: Uuid,
+    pub event: String,
+    pub scope: String,
 }
 
 /// One `integration_deliveries` row the dispatch plan asks for. The store adds
@@ -604,11 +632,20 @@ const DISPATCH_ROUTES_SQL: &str = "
      GROUP BY r.id, c.state
      ORDER BY r.id";
 
+/// The email choices of the batch's live projects, by member.
+const DISPATCH_EMAIL_CHOICES_SQL: &str = "
+    SELECT ch.user_id, p.workspace_id, ch.project_id, ch.event, ch.scope
+      FROM integration_email_choices ch
+      JOIN live_projects p ON p.id = ch.project_id
+     WHERE ch.project_id::text IN (
+               SELECT payload->>'project_id' FROM outbox WHERE id = ANY($1))
+     ORDER BY ch.user_id, ch.project_id, ch.event";
+
 const INSERT_DELIVERY_SQL: &str = "
     INSERT INTO integration_deliveries
-           (workspace_id, project_id, route_id, event_kind, event_id,
+           (workspace_id, project_id, route_id, recipient_user_id, event_kind, event_id,
             outbox_ids, issue_id, issue_key, occurred_at, give_up_at)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $11 + make_interval(secs => $10))";
+    VALUES ($1, $2, $3, $12, $4, $5, $6, $7, $8, $9, $11 + make_interval(secs => $10))";
 
 /// What a write of a delivery row returns for the delivery counters.
 const TALLY_COLUMNS: &str = "
@@ -616,15 +653,32 @@ const TALLY_COLUMNS: &str = "
                   WHERE r.id = integration_deliveries.route_id), 'email'),
        event_kind, status, EXTRACT(EPOCH FROM now() - occurred_at)::float8";
 
-/// The claim's compare-and-set: the row the choice saw, unchanged.
+/// The claim's compare-and-set: the row the choice saw, unchanged, still the
+/// route's (`$5`) or the member's (`$10`).
 const CLAIM_SQL: &str = "
     UPDATE integration_deliveries
        SET claim_id = $2, attempts = attempts + 1, lease_until = $3,
            first_attempt_at = COALESCE(first_attempt_at, $4)
-     WHERE id = $1 AND route_id = $5 AND status = 'pending' AND attempts = $6
+     WHERE id = $1 AND route_id IS NOT DISTINCT FROM $5
+       AND recipient_user_id IS NOT DISTINCT FROM $10
+       AND status = 'pending' AND attempts = $6
        AND claim_id IS NOT DISTINCT FROM $7
        AND lease_until IS NOT DISTINCT FROM $8
        AND next_attempt_at IS NOT DISTINCT FROM $9";
+
+/// One member's email claim turn: a transaction lock on the member, scoped
+/// by `search_path` like the dispatcher's (U-D2); `false` while another
+/// sender holds it.
+const RECIPIENT_LOCK_SQL: &str = "
+    SELECT pg_try_advisory_xact_lock(hashtextextended(
+               current_setting('search_path') || '|email|' || $1::text, 0))";
+
+/// The senders' email candidates: members with a pending email, the oldest
+/// pending first.
+const SENDABLE_RECIPIENTS_SQL: &str = "
+    SELECT recipient_user_id FROM integration_deliveries
+     WHERE status = 'pending' AND recipient_user_id IS NOT NULL
+     GROUP BY recipient_user_id ORDER BY min(id) LIMIT $1";
 
 /// One destination's claim turn (NFR-EIP-3): a transaction lock on the
 /// destination, scoped by `search_path` like the dispatcher's (U-D2).
@@ -833,13 +887,30 @@ impl Store {
             .bind(&ids)
             .fetch_all(&mut *tx)
             .await?;
+        let email_choices: Vec<(Uuid, Uuid, Uuid, String, String)> =
+            sqlx::query_as(DISPATCH_EMAIL_CHOICES_SQL)
+                .bind(&ids)
+                .fetch_all(&mut *tx)
+                .await?;
         let batch = DispatchBatch {
             events,
             routes: routes.into_iter().map(dispatch_route).collect(),
+            email_choices: email_choices
+                .into_iter()
+                .map(
+                    |(user_id, workspace_id, project_id, event, scope)| DispatchEmailChoice {
+                        user_id,
+                        workspace_id,
+                        project_id,
+                        event,
+                        scope,
+                    },
+                )
+                .collect(),
         };
         let deliveries = plan(&batch);
         for delivery in &deliveries {
-            let DeliveryTarget::Route(route_id) = delivery.target;
+            let (route_id, recipient_user_id) = delivery.target.columns();
             sqlx::query(INSERT_DELIVERY_SQL)
                 .bind(delivery.workspace_id)
                 .bind(delivery.project_id)
@@ -852,6 +923,7 @@ impl Store {
                 .bind(delivery.occurred_at)
                 .bind(give_up_after.as_secs_f64())
                 .bind(dispatched_at)
+                .bind(recipient_user_id)
                 .execute(&mut *tx)
                 .await?;
         }
@@ -933,37 +1005,14 @@ impl Store {
             destination_not_before,
             deliveries: pending.into_iter().map(pending_delivery).collect(),
         };
-        let Some(chosen) = choose(&view) else {
-            tx.rollback().await?;
-            return Ok(ClaimOutcome::NothingClaimable);
+        let target = DeliveryTarget::Route(route_id);
+        let claim = match claim_chosen(&mut tx, &view, target, now, lease, choose).await? {
+            ClaimOutcome::Claimed(claim) => claim,
+            other => {
+                tx.rollback().await?;
+                return Ok(other);
+            }
         };
-        let Some(seen) = view.deliveries.iter().find(|d| d.id == chosen) else {
-            tx.rollback().await?;
-            return Ok(ClaimOutcome::Missed);
-        };
-        let claim = ClaimedDelivery {
-            id: chosen,
-            claim_id: Uuid::now_v7(),
-            attempts: seen.attempts + 1,
-            lease_until: now + lease,
-        };
-        let applied = sqlx::query(CLAIM_SQL)
-            .bind(chosen)
-            .bind(claim.claim_id)
-            .bind(claim.lease_until)
-            .bind(now)
-            .bind(route_id)
-            .bind(seen.attempts)
-            .bind(seen.claim_id)
-            .bind(seen.lease_until)
-            .bind(seen.next_attempt_at)
-            .execute(&mut *tx)
-            .await?
-            .rows_affected();
-        if applied == 0 {
-            tx.rollback().await?;
-            return Ok(ClaimOutcome::Missed);
-        }
         if let Some(connection_id) = view.connection_id {
             sqlx::query(PACE_SQL)
                 .bind(connection_id)
@@ -974,6 +1023,56 @@ impl Store {
         }
         tx.commit().await?;
         Ok(ClaimOutcome::Claimed(claim))
+    }
+
+    /// One sender claim on the member `recipient_user_id`'s project emails
+    /// (ADR-EIP-007 decision 2): under the member's own lock
+    /// ([`ClaimOutcome::RouteBusy`] while another sender holds it), reads
+    /// their pending emails and claims the one `choose` names, by the same
+    /// compare-and-set as a route's claim. An email has no destination to
+    /// pace: the view names none, and its `route_id` is the member.
+    pub async fn claim_email_delivery<C>(
+        &self,
+        recipient_user_id: Uuid,
+        now: OffsetDateTime,
+        lease: Duration,
+        choose: C,
+    ) -> Result<ClaimOutcome, StoreError>
+    where
+        C: FnOnce(&ClaimView) -> Option<i64>,
+    {
+        let mut tx = self.pool.begin().await?;
+        let (locked,): (bool,) = sqlx::query_as(RECIPIENT_LOCK_SQL)
+            .bind(recipient_user_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        if !locked {
+            tx.rollback().await?;
+            return Ok(ClaimOutcome::RouteBusy);
+        }
+        let pending: Vec<PendingRow> = sqlx::query_as(
+            "SELECT id, attempts, next_attempt_at, claim_id, lease_until, give_up_at
+               FROM integration_deliveries
+              WHERE recipient_user_id = $1 AND status = 'pending' ORDER BY id",
+        )
+        .bind(recipient_user_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let view = ClaimView {
+            route_id: recipient_user_id,
+            connection_id: None,
+            destination_ref: String::new(),
+            destination_not_before: None,
+            deliveries: pending.into_iter().map(pending_delivery).collect(),
+        };
+        let target = DeliveryTarget::Recipient(recipient_user_id);
+        let outcome = claim_chosen(&mut tx, &view, target, now, lease, choose).await?;
+        if matches!(outcome, ClaimOutcome::Claimed(_)) {
+            tx.commit().await?;
+        } else {
+            tx.rollback().await?;
+        }
+        Ok(outcome)
     }
 
     /// The fenced record of one attempt (ADR-EIP-002 decision 4): writes only
@@ -1593,7 +1692,10 @@ pub(crate) const PROBE_SQL: &str = "
                AND table_name IN ('integration_worker_heartbeats', 'integration_connections',
                                   'integration_routes', 'integration_destination_pacing',
                                   'integration_route_lanes', 'integration_deliveries',
-                                  'integration_audit_events', 'integration_key_checks'))";
+                                  'integration_audit_events', 'integration_key_checks')),
+           EXISTS (SELECT 1 FROM information_schema.tables
+                    WHERE table_schema = current_schema()
+                      AND table_name = 'integration_email_choices')";
 
 /// The 0028 objects the probe counts (three columns and the start table).
 pub(crate) const PROBE_0028_OBJECTS: i64 = 4;
@@ -1637,6 +1739,52 @@ fn outbox_event(row: EventRow) -> Result<OutboxEvent, StoreError> {
         event_type,
         payload,
         created_at,
+    })
+}
+
+/// The claim `choose` names over `view`, by compare-and-set on the row as it
+/// was read; `Missed` when that row is not in the view or changed since.
+async fn claim_chosen<C>(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    view: &ClaimView,
+    target: DeliveryTarget,
+    now: OffsetDateTime,
+    lease: Duration,
+    choose: C,
+) -> Result<ClaimOutcome, StoreError>
+where
+    C: FnOnce(&ClaimView) -> Option<i64>,
+{
+    let Some(chosen) = choose(view) else {
+        return Ok(ClaimOutcome::NothingClaimable);
+    };
+    let Some(seen) = view.deliveries.iter().find(|d| d.id == chosen) else {
+        return Ok(ClaimOutcome::Missed);
+    };
+    let claim = ClaimedDelivery {
+        id: chosen,
+        claim_id: Uuid::now_v7(),
+        attempts: seen.attempts + 1,
+        lease_until: now + lease,
+    };
+    let (route_id, recipient_user_id) = target.columns();
+    let applied = sqlx::query(CLAIM_SQL)
+        .bind(chosen)
+        .bind(claim.claim_id)
+        .bind(claim.lease_until)
+        .bind(now)
+        .bind(route_id)
+        .bind(seen.attempts)
+        .bind(seen.claim_id)
+        .bind(seen.lease_until)
+        .bind(seen.next_attempt_at)
+        .bind(recipient_user_id)
+        .execute(&mut **tx)
+        .await?
+        .rows_affected();
+    Ok(match applied {
+        0 => ClaimOutcome::Missed,
+        _ => ClaimOutcome::Claimed(claim),
     })
 }
 
@@ -1973,6 +2121,41 @@ pub struct DeliveryIssue {
     pub author_name: Option<String>,
 }
 
+/// What the send-time checks of one project email read now (ADR-EIP-007
+/// decision 3): the member's address, their choice for the email's project
+/// and event, whether they can open the project (a member of its team),
+/// whether they muted its workspace, and whether they filed the issue or
+/// have a comment on it that is not deleted.
+const EMAIL_FACTS_SQL: &str = "
+    SELECT u.email_display, ch.scope,
+           EXISTS (SELECT 1 FROM live_projects p
+                     JOIN team_memberships tm ON tm.team_id = p.team_id
+                    WHERE p.id = d.project_id AND tm.user_id = u.id),
+           EXISTS (SELECT 1 FROM notification_unsubscribes n
+                    WHERE n.email_lower = u.email_lower AND n.workspace_id = d.workspace_id),
+           EXISTS (SELECT 1 FROM issues i
+                    WHERE i.id = d.issue_id AND i.project_id = d.project_id
+                      AND i.author_id = u.id)
+           OR EXISTS (SELECT 1 FROM comments cm
+                       WHERE cm.issue_id = d.issue_id AND cm.author_id = u.id
+                         AND cm.deleted_at IS NULL)
+      FROM integration_deliveries d
+      JOIN users u ON u.id = d.recipient_user_id
+      LEFT JOIN integration_email_choices ch
+             ON ch.user_id = u.id AND ch.project_id = d.project_id AND ch.event = d.event_kind
+     WHERE d.id = $1";
+
+/// One project email's send-time facts, read now.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmailSendFacts {
+    pub recipient: String,
+    /// The member's choice's scope (`all`, `mine`); `None` once it is gone.
+    pub scope: Option<String>,
+    pub can_open: bool,
+    pub muted: bool,
+    pub involved: bool,
+}
+
 /// The delivery, its route, the project and issue now, and the event as its
 /// first outbox row recorded it. A project deleted after the event reads as
 /// gone even once restored (D-8: what waited at the delete is never sent); a
@@ -1981,16 +2164,17 @@ pub struct DeliveryIssue {
 /// added (a rolling deploy) finds its from-lane in the status change the same
 /// transaction wrote (ADR-EIP-003 decision 4).
 const DELIVERY_CONTEXT_SQL: &str = "
-    SELECT d.event_kind, d.give_up_at, r.kind, r.content_level,
+    SELECT d.event_kind, d.give_up_at, COALESCE(r.kind, 'email'),
+           COALESCE(r.content_level, 'summary_with_comment'),
            r.paused_at IS NOT NULL OR c.state IS NOT DISTINCT FROM 'disconnected'
                OR COALESCE(o.created_at < r.receives_from, FALSE),
-           r.connection_id, c.state, r.destination_ref,
+           r.connection_id, c.state, COALESCE(r.destination_ref, ''),
            p.name, p.key_prefix, p.slug, t.slug,
            i.number, i.title, i.state, u.display_name,
            cardinality(d.outbox_ids), (o.payload->>'number')::int, o.payload->>'title',
            o.payload->>'state', ef.slug, a.display_name, d.project_id, cm.body_markdown
       FROM integration_deliveries d
-      JOIN integration_routes r ON r.id = d.route_id
+      LEFT JOIN integration_routes r ON r.id = d.route_id
       LEFT JOIN integration_connections c ON c.id = r.connection_id
       LEFT JOIN outbox o ON o.id = d.outbox_ids[1]
       LEFT JOIN live_projects p ON p.id = d.project_id
@@ -2475,6 +2659,40 @@ impl Store {
         .flatten())
     }
 
+    /// The members with a pending project email, the oldest pending first
+    /// (the senders' email candidates; each is claimed under its own lock).
+    pub async fn recipients_with_pending_deliveries(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<Uuid>, StoreError> {
+        Ok(sqlx::query_scalar(SENDABLE_RECIPIENTS_SQL)
+            .bind(limit)
+            .fetch_all(&self.pool)
+            .await?)
+    }
+
+    /// What the send-time checks of the project email `delivery_id` read
+    /// now; `None` when it is no member's email.
+    pub async fn email_send_facts(
+        &self,
+        delivery_id: i64,
+    ) -> Result<Option<EmailSendFacts>, StoreError> {
+        let row: Option<(String, Option<String>, bool, bool, bool)> =
+            sqlx::query_as(EMAIL_FACTS_SQL)
+                .bind(delivery_id)
+                .fetch_optional(&self.pool)
+                .await?;
+        Ok(row.map(
+            |(recipient, scope, can_open, muted, involved)| EmailSendFacts {
+                recipient,
+                scope,
+                can_open,
+                muted,
+                involved,
+            },
+        ))
+    }
+
     /// The routes with a pending delivery that a sender may claim from (not
     /// stopped by a refusal, not on a lost connection), the oldest pending
     /// first (the senders' candidates; each is claimed under its own lock).
@@ -2763,5 +2981,114 @@ mod tests {
             scope_lock_id("eip", DISPATCH_LOCK_ID),
             1_406_450_040_211_198_821
         );
+    }
+}
+
+/// A project a member can open (a member of its team), as the Project emails
+/// section offers it (US-EIP-10).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmailProject {
+    pub project_id: Uuid,
+    pub project_name: String,
+    pub workspace_id: Uuid,
+    pub workspace_name: String,
+}
+
+/// One of a member's email choices: an event of a project, for the issues
+/// its scope (`all`, `mine`) covers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmailChoiceRow {
+    pub project_id: Uuid,
+    pub event: String,
+    pub scope: String,
+}
+
+/// The live projects a member can open, by workspace and project name.
+const EMAIL_PROJECTS_SQL: &str = "
+    SELECT p.id, p.name, w.id, w.name
+      FROM live_projects p
+      JOIN team_memberships tm ON tm.team_id = p.team_id AND tm.user_id = $1
+      JOIN workspaces w ON w.id = p.workspace_id
+     ORDER BY w.name, w.id, p.name, p.id";
+
+/// A member's choices in live projects.
+const EMAIL_CHOICES_SQL: &str = "
+    SELECT ch.project_id, ch.event, ch.scope
+      FROM integration_email_choices ch
+      JOIN live_projects p ON p.id = ch.project_id
+     WHERE ch.user_id = $1
+     ORDER BY ch.project_id, ch.event";
+
+impl Store {
+    /// The live projects `user_id` can open: the projects of their teams.
+    pub async fn email_projects(&self, user_id: Uuid) -> Result<Vec<EmailProject>, StoreError> {
+        let rows: Vec<(Uuid, String, Uuid, String)> = sqlx::query_as(EMAIL_PROJECTS_SQL)
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(project_id, project_name, workspace_id, workspace_name)| EmailProject {
+                    project_id,
+                    project_name,
+                    workspace_id,
+                    workspace_name,
+                },
+            )
+            .collect())
+    }
+
+    /// `user_id`'s email choices in live projects.
+    pub async fn email_choices(&self, user_id: Uuid) -> Result<Vec<EmailChoiceRow>, StoreError> {
+        let rows: Vec<(Uuid, String, String)> = sqlx::query_as(EMAIL_CHOICES_SQL)
+            .bind(user_id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(|(project_id, event, scope)| EmailChoiceRow {
+                project_id,
+                event,
+                scope,
+            })
+            .collect())
+    }
+
+    /// Replace `user_id`'s choices in `project_id` with `choices`
+    /// (`(event, scope)` pairs), in one transaction that opens with
+    /// `lock_live_project` (rule 4). `false`, with nothing written, when the
+    /// project is not live.
+    pub async fn save_email_choices(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+        choices: &[(String, String)],
+    ) -> Result<bool, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        if !lock_live_project(&mut tx, project_id).await? {
+            tx.rollback().await?;
+            return Ok(false);
+        }
+        sqlx::query("DELETE FROM integration_email_choices WHERE user_id = $1 AND project_id = $2")
+            .bind(user_id)
+            .bind(project_id)
+            .execute(&mut *tx)
+            .await?;
+        for (event, scope) in choices {
+            sqlx::query(
+                "INSERT INTO integration_email_choices (user_id, project_id, event, scope)
+                 VALUES ($1, $2, $3, $4)
+                 ON CONFLICT (user_id, project_id, event) DO UPDATE SET scope = EXCLUDED.scope",
+            )
+            .bind(user_id)
+            .bind(project_id)
+            .bind(event)
+            .bind(scope)
+            .execute(&mut *tx)
+            .await?;
+        }
+        tx.commit().await?;
+        Ok(true)
     }
 }

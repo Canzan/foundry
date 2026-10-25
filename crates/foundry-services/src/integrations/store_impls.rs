@@ -4,9 +4,9 @@
 use super::IntegrationRecords;
 use foundry_store::integrations::{
     AuditRow, CancelCandidate, ConnectionChange, ConnectionRow, ConnectionWriteOutcome,
-    DeliveryHistoryRow, DeliveryIssue, DisconnectOutcome, DisconnectPreview, NewConnection,
-    NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome, RouteEdit, RouteSettings,
-    RouteWriteOutcome, SealedConnection,
+    DeliveryHistoryRow, DeliveryIssue, DisconnectOutcome, DisconnectPreview, EmailChoiceRow,
+    EmailProject, NewConnection, NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome,
+    RouteEdit, RouteSettings, RouteWriteOutcome, SealedConnection,
 };
 use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
@@ -150,5 +150,22 @@ impl IntegrationRecords for Store {
         plan: impl FnOnce(&[CancelCandidate]) -> Vec<i64> + Send,
     ) -> Result<DisconnectOutcome, StoreError> {
         Store::disconnect_connection(self, change, plan).await
+    }
+
+    async fn email_projects(&self, user_id: Uuid) -> Result<Vec<EmailProject>, StoreError> {
+        Store::email_projects(self, user_id).await
+    }
+
+    async fn email_choices(&self, user_id: Uuid) -> Result<Vec<EmailChoiceRow>, StoreError> {
+        Store::email_choices(self, user_id).await
+    }
+
+    async fn save_email_choices(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+        choices: &[(String, String)],
+    ) -> Result<bool, StoreError> {
+        Store::save_email_choices(self, user_id, project_id, choices).await
     }
 }
