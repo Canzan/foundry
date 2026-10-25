@@ -9,6 +9,19 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ### Added
 
+- **Matrix connection and room routes**: a workspace admin connects Foundry's Matrix bot on the
+  integrations page with the homeserver's `https` address and the bot's access token. The
+  address is checked against the outbound address policy before anything is contacted (a
+  homeserver on this machine reads "Foundry will not send to this address. An instance operator
+  can allow it."), and the homeserver must accept the token; otherwise nothing is saved and the
+  page says why. A connected bot reads "Connected as @foundry:canzan.dev on matrix.canzan.dev ·
+  by Priya Raman · 21 Oct 2026"; its token is sealed with the secrets key and only "saved 21 Oct
+  2026" is ever shown. A team lead routes a project to a room by its alias: saving brings the bot
+  into the room and says so ("Foundry is in #auth:canzan.dev (room "Identity Platform", 6
+  members)"); a room the bot was not invited to, or an end-to-end encrypted one, is explained
+  and no route is saved. New issues and the other chosen events arrive as formatted notices
+  (the key and title in bold, an Open in Foundry link) that can never ping the room or anyone
+  in it, through the same durable delivery as Slack; a saved Matrix route offers Send test.
 - **Disconnect Slack**: a workspace admin's integrations page offers Disconnect Slack, which asks
   first and counts what stops ("Disconnect Slack? 3 routes in 2 projects stop posting. Foundry's
   access to Canzan Labs' Slack is removed."). Confirming it forgets the stored Slack credential,

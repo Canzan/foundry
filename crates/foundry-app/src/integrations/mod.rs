@@ -1,7 +1,7 @@
 //! external-integration-plugins — foundry-app's integrations module (DESIGN
 //! [REF] Component Decomposition slices 01 and 04): settings ([`config`]), the
-//! Slack adapter ([`slack`]), the client for user-supplied addresses
-//! ([`outbound`]) and the doors ([`handlers`]).
+//! Slack adapter ([`slack`]), the Matrix adapter ([`matrix`]), the client for
+//! user-supplied addresses ([`outbound`]) and the doors ([`handlers`]).
 //!
 //! [`Integrations`] is what the settings built; [`IntegrationsHandle`] is how
 //! [`crate::AppState`] holds it. Production installs it once at boot; the
@@ -10,6 +10,7 @@
 
 pub mod config;
 pub mod handlers;
+pub mod matrix;
 pub mod outbound;
 pub mod slack;
 pub mod store_capabilities;
@@ -90,25 +91,27 @@ impl SecretsCheck {
 pub struct Integrations {
     settings: IntegrationSettings,
     slack: Option<SlackApp>,
-    outbound: OutboundHttp,
+    /// Built on first use, so a test-support build reaches a test host
+    /// admitted after these integrations were installed.
+    outbound: std::sync::OnceLock<OutboundHttp>,
     secrets: SecretsCheck,
 }
 
 impl Integrations {
     pub fn new(settings: IntegrationSettings) -> Self {
         let slack = settings.slack.as_ref().map(SlackApp::new);
-        let outbound = OutboundHttp::new(settings.outbound.clone());
         Self {
             settings,
             slack,
-            outbound,
+            outbound: std::sync::OnceLock::new(),
             secrets: SecretsCheck::default(),
         }
     }
 
     /// The client for admin- and lead-supplied addresses (ADR-EIP-006).
     pub fn outbound(&self) -> &OutboundHttp {
-        &self.outbound
+        self.outbound
+            .get_or_init(|| outbound_client(&self.settings))
     }
 
     /// These integrations as the boot secrets probe found them.
@@ -221,6 +224,31 @@ impl Integrations {
         app.uninstall(&token).await.is_ok()
     }
 
+    /// The Matrix bot of the connection `connection_id` on `homeserver`,
+    /// when this Foundry can open its token.
+    pub(crate) fn matrix_bot_at(
+        &self,
+        connection_id: uuid::Uuid,
+        homeserver: &str,
+        sealed: Vec<u8>,
+    ) -> Option<matrix::MatrixBot> {
+        let token = self.open_credential(connection_id, sealed)?;
+        Some(matrix::MatrixBot::new(
+            self.outbound().clone(),
+            homeserver,
+            token,
+        ))
+    }
+
+    /// The Matrix bot of a workspace's connection (route doors).
+    pub(crate) fn matrix_bot(
+        &self,
+        connection: &foundry_store::integrations::SealedConnection,
+    ) -> Option<matrix::MatrixBot> {
+        let sealed = connection.sealed_credential.clone()?;
+        self.matrix_bot_at(connection.id, &connection.external_id, sealed)
+    }
+
     /// The Slack bot of a connection, when Slack is set up and this Foundry
     /// can open the connection's credential.
     pub(crate) fn slack_bot(&self, connection_id: uuid::Uuid, sealed: Vec<u8>) -> Option<SlackBot> {
@@ -228,6 +256,19 @@ impl Integrations {
         let token = self.open_credential(connection_id, sealed)?;
         Some(SlackBot::new(app, token))
     }
+}
+
+#[cfg(not(feature = "test-support"))]
+fn outbound_client(settings: &IntegrationSettings) -> OutboundHttp {
+    OutboundHttp::new(settings.outbound.clone())
+}
+
+/// A test-support build reaches the test host the harness admitted.
+#[cfg(feature = "test-support")]
+fn outbound_client(settings: &IntegrationSettings) -> OutboundHttp {
+    #[cfg(feature = "test-support")]
+    let client = outbound::outbound_seam::client_for_this_process(settings.outbound.clone());
+    client
 }
 
 /// A route's destination is re-checked through the connection's Slack bot

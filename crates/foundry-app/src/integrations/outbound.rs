@@ -195,6 +195,35 @@ pub mod outbound_seam {
         })
     }
 
+    /// The one test host every [`OutboundHttp`] this process builds reaches
+    /// (the acceptance harness's TLS fault proxy, DEVOPS U-D1).
+    struct Admission {
+        host: String,
+        socket: SocketAddr,
+        root_pem: Vec<u8>,
+    }
+
+    static ADMISSION: std::sync::OnceLock<Admission> = std::sync::OnceLock::new();
+
+    /// From now on, every client [`client_for_this_process`] builds reaches
+    /// `host` at `socket`, trusting `root_pem`. The first admission stands.
+    pub fn admit_for_this_process(host: &str, socket: SocketAddr, root_pem: &[u8]) {
+        let _ = ADMISSION.set(Admission {
+            host: host.to_string(),
+            socket,
+            root_pem: root_pem.to_vec(),
+        });
+    }
+
+    /// The process's admitted client, or the production one when nothing was
+    /// admitted.
+    pub fn client_for_this_process(allow: OutboundAllow) -> OutboundHttp {
+        match ADMISSION.get() {
+            Some(a) => admitting(allow, &a.host, a.socket, Some(&a.root_pem)),
+            None => OutboundHttp::new(allow),
+        }
+    }
+
     /// Resolve every name through `lookup` instead of the system resolver;
     /// what it answers is judged as a real answer would be.
     pub fn resolving(

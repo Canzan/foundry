@@ -36,7 +36,7 @@ use super::{Integrations, IntegrationsHandle};
 use crate::notify::{Notification, NotificationEvent, Notifier};
 use crate::Clock;
 use foundry_integrations::{
-    claimable_head, compose, encode_slack, expiry_set, issue_url, ChannelKind,
+    claimable_head, compose, encode_matrix, encode_slack, expiry_set, issue_url, ChannelKind,
     ConnectionLostNotice, ConnectionState, ContentLevel, DeliveryChannel, DeliveryKey,
     DestinationRef, DispatchPlan, EventKind, EventView, FilterLane, OutboxRow, PlannedDelivery,
     QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec, Settlement,
@@ -520,21 +520,27 @@ impl Sender {
         };
         let level =
             ContentLevel::from_wire_name(&context.content_level).unwrap_or(ContentLevel::Summary);
-        let bot = match context.connection_id {
+        let lines = compose(&view, level);
+        let channel = match context.connection_id {
             Some(connection_id) => {
-                let sealed = self.credentials.sealed_credential(connection_id).await?;
-                sealed.and_then(|sealed| integrations.slack_bot(connection_id, sealed))
+                self.channel(integrations, connection_id, &context.route_kind)
+                    .await?
             }
             None => None,
         };
-        let outcome = match bot {
-            Some(bot) => {
-                bot.deliver(
-                    &DestinationRef(context.destination_ref.clone()),
-                    &encode_slack(&compose(&view, level)),
-                    DeliveryKey(delivery_id),
-                )
-                .await
+        let outcome = match channel {
+            Some((channel, kind)) => {
+                let message = match kind {
+                    ChannelKind::Matrix => encode_matrix(&lines),
+                    _ => encode_slack(&lines),
+                };
+                channel
+                    .deliver(
+                        &DestinationRef(context.destination_ref.clone()),
+                        &message,
+                        DeliveryKey(delivery_id),
+                    )
+                    .await
             }
             None => foundry_integrations::ChannelOutcome::Transient {
                 reason: ReasonCode::SecretUnavailable,
@@ -544,6 +550,42 @@ impl Sender {
         let settled =
             RetryPolicy::BACKOFF.settle(outcome, attempt, clock.now(), context.give_up_at);
         Ok(delivery_result(settled))
+    }
+}
+
+impl Sender {
+    /// The route kind's channel on the connection `connection_id`, when this
+    /// Foundry can open its credential.
+    async fn channel(
+        &self,
+        integrations: &Integrations,
+        connection_id: uuid::Uuid,
+        route_kind: &str,
+    ) -> Result<Option<(Box<dyn DeliveryChannel>, ChannelKind)>, foundry_store::StoreError> {
+        let Some(sealed) = self.credentials.sealed_credential(connection_id).await? else {
+            return Ok(None);
+        };
+        Ok(match ChannelKind::from_wire_name(route_kind) {
+            Some(ChannelKind::Matrix) => {
+                let homeserver = self.credentials.connection_address(connection_id).await?;
+                homeserver
+                    .and_then(|homeserver| {
+                        integrations.matrix_bot_at(connection_id, &homeserver, sealed)
+                    })
+                    .map(|bot| {
+                        (
+                            Box::new(bot) as Box<dyn DeliveryChannel>,
+                            ChannelKind::Matrix,
+                        )
+                    })
+            }
+            _ => integrations.slack_bot(connection_id, sealed).map(|bot| {
+                (
+                    Box::new(bot) as Box<dyn DeliveryChannel>,
+                    ChannelKind::Slack,
+                )
+            }),
+        })
     }
 }
 

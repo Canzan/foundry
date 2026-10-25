@@ -28,12 +28,25 @@
 //!
 //! Foundry reaches the homeserver as `https://matrix.canzan.dev` through the
 //! in-process fault proxy ([`FaultProxy`]) and the test-support outbound seam
-//! DESIGN does not have yet (DEVOPS U-D1, C-7, C-13). SCAFFOLD: true — the
-//! proxy forwards TCP and injects faults today; its TLS termination (the
-//! committed test CA and the leaf for matrix.canzan.dev) lands with the U-D1
-//! seam in DELIVER step 04-01, because nothing can use it before the seam.
+//! (DEVOPS U-D1, C-7, C-13). One TLS front per run terminates TLS for
+//! matrix.canzan.dev with the committed test-only leaf
+//! (`tests/fixtures/tls/`, signed by a test CA whose key was discarded), and
+//! `outbound_seam::admit_for_this_process` makes every Foundry client of this
+//! process reach that front and trust that CA — and nothing else changes: any
+//! other address is judged as in production. rustls runs on its `ring`
+//! provider, the one reqwest's `rustls-tls` (foundry-app's TLS) already uses;
+//! the provider is named explicitly, never chosen process-wide.
+//!
+//! Scenarios run concurrently, each with its own [`FaultProxy`], while Foundry
+//! knows one address. The front gives each request to the proxy of the
+//! scenario whose homeserver minted the request's access token: every
+//! [`Homeserver`] talks to Synapse through its own tap (a unique base URL),
+//! [`Homeserver::register`]/[`Homeserver::login`] record which base minted a
+//! token, and [`FaultProxy::spawn`] records which proxy fronts a base. A
+//! token no scenario minted (a refused one) goes straight to Synapse.
 
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -53,6 +66,15 @@ pub const SYNAPSE_TAG: &str =
 pub const SERVER_NAME: &str = "canzan.dev";
 /// The address Foundry is given for the homeserver (US-EIP-08).
 pub const FOUNDRY_ADDRESS: &str = "https://matrix.canzan.dev";
+/// The host the TLS front answers for.
+pub const FOUNDRY_HOST: &str = "matrix.canzan.dev";
+
+/// The test-only CA Foundry trusts through the outbound seam, and the leaf
+/// the front serves (tests/fixtures/tls/README.md).
+const TEST_CA_PEM: &[u8] = include_bytes!("../../tests/fixtures/tls/matrix-test-ca.crt");
+const LEAF_PEM: &[u8] = include_bytes!("../../tests/fixtures/tls/matrix-canzan-dev.crt");
+const LEAF_KEY_PEM: &[u8] =
+    include_bytes!("../../tests/fixtures/tls/matrix-canzan-dev.private-key");
 
 /// The homeserver's generated config tail: open dummy registration and raised
 /// limits (appended to the generated `homeserver.yaml`).
@@ -197,8 +219,9 @@ pub struct Homeserver {
 
 impl Homeserver {
     pub async fn connect() -> Self {
+        let synapse = ensure_synapse().await;
         Self {
-            base: ensure_synapse().await,
+            base: spawn_tap(&synapse).await,
             http: reqwest::Client::builder()
                 .timeout(Duration::from_secs(15))
                 .build()
@@ -243,13 +266,24 @@ impl Homeserver {
                 Some(json!({ "username": localpart, "password": "eip-matrix-password", "auth": { "type": "m.login.dummy" } })),
             )
             .await;
-        Account {
+        let account = Account {
             user_id: v["user_id"].as_str().expect("user_id").to_string(),
             access_token: v["access_token"]
                 .as_str()
                 .expect("access_token")
                 .to_string(),
-        }
+        };
+        self.minted(&account.access_token);
+        account
+    }
+
+    /// Remember that this homeserver's scenario minted `token`.
+    fn minted(&self, token: &str) {
+        registry()
+            .lock()
+            .expect("front registry")
+            .tokens
+            .insert(token.to_string(), self.base.clone());
     }
 
     /// A fresh access token for an existing user (a new device login).
@@ -262,10 +296,12 @@ impl Homeserver {
                 Some(json!({ "type": "m.login.password", "identifier": { "type": "m.id.user", "user": user_id }, "password": "eip-matrix-password" })),
             )
             .await;
-        v["access_token"]
+        let token = v["access_token"]
             .as_str()
             .expect("access_token")
-            .to_string()
+            .to_string();
+        self.minted(&token);
+        token
     }
 
     pub async fn logout(&self, token: &str) {
@@ -415,8 +451,9 @@ pub fn notifies(event: &Value) -> bool {
 /// The fault proxy between Foundry and the homeserver (DEVOPS-3). An HTTP
 /// reverse proxy: every request is forwarded on its own to the homeserver, so
 /// an armed fault answers the next matching request on ANY connection (pooled
-/// or new) and records that it was given. SCAFFOLD: true — TLS termination
-/// with the committed test CA wraps it when the U-D1 seam lands (DELIVER 04-01).
+/// or new) and records that it was given. Foundry reaches it through the
+/// run's TLS front, which hands it the requests carrying its scenario's
+/// tokens.
 #[derive(Debug)]
 pub struct FaultProxy {
     pub addr: SocketAddr,
@@ -568,6 +605,12 @@ impl FaultProxy {
         tokio::spawn(async move {
             let _ = axum::serve(l, app).await;
         });
+        registry()
+            .lock()
+            .expect("front registry")
+            .proxies
+            .insert(upstream, Arc::downgrade(&state));
+        ensure_front().await;
         Self { addr, state }
     }
 
@@ -601,6 +644,138 @@ impl FaultProxy {
             .iter()
             .filter(|(_, p)| p.contains(needle))
             .count()
+    }
+}
+
+/// Which scenario a request belongs to: the base that minted each token, and
+/// the proxy that fronts each base.
+#[derive(Default)]
+struct FrontRegistry {
+    tokens: HashMap<String, String>,
+    proxies: HashMap<String, std::sync::Weak<ProxyState>>,
+}
+
+fn registry() -> &'static std::sync::Mutex<FrontRegistry> {
+    static REGISTRY: std::sync::OnceLock<std::sync::Mutex<FrontRegistry>> =
+        std::sync::OnceLock::new();
+    REGISTRY.get_or_init(Default::default)
+}
+
+/// A homeserver's own way to Synapse: a forwarder on a fresh port, so its
+/// base URL names its scenario.
+async fn spawn_tap(synapse: &str) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0")
+        .await
+        .expect("bind a homeserver tap");
+    let addr = listener.local_addr().expect("the tap's address");
+    let state = Arc::new(ProxyState {
+        upstream: synapse.trim_start_matches("http://").to_string(),
+        ..ProxyState::default()
+    });
+    let app = axum::Router::new().fallback(forward).with_state(state);
+    tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+    format!("http://{addr}")
+}
+
+/// The run's TLS front for matrix.canzan.dev, started once, admitted as the
+/// address every Foundry client of this process reaches for that host.
+async fn ensure_front() -> SocketAddr {
+    static FRONT: tokio::sync::OnceCell<SocketAddr> = tokio::sync::OnceCell::const_new();
+    *FRONT
+        .get_or_init(|| async {
+            let synapse = ensure_synapse().await;
+            let listener = TcpListener::bind("127.0.0.1:0")
+                .await
+                .expect("bind the Matrix TLS front");
+            let addr = listener.local_addr().expect("the front's address");
+            let direct = Arc::new(ProxyState {
+                upstream: synapse.trim_start_matches("http://").to_string(),
+                ..ProxyState::default()
+            });
+            let app = axum::Router::new().fallback(front).with_state(direct);
+            let tls = TlsListener {
+                inner: listener,
+                acceptor: tokio_rustls::TlsAcceptor::from(Arc::new(server_config())),
+            };
+            tokio::spawn(async move {
+                let _ = axum::serve(tls, app).await;
+            });
+            foundry_app::integrations::outbound::outbound_seam::admit_for_this_process(
+                FOUNDRY_HOST,
+                addr,
+                TEST_CA_PEM,
+            );
+            addr
+        })
+        .await
+}
+
+/// The leaf for matrix.canzan.dev on rustls' `ring` provider.
+fn server_config() -> rustls::ServerConfig {
+    use rustls::pki_types::pem::PemObject;
+    use rustls::pki_types::{CertificateDer, PrivateKeyDer};
+    let certs = CertificateDer::pem_slice_iter(LEAF_PEM)
+        .collect::<Result<Vec<_>, _>>()
+        .expect("the committed test leaf parses");
+    let key = PrivateKeyDer::from_pem_slice(LEAF_KEY_PEM).expect("the committed test key parses");
+    rustls::ServerConfig::builder_with_provider(Arc::new(rustls::crypto::ring::default_provider()))
+        .with_safe_default_protocol_versions()
+        .expect("ring offers the default protocol versions")
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .expect("the committed test leaf and key match")
+}
+
+struct TlsListener {
+    inner: TcpListener,
+    acceptor: tokio_rustls::TlsAcceptor,
+}
+
+impl axum::serve::Listener for TlsListener {
+    type Io = tokio_rustls::server::TlsStream<TcpStream>;
+    type Addr = SocketAddr;
+    async fn accept(&mut self) -> (Self::Io, Self::Addr) {
+        loop {
+            let Ok((stream, addr)) = self.inner.accept().await else {
+                continue;
+            };
+            let handshake = self.acceptor.accept(stream);
+            if let Ok(Ok(tls)) = tokio::time::timeout(Duration::from_secs(5), handshake).await {
+                return (tls, addr);
+            }
+        }
+    }
+    fn local_addr(&self) -> std::io::Result<Self::Addr> {
+        self.inner.local_addr()
+    }
+}
+
+/// The front's one handler: the request goes to the proxy of the scenario
+/// that minted its token (counted as reaching that homeserver), else
+/// straight to Synapse.
+async fn front(
+    axum::extract::State(direct): axum::extract::State<Arc<ProxyState>>,
+    request: axum::extract::Request,
+) -> axum::response::Response {
+    let token = request
+        .headers()
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::to_string);
+    let owner = token.and_then(|token| {
+        let registry = registry().lock().expect("front registry");
+        let base = registry.tokens.get(&token)?;
+        registry.proxies.get(base)?.upgrade()
+    });
+    match owner {
+        Some(state) => {
+            state.connections.fetch_add(1, Ordering::SeqCst);
+            forward(axum::extract::State(state), request).await
+        }
+        None => forward(axum::extract::State(direct), request).await,
     }
 }
 

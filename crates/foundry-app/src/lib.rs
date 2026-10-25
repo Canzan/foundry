@@ -835,6 +835,10 @@ pub fn build_router(state: AppState) -> Router {
             get(integrations::handlers::finish_slack_install),
         )
         .route(
+            integrations::handlers::MATRIX_CONNECT_PATH,
+            post(integrations::handlers::connect_matrix),
+        )
+        .route(
             integrations::handlers::DISCONNECT_PATH,
             get(integrations::handlers::show_slack_disconnect)
                 .post(integrations::handlers::disconnect_slack),

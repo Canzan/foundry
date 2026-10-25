@@ -1,4 +1,5 @@
-//! What a message says (D-3, K-7, K-8) and how Slack is given it (DDR-12).
+//! What a message says (D-3, K-7, K-8) and how Slack (DDR-12) and Matrix
+//! (DDR-13) are given it.
 //!
 //! [`compose`] decides the lines from an event and a content level; the
 //! encoders only place them. Nothing here reads a description, an attachment
@@ -201,4 +202,50 @@ pub fn escape_slack(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")
+}
+
+/// U+2060 WORD JOINER: set around every `@` of people's text, so no legacy
+/// push rule can read `@room` or a user id in it (ADR-EIP-006 decision 4).
+const WORD_JOINER: char = '\u{2060}';
+
+/// A Matrix `m.notice`: the lines as plain `body` and as HTML
+/// `formatted_body` (the headline bold, an Open in Foundry link), every line
+/// HTML-escaped with its `@`s joined apart, and `m.mentions: {}`, so no text
+/// can mention the room or anyone in it.
+pub fn encode_matrix(lines: &MessageLines) -> EncodedMessage {
+    let text: Vec<String> = std::iter::once(&lines.headline)
+        .chain(&lines.detail)
+        .chain(&lines.excerpt)
+        .map(|line| defuse_mentions(line))
+        .collect();
+    let mut html: Vec<String> = text.iter().map(|line| escape_html(line)).collect();
+    html[0] = format!("<strong>{}</strong>", html[0]);
+    let mut body = text.join("\n");
+    if let Some(url) = &lines.link {
+        body.push_str(&format!("\n{OPEN_IN_FOUNDRY}: {url}"));
+        html.push(format!(
+            "<a href=\"{}\">{OPEN_IN_FOUNDRY}</a>",
+            escape_html(url)
+        ));
+    }
+    EncodedMessage(json!({
+        "msgtype": "m.notice",
+        "body": body,
+        "format": "org.matrix.custom.html",
+        "formatted_body": html.join("<br>"),
+        "m.mentions": {}
+    }))
+}
+
+fn defuse_mentions(text: &str) -> String {
+    text.replace('@', &format!("{WORD_JOINER}@{WORD_JOINER}"))
+}
+
+/// HTML's five special characters.
+fn escape_html(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
 }

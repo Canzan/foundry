@@ -2871,3 +2871,76 @@ async fn a_delivery_waiting_at_a_project_delete_stays_unsendable_after_restore()
         "the restored project's routes post again"
     );
 }
+
+// US-EIP-08 (04-02): a workspace's Matrix connection sits beside its Slack
+// one; the route doors read its homeserver and bot, and the sender reads the
+// homeserver by connection id. Neither read ever returns another kind's row.
+#[tokio::test]
+async fn a_matrix_connection_is_read_with_its_homeserver_and_bot() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    assert_eq!(
+        lab.store
+            .sealed_connection(lab.ws, "matrix")
+            .await
+            .expect("read"),
+        None,
+        "no Matrix connection yet"
+    );
+    let matrix = Id::now_v7();
+    let outcome = lab
+        .store
+        .upsert_connection(&NewConnection {
+            id: matrix,
+            workspace_id: lab.ws,
+            kind: "matrix".to_string(),
+            external_id: "https://matrix.canzan.dev".to_string(),
+            app_id: None,
+            bot_user_id: Some("@foundry:canzan.dev".to_string()),
+            label: "matrix.canzan.dev".to_string(),
+            detail: Some("@foundry:canzan.dev".to_string()),
+            sealed_credential: vec![4, 2],
+            connected_by: lab.lena,
+            connected_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .expect("connect Matrix");
+    assert_eq!(outcome, ConnectionWriteOutcome::Connected);
+    let sealed = lab
+        .store
+        .sealed_connection(lab.ws, "matrix")
+        .await
+        .expect("read")
+        .expect("the Matrix connection");
+    assert_eq!(sealed.id, matrix);
+    assert_eq!(sealed.state, "connected");
+    assert_eq!(sealed.external_id, "https://matrix.canzan.dev");
+    assert_eq!(sealed.bot_user_id.as_deref(), Some("@foundry:canzan.dev"));
+    assert_eq!(sealed.sealed_credential, Some(vec![4, 2]));
+    let slack = lab
+        .store
+        .sealed_connection(lab.ws, "slack")
+        .await
+        .expect("read")
+        .expect("the lab's Slack connection");
+    assert_eq!(slack.id, lab.connection, "each kind reads its own row");
+    assert_ne!(slack.external_id, sealed.external_id);
+    assert_eq!(
+        lab.store
+            .connection_external_id(matrix)
+            .await
+            .expect("read")
+            .as_deref(),
+        Some("https://matrix.canzan.dev")
+    );
+    assert_eq!(
+        lab.store
+            .connection_external_id(Id::now_v7())
+            .await
+            .expect("read"),
+        None,
+        "no row, no address"
+    );
+}

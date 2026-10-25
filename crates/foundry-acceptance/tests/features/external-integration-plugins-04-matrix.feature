@@ -80,7 +80,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
       | as 127.0.0.1                      |
       | as an IPv4-mapped IPv6 address    |
 
-  @pending @us-eip-08 @error @contract-shape:unbounded-preservation
+  @us-eip-08 @error @contract-shape:unbounded-preservation
   Scenario Outline: Only a workspace admin connects Matrix
     When <person> connects Matrix with https://matrix.canzan.dev and the bot's access token
     Then <person> gets the same not-found page any unknown address gets

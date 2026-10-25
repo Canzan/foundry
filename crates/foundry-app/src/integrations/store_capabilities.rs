@@ -98,6 +98,8 @@ pub trait EventViewReads: Send + Sync {
 #[async_trait]
 pub trait ConnectionCredentials: Send + Sync {
     async fn sealed_credential(&self, connection_id: Uuid) -> Result<Option<Vec<u8>>, StoreError>;
+    /// Where the connection is (a Matrix homeserver's address).
+    async fn connection_address(&self, connection_id: Uuid) -> Result<Option<String>, StoreError>;
 }
 
 /// A connection's health: Slack's signed word that the Foundry app left a
@@ -212,6 +214,10 @@ impl EventViewReads for StoreCapabilities {
 impl ConnectionCredentials for StoreCapabilities {
     async fn sealed_credential(&self, connection_id: Uuid) -> Result<Option<Vec<u8>>, StoreError> {
         self.0.sealed_credential(connection_id).await
+    }
+
+    async fn connection_address(&self, connection_id: Uuid) -> Result<Option<String>, StoreError> {
+        self.0.connection_external_id(connection_id).await
     }
 }
 

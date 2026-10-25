@@ -6,6 +6,9 @@
 //! - [`connect_slack`]: a completed Slack install becomes one connection row
 //!   and one audit row. It receives the credential already sealed: no
 //!   plaintext crosses a use-case (ADR-EIP-004).
+//! - [`connect_matrix`]: a bot token the homeserver accepted becomes the
+//!   workspace's Matrix connection row and one audit row (ADR-EIP-006
+//!   decision 1), its token already sealed.
 //! - [`project_view`]: a project's integrations page (Manage only).
 //! - [`route_target`]: what the route form, Send test and the route save
 //!   act on (Manage only): the project and the workspace's Slack connection,
@@ -54,8 +57,9 @@ use foundry_store::{ProjectRow, StoreError};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
-/// The connection kind this module connects today.
+/// The connection kinds this module connects.
 pub const SLACK: &str = "slack";
+pub const MATRIX: &str = "matrix";
 
 /// How many activity lines the workspace page lists.
 pub const ACTIVITY_LIMIT: i64 = 50;
@@ -169,8 +173,30 @@ pub struct WorkspaceIntegrations {
     pub slack: Option<String>,
     /// The workspace's Slack connection, when it is lost (K-10's facts).
     pub slack_lost: Option<LostSlack>,
+    /// The workspace's Matrix connection, when it has a live one.
+    pub matrix: Option<MatrixLine>,
     /// R-4 activity lines, newest first.
     pub activity: Vec<String>,
+}
+
+/// A Matrix connection as its workspace's page tells it (US-EIP-08).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatrixLine {
+    /// "Connected as {bot} on {homeserver host} · by {admin} · {date}".
+    pub connected: String,
+    /// The access token field: "saved {date}" (never the token).
+    pub token_saved: String,
+}
+
+/// What the homeserver said of an accepted bot token (never the token).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MatrixLogin {
+    /// The homeserver's address, as Foundry reaches it.
+    pub homeserver: String,
+    /// Its host, as the page and the activity list name it.
+    pub host: String,
+    /// The bot's user id, from `whoami`.
+    pub bot_user_id: String,
 }
 
 /// A lost Slack connection as its workspace's page tells it (K-10).
@@ -206,7 +232,10 @@ pub struct RouteTarget {
     pub project_id: Uuid,
     pub project_name: String,
     pub key_prefix: String,
+    /// The workspace's Slack connection.
     pub connection: Option<SealedConnection>,
+    /// The workspace's Matrix connection.
+    pub matrix_connection: Option<SealedConnection>,
     /// The project's lanes, board order: what Issue moved can be limited to.
     pub lanes: Vec<TargetLane>,
 }
@@ -242,6 +271,8 @@ pub struct RouteHistory {
 /// labelled by the destination catalogue.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteDraft {
+    /// `slack` or `matrix`.
+    pub kind: String,
     pub destination_ref: String,
     pub destination_label: String,
     pub events: Vec<String>,
@@ -309,6 +340,10 @@ pub(crate) async fn workspace_view(
         reason: c.lost_reason.clone(),
     });
     let slack = current.filter(|c| c.state != "lost").map(connected_line);
+    let matrix = connections
+        .iter()
+        .find(|c| c.kind == MATRIX && c.state != "disconnected")
+        .map(matrix_line);
     let activity = records
         .activity(workspace_id, ACTIVITY_LIMIT)
         .await?
@@ -318,6 +353,7 @@ pub(crate) async fn workspace_view(
     Ok(WorkspaceIntegrations {
         slack,
         slack_lost,
+        matrix,
         activity,
     })
 }
@@ -333,6 +369,45 @@ pub(crate) async fn slack_connection_id(
         .connection_id(principal.workspace_id(), SLACK)
         .await?
         .unwrap_or_else(Uuid::now_v7))
+}
+
+/// The row a new Matrix bot token is sealed for: the workspace's existing
+/// Matrix connection, or a fresh id.
+pub(crate) async fn matrix_connection_id(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+) -> Result<Uuid, IntegrationError> {
+    require_admin(records, principal).await?;
+    Ok(records
+        .connection_id(principal.workspace_id(), MATRIX)
+        .await?
+        .unwrap_or_else(Uuid::now_v7))
+}
+
+/// Save the workspace's Matrix connection and its audit record (admins).
+pub(crate) async fn connect_matrix(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    login: MatrixLogin,
+    connection_id: Uuid,
+    sealed: SealedSecret,
+    now: OffsetDateTime,
+) -> Result<ConnectionWriteOutcome, IntegrationError> {
+    require_admin(records, principal).await?;
+    let connection = NewConnection {
+        id: connection_id,
+        workspace_id: principal.workspace_id(),
+        kind: MATRIX.to_string(),
+        external_id: login.homeserver,
+        app_id: None,
+        bot_user_id: Some(login.bot_user_id.clone()),
+        label: login.host,
+        detail: Some(login.bot_user_id),
+        sealed_credential: sealed.as_bytes().to_vec(),
+        connected_by: principal.user_id(),
+        connected_at: now,
+    };
+    Ok(records.upsert_connection(&connection).await?)
 }
 
 /// Save the workspace's Slack connection and its audit record.
@@ -434,6 +509,10 @@ pub(crate) async fn route_target(
         .sealed_connection(principal.workspace_id(), SLACK)
         .await?
         .filter(|c| c.state != "disconnected");
+    let matrix_connection = records
+        .sealed_connection(principal.workspace_id(), MATRIX)
+        .await?
+        .filter(|c| c.state != "disconnected");
     let lanes = records
         .project_lanes(project.id)
         .await?
@@ -450,6 +529,7 @@ pub(crate) async fn route_target(
         project_name: project.name,
         key_prefix: project.key_prefix,
         connection,
+        matrix_connection,
         lanes,
     })
 }
@@ -470,9 +550,9 @@ pub(crate) async fn route_preview(
     })
 }
 
-/// Save a Slack route (Manage only): its events within the chat events and at
-/// least one, a known content level, lanes of the project; else not found
-/// and nothing written.
+/// Save a Slack or Matrix route (Manage only) on the workspace's connection
+/// of its kind: its events within the chat events and at least one, a known
+/// content level, lanes of the project; else not found and nothing written.
 pub(crate) async fn create_route(
     records: &impl IntegrationRecords,
     principal: &Principal,
@@ -482,16 +562,18 @@ pub(crate) async fn create_route(
     now: OffsetDateTime,
 ) -> Result<Uuid, IntegrationError> {
     let target = route_target(records, principal, team_slug, project_slug).await?;
-    let connection = target
-        .connection
-        .clone()
-        .ok_or(IntegrationError::NotFound)?;
+    let connection = match draft.kind.as_str() {
+        SLACK => target.connection.clone(),
+        MATRIX => target.matrix_connection.clone(),
+        _ => None,
+    }
+    .ok_or(IntegrationError::NotFound)?;
     let lanes = checked_choices(&target, &draft.events, &draft.content_level, &draft.lanes)?;
     let route = NewRoute {
         workspace_id: target.workspace_id,
         project_id: target.project_id,
         connection_id: Some(connection.id),
-        kind: SLACK.to_string(),
+        kind: draft.kind,
         destination_ref: draft.destination_ref,
         destination_label: draft.destination_label,
         events: draft.events,
@@ -710,6 +792,22 @@ fn connected_line(connection: &ConnectionRow) -> String {
     )
 }
 
+/// US-EIP-08: "Connected as {bot} on {host} · by {admin} · {date}" and the
+/// token field's "saved {date}".
+fn matrix_line(connection: &ConnectionRow) -> MatrixLine {
+    let bot = connection.detail.as_deref().unwrap_or_default();
+    let by = connection
+        .connected_by_name
+        .as_deref()
+        .map(|name| format!(" · by {name}"))
+        .unwrap_or_default();
+    let date = display_date(connection.connected_at);
+    MatrixLine {
+        connected: format!("Connected as {bot} on {}{by} · {date}", connection.label),
+        token_saved: format!("saved {date}"),
+    }
+}
+
 /// R-4: one pattern for every activity line.
 fn activity_line(row: &AuditRow) -> String {
     let date = display_date(row.created_at);
@@ -795,6 +893,31 @@ mod copy {
         assert_eq!(
             activity_line(&row("route_created", "slack", "#auth-dev")),
             "21 Oct 2026 · Priya Raman created the route to #auth-dev"
+        );
+    }
+
+    #[test]
+    fn the_matrix_line_names_the_bot_and_the_homeserver() {
+        let connection = ConnectionRow {
+            kind: MATRIX.into(),
+            state: "connected".into(),
+            lost_reason: None,
+            workspace_name: "Canzan Labs".into(),
+            label: "matrix.canzan.dev".into(),
+            detail: Some("@foundry:canzan.dev".into()),
+            connected_by_name: Some("Priya Raman".into()),
+            connected_at: datetime!(2026-10-21 14:02 UTC),
+        };
+        assert_eq!(
+            matrix_line(&connection),
+            MatrixLine {
+                connected: "Connected as @foundry:canzan.dev on matrix.canzan.dev · by Priya Raman · 21 Oct 2026".into(),
+                token_saved: "saved 21 Oct 2026".into(),
+            }
+        );
+        assert_eq!(
+            activity_line(&row("connection_connected", "matrix", "matrix.canzan.dev")),
+            "21 Oct 2026 · Priya Raman connected Matrix (matrix.canzan.dev)"
         );
     }
 

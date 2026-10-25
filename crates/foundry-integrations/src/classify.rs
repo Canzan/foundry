@@ -1,4 +1,4 @@
-//! What Slack's answer to a call means (ADR-EIP-005 decision 5): Slack's `ok`
+//! What Slack's (and a Matrix homeserver's) answer to a call means (ADR-EIP-005 decision 5): Slack's `ok`
 //! field decides, never the status alone, and every answer Foundry cannot
 //! read is transient, bounded by the delivery's give-up time.
 //!
@@ -88,4 +88,47 @@ fn refusal(code: Option<&str>, retry_after: Option<Duration>) -> ChannelOutcome 
         .iter()
         .find(|(known, _)| Some(*known) == code)
         .map_or_else(no_answer, |(_, outcome)| *outcome)
+}
+
+/// One answer a Matrix homeserver gave (ADR-EIP-005's rule, ADR-EIP-006
+/// decision 5): its HTTP status and its body (`None` when not JSON).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct MatrixAnswer<'a> {
+    pub status: u16,
+    pub body: Option<&'a serde_json::Value>,
+}
+
+/// HTTP 401 and 403.
+const UNAUTHORIZED: u16 = 401;
+const FORBIDDEN: u16 = 403;
+
+/// One answer to a Matrix call, `None` when the homeserver gave none. The
+/// closed table: a success is delivered; 429 or `M_LIMIT_EXCEEDED` asks
+/// Foundry to wait its `retry_after_ms`; `M_UNKNOWN_TOKEN` loses the
+/// connection; `M_FORBIDDEN` stops the route (the bot is not in the room);
+/// anything else is the homeserver not answering, retried.
+pub fn classify_matrix(answer: Option<MatrixAnswer<'_>>) -> ChannelOutcome {
+    let homeserver_no_answer = |retry_after| ChannelOutcome::Transient {
+        reason: ReasonCode::HomeserverNoAnswer,
+        retry_after,
+    };
+    let Some(answer) = answer else {
+        return homeserver_no_answer(None);
+    };
+    if (200..300).contains(&answer.status) {
+        return ChannelOutcome::Delivered;
+    }
+    let code = answer.body.and_then(|b| b["errcode"].as_str());
+    match (answer.status, code) {
+        (TOO_MANY_REQUESTS, _) | (_, Some("M_LIMIT_EXCEEDED")) => {
+            let wait = answer
+                .body
+                .and_then(|b| b["retry_after_ms"].as_u64())
+                .map(Duration::from_millis);
+            homeserver_no_answer(wait)
+        }
+        (UNAUTHORIZED, Some("M_UNKNOWN_TOKEN")) => connection(ReasonCode::TokenRevoked),
+        (FORBIDDEN, Some("M_FORBIDDEN")) => route(ReasonCode::BotNotInRoom),
+        _ => homeserver_no_answer(None),
+    }
 }

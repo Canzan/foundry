@@ -12,6 +12,7 @@ use foundry_integrations::{
     QueuedDelivery, ReasonCode, RetainedDelivery, RetainedOutboxRow, RetryPolicy, RouteFacts,
     RouteSpec, RouteStatus, Settlement, SlackAnswer, TargetedDelivery, RETAINED_PER_ROUTE,
 };
+use foundry_integrations::{classify_matrix, encode_matrix, MatrixAnswer, MessageLines};
 use foundry_integrations::{
     judge, judge_host, OutboundAllow, OutboundTarget, Refusal, TargetHost, Verdict,
 };
@@ -38,11 +39,7 @@ macro_rules! pending {
 }
 
 // encoders (never pings, DDR-12, DDR-13).
-pending!(
-    encode_matrix_never_mentions_the_room_or_a_user,
-    "04-02",
-    "proptest over arbitrary text: m.mentions empty, no literal @room, no pill, no unescaped HTML"
-);
+// (04-02, below: encode_matrix_never_mentions_the_room_or_a_user.)
 pending!(
     encode_email_carries_user_text_as_plain_text,
     "05-01",
@@ -50,11 +47,7 @@ pending!(
 );
 // dispatch plan (DDR-7, DDR-8).
 // classifiers (closed lists, unknown -> transient).
-pending!(
-    classify_matrix_recorded_answers,
-    "04-02",
-    "table over recorded Matrix answers (401, 403, 429 retry_after_ms, 5xx, unknown errcode)"
-);
+// (04-02, below: classify_matrix_recorded_answers.)
 // plan functions (claim and sweeps).
 // address judge (DDR-14).
 // (04-01, below the plan functions: judge_refuses_every_reserved_range_and_mapped_form.)
@@ -1681,4 +1674,178 @@ fn rows_moved_out_of_acceptance() {
         judge("192.168.1.10".parse().expect("v4"), &bare),
         Verdict::Refuse(Refusal::Private)
     );
+}
+
+// ---------------------------------------------------------------------------
+// 04-02: the Matrix encoder and classifier (DDR-13, ADR-EIP-006 decisions 4-5).
+// ---------------------------------------------------------------------------
+
+/// Text people type, with the ways to ping a Matrix room mixed in.
+fn hostile_text() -> impl Strategy<Value = String> {
+    proptest::collection::vec(
+        prop_oneof![
+            3 => people_text(12),
+            1 => proptest::sample::select(vec![
+                "@room".to_string(),
+                "@lena:canzan.dev".to_string(),
+                "<a href=\"https://matrix.to/#/@lena:canzan.dev\">Lena</a>".to_string(),
+                "https://matrix.to/#/@lena:canzan.dev".to_string(),
+                "<b>now</b>".to_string(),
+                "\"quoted\" & 'single'".to_string(),
+            ]),
+        ],
+        0..6,
+    )
+    .prop_map(|parts| parts.concat())
+}
+
+/// The HTML Foundry itself places: the bold headline, the line breaks and the
+/// Open in Foundry link.
+fn without_foundry_markup(formatted: &str, link: Option<&str>) -> String {
+    let mut rest = formatted
+        .replace("<strong>", "")
+        .replace("</strong>", "")
+        .replace("<br>", "");
+    if let Some(url) = link {
+        rest = rest.replace(&format!("<a href=\"{url}\">Open in Foundry</a>"), "");
+    }
+    rest
+}
+
+fn unescape_html(text: &str) -> String {
+    text.replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", "\"")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 256, ..ProptestConfig::default() })]
+
+    /// DDR-13: whatever people type, the notice mentions no one (`m.mentions`
+    /// empty), carries no literal `@room` and no user pill, and its HTML has
+    /// no markup but Foundry's own; and the text still reads as typed once
+    /// the word joiners and escapes are taken out.
+    #[test]
+    fn encode_matrix_never_mentions_the_room_or_a_user(
+        issue in held_issue(),
+        title in hostile_text(),
+        actor in hostile_text(),
+        comment in hostile_text(),
+    ) {
+        let mut view = issue.view;
+        view.title = title;
+        view.actor_name = actor;
+        view.comment_text = comment;
+        for level in LEVELS {
+            let lines: MessageLines = compose(&view, level);
+            let message = encode_matrix(&lines).0;
+            prop_assert_eq!(&message["msgtype"], "m.notice");
+            prop_assert_eq!(&message["format"], "org.matrix.custom.html");
+            prop_assert_eq!(&message["m.mentions"], &serde_json::json!({}));
+            let body = message["body"].as_str().expect("a body");
+            let formatted = message["formatted_body"].as_str().expect("a formatted body");
+            for text in [body, formatted] {
+                prop_assert!(!text.contains("@room"), "a literal @room: {text:?}");
+                prop_assert!(!text.contains("matrix.to/#/@"), "a user pill: {text:?}");
+                prop_assert!(!text.contains("@lena"), "a user id: {text:?}");
+            }
+            let rest = without_foundry_markup(formatted, lines.link.as_deref());
+            prop_assert!(
+                !rest.contains('<') && !rest.contains('>') && !rest.contains('"'),
+                "unescaped HTML: {rest:?}"
+            );
+            prop_assert!(formatted.starts_with("<strong>"), "the headline is bold: {formatted}");
+            let readable = body.replace('\u{2060}', "");
+            let shown = unescape_html(&formatted.replace('\u{2060}', ""));
+            for typed in [Some(&lines.headline), lines.detail.as_ref(), lines.excerpt.as_ref()].into_iter().flatten() {
+                prop_assert!(readable.contains(typed.as_str()), "{typed:?} reads as typed in {readable:?}");
+                prop_assert!(shown.contains(typed.as_str()), "{typed:?} shows as typed in {shown:?}");
+            }
+            if let Some(url) = &lines.link {
+                prop_assert!(body.contains(url.as_str()) && formatted.contains(url.as_str()));
+            }
+        }
+    }
+}
+
+/// ADR-EIP-006 decision 5, over recorded homeserver answers: success is
+/// delivered; a slow-down waits its `retry_after_ms`; a logged-out token
+/// loses the connection; a forbidden send stops the route; every other answer
+/// is the homeserver not answering, retried.
+#[test]
+fn classify_matrix_recorded_answers() {
+    use serde_json::json;
+    use std::time::Duration as Wait;
+    let retry = |after: Option<u64>| ChannelOutcome::Transient {
+        reason: ReasonCode::HomeserverNoAnswer,
+        retry_after: after.map(Wait::from_millis),
+    };
+    let table: Vec<(u16, Option<serde_json::Value>, ChannelOutcome)> = vec![
+        (
+            200,
+            Some(json!({ "event_id": "$e" })),
+            ChannelOutcome::Delivered,
+        ),
+        (200, None, ChannelOutcome::Delivered),
+        (
+            429,
+            Some(json!({ "errcode": "M_LIMIT_EXCEEDED", "retry_after_ms": 30000 })),
+            retry(Some(30_000)),
+        ),
+        (429, None, retry(None)),
+        (
+            400,
+            Some(json!({ "errcode": "M_LIMIT_EXCEEDED", "retry_after_ms": 1500 })),
+            retry(Some(1_500)),
+        ),
+        (
+            401,
+            Some(json!({ "errcode": "M_UNKNOWN_TOKEN" })),
+            ChannelOutcome::ConnectionRefused {
+                reason: ReasonCode::TokenRevoked,
+            },
+        ),
+        (
+            401,
+            Some(json!({ "errcode": "M_MISSING_TOKEN" })),
+            retry(None),
+        ),
+        (
+            403,
+            Some(json!({ "errcode": "M_FORBIDDEN" })),
+            ChannelOutcome::RouteRefused {
+                reason: ReasonCode::BotNotInRoom,
+            },
+        ),
+        (
+            403,
+            Some(json!({ "errcode": "M_UNKNOWN_TOKEN" })),
+            retry(None),
+        ),
+        (401, None, retry(None)),
+        (403, None, retry(None)),
+        (500, Some(json!({ "errcode": "M_UNKNOWN" })), retry(None)),
+        (502, None, retry(None)),
+        (404, Some(json!({ "errcode": "M_NOT_FOUND" })), retry(None)),
+        (
+            400,
+            Some(json!({ "errcode": "M_SOMETHING_NEW" })),
+            retry(None),
+        ),
+        (302, None, retry(None)),
+    ];
+    for (status, body, expected) in &table {
+        let answer = MatrixAnswer {
+            status: *status,
+            body: body.as_ref(),
+        };
+        assert_eq!(
+            classify_matrix(Some(answer)),
+            *expected,
+            "{status} {body:?}"
+        );
+    }
+    assert_eq!(classify_matrix(None), retry(None), "no answer at all");
 }

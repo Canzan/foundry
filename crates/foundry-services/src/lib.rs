@@ -415,6 +415,28 @@ impl Services {
             .await
     }
 
+    /// external-integration-plugins — the row a new Matrix bot token is sealed for.
+    pub async fn matrix_connection_id(
+        &self,
+        principal: &Principal,
+    ) -> Result<uuid::Uuid, integrations::IntegrationError> {
+        integrations::matrix_connection_id(&*self.store, principal).await
+    }
+
+    /// external-integration-plugins — save a Matrix bot token the homeserver accepted.
+    pub async fn connect_matrix(
+        &self,
+        principal: &Principal,
+        login: integrations::MatrixLogin,
+        connection_id: uuid::Uuid,
+        sealed: foundry_auth::secret_box::SealedSecret,
+        now: time::OffsetDateTime,
+    ) -> Result<foundry_store::integrations::ConnectionWriteOutcome, integrations::IntegrationError>
+    {
+        integrations::connect_matrix(&*self.store, principal, login, connection_id, sealed, now)
+            .await
+    }
+
     /// external-integration-plugins — what disconnecting Slack stops (admins).
     pub async fn slack_disconnect_preview(
         &self,

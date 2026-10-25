@@ -14,7 +14,8 @@
 //!   (DD-8), and [`prune_set`] what the retention
 //!   sweep deletes (DD-10);
 //! - [`compose`] decides a message's lines from the event as it happened
-//!   and [`encode_slack`] places them (D-3, D-11, DDR-12); [`classify_slack`] reads Slack's answer;
+//!   and [`encode_slack`] and [`encode_matrix`] place them (D-3, D-11, DDR-12,
+//!   DDR-13); [`classify_slack`] and [`classify_matrix`] read the vendor's answer;
 //! - [`RetryPolicy::settle`] schedules a retry with backoff and the vendor's
 //!   "retry after", never past the give-up time, or stops a route or a
 //!   connection on a refusal;
@@ -49,14 +50,14 @@ mod route;
 mod status;
 mod wire;
 
-pub use classify::{classify_slack, SlackAnswer};
+pub use classify::{classify_matrix, classify_slack, MatrixAnswer, SlackAnswer};
 pub use dispatch::{DispatchPlan, OutboxRow, PlannedDelivery};
 pub use event::EventKind;
 pub use history::DeliveryRecord;
 pub use kinds::{ChannelKind, ChannelOutcome, ConnectionState, ContentLevel, ReasonCode};
 pub use message::{
-    compose, encode_slack, escape_slack, issue_url, test_message, EventView, MessageLines,
-    EXCERPT_CHARACTERS, OPEN_IN_FOUNDRY,
+    compose, encode_matrix, encode_slack, escape_slack, issue_url, test_message, EventView,
+    MessageLines, EXCERPT_CHARACTERS, OPEN_IN_FOUNDRY,
 };
 pub use meter::{
     connection_census, delivery_labels, delivery_series, route_census, DeliveryOutcome, Series,

@@ -18,6 +18,20 @@
   <p><a class="button" href="/workspace/integrations/slack/install">Add to Slack</a></p>
   {% endif %}
 </section>
+<section data-integration="matrix">
+  <h2>Matrix</h2>
+  {% if let Some(line) = matrix %}<p data-connection="matrix">{{ line.connected }}</p>{% endif %}
+  {% if matrix_offered %}
+  <form method="post" action="{{ matrix_connect_path }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <p><label for="matrix-homeserver">Homeserver</label> <input id="matrix-homeserver" type="url" name="homeserver" placeholder="https://matrix.example.org" required></p>
+    <p><label for="matrix-token">Bot access token</label> <input id="matrix-token" type="password" name="access_token" autocomplete="off" required>{% if let Some(line) = matrix %} <span data-token-saved>{{ line.token_saved }}</span>{% endif %}</p>
+    <p><button type="submit">{% if matrix.is_some() %}Replace token{% else %}Connect Matrix{% endif %}</button></p>
+  </form>
+  {% else %}
+  <p>Matrix cannot be connected on this Foundry yet: an instance operator needs to set the secrets key.</p>
+  {% endif %}
+</section>
 <section>
   <h2>Activity</h2>
   <ul data-integration-activity>

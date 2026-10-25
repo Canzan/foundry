@@ -1871,6 +1871,11 @@ fn project_route(row: &sqlx::postgres::PgRow) -> Result<ProjectRoute, sqlx::Erro
 pub struct SealedConnection {
     pub id: Uuid,
     pub state: String,
+    /// The vendor's id for what is connected (a Slack team id, a Matrix
+    /// homeserver's address).
+    pub external_id: String,
+    /// The bot's vendor id (a Slack bot user, a Matrix user id).
+    pub bot_user_id: Option<String>,
     /// `None` only for a disconnected connection.
     pub sealed_credential: Option<Vec<u8>>,
 }
@@ -1998,6 +2003,7 @@ const LANE_LABELS_SQL: &str =
     "SELECT slug, label FROM lanes WHERE project_id = $1 AND slug = ANY($2)";
 
 /// `workspace_connections`' row as Postgres answers it.
+type SealedConnectionTuple = (Uuid, String, String, Option<String>, Option<Vec<u8>>);
 type ConnectionTuple = (
     String,
     String,
@@ -2394,19 +2400,38 @@ impl Store {
         workspace_id: Uuid,
         kind: &str,
     ) -> Result<Option<SealedConnection>, StoreError> {
-        let row: Option<(Uuid, String, Option<Vec<u8>>)> = sqlx::query_as(
-            "SELECT id, state, sealed_credential FROM integration_connections
+        let row: Option<SealedConnectionTuple> = sqlx::query_as(
+            "SELECT id, state, external_id, bot_user_id, sealed_credential
+               FROM integration_connections
               WHERE workspace_id = $1 AND kind = $2",
         )
         .bind(workspace_id)
         .bind(kind)
         .fetch_optional(&self.pool)
         .await?;
-        Ok(row.map(|(id, state, sealed_credential)| SealedConnection {
-            id,
-            state,
-            sealed_credential,
-        }))
+        Ok(row.map(
+            |(id, state, external_id, bot_user_id, sealed_credential)| SealedConnection {
+                id,
+                state,
+                external_id,
+                bot_user_id,
+                sealed_credential,
+            },
+        ))
+    }
+
+    /// The vendor id of the connection `connection_id` (a Matrix
+    /// connection's homeserver address); `None` when there is no such row.
+    pub async fn connection_external_id(
+        &self,
+        connection_id: Uuid,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(
+            sqlx::query_scalar("SELECT external_id FROM integration_connections WHERE id = $1")
+                .bind(connection_id)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
     }
 
     /// The sealed credential of the connection `connection_id` (none once

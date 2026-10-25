@@ -52,6 +52,11 @@ testcontainers-modules = { workspace = true }
 # bare hyper-util HttpConnector rather than pulling a second TLS stack in beside
 # reqwest's (which makes rustls' CryptoProvider ambiguous process-wide).
 fantoccini = { workspace = true }
+# external-integration-plugins 04-02 — the Matrix fault proxy's TLS front
+# (support/matrix_homeserver.rs) on rustls' `ring` provider, the one reqwest's
+# `rustls-tls` already locks; no aws-lc, so the provider is never ambiguous.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 hyper-util = { workspace = true }
 assert_cmd = { workspace = true }
 serde_yaml_ng = { workspace = true }
