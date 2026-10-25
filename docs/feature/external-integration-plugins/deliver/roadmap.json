@@ -8,7 +8,7 @@
       "docs/feature/external-integration-plugins/feature-delta.md",
       "docs/feature/external-integration-plugins/distill/red-classification.md"
     ],
-    "scenario_ownership_invariant": "135 scenarios (224 rows) and 78 stubs, each owned by one step; 01-11 owns scenario 131 (authored by nw-acceptance-designer, 2026-10-22); 04-04 owns the four Matrix disconnect scenarios (5 rows, authored 2026-10-25). Ignored stubs left, in order: 77, 66, 58, 45, 44, 39, 39, 38, 38, 38, 35, 33, 33, 29, 23, 22, 21, 20, 20, 20, 10, 9, 8, 8, 1, 0.",
+    "scenario_ownership_invariant": "136 scenarios (225 rows) and 78 stubs, each owned by exactly one step (re-checked 2026-10-25, DIST-28: 132 was unowned and 115 was doubly owned; the old 135/224 count left out 132); 01-11 owns scenario 131 (authored by nw-acceptance-designer, 2026-10-22); 01-10 owns scenario 132 (live-lease fence, authored green 2026-10-24); 01-12 owns scenario 115; 04-04 owns the four Matrix disconnect scenarios (5 rows, authored 2026-10-25). Ignored stubs left, in order: 77, 66, 58, 45, 44, 39, 39, 38, 38, 38, 35, 33, 33, 29, 23, 22, 21, 20, 20, 20, 10, 9, 8, 8, 1, 0.",
     "deviations_from_distill": "Steps over about 8 scenarios split; history page (51, 54, 58, 59, 115) moved to 01-09 because 66 and 123 read a route's history; failover is 01-11. See pending_id_remap.",
     "prerequisites": [
       "H-3 recorded Slack fixtures: USER DECISION 2026-10-22 — build 01-05 onward against the Slack double's hand-written answers; the gate moves to release time. 01-05 adds an explicit opt-in (FOUNDRY_EIP_HANDWRITTEN_SLACK=1) so the double serves hand-written shapes with a loud notice; without it the double still refuses. No release (tag) of slice 01 until recorded fixtures replace the hand-written shapes and the slice-01..03 scenarios pass on them (gate G-fixtures).",
@@ -25,6 +25,12 @@
         "item": "Matrix track (04-01..04-04) blocked on failover scenario authoring (01-11): resolved 2026-10-22, scenario 131 authored",
         "owners": "nw-acceptance-designer",
         "gate": "Due before phase 03 completes"
+      },
+      {
+        "item": "Board sidebar has no Settings link for scenario 99: decided 2026-10-25",
+        "owners": "product owner (label), nw-acceptance-designer (record)",
+        "gate": "Decided; built in 05-02",
+        "decision": "USER DECISION 2026-10-25: \"Rename link to Settings\". The board sidebar link \"Notifications\" becomes \"Settings\"; 05-02 builds it and un-pends scenario 99 (feature-delta DISTILL DIST-28)."
       }
     ],
     "release_gates": "DEVOPS G1-G6. G4: no prod promotion of phases 01-02 (steps 01-01..02-03) without 03-06 and 01-11, which also gates three-replica deployments. Slice 05 is not released while 99 is pending. No push or tag without the user's go. G-fixtures (user decision 2026-10-22): no tag of slice 01+ until recorded Slack fixtures (H-3) exist and the Slack scenarios pass against them with FOUNDRY_EIP_HANDWRITTEN_SLACK unset.",
@@ -425,11 +431,11 @@
         {
           "id": "01-09",
           "name": "Route history page",
-          "description": "Route history in Foundry's words, give-up entry, Manage-only access, sign-in redirects. Un-pends 51, 54, 58, 59, 115 (10 rows).",
+          "description": "Route history in Foundry's words, give-up entry, Manage-only access. Un-pends 51, 54, 58, 59 (5 rows). Scenario 115 moved to 01-12 (DIST-28).",
           "criteria": [
             "Every delivery is listed with its outcome, including 24-hour give-ups",
             "History shows no raw Slack text or credential",
-            "Only route managers see it; signed-out visitors are sent to sign in"
+            "Only route managers see it"
           ],
           "estimate": "1 day",
           "dependencies": [
@@ -446,17 +452,15 @@
             "crates/foundry-acceptance/tests/features/external-integration-plugins-01-signed-out.feature"
           ],
           "test_file": [
-            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-history-and-retries.feature",
-            "crates/foundry-acceptance/tests/features/external-integration-plugins-01-signed-out.feature (scenario 115)"
+            "crates/foundry-acceptance/tests/features/external-integration-plugins-03-history-and-retries.feature"
           ],
           "scenario_name": [
             "Every delivery is listed with its outcome",
             "After 24 hours of failure Foundry stops and says so",
             "History speaks Foundry's words, never Slack's",
-            "Only those who manage the route see its history",
-            "A signed-out visitor is sent to sign in from every integration page"
+            "Only those who manage the route see its history"
           ],
-          "implementation_notes": "DIST-14. UI-7 reasons unasserted. CHANGELOG: Added: route delivery history.",
+          "implementation_notes": "DIST-14. UI-7 reasons unasserted. CHANGELOG: Added: route delivery history. Ownership (DIST-28, 2026-10-25): scenario 115 was listed here and under 01-12. 01-09 (2b80a1f) un-pended it against the old uniform-404 Then; DISTILL corrected the Then to the sign-in redirect and re-pended it (fe1fcba); 01-12 (b54a3b4) un-pended the current text and made it pass. 01-12 owns it; it is removed here.",
           "lanes": [
             "eip-03",
             "eip-01"
@@ -472,7 +476,7 @@
           "id": "01-10",
           "name": "Two-replica delivery verification",
           "type": "verification",
-          "description": "Declared verification step with its own commit. Un-pends 65, 66, 123, 124 (4 rows) and proves each fails under a seeded worker fault, reverted before commit. Coordinator 2026-10-23: scenario 65 moved to 02-01 (needs Moved delivery); 01-10 now un-pends 66, 123, 124.",
+          "description": "Declared verification step with its own commit. Un-pends 65, 66, 123, 124 (4 rows) and proves each fails under a seeded worker fault, reverted before commit. Coordinator 2026-10-23: scenario 65 moved to 02-01 (needs Moved delivery); 01-10 now un-pends 66, 123, 124. DIST-28 (2026-10-25): also owns scenario 132, the live-lease fence, which was authored green.",
           "criteria": [
             "Two replicas deliver each event once, in order, including bursts",
             "A stopped sender's message, or a late answer, is delivered and recorded once",
@@ -489,9 +493,10 @@
           "scenario_name": [
             "A message whose sender stopped in the middle of a send is not lost",
             "A late answer from a replica whose claim expired is recorded once",
-            "Two replicas deliver a burst of events once each"
+            "Two replicas deliver a burst of events once each",
+            "The other replica never sends a message a running replica is still sending"
           ],
-          "implementation_notes": "Seed a dropped claim fence in worker.rs; keep both runs' logs as evidence.",
+          "implementation_notes": "Seed a dropped claim fence in worker.rs; keep both runs' logs as evidence. Ownership (DIST-28, 2026-10-25): scenario 132 (DIST-23, 8f47631, 2026-10-24, @eip-replica) was owned by no step. It was authored after 01-10 (b37ad0f) and 01-11 (577e4d0) and was never @pending, so no step un-pended it. It passed on arrival: the live-lease fence it proves is the claim choice in worker.rs (head_of / claimable_head, 01-06 7ef6ac4 and 01-07 1c23d1c) over 01-02's fenced claims. Its proof is 01-10's method: seeded fault A (the claim choice ignores the live lease) fails only 132, and the eip-replica lane passes twice with no fault. So 01-10 owns it as the verification step for two-replica fencing. The production code needs no change.",
           "verification_exemption": "Declared verification step (type: verification): adds no production code by design; proof is each of its four scenarios failing under a seeded worker fault, reverted before its own commit.",
           "lanes": [
             "eip-replica"
@@ -1245,7 +1250,7 @@
           "id": "05-01",
           "name": "Project email choices, EmailTransport, email walking skeleton",
           "sizing_review_needed": true,
-          "description": "Migration 0031, Project emails section, EmailTransport, email encoder, stop token, send-time checks, choice-writer guard, rollback floor. Skeleton 98 first. Un-pends 98-106 (16 rows); un-ignores 7 stubs.",
+          "description": "Migration 0031, Project emails section, EmailTransport, email encoder, stop token, send-time checks, choice-writer guard, rollback floor. Skeleton 98 first. Un-pends 98 and 100-106 (15 rows); un-ignores 7 stubs. Scenario 99 moved to 05-02 (DIST-28).",
           "criteria": [
             "A member chooses an event and gets the email it describes",
             "Only openable projects are listed; own actions, mutes or forged choices send nothing",
@@ -1279,7 +1284,6 @@
           "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-05-project-emails.feature",
           "scenario_name": [
             "A member chooses an event for a project and gets the email it describes",
-            "Saving shows exactly what will be emailed, three steps from the board",
             "A member sees only projects they can open, with nothing chosen for them",
             "Each chosen event emails what happened and why",
             "\"Issues I created or commented on\" means exactly that",
@@ -1295,7 +1299,7 @@
             "core_properties.rs::encode_email_carries_user_text_as_plain_text",
             "check_arch.rs::write_guard_refuses_a_choice_writer_without_the_lock"
           ],
-          "implementation_notes": "Scenario 99 needs the notification-preferences-ui Settings link; slice 05 is not released with 99 pending. DDR-15, ADR-EIP-007. CHANGELOG: Added: project email choices; Upgrade: migration 0031.",
+          "implementation_notes": "Scenario 99 needed the board sidebar's Settings link and stayed @pending through 05-01 (DIST-27); USER DECISION 2026-10-25 renames the sidebar link Notifications to Settings, built in 05-02, which un-pends 99 and now owns it (DIST-28). DDR-15, ADR-EIP-007. CHANGELOG: Added: project email choices; Upgrade: migration 0031.",
           "lanes": [
             "eip-05"
           ],
@@ -1320,7 +1324,7 @@
             "G2"
           ],
           "sizing_review_needed": true,
-          "description": "Confirmed stop links, signed one-click POST, unsubscribe headers, access-loss stops, mailpit wire check, CSRF exempt pin. Un-pends 107-114 (12 rows); un-ignores 1 stub.",
+          "description": "Confirmed stop links, signed one-click POST, unsubscribe headers, access-loss stops, mailpit wire check, CSRF exempt pin. Board sidebar link renamed Notifications to Settings (USER DECISION 2026-10-25, DIST-28). Un-pends 99 and 107-114 (13 rows); un-ignores 1 stub.",
           "criteria": [
             "A member stops one kind of email from the email and gets no more",
             "Opening or tampering with a link changes and reveals nothing",
@@ -1336,6 +1340,7 @@
             "crates/foundry-app/src/lib.rs",
             "crates/foundry-app/src/notify.rs",
             "crates/foundry-app/templates/email_stop.html",
+            "crates/foundry-app/templates/partials/sidebar.html",
             "crates/foundry-services/src/integrations/mod.rs",
             "crates/foundry-store/src/integrations.rs",
             "CHANGELOG.md",
@@ -1344,6 +1349,7 @@
           ],
           "test_file": "crates/foundry-acceptance/tests/features/external-integration-plugins-05-project-emails.feature",
           "scenario_name": [
+            "Saving shows exactly what will be emailed, three steps from the board",
             "A member stops one kind of email from the email itself",
             "A stopped choice sends no more emails",
             "Merely opening a stop link changes nothing",
@@ -1445,7 +1451,7 @@
     "quality_gate_self_check": {
       "criteria": "outcomes only, 2-3 per step",
       "decomposition_ratio": "26 / 49 = 0.53",
-      "distill_linkage": "135 scenarios and 78 stubs mapped once; orphans 0; no TBD (01-11 owns scenario 131)",
+      "distill_linkage": "136 scenarios and 78 stubs mapped once (DIST-28); orphans 0; no TBD (01-11 owns scenario 131)",
       "sizing": "reviewer rule (8+ scenarios): 01-06, 02-03, 03-03, 03-05, 04-02, 04-04, 05-01, 05-02; also rows > 15 or stubs > 10: 01-02, 01-04, 01-05",
       "changelog": "every step with CHANGELOG.md in files_to_modify names 'CHANGELOG: <section>: <line>' in its notes; 01-01..01-04, 01-10, 01-11 change nothing user-visible and do not touch CHANGELOG.md",
       "decisions": "U-D12 lock_timeout 2 s accepted by the coordinator, 2026-10-22",
