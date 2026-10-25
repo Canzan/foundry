@@ -20,7 +20,7 @@
 </section>
 <section data-integration="matrix">
   <h2>Matrix</h2>
-  {% if let Some(line) = matrix %}<p data-connection="matrix">{{ line.connected }}</p>{% endif %}
+  {% if let Some(line) = matrix %}<p data-connection="matrix">{{ line.connected }} <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>{% endif %}
   {% if matrix_offered %}
   <form method="post" action="{{ matrix_connect_path }}">
     <input type="hidden" name="_csrf" value="{{ csrf }}">

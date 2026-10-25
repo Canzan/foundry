@@ -187,7 +187,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
       | @lena:canzan.dev look at this <b>now</b>           |
       | <a href="https://matrix.to/#/@lena:canzan.dev">Lena</a> please |
 
-  @pending @us-eip-09 @contract-shape:bounded-change
+  @us-eip-09 @contract-shape:bounded-change
   Scenario: Every Matrix delivery is in the route's history
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -195,7 +195,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     When Sam files "Rotate LLDAP bind password" in Identity Platform
     Then the history of the route to #auth:canzan.dev reads "New issue · AUTH-12 · Delivered"
 
-  @pending @us-eip-09 @contract-shape:bounded-change
+  @us-eip-09 @contract-shape:bounded-change
   Scenario: A Matrix route carries an event added by editing it
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -204,7 +204,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     When Sam comments "Grafana login verified." on AUTH-7
     Then #auth:canzan.dev shows a notice from @foundry:canzan.dev about AUTH-7
 
-  @pending @us-eip-09 @contract-shape:unbounded-preservation
+  @us-eip-09 @contract-shape:unbounded-preservation
   Scenario: A paused Matrix route skips events and does not send them later
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -214,7 +214,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     When Lena resumes the route to #auth:canzan.dev
     Then #auth:canzan.dev shows no notice from @foundry:canzan.dev about AUTH-12
 
-  @pending @us-eip-09 @contract-shape:bounded-change
+  @us-eip-09 @contract-shape:bounded-change
   Scenario: Deleting a Matrix route takes the bot out of the room
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -234,7 +234,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
   # and the activity line were ratified by the user on 2026-10-25
   # (feature-delta DISTILL DIST-25).
 
-  @pending @us-eip-07 @error @contract-shape:unbounded-preservation
+  @us-eip-07 @error @contract-shape:unbounded-preservation
   Scenario: Disconnecting Matrix asks first and counts what stops
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -243,7 +243,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then Priya reads "Disconnect Matrix? 1 route in 1 project stops posting. Foundry forgets the bot's access token."
     And Canzan Labs' Matrix stays connected and every route reads "Delivering"
 
-  @pending @us-eip-07 @contract-shape:bounded-change
+  @us-eip-07 @contract-shape:bounded-change
   Scenario: Confirming the Matrix disconnect pauses the routes and forgets the bot's token
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -257,7 +257,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     And the workspace's integration activity gains the line "21 Oct 2026 · Priya Raman disconnected Matrix (matrix.canzan.dev)"
     And Priya receives no email about the Matrix connection
 
-  @pending @us-eip-07 @edge @contract-shape:unbounded-preservation
+  @us-eip-07 @edge @contract-shape:unbounded-preservation
   Scenario: What happens while Matrix is disconnected is not sent after reconnecting
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -268,7 +268,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then Lena's route to #auth:canzan.dev reads "Delivering"
     And #auth:canzan.dev shows no notice from @foundry:canzan.dev about AUTH-12
 
-  @pending @us-eip-07 @error @contract-shape:unbounded-preservation
+  @us-eip-07 @error @contract-shape:unbounded-preservation
   Scenario Outline: Only a workspace admin disconnects Matrix
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev

@@ -25,12 +25,15 @@
 //!   asks the vendor about its destination again ([`DestinationCatalogs`]);
 //!   while the problem lasts the route stays stopped (D-8).
 //!
-//! - [`slack_disconnect_preview`]: what disconnecting Slack stops (admins).
-//! - [`disconnect_slack`]: the workspace's Slack connection disconnected, its
-//!   credential forgotten and its routes' waiting deliveries skipped (the
+//! - [`room_still_routed`]: whether another route of the workspace still
+//!   sends to a destination (a deleted Matrix route's bot leaves a room no
+//!   route uses).
+//! - [`disconnect_preview`]: what disconnecting Slack or Matrix stops (admins).
+//! - [`disconnect`]: the workspace's Slack or Matrix connection disconnected,
+//!   its credential forgotten and its routes' waiting deliveries skipped (the
 //!   pure `cancel_set` per route), with its audit record (admins; R-9: a
 //!   deliberate disconnect queues nothing). The credential it held comes
-//!   back still sealed, for the adapter to withdraw at Slack.
+//!   back still sealed, for the Slack adapter to withdraw at Slack.
 //!
 //! Every refusal is [`IntegrationError::NotFound`], which each door answers
 //! with its uniform 404. The use-cases read and write through
@@ -134,6 +137,12 @@ pub(crate) trait IntegrationRecords: Sync {
         edit: &RouteEdit,
     ) -> Result<RouteChangeOutcome, StoreError>;
     async fn delete_route(&self, change: &RouteChange) -> Result<RouteChangeOutcome, StoreError>;
+    async fn destination_routed(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+        destination_ref: &str,
+    ) -> Result<bool, StoreError>;
     async fn disconnect_preview(
         &self,
         workspace_id: Uuid,
@@ -691,29 +700,45 @@ pub(crate) async fn change_route(
     }
 }
 
-/// Admins only: what disconnecting the workspace's Slack connection stops;
-/// `None` when there is nothing to disconnect.
-pub(crate) async fn slack_disconnect_preview(
+/// Whether a route of the principal's workspace, on its connection of
+/// `kind`, still sends to `destination_ref` (in a live project, paused or
+/// not).
+pub(crate) async fn room_still_routed(
     records: &impl IntegrationRecords,
     principal: &Principal,
-) -> Result<Option<DisconnectPreview>, IntegrationError> {
-    require_admin(records, principal).await?;
+    kind: &str,
+    destination_ref: &str,
+) -> Result<bool, IntegrationError> {
     Ok(records
-        .disconnect_preview(principal.workspace_id(), SLACK)
+        .destination_routed(principal.workspace_id(), kind, destination_ref)
         .await?)
 }
 
-/// Admins only: disconnect the workspace's Slack connection at `now`,
-/// skipping exactly what [`cancel_set`] names for each of its routes.
-pub(crate) async fn disconnect_slack(
+/// Admins only: what disconnecting the workspace's connection of `kind`
+/// stops; `None` when there is nothing to disconnect.
+pub(crate) async fn disconnect_preview(
     records: &impl IntegrationRecords,
     principal: &Principal,
+    kind: &str,
+) -> Result<Option<DisconnectPreview>, IntegrationError> {
+    require_admin(records, principal).await?;
+    Ok(records
+        .disconnect_preview(principal.workspace_id(), kind)
+        .await?)
+}
+
+/// Admins only: disconnect the workspace's connection of `kind` at `now`,
+/// skipping exactly what [`cancel_set`] names for each of its routes.
+pub(crate) async fn disconnect(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    kind: &str,
     now: OffsetDateTime,
 ) -> Result<DisconnectOutcome, IntegrationError> {
     require_admin(records, principal).await?;
     let change = ConnectionChange {
         workspace_id: principal.workspace_id(),
-        kind: SLACK.to_string(),
+        kind: kind.to_string(),
         actor_id: principal.user_id(),
         via: "web".to_string(),
         at: now,

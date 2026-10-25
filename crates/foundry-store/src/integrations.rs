@@ -1527,6 +1527,29 @@ impl Store {
         Ok(RouteChangeOutcome::Changed { cancelled: 0 })
     }
 
+    /// Whether a route of the workspace's connection of `kind`, in a live
+    /// project (paused or not), sends to `destination_ref`: a deleted Matrix
+    /// route's bot leaves only a room no route uses. Reads only.
+    pub async fn destination_routed(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+        destination_ref: &str,
+    ) -> Result<bool, StoreError> {
+        Ok(sqlx::query_scalar(
+            "SELECT EXISTS (
+                 SELECT 1 FROM integration_routes r
+                   JOIN integration_connections c ON c.id = r.connection_id
+                   JOIN live_projects p ON p.id = r.project_id
+                  WHERE c.workspace_id = $1 AND c.kind = $2 AND r.destination_ref = $3)",
+        )
+        .bind(workspace_id)
+        .bind(kind)
+        .bind(destination_ref)
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
     /// U-D7: every INVALID index in the active schema (a failed
     /// `CREATE INDEX CONCURRENTLY`, e.g. 0029's), as one boot warning each,
     /// naming the remedy (runbook R-7). `Store::migrate` logs them.

@@ -437,27 +437,41 @@ impl Services {
             .await
     }
 
-    /// external-integration-plugins — what disconnecting Slack stops (admins).
-    pub async fn slack_disconnect_preview(
+    /// external-integration-plugins — what disconnecting the workspace's
+    /// connection of `kind` (Slack or Matrix) stops (admins).
+    pub async fn disconnect_preview(
         &self,
         principal: &Principal,
+        kind: &str,
     ) -> Result<
         Option<foundry_store::integrations::DisconnectPreview>,
         integrations::IntegrationError,
     > {
-        integrations::slack_disconnect_preview(&*self.store, principal).await
+        integrations::disconnect_preview(&*self.store, principal, kind).await
     }
 
-    /// external-integration-plugins — disconnect the workspace's Slack
-    /// connection (admins): its credential forgotten, what its routes waited
+    /// external-integration-plugins — disconnect the workspace's connection
+    /// of `kind` (admins): its credential forgotten, what its routes waited
     /// to send skipped, audited.
-    pub async fn disconnect_slack(
+    pub async fn disconnect(
         &self,
         principal: &Principal,
+        kind: &str,
         now: time::OffsetDateTime,
     ) -> Result<foundry_store::integrations::DisconnectOutcome, integrations::IntegrationError>
     {
-        integrations::disconnect_slack(&*self.store, principal, now).await
+        integrations::disconnect(&*self.store, principal, kind, now).await
+    }
+
+    /// external-integration-plugins — whether another route of the
+    /// workspace still sends to `destination_ref` on its `kind` connection.
+    pub async fn room_still_routed(
+        &self,
+        principal: &Principal,
+        kind: &str,
+        destination_ref: &str,
+    ) -> Result<bool, integrations::IntegrationError> {
+        integrations::room_still_routed(&*self.store, principal, kind, destination_ref).await
     }
 
     /// external-integration-plugins — a project's integrations page.

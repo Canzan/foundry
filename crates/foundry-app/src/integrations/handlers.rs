@@ -45,13 +45,18 @@
 //!   the route, and its save: events, content level and lanes (Manage).
 //! - `GET …/integrations/routes/{route_id}/delete`: the delete question; its
 //!   `POST` deletes the route and what it was waiting to send, never a
-//!   message already posted (Manage).
+//!   message already posted (Manage). A deleted Matrix route's bot leaves its
+//!   room when no other route of the workspace uses it; a leave the
+//!   homeserver refuses goes to the log and never undoes the delete.
 //! - `GET /workspace/integrations/slack/disconnect`: the disconnect question,
 //!   counting the routes that stop (admins); its `POST` disconnects: the
 //!   connection's credential is forgotten and what its routes waited to send
 //!   is skipped, in one transaction, and only then is Slack asked to withdraw
 //!   Foundry's access (`apps.uninstall`), so a Slack failure never leaves the
 //!   credential stored. Works without scripting; CSRF-protected.
+//! - `GET`/`POST /workspace/integrations/matrix/disconnect`: the same door
+//!   for Matrix (user decision 2026-10-25): the bot's access token is
+//!   forgotten and the routes pause; the bot stays in its rooms.
 //! - `POST /integrations/slack/events`: Slack's Events API (DDR-11,
 //!   ADR-EIP-005 decision 6), a machine post with no session, believed only
 //!   when Slack signed it (401 otherwise): it answers Slack's address check
@@ -88,6 +93,7 @@ use foundry_services::integrations::{
 use foundry_services::{Principal, Services};
 use foundry_store::integrations::{
     ConnectionWriteOutcome, DeliveryHistoryRow, DisconnectOutcome, DisconnectPreview, ProjectRoute,
+    RouteChangeOutcome,
 };
 use serde::Deserialize;
 use tower_sessions::Session;
@@ -97,6 +103,7 @@ pub const SETUP_PATH: &str = "/workspace/integrations/slack/setup";
 pub const INSTALL_PATH: &str = "/workspace/integrations/slack/install";
 pub const RETURN_PATH: &str = slack::RETURN_PATH;
 pub const DISCONNECT_PATH: &str = "/workspace/integrations/slack/disconnect";
+pub const MATRIX_DISCONNECT_PATH: &str = "/workspace/integrations/matrix/disconnect";
 pub const MATRIX_CONNECT_PATH: &str = "/workspace/integrations/matrix";
 
 /// US-EIP-08: the homeserver answered and refused the bot's token.
@@ -160,6 +167,7 @@ struct WorkspacePage {
     /// Matrix can be connected: the secrets key is set.
     matrix_offered: bool,
     matrix_connect_path: &'static str,
+    matrix_disconnect_path: &'static str,
     csrf: String,
     activity: Vec<String>,
 }
@@ -212,9 +220,11 @@ struct RouteDeletePage {
 
 #[derive(Template)]
 #[template(path = "integrations/slack_disconnect.html")]
-struct SlackDisconnectPage {
+struct DisconnectPage {
     nav: crate::nav::NavContext,
     csrf: String,
+    /// "Slack" or "Matrix".
+    kind: &'static str,
     question: String,
     disconnect_path: &'static str,
     workspace_path: &'static str,
@@ -544,27 +554,75 @@ pub async fn show_slack_disconnect(
     session: Session,
     headers: HeaderMap,
 ) -> Response {
-    let Some(caller) = Caller::of(&state, &session).await else {
+    show_disconnect(&state, &session, &headers, ChannelKind::Slack).await
+}
+
+pub async fn show_matrix_disconnect(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    show_disconnect(&state, &session, &headers, ChannelKind::Matrix).await
+}
+
+/// The disconnect question for the workspace's connection of `kind`
+/// (admins; anyone else gets the uniform not-found page).
+async fn show_disconnect(
+    state: &AppState,
+    session: &Session,
+    headers: &HeaderMap,
+    kind: ChannelKind,
+) -> Response {
+    let Some(caller) = Caller::of(state, session).await else {
         return sign_in();
     };
     let preview = match caller
         .services
-        .slack_disconnect_preview(&caller.principal())
+        .disconnect_preview(&caller.principal(), kind.wire_name())
         .await
     {
         Ok(Some(preview)) => preview,
         Ok(None) => return Redirect::to(WORKSPACE_PATH).into_response(),
         Err(err) => return refusal(err),
     };
-    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    let page = SlackDisconnectPage {
-        nav: caller.nav(&state, csrf.clone()).await,
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let page = DisconnectPage {
+        nav: caller.nav(state, csrf.clone()).await,
         csrf,
-        question: disconnect_question(&preview),
-        disconnect_path: DISCONNECT_PATH,
+        kind: kind.display_name(),
+        question: disconnect_question(kind, &preview),
+        disconnect_path: disconnect_path(kind),
         workspace_path: WORKSPACE_PATH,
     };
     render(page.render(), set_cookie)
+}
+
+fn disconnect_path(kind: ChannelKind) -> &'static str {
+    match kind {
+        ChannelKind::Matrix => MATRIX_DISCONNECT_PATH,
+        _ => DISCONNECT_PATH,
+    }
+}
+
+/// The Matrix disconnect: the bot's access token is forgotten and its routes
+/// pause, in one transaction; nothing is asked of the homeserver (the bot
+/// stays in its rooms).
+pub async fn disconnect_matrix(State(state): State<AppState>, session: Session) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return sign_in();
+    };
+    match caller
+        .services
+        .disconnect(
+            &caller.principal(),
+            ChannelKind::Matrix.wire_name(),
+            state.clock.now(),
+        )
+        .await
+    {
+        Ok(_) => Redirect::to(WORKSPACE_PATH).into_response(),
+        Err(err) => refusal(err),
+    }
 }
 
 /// The disconnect: Foundry forgets the credential first, then asks Slack to
@@ -575,7 +633,11 @@ pub async fn disconnect_slack(State(state): State<AppState>, session: Session) -
     };
     match caller
         .services
-        .disconnect_slack(&caller.principal(), state.clock.now())
+        .disconnect(
+            &caller.principal(),
+            ChannelKind::Slack.wire_name(),
+            state.clock.now(),
+        )
         .await
     {
         Ok(DisconnectOutcome::Disconnected {
@@ -603,7 +665,8 @@ pub async fn disconnect_slack(State(state): State<AppState>, session: Session) -
 
 /// US-EIP-07's disconnect question: "Disconnect Slack? 3 routes in 2
 /// projects stop posting. Foundry's access to Canzan Labs' Slack is removed."
-fn disconnect_question(preview: &DisconnectPreview) -> String {
+/// For Matrix (DIST-25): "… Foundry forgets the bot's access token."
+fn disconnect_question(kind: ChannelKind, preview: &DisconnectPreview) -> String {
     let count = |n: i64, noun: &str| {
         if n == 1 {
             format!("1 {noun}")
@@ -612,13 +675,20 @@ fn disconnect_question(preview: &DisconnectPreview) -> String {
         }
     };
     let verb = if preview.routes == 1 { "stops" } else { "stop" };
-    let owner = if preview.label.ends_with('s') {
-        format!("{}'", preview.label)
-    } else {
-        format!("{}'s", preview.label)
+    let consequence = match kind {
+        ChannelKind::Matrix => "Foundry forgets the bot's access token.".to_string(),
+        _ => {
+            let owner = if preview.label.ends_with('s') {
+                format!("{}'", preview.label)
+            } else {
+                format!("{}'s", preview.label)
+            };
+            format!("Foundry's access to {owner} Slack is removed.")
+        }
     };
     format!(
-        "Disconnect Slack? {} in {} {verb} posting. Foundry's access to {owner} Slack is removed.",
+        "Disconnect {}? {} in {} {verb} posting. {consequence}",
+        kind.display_name(),
         count(preview.routes, "route"),
         count(preview.projects, "project"),
     )
@@ -963,15 +1033,77 @@ pub async fn delete_route(
     session: Session,
     Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
 ) -> Response {
-    change_route(
-        &state,
-        &session,
-        &team_slug,
-        &project_slug,
-        &route_id,
-        RouteAction::Delete,
-    )
-    .await
+    let delete = || {
+        change_route(
+            &state,
+            &session,
+            &team_slug,
+            &project_slug,
+            &route_id,
+            RouteAction::Delete,
+        )
+    };
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return sign_in();
+    };
+    let Ok(managed) = managed_route(&caller, &team_slug, &project_slug, &route_id).await else {
+        return delete().await;
+    };
+    let deleted = caller
+        .services
+        .change_route(
+            &caller.principal(),
+            &team_slug,
+            &project_slug,
+            managed.route.id,
+            RouteAction::Delete,
+            state.clock.now(),
+        )
+        .await;
+    match deleted {
+        Ok(outcome) => {
+            if matches!(outcome, RouteChangeOutcome::Changed { .. }) {
+                leave_unrouted_room(&state, &caller, &managed).await;
+            }
+            Redirect::to(&base_path(&team_slug, &project_slug)).into_response()
+        }
+        Err(err) => refusal(err),
+    }
+}
+
+/// After a Matrix route's delete: the bot leaves its room when no other
+/// route of the workspace uses it. A leave that fails goes to the log; the
+/// delete stands and the room keeps what was posted.
+async fn leave_unrouted_room(state: &AppState, caller: &Caller, managed: &ManagedRoute) {
+    let route = &managed.route;
+    if ChannelKind::from_wire_name(&route.kind) != Some(ChannelKind::Matrix) {
+        return;
+    }
+    let still_routed = caller
+        .services
+        .room_still_routed(&caller.principal(), &route.kind, &route.destination_ref)
+        .await;
+    if !matches!(still_routed, Ok(false)) {
+        return;
+    }
+    let bot = managed
+        .target
+        .matrix_connection
+        .as_ref()
+        .and_then(|connection| state.integrations.current().matrix_bot(connection));
+    let left = match bot {
+        Some(bot) => bot
+            .withdraw(&DestinationRef(route.destination_ref.clone()))
+            .await
+            .map_err(|reason| reason.wire_name()),
+        None => Err("no_bot"),
+    };
+    if let Err(reason) = left {
+        tracing::warn!(
+            reason,
+            "matrix route delete: the bot did not leave the room; the route is deleted"
+        );
+    }
 }
 
 /// One route change, then back to the project's integrations page (also
@@ -1758,6 +1890,7 @@ async fn workspace_page(
         matrix,
         matrix_offered: integrations.settings().secrets.is_some(),
         matrix_connect_path: MATRIX_CONNECT_PATH,
+        matrix_disconnect_path: MATRIX_DISCONNECT_PATH,
         notice: notice.map(str::to_string),
         not_set_up: offer == SlackOffer::NotSetUp,
         no_secrets_key: offer == SlackOffer::NoSecretsKey,

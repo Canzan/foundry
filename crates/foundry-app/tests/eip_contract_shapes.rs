@@ -1568,6 +1568,125 @@ mod routes {
         );
     }
 
+    // US-EIP-07 for Matrix (04-04, user decision 2026-10-25): the same door
+    // at /workspace/integrations/matrix/disconnect. A lead gets the uniform
+    // 404; the admin is asked first (DIST-25); the confirm forgets the bot's
+    // token and records it, asks Slack nothing, and the workspace page no
+    // longer offers Disconnect Matrix.
+    #[tokio::test]
+    async fn matrix_disconnect_asks_first_then_forgets_the_bots_token() {
+        let lab = Lab::start().await;
+        exec(
+            &lab.store,
+            "INSERT INTO integration_connections
+                    (id, workspace_id, kind, state, external_id, bot_user_id, label,
+                     sealed_credential, credential_saved_at)
+             SELECT $1, id, 'matrix', 'connected', 'https://matrix.canzan.dev',
+                    '@foundry:canzan.dev', 'matrix.canzan.dev', '\\x00'::bytea, now()
+               FROM workspaces",
+            &[Uuid::now_v7()],
+        )
+        .await;
+        exec(
+            &lab.store,
+            "INSERT INTO integration_routes
+                    (id, workspace_id, project_id, connection_id, kind, destination_ref,
+                     destination_label, events, content_level, receives_from, created_via)
+             SELECT $1, p.workspace_id, p.id, c.id, 'matrix', '!auth:canzan.dev',
+                    '#auth:canzan.dev', ARRAY['issue.created'], 'summary', now(), 'web'
+               FROM projects p JOIN integration_connections c ON c.kind = 'matrix'",
+            &[Uuid::now_v7()],
+        )
+        .await;
+        const DOOR: &str = "/workspace/integrations/matrix/disconnect";
+        let page = |uri: &'static str| {
+            let router = lab.router.clone();
+            let request = Request::builder()
+                .uri(uri)
+                .header(header::COOKIE, &lab.cookie)
+                .body(Body::empty())
+                .expect("request");
+            async move {
+                let response = router.oneshot(request).await.expect("page");
+                let status = response.status();
+                let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                    .await
+                    .expect("body");
+                (status, String::from_utf8_lossy(&body).into_owned())
+            }
+        };
+        let confirm = || {
+            let router = lab.router.clone();
+            let request = form(DOOR, &lab.cookie, &[]);
+            async move { router.oneshot(request).await.expect("confirm") }
+        };
+        let before = lab.universe().await;
+
+        assert_eq!(page(DOOR).await.0, StatusCode::NOT_FOUND, "a lead");
+        assert_eq!(confirm().await.status(), StatusCode::NOT_FOUND);
+        assert_eq!(lab.universe().await, before, "nothing changed");
+
+        exec(
+            &lab.store,
+            "UPDATE workspace_memberships SET role = 'admin'",
+            &[],
+        )
+        .await;
+        let (_, workspace) = page("/workspace/integrations").await;
+        assert!(
+            workspace.contains(&format!("href=\"{DOOR}\"")),
+            "the admin is offered Disconnect Matrix: {workspace}"
+        );
+        let (status, dialog) = page(DOOR).await;
+        assert_eq!(status, StatusCode::OK, "the admin is asked first");
+        let question = "Disconnect Matrix? 1 route in 1 project stops posting. \
+                        Foundry forgets the bot&#x27;s access token.";
+        assert!(dialog.contains(question), "{dialog}");
+        assert!(dialog.contains(&format!("action=\"{DOOR}\"")), "{dialog}");
+        assert_eq!(lab.universe().await, before, "asking writes nothing");
+
+        let done = confirm().await;
+        assert_eq!(done.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            done.headers()[header::LOCATION],
+            "/workspace/integrations",
+            "back to the workspace page"
+        );
+        let (state, sealed): (String, Option<Vec<u8>>) = sqlx::query_as(
+            "SELECT state, sealed_credential FROM integration_connections WHERE kind = 'matrix'",
+        )
+        .fetch_one(lab.store.pool())
+        .await
+        .expect("the Matrix connection");
+        assert_eq!((state.as_str(), sealed), ("disconnected", None));
+        let slack: String =
+            sqlx::query_scalar("SELECT state FROM integration_connections WHERE kind = 'slack'")
+                .fetch_one(lab.store.pool())
+                .await
+                .expect("the Slack connection");
+        assert_eq!(slack, "connected", "Slack stays connected");
+        let audit: Vec<(String, String)> = sqlx::query_as(
+            "SELECT action, kind FROM integration_audit_events
+              WHERE action = 'connection_disconnected'",
+        )
+        .fetch_all(lab.store.pool())
+        .await
+        .expect("audit");
+        assert_eq!(
+            audit,
+            vec![("connection_disconnected".into(), "matrix".into())]
+        );
+        assert!(
+            lab.calls.lock().unwrap().is_empty(),
+            "Slack is asked nothing"
+        );
+        let (_, workspace) = page("/workspace/integrations").await;
+        assert!(
+            !workspace.contains(DOOR),
+            "Disconnect Matrix is offered no more: {workspace}"
+        );
+    }
+
     fn form(uri: &str, cookie: &str, fields: &[(&str, &str)]) -> Request<Body> {
         let mut all = vec![("_csrf", CSRF)];
         all.extend_from_slice(fields);

@@ -33,6 +33,16 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   follow the route's content level (comment text only with Summary with comment text, cut at
   300 characters), can never ping the room or anyone in it, and never carry the bot's access
   token or the secrets key.
+- **Matrix route lifecycle, retries and disconnect**: Matrix routes have the same history, edit,
+  pause and delete as Slack's. Deleting the last route to a room takes Foundry's bot out of it
+  (what it posted stays; a homeserver that refuses the leave never blocks the delete). A
+  homeserver that is unreachable, asks Foundry to slow down, or fails is retried with the same
+  backoff as Slack, and a longer wait the homeserver asks for is honoured. A workspace admin's
+  integrations page offers Disconnect Matrix, which asks first ("Disconnect Matrix? 1 route in 1
+  project stops posting. Foundry forgets the bot's access token."); confirming it forgets the
+  token, pauses the routes ("Paused: Matrix was disconnected"), and records "21 Oct 2026 · Priya
+  Raman disconnected Matrix (matrix.canzan.dev)". The bot stays in its rooms, no email is sent,
+  and nothing that happens while Matrix is disconnected is sent after reconnecting.
 - **Disconnect Slack**: a workspace admin's integrations page offers Disconnect Slack, which asks
   first and counts what stops ("Disconnect Slack? 3 routes in 2 projects stop posting. Foundry's
   access to Canzan Labs' Slack is removed."). Confirming it forgets the stored Slack credential,

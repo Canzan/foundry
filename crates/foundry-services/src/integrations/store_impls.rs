@@ -127,6 +127,15 @@ impl IntegrationRecords for Store {
         Store::delete_route(self, change).await
     }
 
+    async fn destination_routed(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+        destination_ref: &str,
+    ) -> Result<bool, StoreError> {
+        Store::destination_routed(self, workspace_id, kind, destination_ref).await
+    }
+
     async fn disconnect_preview(
         &self,
         workspace_id: Uuid,

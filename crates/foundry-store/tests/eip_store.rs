@@ -2944,3 +2944,45 @@ async fn a_matrix_connection_is_read_with_its_homeserver_and_bot() {
         "no row, no address"
     );
 }
+
+// US-EIP-09 (04-04): a deleted Matrix route's bot leaves only a room no other
+// route of the workspace uses; the store says whether a destination is still
+// routed on the workspace's connection of a kind.
+#[tokio::test]
+async fn a_destination_is_routed_while_a_route_of_the_workspace_sends_to_it() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let routed = |workspace: Id, kind: &'static str, destination: &'static str| {
+        let store = lab.store.clone();
+        async move {
+            store
+                .destination_routed(workspace, kind, destination)
+                .await
+                .expect("routed")
+        }
+    };
+    assert!(routed(lab.ws, "slack", "C0AUTHDEV").await);
+    assert!(
+        !routed(lab.ws, "slack", "C0OTHER").await,
+        "another destination"
+    );
+    assert!(!routed(lab.ws, "matrix", "C0AUTHDEV").await, "another kind");
+    assert!(
+        !routed(Id::now_v7(), "slack", "C0AUTHDEV").await,
+        "another workspace"
+    );
+    let change = RouteChange {
+        project_id: lab.auth,
+        route_id: lab.route,
+        actor_id: lab.lena,
+        via: "web".to_string(),
+        at: OffsetDateTime::now_utc(),
+    };
+    lab.store.delete_route(&change).await.expect("delete");
+    assert!(
+        !routed(lab.ws, "slack", "C0AUTHDEV").await,
+        "no route sends to it once its route is deleted"
+    );
+}
