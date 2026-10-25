@@ -5640,10 +5640,12 @@ pub async fn given_filed(
         )
         .await;
         delivery_settled(world, &channel, &key).await;
-    } else if slack(world).leaves_posts_unanswered() {
+    } else if world.eip.slack.is_some() && slack(world).leaves_posts_unanswered() {
         // Slack is silent or holding: the message's 24-hour clock starts at
         // its first attempt, so a later "24 hours pass" must not move the
-        // clock before Foundry has asked Slack once.
+        // clock before Foundry has asked Slack once. A Matrix scenario has no
+        // Slack double: its Given that follows (a route status, a room's
+        // notices) says what the filing must have led to.
         slack_asked_to_post(
             world,
             "#auth-dev",
@@ -6038,6 +6040,16 @@ pub async fn when_choose_room(world: &mut FoundryWorld, who: &str, room: &str, p
     world.eip.when_answer = Some(answer);
 }
 
+/// Whether a notice's plain body is `key`'s new-comment notice at any content
+/// level: Link only reads "{key} · {project} · New comment" (D-3 with D-2's
+/// event name); Summary and Summary with comment text open with "{key} {title}"
+/// and carry K-8's "{actor} commented · {project}" line.
+fn is_comment_notice(body: &str, key: &str) -> bool {
+    let link_only = body.starts_with(&format!("{key} · ")) && body.contains(" · New comment");
+    let summary = body.starts_with(&format!("{key} ")) && body.contains(" commented · ");
+    link_only || summary
+}
+
 /// The comment notice's formatted and plain bodies carry (or not) the text.
 pub async fn then_comment_notice(
     world: &mut FoundryWorld,
@@ -6049,10 +6061,11 @@ pub async fn then_comment_notice(
     let start = Instant::now();
     while start.elapsed() < DELIVERY_BUDGET {
         let notices = matrix_notices(world, room).await;
-        if let Some(n) = notices.iter().rev().find(|n| {
-            let b = n["content"]["body"].as_str().unwrap_or_default();
-            b.contains(key) && b.contains("commented")
-        }) {
+        if let Some(n) = notices
+            .iter()
+            .rev()
+            .find(|n| is_comment_notice(n["content"]["body"].as_str().unwrap_or_default(), key))
+        {
             let body = n["content"]["body"].as_str().unwrap_or_default();
             let formatted = n["content"]["formatted_body"].as_str().unwrap_or_default();
             assert_eq!(
@@ -6334,5 +6347,43 @@ mod universe_oracle_tests {
             delta_violation(&before, &extra, &declared).is_some(),
             "an extra email is caught"
         );
+    }
+}
+
+#[cfg(test)]
+mod comment_notice_oracle_tests {
+    //! The comment notice is found at every content level (D-2, D-3, K-8),
+    //! and no other notice about the same issue is taken for it.
+    use super::is_comment_notice;
+
+    const OPEN: &str =
+        "\nOpen in Foundry: https://foundry.example/team/backend/project/auth/issues/7";
+
+    #[test]
+    fn link_only_summary_and_comment_text_notices_are_the_comment_notice() {
+        for body in [
+            format!("AUTH-7 · Identity Platform · New comment{OPEN}"),
+            format!(
+                "AUTH-7 Move Grafana sign-in to Keycloak\nSam Okafor commented · Identity Platform{OPEN}"
+            ),
+            format!(
+                "AUTH-7 Move Grafana sign-in to Keycloak\nSam Okafor commented · Identity Platform\nThe bind DN changed; staging is green.{OPEN}"
+            ),
+        ] {
+            assert!(is_comment_notice(&body, "AUTH-7"), "{body}");
+        }
+    }
+
+    #[test]
+    fn other_notices_and_other_issues_are_not() {
+        for body in [
+            format!("AUTH-7 · Identity Platform · New issue{OPEN}"),
+            format!("AUTH-7 Move Grafana sign-in to Keycloak\nNew issue in Identity Platform by Sam Okafor · In progress{OPEN}"),
+            format!("AUTH-12 · Identity Platform · New comment{OPEN}"),
+            format!("AUTH-12 Rotate LLDAP bind password\nSam Okafor commented · Identity Platform{OPEN}"),
+            format!("AUTH-71 · Identity Platform · New comment{OPEN}"),
+        ] {
+            assert!(!is_comment_notice(&body, "AUTH-7"), "{body}");
+        }
     }
 }

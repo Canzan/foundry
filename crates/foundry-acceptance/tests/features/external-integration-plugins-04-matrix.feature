@@ -161,7 +161,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then Lena's route to #auth:canzan.dev reads "Paused: connection lost"
     And Priya receives one email "Foundry lost its Matrix connection for Canzan Labs" within 5 minutes
 
-  @pending @us-eip-08 @kpi @contract-shape:bounded-change
+  @us-eip-08 @kpi @contract-shape:bounded-change
   Scenario: A new token resumes the Matrix routes and delivers what waited
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
@@ -250,7 +250,7 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     When Lena chooses #auth:canzan.dev as the destination of a new Matrix route on Identity Platform
     Then Lena reads "Everyone who can read #auth:canzan.dev will see what this route sends. Foundry cannot check who that is."
 
-  @pending @us-eip-09 @kpi @contract-shape:bounded-change
+  @us-eip-09 @kpi @contract-shape:bounded-change
   Scenario Outline: A Matrix notice reveals comment text only when chosen
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
