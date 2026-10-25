@@ -105,7 +105,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     Then Sam receives no email about AUTH-20
     And Sam's Project emails read "Canzan Labs is muted. These choices apply when you resubscribe."
 
-  @pending @us-eip-10 @error @contract-shape:unbounded-preservation
+  @us-eip-10 @error @contract-shape:unbounded-preservation
   Scenario: An instance that cannot send email says so
     Given the instance cannot send email
     When Sam opens Project emails in his settings

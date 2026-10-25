@@ -1853,3 +1853,110 @@ fn classify_matrix_recorded_answers() {
     }
     assert_eq!(classify_matrix(None), retry(None), "no answer at all");
 }
+
+// ---------------------------------------------------------------------------
+// plan_emails: a member is emailed exactly the project events they chose
+// (US-EIP-10 "exactly the project events I chose"): both the project AND the
+// event must match a choice of theirs.
+// ---------------------------------------------------------------------------
+
+/// The four events a member can choose (US-EIP-10), with their outbox types.
+const EMAIL_EVENTS: [(EventKind, &str); 4] = [
+    (EventKind::IssueCreated, "IssueCreated"),
+    (EventKind::IssueMoved, "IssueUpdated"),
+    (EventKind::CommentAdded, "CommentAdded"),
+    (EventKind::IssueDeleted, "IssueDeleted"),
+];
+
+const SAM: Uuid = Uuid::from_u128(0x5000);
+
+/// A row of `event_type` in project `project_index`, by someone other than Sam.
+fn project_row(index: usize, project_index: usize, event_type: &str) -> OutboxRow {
+    OutboxRow {
+        id: 100 + index as i64,
+        event_id: Uuid::from_u128(0x4000 + index as u128),
+        source_txid: index as u64,
+        event_type: event_type.to_string(),
+        payload: serde_json::json!({
+            "issue_id": Uuid::from_u128(0x3000 + index as u128),
+            "project_id": project(project_index),
+            "workspace_id": workspace_of(project_index),
+            "key": format!("P{project_index}-{index}"),
+            "from_state": "todo",
+            "state": "done",
+            "author_id": Uuid::from_u128(0x6000),
+        }),
+        created_at: at(0),
+    }
+}
+
+fn sams_choice(project_index: usize, event: EventKind) -> foundry_integrations::EmailChoice {
+    foundry_integrations::EmailChoice {
+        user_id: SAM,
+        workspace_id: workspace_of(project_index),
+        project_id: project(project_index),
+        event,
+        scope: foundry_integrations::EmailScope::All,
+    }
+}
+
+#[test]
+fn plan_emails_matches_both_the_project_and_the_event_of_a_choice() {
+    use foundry_integrations::plan_emails;
+    // Sam chose New comment in project 0.
+    let choices = [sams_choice(0, EventKind::CommentAdded)];
+    // An event Sam did not choose, in the project he chose it for.
+    assert_eq!(
+        plan_emails(&[project_row(0, 0, "IssueCreated")], &choices),
+        vec![],
+        "an event the member did not choose plans no email"
+    );
+    // The event Sam chose, in another project.
+    assert_eq!(
+        plan_emails(&[project_row(1, 1, "CommentAdded")], &choices),
+        vec![],
+        "a choice in another project plans no email"
+    );
+    // Control: the event he chose, in the project he chose it for.
+    let planned = plan_emails(&[project_row(2, 0, "CommentAdded")], &choices);
+    assert_eq!(planned.len(), 1, "the chosen event in the chosen project");
+    assert_eq!(planned[0].recipient_user_id, SAM);
+    assert_eq!(planned[0].project_id, project(0));
+    assert_eq!(planned[0].event_kind, EventKind::CommentAdded);
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// Every row and choice over three projects and the four email events:
+    /// one email per (row, choice) whose project and event both equal the
+    /// row's, and none other.
+    #[test]
+    fn plan_emails_plans_exactly_the_chosen_project_events(
+        rows in proptest::collection::vec((0usize..3, 0usize..EMAIL_EVENTS.len()), 0..8),
+        picks in proptest::collection::btree_set((0usize..3, 0usize..EMAIL_EVENTS.len()), 0..12),
+    ) {
+        use foundry_integrations::plan_emails;
+        let outbox: Vec<OutboxRow> = rows
+            .iter()
+            .enumerate()
+            .map(|(index, (p, e))| project_row(index, *p, EMAIL_EVENTS[*e].1))
+            .collect();
+        let choices: Vec<_> = picks
+            .iter()
+            .map(|(p, e)| sams_choice(*p, EMAIL_EVENTS[*e].0))
+            .collect();
+        let mut planned: Vec<(i64, Uuid, EventKind)> = plan_emails(&outbox, &choices)
+            .into_iter()
+            .map(|email| (email.outbox_id, email.project_id, email.event_kind))
+            .collect();
+        planned.sort_by_key(|(id, _, _)| *id);
+        let expected: Vec<(i64, Uuid, EventKind)> = rows
+            .iter()
+            .enumerate()
+            .filter(|(_, pick)| picks.contains(pick))
+            .map(|(index, (p, e))| (100 + index as i64, project(*p), EMAIL_EVENTS[*e].0))
+            .collect();
+        prop_assert_eq!(planned, expected);
+    }
+}

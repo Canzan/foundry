@@ -1248,6 +1248,22 @@ pub async fn rewire(world: &mut FoundryWorld) {
         .state
         .integrations
         .install(Integrations::new(settings));
+    // Project emails go through the notifier's email transport, which the
+    // composition root hands to `project_mail` once (ADR-EIP-007 decision 4).
+    // The in-process notifier always holds the recorder, so "no email
+    // provider" reaches the app through that same seam: no transport.
+    let project_transport = match world.eip.spec.email {
+        EmailSetup::None => None,
+        EmailSetup::Recorder | EmailSetup::SmtpRelay { .. } => {
+            harness.app.state.notifier.email_transport()
+        }
+    };
+    harness
+        .app
+        .state
+        .integrations
+        .project_mail()
+        .use_transport(project_transport);
     if let Some(replicas) = &world.eip.replicas {
         let public_url = replicas.base_url();
         replicas.install_integrations(|| scenario_settings(world, true, &public_url, "a replica"));
