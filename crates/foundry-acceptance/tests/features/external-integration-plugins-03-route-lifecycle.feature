@@ -89,7 +89,7 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
     And Slack was asked to remove no message from #auth-dev
     And the workspace's integration activity gains the line "21 Oct 2026 · Lena Park deleted the route to #auth-dev"
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario: Disconnecting Slack asks first and counts what stops
     Given Priya has routed every chat event on Homelab Ops to #ops-alerts
     And Lena has routed every chat event on Identity Platform to #auth-releases
@@ -97,7 +97,7 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
     Then Priya reads "Disconnect Slack? 3 routes in 2 projects stop posting. Foundry's access to Canzan Labs' Slack is removed."
     And Canzan Labs' Slack stays connected and every route reads "Delivering"
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: Confirming the disconnect pauses the routes and removes Foundry's access
     Given Priya has routed every chat event on Homelab Ops to #ops-alerts
     And Lena has routed every chat event on Identity Platform to #auth-releases
@@ -107,14 +107,14 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
     And Priya is offered Add to Slack on the workspace integrations page
     And Slack was asked once to remove Foundry's access to Canzan Labs
 
-  @pending @edge @contract-shape:unbounded-preservation
+  @edge @contract-shape:unbounded-preservation
   Scenario: What happens while Slack is disconnected is not sent after reconnecting
     Given Priya has disconnected Slack
     And Sam has filed "Freeze LDAP writes during the migration" in Identity Platform
     When Priya reconnects Slack and approves Foundry for the Slack workspace "Canzan Labs"
     Then nothing is posted to #auth-dev within 10 seconds
 
-  @pending @contract-shape:bounded-change
+  @contract-shape:bounded-change
   Scenario: A restored project's routes post again
     Given Identity Platform has been deleted by Lena
     And the instance operator has restored Identity Platform
@@ -131,7 +131,7 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
     When the instance operator restores Identity Platform
     Then nothing is posted to #auth-dev within 10 seconds
 
-  @pending @edge @contract-shape:bounded-change
+  @edge @contract-shape:bounded-change
   Scenario Outline: Every route and connection change is on record
     When <person> <change>
     Then the workspace's integration activity gains the line "<line>"
@@ -154,7 +154,7 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
       | paused  | pauses  | Paused     |
       | resumed | resumes | Delivering |
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: Only the right people change routes and connections
     When <person> <change>
     Then <person> gets the same not-found page any unknown address gets
@@ -170,7 +170,7 @@ Feature: A team lead pauses, edits or deletes a route, and an admin disconnects 
       | Lena   | chooses Disconnect Slack                 |
       | Lena   | confirms a disconnect of Slack           |
 
-  @pending @error @contract-shape:unbounded-preservation
+  @error @contract-shape:unbounded-preservation
   Scenario Outline: A change sent from outside the page is turned away
     When <person> <change> from outside the page
     Then the answer is turned away as a forged form

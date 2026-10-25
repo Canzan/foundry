@@ -9,6 +9,18 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ### Added
 
+- **Disconnect Slack**: a workspace admin's integrations page offers Disconnect Slack, which asks
+  first and counts what stops ("Disconnect Slack? 3 routes in 2 projects stop posting. Foundry's
+  access to Canzan Labs' Slack is removed."). Confirming it forgets the stored Slack credential,
+  drops what the routes were waiting to send, then asks Slack to withdraw Foundry's access; every
+  route reads "Paused: Slack was disconnected", Add to Slack is offered again, and the activity
+  list gains "21 Oct 2026 · Priya Raman disconnected Slack (Canzan Labs)". Unlike a lost
+  connection, nothing that happens while disconnected is sent after reconnecting. It works
+  without scripting; anyone but a workspace admin gets the usual not-found page, and a confirm
+  without the page's token is refused.
+- **Deleted and restored projects**: what a project's routes were waiting to send when the
+  project was deleted is never sent, even after an operator restores it; a restored project's
+  routes post what happens from then on.
 - **Pause, resume, edit and delete a route**: a project's integrations page offers Pause (or
   Resume), Edit and Delete on each route, for its team's leads and workspace admins. A paused
   route reads "Paused"; what it was still waiting to send is dropped, and what happens while it

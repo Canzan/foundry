@@ -35,6 +35,12 @@
 //! - `GET …/integrations/routes/{route_id}/delete`: the delete question; its
 //!   `POST` deletes the route and what it was waiting to send, never a
 //!   message already posted (Manage).
+//! - `GET /workspace/integrations/slack/disconnect`: the disconnect question,
+//!   counting the routes that stop (admins); its `POST` disconnects: the
+//!   connection's credential is forgotten and what its routes waited to send
+//!   is skipped, in one transaction, and only then is Slack asked to withdraw
+//!   Foundry's access (`apps.uninstall`), so a Slack failure never leaves the
+//!   credential stored. Works without scripting; CSRF-protected.
 //! - `POST /integrations/slack/events`: Slack's Events API (DDR-11,
 //!   ADR-EIP-005 decision 6), a machine post with no session, believed only
 //!   when Slack signed it (401 otherwise): it answers Slack's address check
@@ -67,7 +73,9 @@ use foundry_services::integrations::{
     RouteEditDraft, RouteHistory, RoutePreview, RouteTarget, SlackInstall, WorkspaceIntegrations,
 };
 use foundry_services::{Principal, Services};
-use foundry_store::integrations::{ConnectionWriteOutcome, DeliveryHistoryRow, ProjectRoute};
+use foundry_store::integrations::{
+    ConnectionWriteOutcome, DeliveryHistoryRow, DisconnectOutcome, DisconnectPreview, ProjectRoute,
+};
 use serde::Deserialize;
 use tower_sessions::Session;
 
@@ -75,6 +83,7 @@ pub const WORKSPACE_PATH: &str = "/workspace/integrations";
 pub const SETUP_PATH: &str = "/workspace/integrations/slack/setup";
 pub const INSTALL_PATH: &str = "/workspace/integrations/slack/install";
 pub const RETURN_PATH: &str = slack::RETURN_PATH;
+pub const DISCONNECT_PATH: &str = "/workspace/integrations/slack/disconnect";
 
 /// K-3.
 pub const NOT_CONNECTED: &str = "Slack was not connected. Nothing changed.";
@@ -156,6 +165,16 @@ struct RouteDeletePage {
     question: String,
     delete_path: String,
     routes_path: String,
+}
+
+#[derive(Template)]
+#[template(path = "integrations/slack_disconnect.html")]
+struct SlackDisconnectPage {
+    nav: crate::nav::NavContext,
+    csrf: String,
+    question: String,
+    disconnect_path: &'static str,
+    workspace_path: &'static str,
 }
 
 #[derive(Template)]
@@ -470,6 +489,91 @@ pub async fn finish_slack_install(
             workspace_page(&state, &caller, &headers, Some(NOT_CONNECTED)).await
         }
     }
+}
+
+pub async fn show_slack_disconnect(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return sign_in();
+    };
+    let preview = match caller
+        .services
+        .slack_disconnect_preview(&caller.principal())
+        .await
+    {
+        Ok(Some(preview)) => preview,
+        Ok(None) => return Redirect::to(WORKSPACE_PATH).into_response(),
+        Err(err) => return refusal(err),
+    };
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let page = SlackDisconnectPage {
+        nav: caller.nav(&state, csrf.clone()).await,
+        csrf,
+        question: disconnect_question(&preview),
+        disconnect_path: DISCONNECT_PATH,
+        workspace_path: WORKSPACE_PATH,
+    };
+    render(page.render(), set_cookie)
+}
+
+/// The disconnect: Foundry forgets the credential first, then asks Slack to
+/// withdraw the access it granted, so a Slack failure only goes to the log.
+pub async fn disconnect_slack(State(state): State<AppState>, session: Session) -> Response {
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return sign_in();
+    };
+    match caller
+        .services
+        .disconnect_slack(&caller.principal(), state.clock.now())
+        .await
+    {
+        Ok(DisconnectOutcome::Disconnected {
+            connection_id,
+            sealed_credential,
+            ..
+        }) => {
+            let withdrawn = state
+                .integrations
+                .current()
+                .withdraw_slack_access(connection_id, sealed_credential)
+                .await;
+            if !withdrawn {
+                tracing::warn!(
+                    reason = "apps_uninstall",
+                    "slack disconnect: Slack did not withdraw Foundry's access; the credential is forgotten"
+                );
+            }
+            Redirect::to(WORKSPACE_PATH).into_response()
+        }
+        Ok(DisconnectOutcome::Unchanged) => Redirect::to(WORKSPACE_PATH).into_response(),
+        Err(err) => refusal(err),
+    }
+}
+
+/// US-EIP-07's disconnect question: "Disconnect Slack? 3 routes in 2
+/// projects stop posting. Foundry's access to Canzan Labs' Slack is removed."
+fn disconnect_question(preview: &DisconnectPreview) -> String {
+    let count = |n: i64, noun: &str| {
+        if n == 1 {
+            format!("1 {noun}")
+        } else {
+            format!("{n} {noun}s")
+        }
+    };
+    let verb = if preview.routes == 1 { "stops" } else { "stop" };
+    let owner = if preview.label.ends_with('s') {
+        format!("{}'", preview.label)
+    } else {
+        format!("{}'s", preview.label)
+    };
+    format!(
+        "Disconnect Slack? {} in {} {verb} posting. Foundry's access to {owner} Slack is removed.",
+        count(preview.routes, "route"),
+        count(preview.projects, "project"),
+    )
 }
 
 pub async fn show_project(

@@ -1,0 +1,13 @@
+{% extends "app_shell.html" %}
+{% block title %}Disconnect Slack{% endblock %}
+{% block app_content %}
+<h1>Disconnect Slack</h1>
+<p data-slack-disconnect-question>{{ question }}</p>
+<form method="post" action="{{ disconnect_path }}">
+  <input type="hidden" name="_csrf" value="{{ csrf }}">
+  <p>
+    <button type="submit" class="danger">Disconnect Slack</button>
+    <a href="{{ workspace_path }}">Cancel</a>
+  </p>
+</form>
+{% endblock %}

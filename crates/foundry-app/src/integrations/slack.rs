@@ -184,6 +184,22 @@ impl SlackApp {
             .ok_or(SlackError::Unreadable)
     }
 
+    /// `apps.uninstall`: Slack withdraws the Foundry app's access to the
+    /// Slack workspace `token` belongs to (US-EIP-07, disconnect).
+    pub async fn uninstall(&self, token: &SecretString) -> Result<(), SlackError> {
+        self.call(
+            self.http
+                .post(self.method("apps.uninstall"))
+                .bearer_auth(token.expose_secret())
+                .form(&[
+                    ("client_id", self.client_id.as_str()),
+                    ("client_secret", self.client_secret.expose_secret()),
+                ]),
+        )
+        .await
+        .map(|_| ())
+    }
+
     /// What a post to the events address says, believed only when Slack
     /// signed `body` with this app's signing secret at `timestamp`, no more
     /// than five minutes from `now`.

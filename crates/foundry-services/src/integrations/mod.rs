@@ -22,6 +22,13 @@
 //!   asks the vendor about its destination again ([`DestinationCatalogs`]);
 //!   while the problem lasts the route stays stopped (D-8).
 //!
+//! - [`slack_disconnect_preview`]: what disconnecting Slack stops (admins).
+//! - [`disconnect_slack`]: the workspace's Slack connection disconnected, its
+//!   credential forgotten and its routes' waiting deliveries skipped (the
+//!   pure `cancel_set` per route), with its audit record (admins; R-9: a
+//!   deliberate disconnect queues nothing). The credential it held comes
+//!   back still sealed, for the adapter to withdraw at Slack.
+//!
 //! Every refusal is [`IntegrationError::NotFound`], which each door answers
 //! with its uniform 404. The use-cases read and write through
 //! [`IntegrationRecords`], implemented over the store in `store_impls.rs`
@@ -36,9 +43,10 @@ use foundry_integrations::{
     cancel_set, DestinationCatalog, DestinationRef, ReasonCode, TargetedDelivery,
 };
 use foundry_store::integrations::{
-    AuditRow, CancelCandidate, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow,
-    DeliveryIssue, NewConnection, NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome,
-    RouteEdit, RouteLane, RouteSettings, RouteWriteOutcome, SealedConnection,
+    AuditRow, CancelCandidate, ConnectionChange, ConnectionRow, ConnectionWriteOutcome,
+    DeliveryHistoryRow, DeliveryIssue, DisconnectOutcome, DisconnectPreview, NewConnection,
+    NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome, RouteEdit, RouteLane, RouteSettings,
+    RouteWriteOutcome, SealedConnection,
 };
 use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
@@ -122,6 +130,16 @@ pub(crate) trait IntegrationRecords: Sync {
         edit: &RouteEdit,
     ) -> Result<RouteChangeOutcome, StoreError>;
     async fn delete_route(&self, change: &RouteChange) -> Result<RouteChangeOutcome, StoreError>;
+    async fn disconnect_preview(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+    ) -> Result<Option<DisconnectPreview>, StoreError>;
+    async fn disconnect_connection(
+        &self,
+        change: &ConnectionChange,
+        plan: impl FnOnce(&[CancelCandidate]) -> Vec<i64> + Send,
+    ) -> Result<DisconnectOutcome, StoreError>;
 }
 
 /// The events a chat route may choose (D-2).
@@ -589,6 +607,47 @@ pub(crate) async fn change_route(
         RouteChangeOutcome::ProjectDeleted => Err(IntegrationError::NotFound),
         outcome => Ok(outcome),
     }
+}
+
+/// Admins only: what disconnecting the workspace's Slack connection stops;
+/// `None` when there is nothing to disconnect.
+pub(crate) async fn slack_disconnect_preview(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+) -> Result<Option<DisconnectPreview>, IntegrationError> {
+    require_admin(records, principal).await?;
+    Ok(records
+        .disconnect_preview(principal.workspace_id(), SLACK)
+        .await?)
+}
+
+/// Admins only: disconnect the workspace's Slack connection at `now`,
+/// skipping exactly what [`cancel_set`] names for each of its routes.
+pub(crate) async fn disconnect_slack(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    now: OffsetDateTime,
+) -> Result<DisconnectOutcome, IntegrationError> {
+    require_admin(records, principal).await?;
+    let change = ConnectionChange {
+        workspace_id: principal.workspace_id(),
+        kind: SLACK.to_string(),
+        actor_id: principal.user_id(),
+        via: "web".to_string(),
+        at: now,
+    };
+    Ok(records
+        .disconnect_connection(&change, |candidates| {
+            let deliveries = targeted(candidates);
+            let mut routes: Vec<Uuid> = candidates.iter().map(|c| c.route_id).collect();
+            routes.sort_unstable();
+            routes.dedup();
+            routes
+                .into_iter()
+                .flat_map(|route| cancel_set(route, now, &deliveries))
+                .collect()
+        })
+        .await?)
 }
 
 /// Whether the route `route_id` may resume: it has no channel problem, or

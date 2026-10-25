@@ -415,6 +415,29 @@ impl Services {
             .await
     }
 
+    /// external-integration-plugins — what disconnecting Slack stops (admins).
+    pub async fn slack_disconnect_preview(
+        &self,
+        principal: &Principal,
+    ) -> Result<
+        Option<foundry_store::integrations::DisconnectPreview>,
+        integrations::IntegrationError,
+    > {
+        integrations::slack_disconnect_preview(&*self.store, principal).await
+    }
+
+    /// external-integration-plugins — disconnect the workspace's Slack
+    /// connection (admins): its credential forgotten, what its routes waited
+    /// to send skipped, audited.
+    pub async fn disconnect_slack(
+        &self,
+        principal: &Principal,
+        now: time::OffsetDateTime,
+    ) -> Result<foundry_store::integrations::DisconnectOutcome, integrations::IntegrationError>
+    {
+        integrations::disconnect_slack(&*self.store, principal, now).await
+    }
+
     /// external-integration-plugins — a project's integrations page.
     pub async fn project_integrations(
         &self,

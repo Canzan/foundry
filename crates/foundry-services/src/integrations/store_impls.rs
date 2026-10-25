@@ -3,9 +3,10 @@
 
 use super::IntegrationRecords;
 use foundry_store::integrations::{
-    AuditRow, CancelCandidate, ConnectionRow, ConnectionWriteOutcome, DeliveryHistoryRow,
-    DeliveryIssue, NewConnection, NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome,
-    RouteEdit, RouteSettings, RouteWriteOutcome, SealedConnection,
+    AuditRow, CancelCandidate, ConnectionChange, ConnectionRow, ConnectionWriteOutcome,
+    DeliveryHistoryRow, DeliveryIssue, DisconnectOutcome, DisconnectPreview, NewConnection,
+    NewRoute, ProjectRoute, RouteChange, RouteChangeOutcome, RouteEdit, RouteSettings,
+    RouteWriteOutcome, SealedConnection,
 };
 use foundry_store::lanes::LaneRow;
 use foundry_store::teams::TeamAccessFacts;
@@ -124,5 +125,21 @@ impl IntegrationRecords for Store {
 
     async fn delete_route(&self, change: &RouteChange) -> Result<RouteChangeOutcome, StoreError> {
         Store::delete_route(self, change).await
+    }
+
+    async fn disconnect_preview(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+    ) -> Result<Option<DisconnectPreview>, StoreError> {
+        Store::disconnect_preview(self, workspace_id, kind).await
+    }
+
+    async fn disconnect_connection(
+        &self,
+        change: &ConnectionChange,
+        plan: impl FnOnce(&[CancelCandidate]) -> Vec<i64> + Send,
+    ) -> Result<DisconnectOutcome, StoreError> {
+        Store::disconnect_connection(self, change, plan).await
     }
 }

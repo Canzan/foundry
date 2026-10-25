@@ -834,6 +834,11 @@ pub fn build_router(state: AppState) -> Router {
             integrations::handlers::RETURN_PATH,
             get(integrations::handlers::finish_slack_install),
         )
+        .route(
+            integrations::handlers::DISCONNECT_PATH,
+            get(integrations::handlers::show_slack_disconnect)
+                .post(integrations::handlers::disconnect_slack),
+        )
         // DDR-11: Slack's Events API, signed by Slack (CSRF-exempt: no
         // browser, no cookie; the signature is its forgery defence).
         .route(

@@ -195,6 +195,21 @@ impl Integrations {
             .ok()
     }
 
+    /// Ask Slack to withdraw the access the connection's (already forgotten)
+    /// credential grants. `false` when Slack is not set up here, the
+    /// credential does not open, or Slack did not agree.
+    pub(crate) async fn withdraw_slack_access(
+        &self,
+        connection_id: uuid::Uuid,
+        sealed: Vec<u8>,
+    ) -> bool {
+        let (Some(app), Some(token)) = (self.slack(), self.open_credential(connection_id, sealed))
+        else {
+            return false;
+        };
+        app.uninstall(&token).await.is_ok()
+    }
+
     /// The Slack bot of a connection, when Slack is set up and this Foundry
     /// can open the connection's credential.
     pub(crate) fn slack_bot(&self, connection_id: uuid::Uuid, sealed: Vec<u8>) -> Option<SlackBot> {

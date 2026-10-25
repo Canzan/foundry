@@ -31,7 +31,11 @@
 //!   the same transaction; a pause skips exactly the ids its cancel plan
 //!   names, each still pending and holding no live lease (DD-8);
 //! - [`Store::upsert_connection`]: a connection and its audit record, one
-//!   transaction (ADR-EIP-005 decision 4).
+//!   transaction (ADR-EIP-005 decision 4); after a disconnect its routes
+//!   receive from the reconnect on (R-9);
+//! - [`Store::disconnect_connection`]: a disconnect skips exactly the ids its
+//!   cancel plan names across the connection's routes, forgets the credential
+//!   and writes its audit record, one transaction (US-EIP-07).
 //!
 //! All project reads go through `live_projects`; `outbox.notified_at` is never
 //! touched.
@@ -442,6 +446,78 @@ pub enum RouteChangeOutcome {
     /// The project is deleted (or being deleted); nothing was written.
     ProjectDeleted,
 }
+
+/// Who changes a workspace's connection of `kind`, and when (the injected
+/// clock's time: the audit record's date, and the "now" a lease is judged
+/// against).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionChange {
+    pub workspace_id: Uuid,
+    pub kind: String,
+    pub actor_id: Uuid,
+    pub via: String,
+    pub at: OffsetDateTime,
+}
+
+/// What a disconnect stops (US-EIP-07): the connection's label and its
+/// routes that post now (not paused, in a live project), and their projects.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DisconnectPreview {
+    pub label: String,
+    pub routes: i64,
+    pub projects: i64,
+}
+
+/// What a disconnect did.
+#[derive(Clone, PartialEq, Eq)]
+pub enum DisconnectOutcome {
+    /// The connection is disconnected and holds no credential; the credential
+    /// it held, still sealed for the row `connection_id`, is handed back once
+    /// so the vendor can be asked to withdraw it.
+    Disconnected {
+        connection_id: Uuid,
+        sealed_credential: Vec<u8>,
+        cancelled: u64,
+    },
+    /// No connection of the kind, or it already was disconnected.
+    Unchanged,
+}
+
+impl std::fmt::Debug for DisconnectOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Disconnected {
+                connection_id,
+                cancelled,
+                ..
+            } => f
+                .debug_struct("Disconnected")
+                .field("connection_id", connection_id)
+                .field("cancelled", cancelled)
+                .finish_non_exhaustive(),
+            Self::Unchanged => f.write_str("Unchanged"),
+        }
+    }
+}
+
+/// A disconnect's compare-and-set on the plan's ids: still a pending
+/// delivery of one of the connection's routes, holding no live lease at `$3`.
+const DISCONNECT_CANCEL_SQL: &str = "
+    UPDATE integration_deliveries d
+       SET status = 'skipped', final_reason = 'route_paused', finished_at = $3,
+           next_attempt_at = NULL, lease_until = NULL
+      FROM integration_routes r
+     WHERE d.id = ANY($1) AND r.id = d.route_id AND r.connection_id = $2
+       AND d.status = 'pending' AND (d.lease_until IS NULL OR d.lease_until <= $3)";
+
+/// The routes a disconnect stops: not paused, in a live project.
+const DISCONNECT_PREVIEW_SQL: &str = "
+    SELECT c.label, count(r.id), count(DISTINCT r.project_id)
+      FROM integration_connections c
+      LEFT JOIN integration_routes r ON r.connection_id = c.id AND r.paused_at IS NULL
+            AND EXISTS (SELECT 1 FROM live_projects p WHERE p.id = r.project_id)
+     WHERE c.workspace_id = $1 AND c.kind = $2 AND c.state <> 'disconnected'
+     GROUP BY c.id, c.label";
 
 /// A pause's compare-and-set on the plan's ids: still the route's, pending,
 /// and holding no live lease at `$3`.
@@ -1720,8 +1796,8 @@ pub struct DeliveryContext {
     pub give_up_at: OffsetDateTime,
     pub route_kind: String,
     pub content_level: String,
-    /// The route is paused, or the event happened before the route was last
-    /// resumed (DDR-27): either way it is not sent.
+    /// The route is paused, its connection disconnected, or the event
+    /// happened before the route was last resumed (DDR-27): it is not sent.
     pub route_paused: bool,
     pub connection_id: Option<Uuid>,
     pub connection_state: Option<String>,
@@ -1769,13 +1845,16 @@ pub struct DeliveryIssue {
 }
 
 /// The delivery, its route, the project and issue now, and the event as its
-/// first outbox row recorded it (lanes by slug; [`LANE_LABELS_SQL`] reads
+/// first outbox row recorded it. A project deleted after the event reads as
+/// gone even once restored (D-8: what waited at the delete is never sent); a
+/// disconnected connection reads as a paused route (R-9) (lanes by slug; [`LANE_LABELS_SQL`] reads
 /// their labels now). A move row written before `from_state` was
 /// added (a rolling deploy) finds its from-lane in the status change the same
 /// transaction wrote (ADR-EIP-003 decision 4).
 const DELIVERY_CONTEXT_SQL: &str = "
     SELECT d.event_kind, d.give_up_at, r.kind, r.content_level,
-           r.paused_at IS NOT NULL OR COALESCE(o.created_at < r.receives_from, FALSE),
+           r.paused_at IS NOT NULL OR c.state IS NOT DISTINCT FROM 'disconnected'
+               OR COALESCE(o.created_at < r.receives_from, FALSE),
            r.connection_id, c.state, r.destination_ref,
            p.name, p.key_prefix, p.slug, t.slug,
            i.number, i.title, i.state, u.display_name,
@@ -1784,11 +1863,14 @@ const DELIVERY_CONTEXT_SQL: &str = "
       FROM integration_deliveries d
       JOIN integration_routes r ON r.id = d.route_id
       LEFT JOIN integration_connections c ON c.id = r.connection_id
+      LEFT JOIN outbox o ON o.id = d.outbox_ids[1]
       LEFT JOIN live_projects p ON p.id = d.project_id
+            AND NOT EXISTS (SELECT 1 FROM project_lifecycle_events e
+                             WHERE e.project_id = d.project_id AND e.kind = 'deleted'
+                               AND e.created_at >= o.created_at)
       LEFT JOIN teams t ON t.id = p.team_id
       LEFT JOIN issues i ON i.id = d.issue_id AND i.project_id = d.project_id
       LEFT JOIN users u ON u.id = i.author_id
-      LEFT JOIN outbox o ON o.id = d.outbox_ids[1]
       LEFT JOIN LATERAL (
           SELECT COALESCE(o.payload->>'from_state', (
                      SELECT e.old_value FROM issue_change_events e
@@ -1873,17 +1955,21 @@ impl Store {
         connection: &NewConnection,
     ) -> Result<ConnectionWriteOutcome, StoreError> {
         let mut tx = self.pool.begin().await?;
-        let existing: Option<(Uuid, String, String)> = sqlx::query_as(
-            "SELECT id, external_id, label FROM integration_connections
+        let existing: Option<(Uuid, String, String, String)> = sqlx::query_as(
+            "SELECT id, external_id, label, state FROM integration_connections
               WHERE workspace_id = $1 AND kind = $2 FOR UPDATE",
         )
         .bind(connection.workspace_id)
         .bind(&connection.kind)
         .fetch_optional(&mut *tx)
         .await?;
+        let was_disconnected =
+            matches!(&existing, Some((_, _, _, state)) if state == "disconnected");
         let refused = match &existing {
-            Some((id, _, _)) if *id != connection.id => Some(ConnectionWriteOutcome::StaleRow),
-            Some((_, external_id, label)) if *external_id != connection.external_id => {
+            Some((id, ..)) if *id != connection.id => Some(ConnectionWriteOutcome::StaleRow),
+            Some((_, external_id, label, _))
+                if *external_id != connection.external_id && !was_disconnected =>
+            {
                 Some(ConnectionWriteOutcome::OtherWorkspace {
                     connected_label: label.clone(),
                 })
@@ -1944,8 +2030,115 @@ impl Store {
         .bind(connection.connected_at)
         .execute(&mut *tx)
         .await?;
+        if was_disconnected {
+            routes_receive_from_now(&mut tx, connection.id).await?;
+        }
         tx.commit().await?;
         Ok(outcome)
+    }
+
+    /// What disconnecting the workspace's connection of `kind` stops; `None`
+    /// when it has none, or it already is disconnected. Reads only.
+    pub async fn disconnect_preview(
+        &self,
+        workspace_id: Uuid,
+        kind: &str,
+    ) -> Result<Option<DisconnectPreview>, StoreError> {
+        let row: Option<(String, i64, i64)> = sqlx::query_as(DISCONNECT_PREVIEW_SQL)
+            .bind(workspace_id)
+            .bind(kind)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|(label, routes, projects)| DisconnectPreview {
+            label,
+            routes,
+            projects,
+        }))
+    }
+
+    /// Disconnect the workspace's connection of `change.kind` (US-EIP-07,
+    /// R-9), one transaction: the connection `FOR UPDATE`; the pending
+    /// deliveries of its routes, of which exactly the ids `plan` names that
+    /// still are pending and hold no live lease at `change.at` are skipped;
+    /// the connection `disconnected`, its credential forgotten; its
+    /// `connection_disconnected` record. Its routes read "Paused: … was
+    /// disconnected" and nothing is dispatched to them until a reconnect,
+    /// which receives from then on. No connection, or one already
+    /// disconnected, changes nothing.
+    pub async fn disconnect_connection<P>(
+        &self,
+        change: &ConnectionChange,
+        plan: P,
+    ) -> Result<DisconnectOutcome, StoreError>
+    where
+        P: FnOnce(&[CancelCandidate]) -> Vec<i64>,
+    {
+        let mut tx = self.pool.begin().await?;
+        let held: Option<(Uuid, Option<Vec<u8>>)> = sqlx::query_as(
+            "SELECT id, sealed_credential FROM integration_connections
+              WHERE workspace_id = $1 AND kind = $2 AND state <> 'disconnected' FOR UPDATE",
+        )
+        .bind(change.workspace_id)
+        .bind(&change.kind)
+        .fetch_optional(&mut *tx)
+        .await?;
+        let Some((connection_id, Some(sealed_credential))) = held else {
+            tx.rollback().await?;
+            return Ok(DisconnectOutcome::Unchanged);
+        };
+        let rows: Vec<(i64, Uuid, Option<OffsetDateTime>)> = sqlx::query_as(
+            "SELECT d.id, d.route_id, d.lease_until
+               FROM integration_deliveries d JOIN integration_routes r ON r.id = d.route_id
+              WHERE r.connection_id = $1 AND d.status = 'pending' ORDER BY d.id",
+        )
+        .bind(connection_id)
+        .fetch_all(&mut *tx)
+        .await?;
+        let candidates: Vec<CancelCandidate> = rows
+            .into_iter()
+            .map(|(id, route_id, lease_until)| CancelCandidate {
+                id,
+                route_id,
+                finished: false,
+                lease_until,
+            })
+            .collect();
+        let ids = plan(&candidates);
+        let cancelled = sqlx::query(DISCONNECT_CANCEL_SQL)
+            .bind(&ids)
+            .bind(connection_id)
+            .bind(change.at)
+            .execute(&mut *tx)
+            .await?
+            .rows_affected();
+        sqlx::query(
+            "UPDATE integration_connections
+                SET state = 'disconnected', sealed_credential = NULL, credential_saved_at = NULL,
+                    lost_reason = NULL, lost_at = NULL
+              WHERE id = $1",
+        )
+        .bind(connection_id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "INSERT INTO integration_audit_events
+                    (id, workspace_id, project_id, actor_id, via, action, kind, subject, created_at)
+             SELECT $1, c.workspace_id, NULL, $2, $3, 'connection_disconnected', c.kind, c.label, $4
+               FROM integration_connections c WHERE c.id = $5",
+        )
+        .bind(Uuid::now_v7())
+        .bind(change.actor_id)
+        .bind(&change.via)
+        .bind(change.at)
+        .bind(connection_id)
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(DisconnectOutcome::Disconnected {
+            connection_id,
+            sealed_credential,
+            cancelled,
+        })
     }
 
     /// The workspace's connections, oldest kind first. Never the credential.
@@ -2233,6 +2426,37 @@ impl Store {
             event,
         }))
     }
+}
+
+/// A connection reconnected after a disconnect: each of its routes in a live
+/// project receives the events from this transaction's `now()` on, so
+/// nothing that happened while it was disconnected is sent (R-9). A deleted
+/// project's routes are left as they are (`lock_live_project`, one project
+/// at a time).
+async fn routes_receive_from_now(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    connection_id: Uuid,
+) -> Result<(), StoreError> {
+    let projects: Vec<Uuid> = sqlx::query_scalar(
+        "SELECT DISTINCT project_id FROM integration_routes
+          WHERE connection_id = $1 ORDER BY project_id",
+    )
+    .bind(connection_id)
+    .fetch_all(&mut **tx)
+    .await?;
+    for project_id in projects {
+        if lock_live_project(tx, project_id).await? {
+            sqlx::query(
+                "UPDATE integration_routes SET receives_from = now(), updated_at = now()
+                  WHERE connection_id = $1 AND project_id = $2",
+            )
+            .bind(connection_id)
+            .bind(project_id)
+            .execute(&mut **tx)
+            .await?;
+        }
+    }
+    Ok(())
 }
 
 /// A route change's audit record, in the change's transaction.

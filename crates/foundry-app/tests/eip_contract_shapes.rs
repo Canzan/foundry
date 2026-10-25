@@ -832,6 +832,23 @@ mod routes {
                 }),
             )
             .route(
+                "/apps.uninstall",
+                post(
+                    |State(calls): State<Calls>, headers: axum::http::HeaderMap| async move {
+                        let bearer = headers
+                            .get(header::AUTHORIZATION)
+                            .and_then(|v| v.to_str().ok())
+                            .unwrap_or_default()
+                            .to_string();
+                        calls
+                            .lock()
+                            .unwrap()
+                            .push(("apps.uninstall".into(), Value::String(bearer)));
+                        axum::Json(json!({ "ok": true }))
+                    },
+                ),
+            )
+            .route(
                 "/chat.postMessage",
                 post(|State(calls): State<Calls>, body: String| async move {
                     let body: Value = serde_json::from_str(&body).unwrap_or_default();
@@ -1209,6 +1226,182 @@ mod routes {
         assert_eq!(resume().await, StatusCode::SEE_OTHER);
         assert_eq!(asked(), 2, "a paused route resumes without asking Slack");
         assert_eq!(lab.posts().len(), 0, "resuming sends nothing itself");
+    }
+
+    // US-EIP-07 (03-05): Disconnect Slack is an admin's door (a lead gets the
+    // uniform 404 and nothing changes); its GET counts what stops and writes
+    // nothing; a POST without the page's token is turned away; the confirm
+    // forgets the credential, skips what the routes waited to send, records
+    // it, and only then asks Slack once, with that credential, to withdraw
+    // Foundry's access. A second confirm changes nothing and asks no more.
+    #[tokio::test]
+    async fn disconnect_asks_first_then_forgets_the_credential_and_revokes_once() {
+        let lab = Lab::start().await;
+        let (status, _) = lab.submit("routes", AUTH_DEV).await;
+        assert_eq!(status, StatusCode::SEE_OTHER, "Lena saves the route");
+        let route: Uuid = sqlx::query_scalar("SELECT id FROM integration_routes")
+            .fetch_one(lab.store.pool())
+            .await
+            .expect("the route");
+        sqlx::query(
+            "INSERT INTO integration_deliveries
+                    (workspace_id, project_id, route_id, event_kind, event_id, outbox_ids,
+                     occurred_at, give_up_at)
+             SELECT workspace_id, project_id, id, 'issue.created', gen_random_uuid(), '{1}',
+                    now(), now() + interval '1 day'
+               FROM integration_routes WHERE id = $1",
+        )
+        .bind(route)
+        .execute(lab.store.pool())
+        .await
+        .expect("a waiting delivery");
+        const DOOR: &str = "/workspace/integrations/slack/disconnect";
+        let open = || async {
+            let response = lab
+                .router
+                .clone()
+                .oneshot(
+                    Request::builder()
+                        .uri(DOOR)
+                        .header(header::COOKIE, &lab.cookie)
+                        .body(Body::empty())
+                        .expect("request"),
+                )
+                .await
+                .expect("dialog");
+            let status = response.status();
+            let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+                .await
+                .expect("body");
+            (status, String::from_utf8_lossy(&body).into_owned())
+        };
+        let confirm = |token: bool| {
+            let request = if token {
+                form(DOOR, &lab.cookie, &[])
+            } else {
+                Request::builder()
+                    .method("POST")
+                    .uri(DOOR)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .header(header::COOKIE, &lab.cookie)
+                    .body(Body::empty())
+                    .expect("request")
+            };
+            let router = lab.router.clone();
+            async move { router.oneshot(request).await.expect("confirm") }
+        };
+        let uninstalls = || {
+            lab.calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|(method, _)| method == "apps.uninstall")
+                .map(|(_, bearer)| bearer.clone())
+                .collect::<Vec<_>>()
+        };
+        let before = lab.universe().await;
+
+        assert_eq!(
+            open().await.0,
+            StatusCode::NOT_FOUND,
+            "a lead is not an admin"
+        );
+        assert_eq!(confirm(true).await.status(), StatusCode::NOT_FOUND);
+        assert_eq!(lab.universe().await, before, "nothing changed");
+
+        exec(
+            &lab.store,
+            "UPDATE workspace_memberships SET role = 'admin'",
+            &[],
+        )
+        .await;
+        let (status, page) = open().await;
+        assert_eq!(status, StatusCode::OK, "the admin is asked first");
+        let question = "Disconnect Slack? 1 route in 1 project stops posting. \
+                        Foundry&#x27;s access to Canzan Labs&#x27; Slack is removed.";
+        assert!(page.contains(question), "{page}");
+        assert!(page.contains(&format!("action=\"{DOOR}\"")), "{page}");
+        let forged = confirm(false).await;
+        assert_eq!(
+            forged.status(),
+            StatusCode::FORBIDDEN,
+            "no token, no change"
+        );
+        assert_eq!(
+            lab.universe().await,
+            before,
+            "asking and forging write nothing"
+        );
+        assert!(uninstalls().is_empty(), "Slack is asked nothing yet");
+
+        let done = confirm(true).await;
+        assert_eq!(done.status(), StatusCode::SEE_OTHER);
+        assert_eq!(
+            done.headers()[header::LOCATION],
+            "/workspace/integrations",
+            "back to the workspace page"
+        );
+        assert_eq!(
+            uninstalls(),
+            vec![Value::String(format!("Bearer {TOKEN}"))],
+            "Slack is asked once, with the forgotten credential"
+        );
+        let (state, sealed): (String, Option<Vec<u8>>) =
+            sqlx::query_as("SELECT state, sealed_credential FROM integration_connections")
+                .fetch_one(lab.store.pool())
+                .await
+                .expect("the connection");
+        assert_eq!((state.as_str(), sealed), ("disconnected", None));
+        let delivery: String = sqlx::query_scalar("SELECT status FROM integration_deliveries")
+            .fetch_one(lab.store.pool())
+            .await
+            .expect("the delivery");
+        assert_eq!(delivery, "skipped", "what waited is never sent");
+        let audit: Vec<String> = sqlx::query_scalar(
+            "SELECT action FROM integration_audit_events
+              WHERE action LIKE 'connection_%' ORDER BY created_at, id",
+        )
+        .fetch_all(lab.store.pool())
+        .await
+        .expect("audit");
+        assert_eq!(
+            audit,
+            vec!["connection_connected", "connection_disconnected"]
+        );
+        let workspace = lab
+            .router
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/workspace/integrations")
+                    .header(header::COOKIE, &lab.cookie)
+                    .body(Body::empty())
+                    .expect("request"),
+            )
+            .await
+            .expect("page");
+        let workspace = axum::body::to_bytes(workspace.into_body(), usize::MAX)
+            .await
+            .expect("body");
+        let workspace = String::from_utf8_lossy(&workspace);
+        assert!(
+            workspace.contains("Add to Slack") && !workspace.contains(DOOR),
+            "Add to Slack is offered again, Disconnect no more: {workspace}"
+        );
+
+        let after = lab.universe().await;
+        let again = confirm(true).await;
+        assert_eq!(again.status(), StatusCode::SEE_OTHER);
+        assert_eq!(uninstalls().len(), 1, "Slack is not asked again");
+        assert_eq!(
+            lab.universe().await,
+            after,
+            "a second confirm changes nothing"
+        );
+        assert!(
+            open().await.0.is_redirection(),
+            "nothing left to disconnect: back to the workspace page"
+        );
     }
 
     fn form(uri: &str, cookie: &str, fields: &[(&str, &str)]) -> Request<Body> {

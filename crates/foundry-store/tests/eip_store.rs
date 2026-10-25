@@ -13,9 +13,10 @@
 //! never makes one); the pure planners arrive in the core crate (01-04).
 
 use foundry_store::integrations::{
-    CancelCandidate, ClaimOutcome, ClaimView, ConnectionWriteOutcome, DeliveryResult,
-    DeliveryTarget, DispatchBatch, DispatchOutcome, NewConnection, NewDelivery, NewRoute, Pruned,
-    Pruning, RecordOutcome, RouteChange, RouteChangeOutcome, RouteLane, RouteWriteOutcome,
+    CancelCandidate, ClaimOutcome, ClaimView, ConnectionChange, ConnectionWriteOutcome,
+    DeliveryResult, DeliveryTarget, DisconnectOutcome, DisconnectPreview, DispatchBatch,
+    DispatchOutcome, NewConnection, NewDelivery, NewRoute, Pruned, Pruning, RecordOutcome,
+    RouteChange, RouteChangeOutcome, RouteLane, RouteWriteOutcome,
 };
 use foundry_store::{
     run_boot_migrations_from_dir, run_migrations, run_migrations_from_dir, Store, StoreError,
@@ -2429,4 +2430,277 @@ async fn reconnect_keeps_its_slack_team() {
         "the connection is restored with its new credential"
     );
     assert_eq!(audit().await, vec!["connection_reconnected"]);
+}
+
+// US-EIP-07 (03-05), R-9: a disconnect counts the routes that post now; then,
+// in one transaction, it skips exactly the plan's unleased waiting deliveries
+// of the connection's routes, forgets the credential (handing it back, still
+// sealed, once) and records it. What it left reads as paused. A reconnect,
+// even to another Slack team, receives from then on: nothing from before.
+#[tokio::test]
+async fn disconnect_forgets_the_credential_and_queues_nothing() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let ids = [
+        lab.one_delivery().await,
+        lab.one_delivery().await,
+        lab.one_delivery().await,
+    ];
+    let now = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+    let ClaimOutcome::Claimed(claim) = lab
+        .store
+        .claim_delivery(lab.route, now, LEASE, head_if_free(now))
+        .await
+        .expect("claim the head")
+    else {
+        panic!("the head is claimable");
+    };
+    let paused_route = match lab.store.create_route(&lab.route_spec("C0AUTHREL")).await {
+        Ok(RouteWriteOutcome::Created(id)) => id,
+        other => panic!("a second route: {other:?}"),
+    };
+    let pause = RouteChange {
+        project_id: lab.auth,
+        route_id: paused_route,
+        actor_id: lab.lena,
+        via: "web".to_string(),
+        at: now,
+    };
+    lab.store
+        .pause_route(&pause, |_| Vec::new())
+        .await
+        .expect("pause the second route");
+    let audit = || {
+        let pool = pool.clone();
+        let ws = lab.ws;
+        async move {
+            sqlx::query_scalar::<_, String>(
+                "SELECT action FROM integration_audit_events
+                  WHERE workspace_id = $1 AND action LIKE 'connection_%' ORDER BY id",
+            )
+            .bind(ws)
+            .fetch_all(&pool)
+            .await
+            .expect("audit")
+        }
+    };
+    assert_eq!(
+        lab.store
+            .disconnect_preview(lab.ws, "slack")
+            .await
+            .expect("preview"),
+        Some(DisconnectPreview {
+            label: "Canzan Labs".to_string(),
+            routes: 1,
+            projects: 1,
+        }),
+        "the paused route does not stop: it already has"
+    );
+    lab.store
+        .delete_route(&pause)
+        .await
+        .expect("delete the second route");
+    assert_eq!(
+        lab.store
+            .disconnect_preview(lab.ws, "matrix")
+            .await
+            .expect("preview"),
+        None
+    );
+    let change = ConnectionChange {
+        workspace_id: lab.ws,
+        kind: "slack".to_string(),
+        actor_id: lab.lena,
+        via: "web".to_string(),
+        at: now + Duration::from_secs(1),
+    };
+
+    let mut seen: Vec<CancelCandidate> = Vec::new();
+    let outcome = lab
+        .store
+        .disconnect_connection(&change, |candidates| {
+            seen = candidates.to_vec();
+            // the leased head is named, yet never skipped; the third is left out.
+            vec![ids[0], ids[1]]
+        })
+        .await
+        .expect("disconnect");
+    assert_eq!(
+        outcome,
+        DisconnectOutcome::Disconnected {
+            connection_id: lab.connection,
+            sealed_credential: vec![0],
+            cancelled: 1,
+        }
+    );
+    let shown = format!("{outcome:?}");
+    assert!(
+        shown.starts_with("Disconnected") && shown.contains(&lab.connection.to_string()),
+        "{shown}"
+    );
+    assert!(
+        !shown.contains("sealed_credential"),
+        "the handed-back credential is never printed: {shown}"
+    );
+    assert_eq!(
+        seen.iter().map(|c| (c.id, c.route_id)).collect::<Vec<_>>(),
+        ids.iter().map(|id| (*id, lab.route)).collect::<Vec<_>>(),
+        "the plan sees every waiting delivery of the connection's routes"
+    );
+    assert_eq!(seen[0].lease_until, Some(claim.lease_until));
+    let statuses = || {
+        let pool = pool.clone();
+        async move {
+            sqlx::query_as::<_, (String, Option<String>)>(
+                "SELECT status, final_reason FROM integration_deliveries ORDER BY id",
+            )
+            .fetch_all(&pool)
+            .await
+            .expect("deliveries")
+        }
+    };
+    assert_eq!(
+        statuses().await,
+        vec![
+            ("pending".to_string(), None),
+            ("skipped".to_string(), Some("route_paused".to_string())),
+            ("pending".to_string(), None),
+        ]
+    );
+    let row: (String, Option<Vec<u8>>, Option<OffsetDateTime>) = sqlx::query_as(
+        "SELECT state, sealed_credential, credential_saved_at FROM integration_connections",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the connection");
+    assert_eq!(row, ("disconnected".to_string(), None, None));
+    assert_eq!(audit().await, vec!["connection_disconnected"]);
+    let context = lab
+        .store
+        .delivery_context(ids[2])
+        .await
+        .expect("context")
+        .expect("the third is still there");
+    assert!(context.route_paused, "nothing waiting is sent");
+    assert_eq!(
+        lab.store
+            .disconnect_preview(lab.ws, "slack")
+            .await
+            .expect("preview"),
+        None,
+        "nothing left to disconnect"
+    );
+    assert_eq!(
+        lab.store
+            .disconnect_connection(&change, |_| panic!("no plan once disconnected"))
+            .await
+            .expect("disconnect again"),
+        DisconnectOutcome::Unchanged
+    );
+    assert_eq!(audit().await, vec!["connection_disconnected"]);
+
+    let receives_from = || {
+        let pool = pool.clone();
+        let route = lab.route;
+        async move {
+            sqlx::query_scalar::<_, OffsetDateTime>(
+                "SELECT receives_from FROM integration_routes WHERE id = $1",
+            )
+            .bind(route)
+            .fetch_one(&pool)
+            .await
+            .expect("receives_from")
+        }
+    };
+    let before = receives_from().await;
+    let reconnected = lab
+        .store
+        .upsert_connection(&NewConnection {
+            id: lab.connection,
+            workspace_id: lab.ws,
+            kind: "slack".to_string(),
+            external_id: "T0PERSONAL".to_string(),
+            app_id: Some("A0EIPFOUNDRY".to_string()),
+            bot_user_id: Some("U0FOUNDRYBOT".to_string()),
+            label: "Canzan Personal".to_string(),
+            detail: None,
+            sealed_credential: vec![9],
+            connected_by: lab.lena,
+            connected_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .expect("connect again");
+    assert_eq!(reconnected, ConnectionWriteOutcome::Reconnected);
+    assert!(
+        receives_from().await > before,
+        "the route receives from now"
+    );
+    let context = lab
+        .store
+        .delivery_context(ids[2])
+        .await
+        .expect("context")
+        .expect("the third");
+    assert!(
+        context.route_paused,
+        "what happened before the reconnect is never sent"
+    );
+    let fresh = lab.one_delivery().await;
+    let context = lab
+        .store
+        .delivery_context(fresh)
+        .await
+        .expect("context")
+        .expect("the fresh one");
+    assert!(!context.route_paused, "what happens after it is sent");
+}
+
+// US-EIP-07 (03-05), D-8: what waited when its project was deleted reads as
+// the project gone, even once the project is restored; what happens after
+// the restore is sent.
+#[tokio::test]
+async fn a_delivery_waiting_at_a_project_delete_stays_unsendable_after_restore() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let waiting = lab.one_delivery().await;
+    let project_now = |id: i64| {
+        let store = lab.store.clone();
+        async move {
+            store
+                .delivery_context(id)
+                .await
+                .expect("context")
+                .expect("the delivery")
+                .project
+                .map(|p| p.name)
+        }
+    };
+    assert_eq!(
+        project_now(waiting).await.as_deref(),
+        Some("Identity Platform")
+    );
+    lab.store
+        .soft_delete_project(lab.ws, lab.team, lab.auth, lab.lena)
+        .await
+        .expect("delete the project");
+    assert_eq!(project_now(waiting).await, None);
+    lab.store
+        .restore_deleted_project(lab.auth)
+        .await
+        .expect("restore the project");
+    assert_eq!(
+        project_now(waiting).await,
+        None,
+        "what waited at the delete is never sent"
+    );
+    let fresh = lab.one_delivery().await;
+    assert_eq!(
+        project_now(fresh).await.as_deref(),
+        Some("Identity Platform"),
+        "the restored project's routes post again"
+    );
 }
