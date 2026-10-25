@@ -16,8 +16,9 @@
 
 use async_trait::async_trait;
 use foundry_store::integrations::{
-    ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DispatchBatch, DispatchOutcome,
-    LostConnection, NewDelivery, PendingDelivery, Pruned, Pruning, RecordOutcome, RetentionView,
+    ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
+    DispatchOutcome, LostConnection, NewDelivery, PendingDelivery, Pruned, Pruning, RecordOutcome,
+    RetentionView,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -54,7 +55,7 @@ pub trait DeliverySweeps: Send + Sync {
         now: OffsetDateTime,
         final_reason: &str,
         plan: ExpiryPlanner<'_>,
-    ) -> Result<u64, StoreError>;
+    ) -> Result<Vec<DeliveryTally>, StoreError>;
 
     async fn prune(
         &self,
@@ -149,7 +150,7 @@ impl DeliverySweeps for StoreCapabilities {
         now: OffsetDateTime,
         final_reason: &str,
         plan: ExpiryPlanner<'_>,
-    ) -> Result<u64, StoreError> {
+    ) -> Result<Vec<DeliveryTally>, StoreError> {
         self.0
             .expire_deliveries(now, final_reason, |due| plan(due))
             .await

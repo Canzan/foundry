@@ -391,6 +391,24 @@ fn every_matching_route(batch: &DispatchBatch) -> Vec<NewDelivery> {
         .collect()
 }
 
+/// The claim choice of a sender that keeps the channel's pace: nothing while
+/// the destination is paced past `now`, else [`head_if_free`].
+fn paced_head(now: OffsetDateTime) -> impl FnOnce(&ClaimView) -> Option<i64> {
+    move |view| {
+        if view.destination_not_before.is_some_and(|paced| paced > now) {
+            return None;
+        }
+        head_if_free(now)(view)
+    }
+}
+
+/// A record's counted `(kind, event, status)`.
+fn tally_of(outcome: &RecordOutcome) -> Option<(&str, &str, &str)> {
+    outcome
+        .tally()
+        .map(|t| (t.kind.as_str(), t.event_kind.as_str(), t.status.as_str()))
+}
+
 /// The test's claim choice: the head, if it holds no live lease.
 fn head_if_free(now: OffsetDateTime) -> impl FnOnce(&ClaimView) -> Option<i64> {
     move |view| {
@@ -1234,6 +1252,131 @@ async fn claim_compare_and_set_misses_a_changed_row() {
     );
 }
 
+/// Two routes to one channel share its pace (NFR-EIP-3), across senders: a
+/// claim on the second route made while the first route's claim is still
+/// open waits for it, then finds the channel paced, even when no claim had
+/// paced the channel before. A second later the second route is claimed.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn two_routes_to_one_channel_share_its_pace() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let second = match lab.store.create_route(&lab.route_spec("C0AUTHDEV")).await {
+        Ok(RouteWriteOutcome::Created(id)) => id,
+        other => panic!("the second route is created: {other:?}"),
+    };
+    old_write(&pool, Some(lab.auth)).await;
+    let outcome = lab
+        .store
+        .dispatch_tick(
+            100,
+            OffsetDateTime::now_utc(),
+            GIVE_UP,
+            every_matching_route,
+        )
+        .await
+        .expect("dispatch");
+    assert!(
+        matches!(outcome, DispatchOutcome::Dispatched { deliveries: 2, .. }),
+        "precondition: one delivery per route; {outcome:?}"
+    );
+    assert_eq!(
+        lab.pacing("C0AUTHDEV").await,
+        None,
+        "precondition: never paced"
+    );
+    let now = OffsetDateTime::now_utc().replace_nanosecond(0).unwrap();
+
+    let rival_store = Store::from_pool(pool.clone());
+    let mut rival = None;
+    let first = lab
+        .store
+        .claim_delivery(lab.route, now, LEASE, |view| {
+            rival = Some(tokio::spawn(async move {
+                rival_store
+                    .claim_delivery(second, now, LEASE, paced_head(now))
+                    .await
+                    .expect("rival claim")
+            }));
+            // Time for the rival to finish, were it not made to wait.
+            tokio::task::block_in_place(|| std::thread::sleep(Duration::from_millis(500)));
+            paced_head(now)(view)
+        })
+        .await
+        .expect("first claim");
+    assert!(
+        matches!(first, ClaimOutcome::Claimed(_)),
+        "the first route is claimed: {first:?}"
+    );
+    let rival = rival.expect("the rival ran").await.expect("rival task");
+    assert_eq!(
+        rival,
+        ClaimOutcome::NothingClaimable,
+        "the second route waits for the channel's pace"
+    );
+
+    let later = now + Duration::from_secs(1);
+    let next = lab
+        .store
+        .claim_delivery(second, later, LEASE, paced_head(later))
+        .await
+        .expect("claim a second later");
+    assert!(
+        matches!(next, ClaimOutcome::Claimed(_)),
+        "a second later the second route is claimed: {next:?}"
+    );
+    assert_eq!(
+        lab.pacing("C0AUTHDEV").await,
+        Some(later + Duration::from_secs(1))
+    );
+}
+
+/// The connection and route gauges' census (U-D8): connections by kind and
+/// state; routes by kind and whether paused, only those of live projects.
+#[tokio::test]
+async fn census_counts_connections_and_live_routes_by_state() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let second = match lab.store.create_route(&lab.route_spec("C0AUTHREL")).await {
+        Ok(RouteWriteOutcome::Created(id)) => id,
+        other => panic!("the second route is created: {other:?}"),
+    };
+    sqlx::query("UPDATE integration_routes SET paused_at = now() WHERE id = $1")
+        .bind(second)
+        .execute(&pool)
+        .await
+        .expect("pause");
+    let sorted = |mut rows: Vec<(String, String, i64)>| {
+        rows.sort();
+        rows
+    };
+    let row = |k: &str, s: &str, n: i64| (k.to_string(), s.to_string(), n);
+
+    let census = lab.store.integration_census().await.expect("census");
+    assert_eq!(census.connections, vec![row("slack", "connected", 1)]);
+    assert_eq!(
+        sorted(census.routes),
+        vec![row("slack", "active", 1), row("slack", "paused", 1)]
+    );
+
+    sqlx::query("UPDATE projects SET deleted_at = now(), deleted_by = $2 WHERE id = $1")
+        .bind(lab.auth)
+        .bind(lab.lena)
+        .execute(&pool)
+        .await
+        .expect("delete the project");
+    let census = lab.store.integration_census().await.expect("census");
+    assert_eq!(census.connections, vec![row("slack", "connected", 1)]);
+    assert_eq!(
+        census.routes,
+        Vec::new(),
+        "a deleted project's routes are not counted"
+    );
+}
+
 /// A recorder whose lease was taken over (the claim id moved on) changes no
 /// row; the current holder's record lands, once.
 #[tokio::test]
@@ -1302,7 +1445,11 @@ async fn late_recorder_writes_nothing() {
         )
         .await
         .expect("retry record");
-    assert_eq!(retried, RecordOutcome::Recorded);
+    assert_eq!(
+        tally_of(&retried),
+        Some(("slack", "issue.created", "pending")),
+        "a retry is recorded and counted as one"
+    );
     let row = lab.delivery(id).await;
     assert_eq!(
         (
@@ -1331,7 +1478,16 @@ async fn late_recorder_writes_nothing() {
         .record_delivery(id, last.claim_id, done_at, DeliveryResult::Delivered)
         .await
         .expect("record");
-    assert_eq!(delivered, RecordOutcome::Recorded);
+    assert_eq!(
+        tally_of(&delivered),
+        Some(("slack", "issue.created", "delivered")),
+        "a delivery is recorded and counted as one"
+    );
+    let lag = delivered.tally().expect("tally").lag_seconds;
+    assert!(
+        (0.0..60.0).contains(&lag),
+        "the lag is the database's now() less the event's time; {lag}"
+    );
     let row = lab.delivery(id).await;
     assert_eq!(
         (
@@ -1394,7 +1550,14 @@ async fn sweeps_apply_exactly_the_plan_ids() {
         .await
         .expect("expire");
     assert_eq!(seen_due, ids.to_vec(), "the sweep reads every due delivery");
-    assert_eq!(failed, 2);
+    assert_eq!(
+        failed
+            .iter()
+            .map(|t| (t.kind.as_str(), t.event_kind.as_str(), t.status.as_str()))
+            .collect::<Vec<_>>(),
+        vec![("slack", "issue.created", "failed"); 2],
+        "the sweep counts each delivery it failed"
+    );
     for (n, id) in ids.iter().enumerate() {
         let row = lab.delivery(*id).await;
         let want = if n == 0 || n == 2 {
@@ -1835,10 +1998,10 @@ async fn a_lost_connection_is_told_once_to_the_workspace_admins() {
         .await
         .expect("lost while a send was out")
         .is_some());
-    assert_eq!(
-        refuse(held, later).await,
-        RecordOutcome::Recorded,
-        "a refusal on a lost connection tells no one"
+    let refused = refuse(held, later).await;
+    assert!(
+        matches!(refused, RecordOutcome::Recorded(ref t) if t.status == "pending"),
+        "a refusal on a lost connection tells no one: {refused:?}"
     );
     assert_eq!(audits().await.len(), 2);
 
@@ -1850,9 +2013,13 @@ async fn a_lost_connection_is_told_once_to_the_workspace_admins() {
     let last = later + Duration::from_secs(60);
     let claim_id = claim(last).await;
     match refuse(claim_id, last).await {
-        RecordOutcome::ConnectionLost(lost) => assert_eq!(
-            (lost.reason.as_deref(), lost.admins),
-            (Some("token_revoked"), vec!["Priya@canzan.dev".to_string()])
+        RecordOutcome::ConnectionLost { lost, tally } => assert_eq!(
+            (lost.reason.as_deref(), lost.admins, tally.status.as_str()),
+            (
+                Some("token_revoked"),
+                vec!["Priya@canzan.dev".to_string()],
+                "pending"
+            )
         ),
         other => panic!("the refusal turns the connection lost: {other:?}"),
     }

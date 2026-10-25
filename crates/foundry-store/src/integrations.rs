@@ -310,6 +310,27 @@ pub struct Pruned {
     pub heartbeats: u64,
 }
 
+/// What the connection and route gauges read (U-D8): `(kind, state, count)`
+/// rows; a route's state is `active` or `paused`, and routes of deleted
+/// projects are not counted.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct IntegrationCensus {
+    pub connections: Vec<(String, String, i64)>,
+    pub routes: Vec<(String, String, i64)>,
+}
+
+/// A delivery as the delivery counters count it (DDR-22), read in the same
+/// statement that recorded or failed it: its kind (`email` for a recipient's),
+/// its event, its status after the write, and its lag `now() - occurred_at`
+/// on the database's clock, in seconds.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DeliveryTally {
+    pub kind: String,
+    pub event_kind: String,
+    pub status: String,
+    pub lag_seconds: f64,
+}
+
 /// What the stall gauges read (DDR-22). Ages are seconds, 0 when none.
 #[derive(Debug, Clone, PartialEq)]
 pub struct IntegrationBacklog {
@@ -365,14 +386,27 @@ async fn connection_lost(
     })
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum RecordOutcome {
-    Recorded,
+    Recorded(DeliveryTally),
     /// Recorded, and this record's refusal turned the route's connection
     /// from connected to lost: its admins are to be told, once.
-    ConnectionLost(LostConnection),
+    ConnectionLost {
+        tally: DeliveryTally,
+        lost: LostConnection,
+    },
     /// The claim is no longer the row's (taken over, or already finished).
     LeaseLost,
+}
+
+impl RecordOutcome {
+    /// What the record counts, unless it wrote nothing.
+    pub fn tally(&self) -> Option<&DeliveryTally> {
+        match self {
+            Self::Recorded(tally) | Self::ConnectionLost { tally, .. } => Some(tally),
+            Self::LeaseLost => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -576,6 +610,12 @@ const INSERT_DELIVERY_SQL: &str = "
             outbox_ids, issue_id, issue_key, occurred_at, give_up_at)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $11 + make_interval(secs => $10))";
 
+/// What a write of a delivery row returns for the delivery counters.
+const TALLY_COLUMNS: &str = "
+       COALESCE((SELECT r.kind FROM integration_routes r
+                  WHERE r.id = integration_deliveries.route_id), 'email'),
+       event_kind, status, EXTRACT(EPOCH FROM now() - occurred_at)::float8";
+
 /// The claim's compare-and-set: the row the choice saw, unchanged.
 const CLAIM_SQL: &str = "
     UPDATE integration_deliveries
@@ -585,6 +625,12 @@ const CLAIM_SQL: &str = "
        AND claim_id IS NOT DISTINCT FROM $7
        AND lease_until IS NOT DISTINCT FROM $8
        AND next_attempt_at IS NOT DISTINCT FROM $9";
+
+/// One destination's claim turn (NFR-EIP-3): a transaction lock on the
+/// destination, scoped by `search_path` like the dispatcher's (U-D2).
+const DESTINATION_LOCK_SQL: &str = "
+    SELECT pg_advisory_xact_lock(hashtextextended(
+               current_setting('search_path') || '|' || $1::text || '|' || $2, 0))";
 
 const PACE_SQL: &str = "
     INSERT INTO integration_destination_pacing (connection_id, destination_ref, not_before)
@@ -597,7 +643,11 @@ const EXPIRE_SQL: &str = "
        SET status = 'failed', final_reason = $3, finished_at = $2,
            lease_until = NULL, next_attempt_at = NULL
      WHERE id = ANY($1) AND status = 'pending' AND give_up_at <= $2
-       AND (lease_until IS NULL OR lease_until <= $2)";
+       AND (lease_until IS NULL OR lease_until <= $2)
+    RETURNING";
+
+/// A recorded row: its route and project, then its tally.
+type RecordedRow = (Option<Uuid>, Uuid, String, String, String, f64);
 
 /// The fenced record: only the current claim of a pending row writes.
 const RECORD_SQL: &str = "
@@ -607,7 +657,7 @@ const RECORD_SQL: &str = "
            finished_at = CASE WHEN $7 THEN $8 END,
            slowed_down = slowed_down OR $9
      WHERE id = $1 AND claim_id = $2 AND status = 'pending'
-    RETURNING route_id, project_id";
+    RETURNING route_id, project_id,";
 
 /// A "retry after": the route's destination waits at least until $2.
 const SLOW_DOWN_SQL: &str = "
@@ -850,6 +900,16 @@ impl Store {
             tx.rollback().await?;
             return Ok(ClaimOutcome::RouteBusy);
         };
+        // Senders of every route to this destination, on every replica, take
+        // their turn here, so the pacing row is read as the last claim left
+        // it, even before the destination's first claim creates it.
+        if connection_id.is_some() {
+            sqlx::query(DESTINATION_LOCK_SQL)
+                .bind(connection_id)
+                .bind(&destination_ref)
+                .execute(&mut *tx)
+                .await?;
+        }
         let destination_not_before: Option<OffsetDateTime> = sqlx::query_scalar(
             "SELECT not_before FROM integration_destination_pacing
               WHERE connection_id = $1 AND destination_ref = $2 FOR UPDATE",
@@ -934,7 +994,7 @@ impl Store {
         let (status, finishes, next_attempt_at, vendor_reason, final_reason, slowed_down) =
             result.columns();
         let mut tx = self.pool.begin().await?;
-        let written: Option<(Option<Uuid>, Uuid)> = sqlx::query_as(RECORD_SQL)
+        let written: Option<RecordedRow> = sqlx::query_as(&format!("{RECORD_SQL}{TALLY_COLUMNS}"))
             .bind(delivery_id)
             .bind(claim_id)
             .bind(status)
@@ -946,9 +1006,15 @@ impl Store {
             .bind(slowed_down)
             .fetch_optional(&mut *tx)
             .await?;
-        let Some((route_id, project_id)) = written else {
+        let Some((route_id, project_id, kind, event_kind, status, lag_seconds)) = written else {
             tx.rollback().await?;
             return Ok(RecordOutcome::LeaseLost);
+        };
+        let tally = DeliveryTally {
+            kind,
+            event_kind,
+            status,
+            lag_seconds,
         };
         match (&result, route_id) {
             (
@@ -985,13 +1051,13 @@ impl Store {
                 if let Some((connection_id,)) = lost {
                     let lost = connection_lost(&mut tx, connection_id, "system", now).await?;
                     tx.commit().await?;
-                    return Ok(RecordOutcome::ConnectionLost(lost));
+                    return Ok(RecordOutcome::ConnectionLost { tally, lost });
                 }
             }
             _ => {}
         }
         tx.commit().await?;
-        Ok(RecordOutcome::Recorded)
+        Ok(RecordOutcome::Recorded(tally))
     }
 
     /// Slack's signed word that the Foundry app `app_id` left the Slack
@@ -1100,14 +1166,14 @@ impl Store {
     /// deliveries at or past their give-up time at `now`, asks `plan` which to
     /// fail, and fails exactly those ids with `final_reason`, each only while
     /// it is still pending, past its give-up time and holds no live lease (a
-    /// late record of a lease it lost writes nothing). Returns how many it
-    /// failed. The vendor's last reason is kept.
+    /// late record of a lease it lost writes nothing). Returns the tally of
+    /// each delivery it failed. The vendor's last reason is kept.
     pub async fn expire_deliveries<P>(
         &self,
         now: OffsetDateTime,
         final_reason: &str,
         plan: P,
-    ) -> Result<u64, StoreError>
+    ) -> Result<Vec<DeliveryTally>, StoreError>
     where
         P: FnOnce(&[PendingDelivery]) -> Vec<i64>,
     {
@@ -1122,15 +1188,24 @@ impl Store {
         let due: Vec<PendingDelivery> = due.into_iter().map(pending_delivery).collect();
         let ids = plan(&due);
         if ids.is_empty() {
-            return Ok(0);
+            return Ok(Vec::new());
         }
-        Ok(sqlx::query(EXPIRE_SQL)
-            .bind(&ids)
-            .bind(now)
-            .bind(final_reason)
-            .execute(&self.pool)
-            .await?
-            .rows_affected())
+        let failed: Vec<(String, String, String, f64)> =
+            sqlx::query_as(&format!("{EXPIRE_SQL}{TALLY_COLUMNS}"))
+                .bind(&ids)
+                .bind(now)
+                .bind(final_reason)
+                .fetch_all(&self.pool)
+                .await?;
+        Ok(failed
+            .into_iter()
+            .map(|(kind, event_kind, status, lag_seconds)| DeliveryTally {
+                kind,
+                event_kind,
+                status,
+                lag_seconds,
+            })
+            .collect())
     }
 
     /// A worker component's heartbeat (DDR-22): `role` on `replica` was alive
@@ -1152,6 +1227,29 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(())
+    }
+
+    /// The connection and route gauges' facts (U-D8): connections by kind and
+    /// state, and live projects' routes by kind and whether they are paused.
+    pub async fn integration_census(&self) -> Result<IntegrationCensus, StoreError> {
+        let connections = sqlx::query_as(
+            "SELECT kind, state, count(*) FROM integration_connections GROUP BY 1, 2",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        let routes = sqlx::query_as(
+            "SELECT r.kind, CASE WHEN r.paused_at IS NULL THEN 'active' ELSE 'paused' END,
+                    count(*)
+               FROM integration_routes r
+               JOIN live_projects p ON p.id = r.project_id
+              GROUP BY 1, 2",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(IntegrationCensus {
+            connections,
+            routes,
+        })
     }
 
     /// The stall gauges' facts (DDR-22), on the database's clock: the outbox

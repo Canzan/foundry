@@ -30,6 +30,16 @@ const CATALOGUE: [(EventKind, &str, &str); 6] = [
 ];
 
 impl EventKind {
+    /// Every event, in catalogue order.
+    pub const ALL: [EventKind; 6] = [
+        EventKind::IssueCreated,
+        EventKind::IssueMoved,
+        EventKind::IssueDeleted,
+        EventKind::CommentAdded,
+        EventKind::CommentEdited,
+        EventKind::CommentDeleted,
+    ];
+
     /// The kind an outbox row's `event_type` announces (ADR-EIP-003 decision 2).
     pub fn from_outbox_type(event_type: &str) -> Option<EventKind> {
         CATALOGUE

@@ -480,6 +480,10 @@ async fn main() -> anyhow::Result<()> {
     // external-integration-plugins (DDR-22): the stall gauges, at 0 over
     // their closed `kind` set, refreshed by the same poll loop.
     foundry_app::integrations::worker::register_stall_gauges();
+    // external-integration-plugins (DDR-22, U-D8; C-6): the delivery counter
+    // over {kind, event, outcome} and the connection and route gauges over
+    // {kind, state}, at 0; the gauges are refreshed by the same poll loop.
+    foundry_app::integrations::worker::register_delivery_metrics();
     metrics::counter!(foundry_realtime::REALTIME_LISTEN_DISCONNECTS_TOTAL).absolute(0);
     for probe_name in PROBE_NAMES {
         metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => *probe_name).absolute(0);
@@ -577,6 +581,13 @@ async fn main() -> anyhow::Result<()> {
                 Err(err) => tracing::warn!(
                     error = %err,
                     "bootstrap_tokens_unclaimed poll query failed; gauge stale this tick"
+                ),
+            }
+            match store_for_poll.integration_census().await {
+                Ok(census) => foundry_app::integrations::worker::report_census(&census),
+                Err(err) => tracing::warn!(
+                    error = %err,
+                    "integration census poll query failed; connection and route gauges stale this tick"
                 ),
             }
             match store_for_poll.integration_backlog().await {

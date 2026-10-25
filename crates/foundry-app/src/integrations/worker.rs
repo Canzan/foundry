@@ -42,12 +42,16 @@ use foundry_integrations::{
     QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec, Settlement,
 };
 use foundry_integrations::{
+    connection_census, delivery_labels, delivery_series, route_census, DeliveryOutcome,
+};
+use foundry_integrations::{
     prune_set, Attempt, Jitter, PrunePlan, RetainedDelivery, RetainedOutboxRow, RETENTION,
 };
 use foundry_store::integrations::{
-    ClaimOutcome, ClaimView, ClaimedDelivery, DeliveryContext, DeliveryResult, DeliveryTarget,
-    DispatchBatch, DispatchRoute, IntegrationBacklog, LostConnection, NewDelivery, OutboxEvent,
-    PendingDelivery, Pruning, RecordOutcome, RetentionView,
+    ClaimOutcome, ClaimView, ClaimedDelivery, DeliveryContext, DeliveryResult, DeliveryTally,
+    DeliveryTarget, DispatchBatch, DispatchRoute, IntegrationBacklog, IntegrationCensus,
+    LostConnection, NewDelivery, OutboxEvent, PendingDelivery, Pruning, RecordOutcome,
+    RetentionView,
 };
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -74,6 +78,62 @@ pub const DELIVERIES_PENDING_OLDEST_SECONDS: &str =
 const PENDING_KINDS: [&str; 3] = ["slack", "matrix", "email"];
 /// Past this, an undispatched outbox row means the dispatcher has stalled.
 const DISPATCH_STALL_SECONDS: f64 = 300.0;
+
+/// The delivery metrics (DDR-22, U-D8; DEVOPS observability). Labels are the
+/// closed sets of `foundry_integrations::meter`, never a channel, room,
+/// project, workspace, address or person.
+pub const DELIVERIES_TOTAL: &str = "foundry_integration_deliveries_total";
+pub const DELIVERY_LAG_SECONDS: &str = "foundry_integration_delivery_lag_seconds";
+pub const CONNECTIONS: &str = "foundry_integration_connections";
+pub const ROUTES: &str = "foundry_integration_routes";
+/// The lag histogram's explicit buckets, in seconds (otherwise it renders as
+/// a summary).
+pub const DELIVERY_LAG_BUCKETS: [f64; 11] = [
+    1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 300.0, 900.0, 3600.0, 21600.0, 86400.0,
+];
+
+/// Register every delivery counter series and every connection and route
+/// gauge series at 0, before the first delivery and the first poll.
+pub fn register_delivery_metrics() {
+    for series in delivery_series() {
+        delivery_counter(&series).absolute(0);
+    }
+    report_census(&IntegrationCensus::default());
+}
+
+/// Set the connection and route gauges from one census read.
+pub fn report_census(census: &IntegrationCensus) {
+    for (series, n) in connection_census(&census.connections) {
+        metrics::gauge!(CONNECTIONS, "kind" => series[0], "state" => series[1]).set(n);
+    }
+    for (series, n) in route_census(&census.routes) {
+        metrics::gauge!(ROUTES, "kind" => series[0], "state" => series[1]).set(n);
+    }
+}
+
+/// Count one recorded or failed delivery, and observe its lag when it was
+/// delivered. A tally outside the closed label sets is not counted.
+pub fn count_delivery(tally: &DeliveryTally) {
+    let Some((kind, event, outcome)) =
+        delivery_labels(&tally.kind, &tally.event_kind, &tally.status)
+    else {
+        return;
+    };
+    delivery_counter(&[kind.wire_name(), event.wire_name(), outcome.label()]).increment(1);
+    if outcome == DeliveryOutcome::Delivered {
+        metrics::histogram!(DELIVERY_LAG_SECONDS, "kind" => kind.wire_name())
+            .record(tally.lag_seconds);
+    }
+}
+
+fn delivery_counter(series: &[&'static str]) -> metrics::Counter {
+    metrics::counter!(
+        DELIVERIES_TOTAL,
+        "kind" => series[0],
+        "event" => series[1],
+        "outcome" => series[2],
+    )
+}
 
 /// Register every stall gauge series at 0, before the first poll.
 pub fn register_stall_gauges() {
@@ -406,10 +466,12 @@ impl Sender {
     /// nothing is attempted at or after it.
     async fn expire(&self, clock: &dyn Clock) -> Result<(), foundry_store::StoreError> {
         let expire = |due: &[PendingDelivery]| expiry_of(due, clock.now());
-        self.sweeps
+        let failed = self
+            .sweeps
             .expire(clock.now(), ReasonCode::GaveUp24h.wire_name(), &expire)
-            .await
-            .map(|_| ())
+            .await?;
+        failed.iter().for_each(count_delivery);
+        Ok(())
     }
 
     async fn attempt(
@@ -430,7 +492,10 @@ impl Sender {
             .claims
             .record(claim.id, claim.claim_id, clock.now(), result)
             .await?;
-        if let RecordOutcome::ConnectionLost(lost) = recorded {
+        if let Some(tally) = recorded.tally() {
+            count_delivery(tally);
+        }
+        if let RecordOutcome::ConnectionLost { lost, .. } = recorded {
             self.admin_mail
                 .connection_lost(&lost, &integrations.settings().public_url)
                 .await;

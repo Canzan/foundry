@@ -108,9 +108,21 @@ fn by_name<T: Copy>(table: &[(T, &str)], wire: &str) -> Option<T> {
         .map(|(value, _)| *value)
 }
 
+fn name_of<T: Copy + PartialEq>(table: &[(T, &'static str)], value: T) -> &'static str {
+    table
+        .iter()
+        .find(|(v, _)| *v == value)
+        .map_or("", |(_, name)| name)
+}
+
 impl ChannelKind {
     pub fn from_wire_name(wire: &str) -> Option<ChannelKind> {
         by_name(&CHANNEL_KINDS, wire)
+    }
+
+    /// The stored name, e.g. `slack`.
+    pub fn wire_name(self) -> &'static str {
+        name_of(&CHANNEL_KINDS, self)
     }
 
     /// The reason an attempt that got no answer at all reads as: the
@@ -137,6 +149,11 @@ impl ChannelKind {
 impl ConnectionState {
     pub fn from_wire_name(wire: &str) -> Option<ConnectionState> {
         by_name(&CONNECTION_STATES, wire)
+    }
+
+    /// The stored name, e.g. `lost`.
+    pub fn wire_name(self) -> &'static str {
+        name_of(&CONNECTION_STATES, self)
     }
 }
 

@@ -1780,3 +1780,290 @@ mod routes {
         assert_eq!(lab.universe().await, before, "no route, lane or audit row");
     }
 }
+
+// DDR-22, U-D8, C-6 (03-06): the operator's delivery metrics register at 0
+// over their closed label sets, count what a record or sweep reports, carry
+// the lag histogram's explicit buckets, and no label names a channel, room,
+// project, workspace, address or person.
+mod delivery_metrics {
+    use foundry_app::integrations::worker::{
+        count_delivery, register_delivery_metrics, register_stall_gauges, report_backlog,
+        report_census,
+    };
+    use foundry_store::integrations::{DeliveryTally, IntegrationBacklog, IntegrationCensus};
+    use std::collections::{BTreeMap, BTreeSet};
+
+    type Labels = BTreeMap<String, String>;
+
+    /// `(name, labels, value)` of every sample line of a Prometheus render.
+    fn samples(text: &str) -> Vec<(String, Labels, f64)> {
+        text.lines()
+            .filter(|l| !l.starts_with('#') && !l.trim().is_empty())
+            .map(|line| {
+                let (series, value) = line.rsplit_once(' ').expect("sample line");
+                let (name, labels) = match series.split_once('{') {
+                    Some((name, rest)) => {
+                        let labels = rest
+                            .trim_end_matches('}')
+                            .split(',')
+                            .filter(|p| !p.is_empty())
+                            .map(|pair| {
+                                let (k, v) = pair.split_once('=').expect("label");
+                                (k.to_string(), v.trim_matches('"').to_string())
+                            })
+                            .collect();
+                        (name.to_string(), labels)
+                    }
+                    None => (series.to_string(), Labels::new()),
+                };
+                (name, labels, value.parse().expect("value"))
+            })
+            .collect()
+    }
+
+    fn of<'a>(all: &'a [(String, Labels, f64)], name: &str) -> Vec<&'a (String, Labels, f64)> {
+        all.iter().filter(|(n, _, _)| n == name).collect()
+    }
+
+    fn value(all: &[(String, Labels, f64)], name: &str, labels: &[(&str, &str)]) -> Option<f64> {
+        let want: Labels = labels
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        of(all, name)
+            .into_iter()
+            .find(|(_, l, _)| *l == want)
+            .map(|(_, _, v)| *v)
+    }
+
+    const KINDS: [&str; 3] = ["slack", "matrix", "email"];
+    const EVENTS: [&str; 4] = [
+        "issue.created",
+        "issue.moved",
+        "issue.deleted",
+        "comment.added",
+    ];
+    const OUTCOMES: [&str; 4] = ["delivered", "retried", "failed", "skipped"];
+
+    fn tally(kind: &str, event: &str, status: &str, lag: f64) -> DeliveryTally {
+        DeliveryTally {
+            kind: kind.to_string(),
+            event_kind: event.to_string(),
+            status: status.to_string(),
+            lag_seconds: lag,
+        }
+    }
+
+    #[test]
+    fn delivery_metrics_register_at_zero_and_count_over_closed_labels() {
+        let recorder = foundry_app::metrics_server::prometheus_builder()
+            .expect("builder")
+            .build_recorder();
+        let handle = recorder.handle();
+        metrics::with_local_recorder(&recorder, || {
+            register_stall_gauges();
+            register_delivery_metrics();
+        });
+        let boot = samples(&handle.render());
+
+        let deliveries = of(&boot, "foundry_integration_deliveries_total");
+        assert_eq!(deliveries.len(), 48, "3 kinds x 4 events x 4 outcomes");
+        for kind in KINDS {
+            for event in EVENTS {
+                for outcome in OUTCOMES {
+                    assert_eq!(
+                        value(
+                            &boot,
+                            "foundry_integration_deliveries_total",
+                            &[("event", event), ("kind", kind), ("outcome", outcome)]
+                        ),
+                        Some(0.0),
+                        "{kind} {event} {outcome} registers at 0"
+                    );
+                }
+            }
+        }
+        for (name, series) in [
+            ("foundry_integration_connections", 6),
+            ("foundry_integration_routes", 4),
+            ("foundry_integration_deliveries_pending", 3),
+            ("foundry_outbox_undispatched", 1),
+            ("foundry_outbox_undispatched_oldest_seconds", 1),
+            ("foundry_integration_deliveries_pending_oldest_seconds", 1),
+        ] {
+            let found = of(&boot, name);
+            assert_eq!(found.len(), series, "{name} registers {series} series");
+            assert!(found.iter().all(|(_, _, v)| *v == 0.0), "{name} reads 0");
+        }
+        for kind in ["slack", "matrix"] {
+            for state in ["connected", "lost", "disconnected"] {
+                assert_eq!(
+                    value(
+                        &boot,
+                        "foundry_integration_connections",
+                        &[("kind", kind), ("state", state)]
+                    ),
+                    Some(0.0)
+                );
+            }
+            for state in ["active", "paused"] {
+                assert_eq!(
+                    value(
+                        &boot,
+                        "foundry_integration_routes",
+                        &[("kind", kind), ("state", state)]
+                    ),
+                    Some(0.0)
+                );
+            }
+        }
+        for kind in KINDS {
+            assert_eq!(
+                value(
+                    &boot,
+                    "foundry_integration_deliveries_pending",
+                    &[("kind", kind)]
+                ),
+                Some(0.0)
+            );
+        }
+
+        metrics::with_local_recorder(&recorder, || {
+            count_delivery(&tally("slack", "issue.created", "delivered", 3.0));
+            count_delivery(&tally("matrix", "comment.added", "pending", 1.0));
+            count_delivery(&tally("email", "issue.moved", "failed", 1.0));
+            count_delivery(&tally("slack", "issue.deleted", "skipped", 1.0));
+            // Outside the closed sets: not counted, no new series.
+            count_delivery(&tally("webhook", "issue.created", "delivered", 1.0));
+            count_delivery(&tally("slack", "comment.edited", "delivered", 1.0));
+            count_delivery(&tally("slack", "issue.created", "leased", 1.0));
+            report_census(&IntegrationCensus {
+                connections: vec![("slack".into(), "lost".into(), 2)],
+                routes: vec![("matrix".into(), "paused".into(), 5)],
+            });
+            report_backlog(&IntegrationBacklog {
+                undispatched: 3,
+                undispatched_oldest_seconds: 7.5,
+                pending_by_kind: vec![("matrix".to_string(), 4)],
+                pending_oldest_seconds: 9.5,
+            });
+        });
+        let after = samples(&handle.render());
+        let counted: Vec<(&Labels, f64)> = of(&after, "foundry_integration_deliveries_total")
+            .into_iter()
+            .filter(|(_, _, v)| *v != 0.0)
+            .map(|(_, l, v)| (l, *v))
+            .collect();
+        let label = |kind: &str, event: &str, outcome: &str| -> Labels {
+            [("event", event), ("kind", kind), ("outcome", outcome)]
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let want = [
+            label("slack", "issue.created", "delivered"),
+            label("matrix", "comment.added", "retried"),
+            label("email", "issue.moved", "failed"),
+            label("slack", "issue.deleted", "skipped"),
+        ];
+        assert_eq!(counted.len(), 4, "exactly the four closed tallies count");
+        for w in &want {
+            assert!(counted.contains(&(w, 1.0)), "{w:?} counts once");
+        }
+        assert_eq!(of(&after, "foundry_integration_deliveries_total").len(), 48);
+
+        // The lag histogram: delivered ones only, with the explicit buckets.
+        let buckets = of(&after, "foundry_integration_delivery_lag_seconds_bucket");
+        let les: BTreeSet<&str> = buckets.iter().map(|(_, l, _)| l["le"].as_str()).collect();
+        assert_eq!(buckets.len(), 12, "one kind observed, 11 buckets and +Inf");
+        for le in [
+            "1", "2", "5", "10", "30", "60", "300", "900", "3600", "21600", "86400", "+Inf",
+        ] {
+            assert!(les.contains(le), "bucket le={le}; {les:?}");
+        }
+        assert!(buckets.iter().all(|(_, l, _)| l["kind"] == "slack"));
+        assert_eq!(
+            value(
+                &after,
+                "foundry_integration_delivery_lag_seconds_bucket",
+                &[("kind", "slack"), ("le", "2")]
+            ),
+            Some(0.0)
+        );
+        assert_eq!(
+            value(
+                &after,
+                "foundry_integration_delivery_lag_seconds_bucket",
+                &[("kind", "slack"), ("le", "5")]
+            ),
+            Some(1.0)
+        );
+        assert_eq!(
+            value(
+                &after,
+                "foundry_integration_delivery_lag_seconds_sum",
+                &[("kind", "slack")]
+            ),
+            Some(3.0)
+        );
+
+        for (name, labels, v) in [
+            (
+                "foundry_integration_connections",
+                vec![("kind", "slack"), ("state", "lost")],
+                2.0,
+            ),
+            (
+                "foundry_integration_connections",
+                vec![("kind", "slack"), ("state", "connected")],
+                0.0,
+            ),
+            (
+                "foundry_integration_routes",
+                vec![("kind", "matrix"), ("state", "paused")],
+                5.0,
+            ),
+            (
+                "foundry_integration_routes",
+                vec![("kind", "matrix"), ("state", "active")],
+                0.0,
+            ),
+            (
+                "foundry_integration_deliveries_pending",
+                vec![("kind", "matrix")],
+                4.0,
+            ),
+            (
+                "foundry_integration_deliveries_pending",
+                vec![("kind", "slack")],
+                0.0,
+            ),
+            ("foundry_outbox_undispatched", vec![], 3.0),
+            ("foundry_outbox_undispatched_oldest_seconds", vec![], 7.5),
+            (
+                "foundry_integration_deliveries_pending_oldest_seconds",
+                vec![],
+                9.5,
+            ),
+        ] {
+            assert_eq!(value(&after, name, &labels), Some(v), "{name} {labels:?}");
+        }
+
+        // Criterion 3: no label names a person, place or address.
+        let allowed = ["kind", "event", "outcome", "state", "le"];
+        for (name, labels, _) in &after {
+            if name.starts_with("foundry_integration_") || name.starts_with("foundry_outbox_") {
+                for (k, v) in labels {
+                    assert!(allowed.contains(&k.as_str()), "{name} carries {k}");
+                    let closed = KINDS.contains(&v.as_str())
+                        || EVENTS.contains(&v.as_str())
+                        || OUTCOMES.contains(&v.as_str())
+                        || ["connected", "lost", "disconnected", "active", "paused"]
+                            .contains(&v.as_str())
+                        || k == "le";
+                    assert!(closed, "{name} {k}={v} is from a closed set");
+                }
+            }
+        }
+    }
+}

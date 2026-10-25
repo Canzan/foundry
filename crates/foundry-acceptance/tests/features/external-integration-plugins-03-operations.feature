@@ -84,7 +84,7 @@ Feature: The operator keeps integrations safe and observable
     When the operator runs foundry doctor rotate-secrets
     Then the command reports 1 credential sealed again under the new key
 
-  @pending @us-eip-05 @eip-03 @eip-metrics @kpi @contract-shape:bounded-change
+  @us-eip-05 @eip-03 @eip-metrics @kpi @contract-shape:bounded-change
   Scenario: The operator's delivery counters start at zero and count each outcome
     Given Foundry runs as the operator's process with the Foundry Slack app set up
     And the operator's delivery counters all read zero
@@ -126,7 +126,7 @@ Feature: The operator keeps integrations safe and observable
     When Sam files "Rotate LLDAP bind password" in Identity Platform
     Then Priya has received exactly one email "Foundry lost its Slack connection for Canzan Labs"
 
-  @pending @us-eip-05 @eip-03 @eip-replica @edge @contract-shape:bounded-change
+  @us-eip-05 @eip-03 @eip-replica @edge @contract-shape:bounded-change
   Scenario: Two routes to one channel never post more than once a second
     Given Foundry runs as two replicas on one database with the Foundry Slack app set up
     And Priya has connected Canzan Labs to Slack

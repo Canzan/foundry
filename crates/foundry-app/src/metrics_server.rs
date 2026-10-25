@@ -43,9 +43,22 @@ pub const UNMATCHED_ROUTE_LABEL: &str = "<unmatched>";
 /// NOT call this (the test app doesn't expose `/metrics` and we'd hit
 /// "global recorder already installed" on the second scenario).
 pub fn install_recorder() -> anyhow::Result<PrometheusHandle> {
-    PrometheusBuilder::new()
+    prometheus_builder()?
         .install_recorder()
         .context("install Prometheus metrics recorder")
+}
+
+/// The process's Prometheus exporter settings: only the delivery-lag
+/// histogram has explicit buckets (DEVOPS C-6); every other histogram still
+/// renders as a summary.
+pub fn prometheus_builder() -> anyhow::Result<PrometheusBuilder> {
+    use crate::integrations::worker::{DELIVERY_LAG_BUCKETS, DELIVERY_LAG_SECONDS};
+    PrometheusBuilder::new()
+        .set_buckets_for_metric(
+            metrics_exporter_prometheus::Matcher::Full(DELIVERY_LAG_SECONDS.to_string()),
+            &DELIVERY_LAG_BUCKETS,
+        )
+        .context("set the delivery-lag histogram buckets")
 }
 
 /// Bind the metrics listener on `host:port` and serve `/metrics`.

@@ -177,6 +177,20 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   `foundry` binary that carries test-only code: the Dockerfile builds exactly
   `-p foundry-app --bin foundry` and fails if the binary holds the test seam's marker, and
   `cargo xtask check-arch` (`integrations-test-seam`) keeps both true.
+- **Delivery metrics**: `foundry_integration_deliveries_total{kind,event,outcome}` counts every
+  recorded attempt and every give-up (`kind` slack, matrix or email; `event` issue.created,
+  issue.moved, issue.deleted or comment.added; `outcome` delivered, retried, failed or skipped),
+  all 48 series registered at 0 at boot. `foundry_integration_delivery_lag_seconds{kind}` is a
+  histogram of event-to-delivered time on the database's clock, with buckets 1, 2, 5, 10, 30, 60,
+  300, 900, 3600, 21600 and 86400 seconds (the only histogram with buckets; the others still
+  render as summaries). `foundry_integration_connections{kind,state}` (connected, lost,
+  disconnected) and `foundry_integration_routes{kind,state}` (active, paused; routes of deleted
+  projects excluded) are refreshed with the other database gauges and are identical on every
+  replica, so alert on `max`. No label ever names a channel, room, project, workspace, address or
+  person. Pause, disconnect and delete do not count the messages they drop.
+- **One post a second per channel, across replicas**: two routes to the same Slack channel share
+  its pace, so the channel never gets two posts less than a second apart, however many replicas
+  run; senders take turns on the channel in the database instead of polling faster.
 
 ### Upgrading
 
