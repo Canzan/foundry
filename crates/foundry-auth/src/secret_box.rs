@@ -28,7 +28,9 @@ const FORMAT_VERSION: u8 = 1;
 const KEY_LEN: usize = 32;
 const KEY_ID_LEN: usize = 8;
 const KEY_ID_LABEL: &[u8] = b"foundry-secret-key-id|v1|";
-const HEADER_LEN: usize = 1 + KEY_ID_LEN + NONCE_LEN;
+/// Where the nonce starts: after the version byte and the key id.
+const NONCE_AT: usize = 1 + KEY_ID_LEN;
+const HEADER_LEN: usize = NONCE_AT + NONCE_LEN;
 
 /// Why sealing, opening or reading a key failed. No variant carries a key,
 /// a key id or a credential, so the text is safe to log.
@@ -148,6 +150,21 @@ impl SealedSecret {
     }
 }
 
+/// The retired keys of a comma-separated `FOUNDRY_SECRETS_KEY_PREVIOUS`
+/// value, blank entries ignored.
+fn previous_keys(list: &SecretString) -> Result<Vec<SecretsKey>, SecretBoxError> {
+    list.expose_secret()
+        .split(',')
+        .filter(|entry| !entry.trim().is_empty())
+        .map(|entry| {
+            SecretsKey::parse(
+                &SecretString::from(entry.to_string()),
+                SECRETS_KEY_PREVIOUS_SETTING,
+            )
+        })
+        .collect()
+}
+
 /// Seals under the current key; opens under the current or a previous key.
 pub struct SecretBox {
     current: SecretsKey,
@@ -172,21 +189,7 @@ impl SecretBox {
         previous: Option<&SecretString>,
     ) -> Result<Self, SecretBoxError> {
         let current = SecretsKey::parse(current, SECRETS_KEY_SETTING)?;
-        let previous = previous
-            .map(|list| {
-                list.expose_secret()
-                    .split(',')
-                    .filter(|entry| !entry.trim().is_empty())
-                    .map(|entry| {
-                        SecretsKey::parse(
-                            &SecretString::from(entry.to_string()),
-                            SECRETS_KEY_PREVIOUS_SETTING,
-                        )
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-            })
-            .transpose()?
-            .unwrap_or_default();
+        let previous = previous.map(previous_keys).transpose()?.unwrap_or_default();
         Ok(Self::new(current, previous))
     }
 
@@ -238,7 +241,7 @@ impl SecretBox {
             .keys()
             .find(|key| key.id == key_id)
             .ok_or(SecretBoxError::OpenRefused)?;
-        let nonce = Nonce::try_assume_unique_for_key(&header[1 + KEY_ID_LEN..])
+        let nonce = Nonce::try_assume_unique_for_key(&header[NONCE_AT..])
             .map_err(|_| SecretBoxError::OpenRefused)?;
         let mut body = Zeroizing::new(body.to_vec());
         let plaintext = key

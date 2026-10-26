@@ -146,6 +146,6 @@ fn aside(reason: Option<ReasonCode>, destination: &str) -> String {
 }
 
 /// "14:02".
-fn clock(at: OffsetDateTime) -> String {
+pub(crate) fn clock(at: OffsetDateTime) -> String {
     format!("{:02}:{:02}", at.hour(), at.minute())
 }

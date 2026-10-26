@@ -43,6 +43,16 @@ pub struct MessageLines {
     pub link: Option<String>,
 }
 
+impl MessageLines {
+    /// The headline, the detail and the excerpt, in order: every line of
+    /// text (the button's address aside).
+    fn text(&self) -> impl Iterator<Item = &String> {
+        std::iter::once(&self.headline)
+            .chain(&self.detail)
+            .chain(&self.excerpt)
+    }
+}
+
 /// The button's label (K-8).
 pub const OPEN_IN_FOUNDRY: &str = "Open in Foundry";
 
@@ -181,9 +191,8 @@ pub fn encode_slack(lines: &MessageLines) -> EncodedMessage {
             "elements": [{ "type": "button", "text": plain(OPEN_IN_FOUNDRY), "url": url }]
         }));
     }
-    let fallback = std::iter::once(&lines.headline)
-        .chain(&lines.detail)
-        .chain(&lines.excerpt)
+    let fallback = lines
+        .text()
         .map(String::as_str)
         .collect::<Vec<_>>()
         .join("\n");
@@ -214,11 +223,7 @@ const WORD_JOINER: char = '\u{2060}';
 /// HTML-escaped with its `@`s joined apart, and `m.mentions: {}`, so no text
 /// can mention the room or anyone in it.
 pub fn encode_matrix(lines: &MessageLines) -> EncodedMessage {
-    let text: Vec<String> = std::iter::once(&lines.headline)
-        .chain(&lines.detail)
-        .chain(&lines.excerpt)
-        .map(|line| defuse_mentions(line))
-        .collect();
+    let text: Vec<String> = lines.text().map(|line| defuse_mentions(line)).collect();
     let mut html: Vec<String> = text.iter().map(|line| escape_html(line)).collect();
     html[0] = format!("<strong>{}</strong>", html[0]);
     let mut body = text.join("\n");

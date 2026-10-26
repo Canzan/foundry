@@ -54,7 +54,7 @@ use crate::Principal;
 use foundry_auth::secret_box::SealedSecret;
 use foundry_core::TeamAccess;
 use foundry_integrations::{
-    cancel_set, DestinationCatalog, DestinationRef, ReasonCode, TargetedDelivery,
+    cancel_set, ChannelKind, DestinationCatalog, DestinationRef, ReasonCode, TargetedDelivery,
 };
 use foundry_integrations::{email_events, EmailScope, EventKind};
 use foundry_store::integrations::{
@@ -72,6 +72,13 @@ use uuid::Uuid;
 /// The connection kinds this module connects.
 pub const SLACK: &str = "slack";
 pub const MATRIX: &str = "matrix";
+
+/// The stored connection states the pages tell apart.
+const LOST: &str = "lost";
+const DISCONNECTED: &str = "disconnected";
+
+/// The door every change of this module comes through (`via`).
+const VIA_WEB: &str = "web";
 
 /// How many activity lines the workspace page lists.
 pub const ACTIVITY_LIMIT: i64 = 50;
@@ -365,18 +372,18 @@ pub(crate) async fn workspace_view(
     require_admin(records, principal).await?;
     let workspace_id = principal.workspace_id();
     let connections = records.connections(workspace_id).await?;
-    let current = connections
-        .iter()
-        .find(|c| c.kind == SLACK && c.state != "disconnected");
-    let slack_lost = current.filter(|c| c.state == "lost").map(|c| LostSlack {
+    let live = |kind: &str| {
+        connections
+            .iter()
+            .find(|c| c.kind == kind && c.state != DISCONNECTED)
+    };
+    let current = live(SLACK);
+    let slack_lost = current.filter(|c| c.state == LOST).map(|c| LostSlack {
         workspace_name: c.workspace_name.clone(),
         reason: c.lost_reason.clone(),
     });
-    let slack = current.filter(|c| c.state != "lost").map(connected_line);
-    let matrix = connections
-        .iter()
-        .find(|c| c.kind == MATRIX && c.state != "disconnected")
-        .map(matrix_line);
+    let slack = current.filter(|c| c.state != LOST).map(connected_line);
+    let matrix = live(MATRIX).map(matrix_line);
     let activity = records
         .activity(workspace_id, ACTIVITY_LIMIT)
         .await?
@@ -397,11 +404,7 @@ pub(crate) async fn slack_connection_id(
     records: &impl IntegrationRecords,
     principal: &Principal,
 ) -> Result<Uuid, IntegrationError> {
-    require_admin(records, principal).await?;
-    Ok(records
-        .connection_id(principal.workspace_id(), SLACK)
-        .await?
-        .unwrap_or_else(Uuid::now_v7))
+    connection_row_id(records, principal, SLACK).await
 }
 
 /// The row a new Matrix bot token is sealed for: the workspace's existing
@@ -410,9 +413,18 @@ pub(crate) async fn matrix_connection_id(
     records: &impl IntegrationRecords,
     principal: &Principal,
 ) -> Result<Uuid, IntegrationError> {
+    connection_row_id(records, principal, MATRIX).await
+}
+
+/// Admins only: the workspace's connection row of `kind`, or a fresh id.
+async fn connection_row_id(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    kind: &str,
+) -> Result<Uuid, IntegrationError> {
     require_admin(records, principal).await?;
     Ok(records
-        .connection_id(principal.workspace_id(), MATRIX)
+        .connection_id(principal.workspace_id(), kind)
         .await?
         .unwrap_or_else(Uuid::now_v7))
 }
@@ -538,14 +550,8 @@ pub(crate) async fn route_target(
     project_slug: &str,
 ) -> Result<RouteTarget, IntegrationError> {
     let project = managed_project(records, principal, team_slug, project_slug).await?;
-    let connection = records
-        .sealed_connection(principal.workspace_id(), SLACK)
-        .await?
-        .filter(|c| c.state != "disconnected");
-    let matrix_connection = records
-        .sealed_connection(principal.workspace_id(), MATRIX)
-        .await?
-        .filter(|c| c.state != "disconnected");
+    let connection = usable_connection(records, principal, SLACK).await?;
+    let matrix_connection = usable_connection(records, principal, MATRIX).await?;
     let lanes = records
         .project_lanes(project.id)
         .await?
@@ -565,6 +571,29 @@ pub(crate) async fn route_target(
         matrix_connection,
         lanes,
     })
+}
+
+/// The workspace's connection of `kind`, unless it is disconnected.
+async fn usable_connection(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    kind: &str,
+) -> Result<Option<SealedConnection>, IntegrationError> {
+    Ok(records
+        .sealed_connection(principal.workspace_id(), kind)
+        .await?
+        .filter(|c| c.state != DISCONNECTED))
+}
+
+impl RouteTarget {
+    /// The workspace's usable connection a route of `kind` posts through.
+    fn connection_of(&self, kind: &str) -> Option<&SealedConnection> {
+        match kind {
+            SLACK => self.connection.as_ref(),
+            MATRIX => self.matrix_connection.as_ref(),
+            _ => None,
+        }
+    }
 }
 
 /// What a preview renders (Manage): reads only, writes nothing, asks no
@@ -595,17 +624,15 @@ pub(crate) async fn create_route(
     now: OffsetDateTime,
 ) -> Result<Uuid, IntegrationError> {
     let target = route_target(records, principal, team_slug, project_slug).await?;
-    let connection = match draft.kind.as_str() {
-        SLACK => target.connection.clone(),
-        MATRIX => target.matrix_connection.clone(),
-        _ => None,
-    }
-    .ok_or(IntegrationError::NotFound)?;
+    let connection_id = target
+        .connection_of(&draft.kind)
+        .ok_or(IntegrationError::NotFound)?
+        .id;
     let lanes = checked_choices(&target, &draft.events, &draft.content_level, &draft.lanes)?;
     let route = NewRoute {
         workspace_id: target.workspace_id,
         project_id: target.project_id,
-        connection_id: Some(connection.id),
+        connection_id: Some(connection_id),
         kind: draft.kind,
         destination_ref: draft.destination_ref,
         destination_label: draft.destination_label,
@@ -614,7 +641,7 @@ pub(crate) async fn create_route(
         shared_confirmed: draft.shared_confirmed,
         lanes,
         created_by: principal.user_id(),
-        created_via: "web".to_string(),
+        created_via: VIA_WEB.to_string(),
         created_at: now,
     };
     match records.create_route(&route).await? {
@@ -689,7 +716,7 @@ pub(crate) async fn change_route(
         project_id: target.project_id,
         route_id,
         actor_id: principal.user_id(),
-        via: "web".to_string(),
+        via: VIA_WEB.to_string(),
         at: now,
     };
     let outcome = match action {
@@ -764,21 +791,25 @@ pub(crate) async fn disconnect(
         workspace_id: principal.workspace_id(),
         kind: kind.to_string(),
         actor_id: principal.user_id(),
-        via: "web".to_string(),
+        via: VIA_WEB.to_string(),
         at: now,
     };
     Ok(records
-        .disconnect_connection(&change, |candidates| {
-            let deliveries = targeted(candidates);
-            let mut routes: Vec<Uuid> = candidates.iter().map(|c| c.route_id).collect();
-            routes.sort_unstable();
-            routes.dedup();
-            routes
-                .into_iter()
-                .flat_map(|route| cancel_set(route, now, &deliveries))
-                .collect()
-        })
+        .disconnect_connection(&change, |candidates| connection_cancel_set(candidates, now))
         .await?)
+}
+
+/// What a disconnect skips at `now`: [`cancel_set`] for each route of the
+/// connection, in route order.
+fn connection_cancel_set(candidates: &[CancelCandidate], now: OffsetDateTime) -> Vec<i64> {
+    let deliveries = targeted(candidates);
+    let mut routes: Vec<Uuid> = candidates.iter().map(|c| c.route_id).collect();
+    routes.sort_unstable();
+    routes.dedup();
+    routes
+        .into_iter()
+        .flat_map(|route| cancel_set(route, now, &deliveries))
+        .collect()
 }
 
 /// Whether the route `route_id` may resume: it has no channel problem, or
@@ -829,14 +860,10 @@ fn connected_line(connection: &ConnectionRow) -> String {
         .as_deref()
         .map(|d| format!(" ({d})"))
         .unwrap_or_default();
-    let by = connection
-        .connected_by_name
-        .as_deref()
-        .map(|name| format!(" · by {name}"))
-        .unwrap_or_default();
     format!(
-        "Connected to {}{detail}{by} · {}",
+        "Connected to {}{detail}{} · {}",
         connection.label,
+        connected_by(connection),
         display_date(connection.connected_at)
     )
 }
@@ -845,16 +872,21 @@ fn connected_line(connection: &ConnectionRow) -> String {
 /// token field's "saved {date}".
 fn matrix_line(connection: &ConnectionRow) -> MatrixLine {
     let bot = connection.detail.as_deref().unwrap_or_default();
-    let by = connection
-        .connected_by_name
-        .as_deref()
-        .map(|name| format!(" · by {name}"))
-        .unwrap_or_default();
+    let by = connected_by(connection);
     let date = display_date(connection.connected_at);
     MatrixLine {
         connected: format!("Connected as {bot} on {}{by} · {date}", connection.label),
         token_saved: format!("saved {date}"),
     }
+}
+
+/// " · by {admin}", or nothing when the admin is unknown.
+fn connected_by(connection: &ConnectionRow) -> String {
+    connection
+        .connected_by_name
+        .as_deref()
+        .map(|name| format!(" · by {name}"))
+        .unwrap_or_default()
 }
 
 /// R-4: one pattern for every activity line.
@@ -879,20 +911,159 @@ fn activity_line(row: &AuditRow) -> String {
     format!("{date} · {actor} {what}")
 }
 
+/// A kind as K-9 names it; an unknown kind as stored.
 fn kind_name(kind: &str) -> &str {
-    match kind {
-        "slack" => "Slack",
-        "matrix" => "Matrix",
-        "webhook" => "Webhook",
-        "email" => "Email",
-        other => other,
-    }
+    ChannelKind::from_wire_name(kind).map_or(kind, |known| known.display_name())
 }
 
 /// "21 Oct 2026".
 fn display_date(at: OffsetDateTime) -> String {
     let month = at.month().to_string();
     format!("{} {} {}", at.day(), &month[..3], at.year())
+}
+
+/// A member's Project emails section: the projects they can open, and their
+/// choices in them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProjectEmails {
+    pub projects: Vec<EmailProject>,
+    pub choices: Vec<EmailChoiceRow>,
+}
+
+/// One choice as a member submits it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct EmailChoiceInput {
+    pub project_id: Uuid,
+    pub event: EventKind,
+    pub scope: EmailScope,
+}
+
+/// One saved choice, as the confirmation names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedEmailChoice {
+    pub project_name: String,
+    pub event: EventKind,
+    pub scope: EmailScope,
+}
+
+/// The member's Project emails: only projects they can open, with only the
+/// choices they made.
+pub(crate) async fn project_emails(
+    records: &impl IntegrationRecords,
+    user_id: Uuid,
+) -> Result<ProjectEmails, IntegrationError> {
+    let projects = records.email_projects(user_id).await?;
+    let choices = records
+        .email_choices(user_id)
+        .await?
+        .into_iter()
+        .filter(|c| projects.iter().any(|p| p.project_id == c.project_id))
+        .collect();
+    Ok(ProjectEmails { projects, choices })
+}
+
+/// Replace the member's choices with `submitted` in every project they can
+/// open. A choice for any other project refuses the save, nothing written.
+/// Ticking both scopes of one event keeps "all issues".
+pub(crate) async fn save_project_emails(
+    records: &impl IntegrationRecords,
+    user_id: Uuid,
+    submitted: &[EmailChoiceInput],
+) -> Result<Vec<SavedEmailChoice>, IntegrationError> {
+    let projects = records.email_projects(user_id).await?;
+    if !submitted
+        .iter()
+        .all(|c| projects.iter().any(|p| p.project_id == c.project_id))
+    {
+        return Err(IntegrationError::NotFound);
+    }
+    let mut saved = Vec::new();
+    for project in &projects {
+        let chosen = project_choices(submitted, project.project_id);
+        let rows: Vec<(String, String)> = chosen
+            .iter()
+            .map(|(event, scope)| (event.wire_name().to_string(), scope.wire_name().to_string()))
+            .collect();
+        if records
+            .save_email_choices(user_id, project.project_id, &rows)
+            .await?
+        {
+            saved.extend(chosen.into_iter().map(|(event, scope)| SavedEmailChoice {
+                project_name: project.project_name.clone(),
+                event,
+                scope,
+            }));
+        }
+    }
+    Ok(saved)
+}
+
+/// The submitted choices in `project_id`, one per event: ticking both scopes
+/// of one event keeps "all issues".
+fn project_choices(
+    submitted: &[EmailChoiceInput],
+    project_id: Uuid,
+) -> Vec<(EventKind, EmailScope)> {
+    let mut chosen: Vec<(EventKind, EmailScope)> = Vec::new();
+    for choice in submitted.iter().filter(|c| c.project_id == project_id) {
+        match chosen.iter_mut().find(|(event, _)| *event == choice.event) {
+            Some((_, scope)) if choice.scope == EmailScope::All => *scope = EmailScope::All,
+            Some(_) => {}
+            None => chosen.push((choice.event, choice.scope)),
+        }
+    }
+    chosen
+}
+
+/// The one choice a stop link names, as its pages say it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmailStop {
+    pub project_name: String,
+    pub event: EventKind,
+}
+
+/// The event a stop link may name: one a member can choose by email.
+fn stoppable(event: &str) -> Result<EventKind, IntegrationError> {
+    EventKind::from_wire_name(event)
+        .filter(|kind| email_events().any(|e| e == *kind))
+        .ok_or(IntegrationError::NotFound)
+}
+
+/// What a stop link's confirm page names (it changes nothing): the live
+/// project and the event; anything else is the uniform refusal.
+pub(crate) async fn email_stop_target(
+    records: &impl IntegrationRecords,
+    project_id: Uuid,
+    event: &str,
+) -> Result<EmailStop, IntegrationError> {
+    let event = stoppable(event)?;
+    let project_name = records
+        .email_stop_project(project_id)
+        .await?
+        .ok_or(IntegrationError::NotFound)?;
+    Ok(EmailStop {
+        project_name,
+        event,
+    })
+}
+
+/// Stop the member's `event` emails from `project_id` (US-EIP-11): that one
+/// choice goes, the others stay. Stopping twice stops once.
+pub(crate) async fn stop_project_email(
+    records: &impl IntegrationRecords,
+    user_id: Uuid,
+    project_id: Uuid,
+    event: &str,
+) -> Result<EmailStop, IntegrationError> {
+    let event = stoppable(event)?;
+    let project_name = records
+        .stop_email_choice(user_id, project_id, event.wire_name())
+        .await?
+        .ok_or(IntegrationError::NotFound)?;
+    Ok(EmailStop {
+        project_name,
+        event,
+    })
 }
 
 #[cfg(test)]
@@ -974,141 +1145,4 @@ mod copy {
     fn single_digit_days_are_not_padded() {
         assert_eq!(display_date(datetime!(2026-09-05 08:00 UTC)), "5 Sep 2026");
     }
-}
-
-/// A member's Project emails section: the projects they can open, and their
-/// choices in them.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProjectEmails {
-    pub projects: Vec<EmailProject>,
-    pub choices: Vec<EmailChoiceRow>,
-}
-
-/// One choice as a member submits it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct EmailChoiceInput {
-    pub project_id: Uuid,
-    pub event: EventKind,
-    pub scope: EmailScope,
-}
-
-/// One saved choice, as the confirmation names it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct SavedEmailChoice {
-    pub project_name: String,
-    pub event: EventKind,
-    pub scope: EmailScope,
-}
-
-/// The member's Project emails: only projects they can open, with only the
-/// choices they made.
-pub(crate) async fn project_emails(
-    records: &impl IntegrationRecords,
-    user_id: Uuid,
-) -> Result<ProjectEmails, IntegrationError> {
-    let projects = records.email_projects(user_id).await?;
-    let choices = records
-        .email_choices(user_id)
-        .await?
-        .into_iter()
-        .filter(|c| projects.iter().any(|p| p.project_id == c.project_id))
-        .collect();
-    Ok(ProjectEmails { projects, choices })
-}
-
-/// Replace the member's choices with `submitted` in every project they can
-/// open. A choice for any other project refuses the save, nothing written.
-/// Ticking both scopes of one event keeps "all issues".
-pub(crate) async fn save_project_emails(
-    records: &impl IntegrationRecords,
-    user_id: Uuid,
-    submitted: &[EmailChoiceInput],
-) -> Result<Vec<SavedEmailChoice>, IntegrationError> {
-    let projects = records.email_projects(user_id).await?;
-    if !submitted
-        .iter()
-        .all(|c| projects.iter().any(|p| p.project_id == c.project_id))
-    {
-        return Err(IntegrationError::NotFound);
-    }
-    let mut saved = Vec::new();
-    for project in &projects {
-        let mut chosen: Vec<(EventKind, EmailScope)> = Vec::new();
-        for choice in submitted
-            .iter()
-            .filter(|c| c.project_id == project.project_id)
-        {
-            match chosen.iter_mut().find(|(event, _)| *event == choice.event) {
-                Some((_, scope)) if choice.scope == EmailScope::All => *scope = EmailScope::All,
-                Some(_) => {}
-                None => chosen.push((choice.event, choice.scope)),
-            }
-        }
-        let rows: Vec<(String, String)> = chosen
-            .iter()
-            .map(|(event, scope)| (event.wire_name().to_string(), scope.wire_name().to_string()))
-            .collect();
-        if records
-            .save_email_choices(user_id, project.project_id, &rows)
-            .await?
-        {
-            saved.extend(chosen.into_iter().map(|(event, scope)| SavedEmailChoice {
-                project_name: project.project_name.clone(),
-                event,
-                scope,
-            }));
-        }
-    }
-    Ok(saved)
-}
-
-/// The one choice a stop link names, as its pages say it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EmailStop {
-    pub project_name: String,
-    pub event: EventKind,
-}
-
-/// The event a stop link may name: one a member can choose by email.
-fn stoppable(event: &str) -> Result<EventKind, IntegrationError> {
-    EventKind::from_wire_name(event)
-        .filter(|kind| email_events().any(|e| e == *kind))
-        .ok_or(IntegrationError::NotFound)
-}
-
-/// What a stop link's confirm page names (it changes nothing): the live
-/// project and the event; anything else is the uniform refusal.
-pub(crate) async fn email_stop_target(
-    records: &impl IntegrationRecords,
-    project_id: Uuid,
-    event: &str,
-) -> Result<EmailStop, IntegrationError> {
-    let event = stoppable(event)?;
-    let project_name = records
-        .email_stop_project(project_id)
-        .await?
-        .ok_or(IntegrationError::NotFound)?;
-    Ok(EmailStop {
-        project_name,
-        event,
-    })
-}
-
-/// Stop the member's `event` emails from `project_id` (US-EIP-11): that one
-/// choice goes, the others stay. Stopping twice stops once.
-pub(crate) async fn stop_project_email(
-    records: &impl IntegrationRecords,
-    user_id: Uuid,
-    project_id: Uuid,
-    event: &str,
-) -> Result<EmailStop, IntegrationError> {
-    let event = stoppable(event)?;
-    let project_name = records
-        .stop_email_choice(user_id, project_id, event.wire_name())
-        .await?
-        .ok_or(IntegrationError::NotFound)?;
-    Ok(EmailStop {
-        project_name,
-        event,
-    })
 }

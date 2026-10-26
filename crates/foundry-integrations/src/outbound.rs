@@ -82,15 +82,18 @@ fn v6_in(ranges: &[&str], ip: Ipv6Addr) -> bool {
 /// `64:ff9b:1::/48` (the address in the last 32 bits) and 6to4 `2002::/16`.
 fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     let s = ip.segments();
-    let last = Ipv4Addr::new((s[6] >> 8) as u8, s[6] as u8, (s[7] >> 8) as u8, s[7] as u8);
     let mapped = s[..5] == [0; 5] && s[5] == 0xffff;
     let compatible = s[..6] == [0; 6];
     let nat64 = s[..6] == [0x64, 0xff9b, 0, 0, 0, 0] || s[..3] == [0x64, 0xff9b, 1];
     if mapped || compatible || nat64 {
-        return Some(last);
+        return Some(v4_of(s[6], s[7]));
     }
-    (s[0] == 0x2002)
-        .then(|| Ipv4Addr::new((s[1] >> 8) as u8, s[1] as u8, (s[2] >> 8) as u8, s[2] as u8))
+    (s[0] == 0x2002).then(|| v4_of(s[1], s[2]))
+}
+
+/// The IPv4 address two IPv6 segments spell, high segment first.
+fn v4_of(high: u16, low: u16) -> Ipv4Addr {
+    Ipv4Addr::from((u32::from(high) << 16) | u32::from(low))
 }
 
 /// The address judged in place of `ip`: an embedded IPv4 address if any.

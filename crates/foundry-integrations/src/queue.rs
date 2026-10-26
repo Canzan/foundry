@@ -18,7 +18,7 @@ impl QueuedDelivery {
     /// A lease is live until its `lease_until`; an expired one is a crashed
     /// sender's, and frees the row.
     fn is_leased_at(&self, now: OffsetDateTime) -> bool {
-        self.lease_until.is_some_and(|until| until > now)
+        lease_is_live(self.lease_until, now)
     }
 
     fn is_due_at(&self, now: OffsetDateTime) -> bool {
@@ -34,6 +34,11 @@ impl QueuedDelivery {
     pub(crate) fn is_expired_at(&self, now: OffsetDateTime) -> bool {
         self.is_past_give_up_at(now) && !self.is_leased_at(now)
     }
+}
+
+/// A lease is live until its `lease_until`.
+fn lease_is_live(lease_until: Option<OffsetDateTime>, now: OffsetDateTime) -> bool {
+    lease_until.is_some_and(|until| until > now)
 }
 
 /// The delivery a sender may claim on one route: the head (its lowest id), and
@@ -79,7 +84,7 @@ pub fn cancel_set(target: Uuid, now: OffsetDateTime, deliveries: &[TargetedDeliv
     deliveries
         .iter()
         .filter(|delivery| delivery.target == target && !delivery.finished)
-        .filter(|delivery| delivery.lease_until.is_none_or(|until| until <= now))
+        .filter(|delivery| !lease_is_live(delivery.lease_until, now))
         .map(|delivery| delivery.id)
         .collect()
 }

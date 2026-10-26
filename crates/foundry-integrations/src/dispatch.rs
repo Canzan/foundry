@@ -121,10 +121,20 @@ impl<'a> RoutableEvent<'a> {
         (self.row.source_txid, route.id, self.kind)
     }
 
+    /// The issue the row names, if it names one.
+    pub(crate) fn issue_id(&self) -> Option<Uuid> {
+        payload_uuid(&self.row.payload, "issue_id")
+    }
+
+    /// The issue's key as the row recorded it, e.g. `AUTH-12`.
+    pub(crate) fn issue_key(&self) -> Option<String> {
+        self.row.payload["key"].as_str().map(str::to_owned)
+    }
+
     fn delivery_to(&self, route: &RouteSpec) -> PlannedDelivery {
         PlannedDelivery {
-            issue_id: payload_uuid(&self.row.payload, "issue_id"),
-            issue_key: self.row.payload["key"].as_str().map(str::to_owned),
+            issue_id: self.issue_id(),
+            issue_key: self.issue_key(),
             ..self.burst_to(route, vec![self.row.id])
         }
     }

@@ -1,6 +1,7 @@
 //! A route's status (DDR-19): derived from what is stored, never stored
 //! itself. [`RouteStatus::derive`] applies the eight rules, first match wins.
 
+use crate::history::clock;
 use crate::{ChannelKind, ConnectionState, ReasonCode};
 use time::OffsetDateTime;
 
@@ -122,11 +123,7 @@ impl RouteStatus {
             RouteStatus::Retrying(None) => "Retrying".to_string(),
             RouteStatus::Delivering {
                 last_delivery: Some(at),
-            } => format!(
-                "Delivering · last delivery {:02}:{:02}",
-                at.hour(),
-                at.minute()
-            ),
+            } => format!("Delivering · last delivery {}", clock(*at)),
             RouteStatus::Delivering {
                 last_delivery: None,
             } => "Delivering".to_string(),

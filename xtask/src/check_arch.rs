@@ -14680,12 +14680,12 @@ fn check_integrations_store_capability(root: &Path) -> Vec<String> {
         }
         let (sources, unreadable) = files_under(&dir, "rs", &|_| false);
         files.extend(sources.into_iter().filter(|file| *file != dir.join(seam)));
-        violations.extend(unreadable.iter().map(|dir| {
-            format!(
-                "{STORE_CAPABILITY_ID}: cannot list {} ({STORE_CAPABILITY_REFERENCE}).",
-                rel(root, dir)
-            )
-        }));
+        violations.extend(cannot_list(
+            root,
+            &unreadable,
+            STORE_CAPABILITY_ID,
+            STORE_CAPABILITY_REFERENCE,
+        ));
     }
     for file in files {
         let Ok(contents) = std::fs::read_to_string(&file) else {
@@ -14735,6 +14735,14 @@ fn line_at(text: &str, offset: usize) -> usize {
     text[..offset].matches('\n').count() + 1
 }
 
+/// One "cannot list" violation of the integrations rule `id` per directory
+/// `files_under` could not read.
+fn cannot_list(root: &Path, dirs: &[PathBuf], id: &str, reference: &str) -> Vec<String> {
+    dirs.iter()
+        .map(|dir| format!("{id}: cannot list {} ({reference}).", rel(root, dir)))
+        .collect()
+}
+
 const SECRET_SEAM_ID: &str = "integrations-secret-seam";
 const SECRET_SEAM_REFERENCE: &str = "external-integration-plugins ADR-EIP-004, DDR-9";
 /// The `SecretBox` definition, whose own tests open what they seal.
@@ -14770,12 +14778,12 @@ fn check_integrations_secret_seam(root: &Path) -> Vec<String> {
         .filter(|src| src.is_dir())
     {
         let (sources, unreadable) = files_under(&src, "rs", &|_| false);
-        violations.extend(unreadable.iter().map(|dir| {
-            format!(
-                "{SECRET_SEAM_ID}: cannot list {} ({SECRET_SEAM_REFERENCE}).",
-                rel(root, dir)
-            )
-        }));
+        violations.extend(cannot_list(
+            root,
+            &unreadable,
+            SECRET_SEAM_ID,
+            SECRET_SEAM_REFERENCE,
+        ));
         for file in sources {
             let file_rel = rel(root, &file);
             if file_rel == SECRET_BOX_DEFINITION || file.starts_with(&module) {
@@ -14790,17 +14798,19 @@ fn check_integrations_secret_seam(root: &Path) -> Vec<String> {
             violations.extend(
                 secret_openings(&file_rel, &contents)
                     .into_iter()
-                    .map(|line| {
-                        format!(
-                    "{SECRET_SEAM_ID}: {file_rel}:{line} opens a sealed credential — only the \
-                     integrations adapters and connect handlers ({SECRET_SEAM_MODULE}/) and the \
-                     doctor rotation command may open one ({SECRET_SEAM_REFERENCE})."
-                )
-                    }),
+                    .map(|line| secret_opening_violation(&file_rel, line)),
             );
         }
     }
     violations
+}
+
+fn secret_opening_violation(file_rel: &str, line: usize) -> String {
+    format!(
+        "{SECRET_SEAM_ID}: {file_rel}:{line} opens a sealed credential — only the \
+         integrations adapters and connect handlers ({SECRET_SEAM_MODULE}/) and the \
+         doctor rotation command may open one ({SECRET_SEAM_REFERENCE})."
+    )
 }
 
 /// The 1-based lines of the openings in one file naming the sealed-secret
@@ -14884,15 +14894,7 @@ fn check_integrations_test_seam(root: &Path) -> Vec<String> {
 /// attribute lines, is not the test-support gate.
 fn test_seam_ungated(root: &Path) -> Vec<String> {
     let (sources, unreadable) = files_under(&root.join(TEST_SEAM_CRATE), "rs", &|_| false);
-    let mut violations: Vec<String> = unreadable
-        .iter()
-        .map(|dir| {
-            format!(
-                "{TEST_SEAM_ID}: cannot list {} ({TEST_SEAM_REFERENCE}).",
-                rel(root, dir)
-            )
-        })
-        .collect();
+    let mut violations = cannot_list(root, &unreadable, TEST_SEAM_ID, TEST_SEAM_REFERENCE);
     for file in sources {
         let Ok(contents) = std::fs::read_to_string(&file) else {
             violations.push(format!(
@@ -15091,15 +15093,7 @@ const CLIENT_CONSTRUCTORS: [&str; 4] = [
 /// each of the two must build its client. Comments and strings are ignored.
 fn check_integrations_outbound_client_seam(root: &Path) -> Vec<String> {
     let (sources, unreadable) = files_under(&root.join(OUTBOUND_SEAM_DIR), "rs", &|_| false);
-    let mut violations: Vec<String> = unreadable
-        .iter()
-        .map(|dir| {
-            format!(
-                "{OUTBOUND_SEAM_ID}: cannot list {} ({OUTBOUND_SEAM_REFERENCE}).",
-                rel(root, dir)
-            )
-        })
-        .collect();
+    let mut violations = cannot_list(root, &unreadable, OUTBOUND_SEAM_ID, OUTBOUND_SEAM_REFERENCE);
     let mut built: BTreeSet<&str> = BTreeSet::new();
     for file in sources {
         let file_rel = rel(root, &file);

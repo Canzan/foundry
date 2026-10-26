@@ -43,37 +43,6 @@ impl DestinationCheck {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn check(can_post: bool, member: bool) -> DestinationCheck {
-        DestinationCheck {
-            can_post,
-            member,
-            shared_with_another_organisation: false,
-            encrypted: false,
-        }
-    }
-
-    #[test]
-    fn removed_bot_needs_to_be_invited_back() {
-        for problem in [ReasonCode::NotInChannel, ReasonCode::BotNotInRoom] {
-            assert!(check(true, true).clears(problem));
-            assert!(!check(true, false).clears(problem));
-            assert!(!check(false, true).clears(problem));
-        }
-    }
-
-    #[test]
-    fn other_problems_clear_once_the_bot_can_post() {
-        for problem in [ReasonCode::ChannelArchived, ReasonCode::ChannelNotFound] {
-            assert!(check(true, false).clears(problem));
-            assert!(!check(false, true).clears(problem));
-        }
-    }
-}
-
 /// A kind's encoded message, as its encoder produced it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct EncodedMessage(pub serde_json::Value);
@@ -140,4 +109,35 @@ pub enum EmailTransportError {
 #[async_trait]
 pub trait EmailTransport: Send + Sync {
     async fn send(&self, email: &OutboundEmail) -> Result<(), EmailTransportError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn check(can_post: bool, member: bool) -> DestinationCheck {
+        DestinationCheck {
+            can_post,
+            member,
+            shared_with_another_organisation: false,
+            encrypted: false,
+        }
+    }
+
+    #[test]
+    fn removed_bot_needs_to_be_invited_back() {
+        for problem in [ReasonCode::NotInChannel, ReasonCode::BotNotInRoom] {
+            assert!(check(true, true).clears(problem));
+            assert!(!check(true, false).clears(problem));
+            assert!(!check(false, true).clears(problem));
+        }
+    }
+
+    #[test]
+    fn other_problems_clear_once_the_bot_can_post() {
+        for problem in [ReasonCode::ChannelArchived, ReasonCode::ChannelNotFound] {
+            assert!(check(true, false).clears(problem));
+            assert!(!check(false, true).clears(problem));
+        }
+    }
 }

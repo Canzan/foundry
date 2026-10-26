@@ -108,8 +108,8 @@ pub fn plan_emails(rows: &[OutboxRow], choices: &[EmailChoice]) -> Vec<PlannedEm
                     event_kind: event.kind,
                     event_id: event.row.event_id,
                     outbox_id: event.row.id,
-                    issue_id: payload_uuid(&event.row.payload, "issue_id"),
-                    issue_key: event.row.payload["key"].as_str().map(str::to_owned),
+                    issue_id: event.issue_id(),
+                    issue_key: event.issue_key(),
                     occurred_at: event.occurred_at,
                 })
         })

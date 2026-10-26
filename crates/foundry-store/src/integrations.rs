@@ -233,66 +233,73 @@ pub enum DeliveryResult {
     },
 }
 
-/// The columns a record writes: status, whether it finishes the row, the next
-/// attempt, the vendor's reason, the final reason and whether the vendor
-/// asked Foundry to slow down.
-type RecordColumns<'a> = (
-    &'a str,
-    bool,
-    Option<OffsetDateTime>,
-    Option<&'a str>,
-    Option<&'a str>,
-    bool,
-);
+/// The columns a record writes.
+struct RecordColumns<'a> {
+    status: &'a str,
+    /// The record finishes the row (`finished_at`).
+    finishes: bool,
+    next_attempt_at: Option<OffsetDateTime>,
+    vendor_reason: Option<&'a str>,
+    final_reason: Option<&'a str>,
+    /// The vendor asked Foundry to slow down.
+    slowed_down: bool,
+}
+
+impl<'a> RecordColumns<'a> {
+    /// A finished row: `status`, for `final_reason` if any.
+    fn finished(status: &'a str, final_reason: Option<&'a str>) -> Self {
+        Self {
+            status,
+            finishes: true,
+            next_attempt_at: None,
+            vendor_reason: None,
+            final_reason,
+            slowed_down: false,
+        }
+    }
+
+    /// A row left pending, to be tried at `next_attempt_at` (unscheduled when
+    /// `None`).
+    fn pending(next_attempt_at: Option<OffsetDateTime>, vendor_reason: Option<&'a str>) -> Self {
+        Self {
+            status: STATUS_PENDING,
+            finishes: false,
+            next_attempt_at,
+            vendor_reason,
+            final_reason: None,
+            slowed_down: false,
+        }
+    }
+}
 
 impl DeliveryResult {
     fn columns(&self) -> RecordColumns<'_> {
         match self {
-            Self::Delivered => ("delivered", true, None, None, None, false),
+            Self::Delivered => RecordColumns::finished("delivered", None),
             Self::Retry {
                 next_attempt_at,
                 vendor_reason,
-            } => (
-                STATUS_PENDING,
-                false,
-                Some(*next_attempt_at),
-                vendor_reason.as_deref(),
-                None,
-                false,
-            ),
+            } => RecordColumns::pending(Some(*next_attempt_at), vendor_reason.as_deref()),
             Self::SlowedDown {
                 next_attempt_at,
                 vendor_reason,
                 ..
-            } => (
-                STATUS_PENDING,
-                false,
-                Some(*next_attempt_at),
-                Some(vendor_reason),
-                None,
-                true,
-            ),
-            Self::RouteRefused { vendor_reason } | Self::ConnectionRefused { vendor_reason } => (
-                STATUS_PENDING,
-                false,
-                None,
-                Some(vendor_reason),
-                None,
-                false,
-            ),
+            } => RecordColumns {
+                slowed_down: true,
+                ..RecordColumns::pending(Some(*next_attempt_at), Some(vendor_reason))
+            },
+            Self::RouteRefused { vendor_reason } | Self::ConnectionRefused { vendor_reason } => {
+                RecordColumns::pending(None, Some(vendor_reason))
+            }
             Self::Failed {
                 final_reason,
                 vendor_reason,
-            } => (
-                "failed",
-                true,
-                None,
-                vendor_reason.as_deref(),
-                Some(final_reason),
-                false,
-            ),
+            } => RecordColumns {
+                vendor_reason: vendor_reason.as_deref(),
+                ..RecordColumns::finished("failed", Some(final_reason))
+            },
             Self::Skipped { final_reason } => {
-                ("skipped", true, None, None, Some(final_reason), false)
+                RecordColumns::finished("skipped", Some(final_reason))
             }
         }
     }
@@ -703,6 +710,9 @@ const EXPIRE_SQL: &str = "
 /// A recorded row: its route and project, then its tally.
 type RecordedRow = (Option<Uuid>, Uuid, String, String, String, f64);
 
+/// [`TALLY_COLUMNS`] as Postgres answers them.
+type TallyRow = (String, String, String, f64);
+
 /// The fenced record: only the current claim of a pending row writes.
 const RECORD_SQL: &str = "
     UPDATE integration_deliveries
@@ -874,58 +884,11 @@ impl Store {
             tx.rollback().await?;
             return Ok(DispatchOutcome::Busy);
         }
-        let rows: Vec<EventRow> = sqlx::query_as(DISPATCH_READ_SQL)
-            .bind(max_transactions)
-            .fetch_all(&mut *tx)
-            .await?;
-        let events = rows
-            .into_iter()
-            .map(outbox_event)
-            .collect::<Result<Vec<_>, _>>()?;
-        let ids: Vec<i64> = events.iter().map(|e| e.id).collect();
-        let routes: Vec<RouteRow> = sqlx::query_as(DISPATCH_ROUTES_SQL)
-            .bind(&ids)
-            .fetch_all(&mut *tx)
-            .await?;
-        let email_choices: Vec<(Uuid, Uuid, Uuid, String, String)> =
-            sqlx::query_as(DISPATCH_EMAIL_CHOICES_SQL)
-                .bind(&ids)
-                .fetch_all(&mut *tx)
-                .await?;
-        let batch = DispatchBatch {
-            events,
-            routes: routes.into_iter().map(dispatch_route).collect(),
-            email_choices: email_choices
-                .into_iter()
-                .map(
-                    |(user_id, workspace_id, project_id, event, scope)| DispatchEmailChoice {
-                        user_id,
-                        workspace_id,
-                        project_id,
-                        event,
-                        scope,
-                    },
-                )
-                .collect(),
-        };
+        let batch = read_dispatch_batch(&mut tx, max_transactions).await?;
+        let ids: Vec<i64> = batch.events.iter().map(|e| e.id).collect();
         let deliveries = plan(&batch);
         for delivery in &deliveries {
-            let (route_id, recipient_user_id) = delivery.target.columns();
-            sqlx::query(INSERT_DELIVERY_SQL)
-                .bind(delivery.workspace_id)
-                .bind(delivery.project_id)
-                .bind(route_id)
-                .bind(&delivery.event_kind)
-                .bind(delivery.event_id)
-                .bind(&delivery.outbox_ids)
-                .bind(delivery.issue_id)
-                .bind(&delivery.issue_key)
-                .bind(delivery.occurred_at)
-                .bind(give_up_after.as_secs_f64())
-                .bind(dispatched_at)
-                .bind(recipient_user_id)
-                .execute(&mut *tx)
-                .await?;
+            insert_delivery(&mut tx, delivery, give_up_after, dispatched_at).await?;
         }
         sqlx::query("UPDATE outbox SET dispatched_at = $2 WHERE id = ANY($1)")
             .bind(&ids)
@@ -1090,31 +1053,25 @@ impl Store {
         now: OffsetDateTime,
         result: DeliveryResult,
     ) -> Result<RecordOutcome, StoreError> {
-        let (status, finishes, next_attempt_at, vendor_reason, final_reason, slowed_down) =
-            result.columns();
+        let columns = result.columns();
         let mut tx = self.pool.begin().await?;
         let written: Option<RecordedRow> = sqlx::query_as(&format!("{RECORD_SQL}{TALLY_COLUMNS}"))
             .bind(delivery_id)
             .bind(claim_id)
-            .bind(status)
-            .bind(next_attempt_at)
-            .bind(vendor_reason)
-            .bind(final_reason)
-            .bind(finishes)
+            .bind(columns.status)
+            .bind(columns.next_attempt_at)
+            .bind(columns.vendor_reason)
+            .bind(columns.final_reason)
+            .bind(columns.finishes)
             .bind(now)
-            .bind(slowed_down)
+            .bind(columns.slowed_down)
             .fetch_optional(&mut *tx)
             .await?;
         let Some((route_id, project_id, kind, event_kind, status, lag_seconds)) = written else {
             tx.rollback().await?;
             return Ok(RecordOutcome::LeaseLost);
         };
-        let tally = DeliveryTally {
-            kind,
-            event_kind,
-            status,
-            lag_seconds,
-        };
+        let tally = delivery_tally((kind, event_kind, status, lag_seconds));
         match (&result, route_id) {
             (
                 DeliveryResult::SlowedDown {
@@ -1289,22 +1246,13 @@ impl Store {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let failed: Vec<(String, String, String, f64)> =
-            sqlx::query_as(&format!("{EXPIRE_SQL}{TALLY_COLUMNS}"))
-                .bind(&ids)
-                .bind(now)
-                .bind(final_reason)
-                .fetch_all(&self.pool)
-                .await?;
-        Ok(failed
-            .into_iter()
-            .map(|(kind, event_kind, status, lag_seconds)| DeliveryTally {
-                kind,
-                event_kind,
-                status,
-                lag_seconds,
-            })
-            .collect())
+        let failed: Vec<TallyRow> = sqlx::query_as(&format!("{EXPIRE_SQL}{TALLY_COLUMNS}"))
+            .bind(&ids)
+            .bind(now)
+            .bind(final_reason)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(failed.into_iter().map(delivery_tally).collect())
     }
 
     /// A worker component's heartbeat (DDR-22): `role` on `replica` was alive
@@ -1414,17 +1362,7 @@ impl Store {
         .bind(&route.created_via)
         .execute(&mut *tx)
         .await?;
-        for lane in &route.lanes {
-            sqlx::query(
-                "INSERT INTO integration_route_lanes (route_id, lane_id, label_at_save)
-                 VALUES ($1, $2, $3)",
-            )
-            .bind(id)
-            .bind(lane.lane_id)
-            .bind(&lane.label_at_save)
-            .execute(&mut *tx)
-            .await?;
-        }
+        insert_route_lanes(&mut tx, id, &route.lanes).await?;
         sqlx::query(
             "INSERT INTO integration_audit_events
                     (id, workspace_id, project_id, actor_id, via, action, kind, subject, created_at)
@@ -1578,17 +1516,7 @@ impl Store {
             .bind(change.route_id)
             .execute(&mut *tx)
             .await?;
-        for lane in &edit.lanes {
-            sqlx::query(
-                "INSERT INTO integration_route_lanes (route_id, lane_id, label_at_save)
-                 VALUES ($1, $2, $3)",
-            )
-            .bind(change.route_id)
-            .bind(lane.lane_id)
-            .bind(&lane.label_at_save)
-            .execute(&mut *tx)
-            .await?;
-        }
+        insert_route_lanes(&mut tx, change.route_id, &edit.lanes).await?;
         route_audit(&mut tx, change, "route_edited").await?;
         tx.commit().await?;
         Ok(RouteChangeOutcome::Changed { cancelled: 0 })
@@ -1727,6 +1655,76 @@ fn scope_lock_id(path: &str, base: i64) -> i64 {
     (hash as i64) ^ base
 }
 
+/// What one dispatcher tick reads, in its transaction: up to
+/// `max_transactions` whole source transactions, and the routes and email
+/// choices of the projects they name.
+async fn read_dispatch_batch(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    max_transactions: i64,
+) -> Result<DispatchBatch, StoreError> {
+    let rows: Vec<EventRow> = sqlx::query_as(DISPATCH_READ_SQL)
+        .bind(max_transactions)
+        .fetch_all(&mut **tx)
+        .await?;
+    let events = rows
+        .into_iter()
+        .map(outbox_event)
+        .collect::<Result<Vec<_>, _>>()?;
+    let ids: Vec<i64> = events.iter().map(|e| e.id).collect();
+    let routes: Vec<RouteRow> = sqlx::query_as(DISPATCH_ROUTES_SQL)
+        .bind(&ids)
+        .fetch_all(&mut **tx)
+        .await?;
+    let email_choices: Vec<(Uuid, Uuid, Uuid, String, String)> =
+        sqlx::query_as(DISPATCH_EMAIL_CHOICES_SQL)
+            .bind(&ids)
+            .fetch_all(&mut **tx)
+            .await?;
+    Ok(DispatchBatch {
+        events,
+        routes: routes.into_iter().map(dispatch_route).collect(),
+        email_choices: email_choices
+            .into_iter()
+            .map(
+                |(user_id, workspace_id, project_id, event, scope)| DispatchEmailChoice {
+                    user_id,
+                    workspace_id,
+                    project_id,
+                    event,
+                    scope,
+                },
+            )
+            .collect(),
+    })
+}
+
+/// One planned delivery, queued with `give_up_at = dispatched_at +
+/// give_up_after`.
+async fn insert_delivery(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    delivery: &NewDelivery,
+    give_up_after: Duration,
+    dispatched_at: OffsetDateTime,
+) -> Result<(), StoreError> {
+    let (route_id, recipient_user_id) = delivery.target.columns();
+    sqlx::query(INSERT_DELIVERY_SQL)
+        .bind(delivery.workspace_id)
+        .bind(delivery.project_id)
+        .bind(route_id)
+        .bind(&delivery.event_kind)
+        .bind(delivery.event_id)
+        .bind(&delivery.outbox_ids)
+        .bind(delivery.issue_id)
+        .bind(&delivery.issue_key)
+        .bind(delivery.occurred_at)
+        .bind(give_up_after.as_secs_f64())
+        .bind(dispatched_at)
+        .bind(recipient_user_id)
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 fn outbox_event(row: EventRow) -> Result<OutboxEvent, StoreError> {
     let (id, event_id, txid, event_type, payload, created_at) = row;
     let source_txid = txid
@@ -1819,6 +1817,16 @@ fn dispatch_route(row: RouteRow) -> DispatchRoute {
             .zip(lane_slugs)
             .map(|(id, slug)| DispatchLane { id, slug })
             .collect(),
+    }
+}
+
+fn delivery_tally(row: TallyRow) -> DeliveryTally {
+    let (kind, event_kind, status, lag_seconds) = row;
+    DeliveryTally {
+        kind,
+        event_kind,
+        status,
+        lag_seconds,
     }
 }
 
@@ -2836,6 +2844,26 @@ async fn routes_receive_from_now(
     Ok(())
 }
 
+/// A route's filter lanes, in the write's transaction.
+async fn insert_route_lanes(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    route_id: Uuid,
+    lanes: &[RouteLane],
+) -> Result<(), StoreError> {
+    for lane in lanes {
+        sqlx::query(
+            "INSERT INTO integration_route_lanes (route_id, lane_id, label_at_save)
+             VALUES ($1, $2, $3)",
+        )
+        .bind(route_id)
+        .bind(lane.lane_id)
+        .bind(&lane.label_at_save)
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
+}
+
 /// A route change's audit record, in the change's transaction.
 async fn route_audit(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -2959,38 +2987,6 @@ impl Store {
         Ok(ResealOutcome::Resealed {
             credentials: rows.len(),
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn the_production_schema_keeps_the_canonical_lock_id() {
-        for path in ["", "\"$user\", public", "public", "\"$user\""] {
-            assert_eq!(scope_lock_id(path, DISPATCH_LOCK_ID), DISPATCH_LOCK_ID);
-        }
-    }
-
-    #[test]
-    fn each_schema_gets_its_own_stable_lock_id() {
-        let a = scope_lock_id("test_a", DISPATCH_LOCK_ID);
-        let b = scope_lock_id("test_b", DISPATCH_LOCK_ID);
-        assert_ne!(a, DISPATCH_LOCK_ID);
-        assert_ne!(a, b);
-        assert_eq!(a, scope_lock_id("test_a", DISPATCH_LOCK_ID));
-        assert_ne!(a, scope_lock_id("test_a", 0));
-    }
-
-    /// Two releases' dispatchers must contend during a rolling upgrade, so the
-    /// derivation is a cross-release contract: pinned, never re-derived.
-    #[test]
-    fn the_lock_id_is_stable_across_releases() {
-        assert_eq!(
-            scope_lock_id("eip", DISPATCH_LOCK_ID),
-            1_406_450_040_211_198_821
-        );
     }
 }
 
@@ -3144,5 +3140,37 @@ impl Store {
         }
         tx.commit().await?;
         Ok(true)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_production_schema_keeps_the_canonical_lock_id() {
+        for path in ["", "\"$user\", public", "public", "\"$user\""] {
+            assert_eq!(scope_lock_id(path, DISPATCH_LOCK_ID), DISPATCH_LOCK_ID);
+        }
+    }
+
+    #[test]
+    fn each_schema_gets_its_own_stable_lock_id() {
+        let a = scope_lock_id("test_a", DISPATCH_LOCK_ID);
+        let b = scope_lock_id("test_b", DISPATCH_LOCK_ID);
+        assert_ne!(a, DISPATCH_LOCK_ID);
+        assert_ne!(a, b);
+        assert_eq!(a, scope_lock_id("test_a", DISPATCH_LOCK_ID));
+        assert_ne!(a, scope_lock_id("test_a", 0));
+    }
+
+    /// Two releases' dispatchers must contend during a rolling upgrade, so the
+    /// derivation is a cross-release contract: pinned, never re-derived.
+    #[test]
+    fn the_lock_id_is_stable_across_releases() {
+        assert_eq!(
+            scope_lock_id("eip", DISPATCH_LOCK_ID),
+            1_406_450_040_211_198_821
+        );
     }
 }
