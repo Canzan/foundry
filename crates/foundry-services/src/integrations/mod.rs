@@ -87,10 +87,15 @@ pub const ACTIVITY_LIMIT: i64 = 50;
 /// retained minimum of 100 (NFR-EIP-7), so the 30-day tail stays visible.
 pub const HISTORY_LIMIT: i64 = 500;
 
-/// Opens the read-only destination catalogue of a connection, its credential
-/// opened inside the adapter (ADR-EIP-004); `None` when this Foundry cannot.
+/// Opens the read-only destination catalogue of a connection of `kind`
+/// (`slack`, `matrix`), its credential opened inside the adapter
+/// (ADR-EIP-004); `None` when this Foundry cannot.
 pub trait DestinationCatalogs: Sync {
-    fn catalogue(&self, connection: &SealedConnection) -> Option<Box<dyn DestinationCatalog>>;
+    fn catalogue(
+        &self,
+        kind: &str,
+        connection: &SealedConnection,
+    ) -> Option<Box<dyn DestinationCatalog>>;
 }
 
 /// The persistence the integration use-cases need, and nothing more.
@@ -813,7 +818,7 @@ fn connection_cancel_set(candidates: &[CancelCandidate], now: OffsetDateTime) ->
 }
 
 /// Whether the route `route_id` may resume: it has no channel problem, or
-/// the vendor now shows that problem gone.
+/// the vendor of the route's own kind now shows that problem gone.
 async fn problem_cleared(
     records: &impl IntegrationRecords,
     catalogs: &dyn DestinationCatalogs,
@@ -827,9 +832,8 @@ async fn problem_cleared(
         return Ok(true);
     };
     let Some(catalog) = target
-        .connection
-        .as_ref()
-        .and_then(|c| catalogs.catalogue(c))
+        .connection_of(&settings.kind)
+        .and_then(|c| catalogs.catalogue(&settings.kind, c))
     else {
         return Ok(false);
     };

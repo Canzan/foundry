@@ -25,7 +25,9 @@
 //!   route would send for the project's newest issue, from the one `compose`
 //!   the worker sends with; asks Slack nothing, writes nothing (DDR-25).
 //! - `POST …/integrations/routes/test`: exactly one K-7 message to the entered
-//!   channel, no row written, six a minute per person (DDR-25, R-5).
+//!   channel, no row written, six a minute per person (DDR-25, R-5); only to
+//!   a channel Slack lists among those Foundry can post to, as Save checks,
+//!   else Save's answer and nothing posted.
 //! - `POST …/integrations/routes`: checks the channel with Slack, then saves
 //!   the route and its audit record; sends nothing (DDR-25). A channel shared
 //!   with another organisation is saved only with the K-6 tick. A Matrix
@@ -68,7 +70,7 @@
 use super::matrix::{self, ConnectRefusal, MatrixBot, RoomFacts, RoomRefusal};
 use super::slack::{self, InstallState, SlackEvent};
 use super::store_capabilities::{ConnectionHealth, StoreCapabilities};
-use super::{chat_kind, credential_slot, SlackOffer};
+use super::{chat_kind, credential_slot, MatrixOffer, SlackOffer};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{ensure_csrf_cookie, response_with_optional_cookie};
 use crate::session::SESSION_KEY_USER_ID;
@@ -163,8 +165,11 @@ struct WorkspacePage {
     unavailable: bool,
     /// The Matrix connection line and its token field, when connected.
     matrix: Option<MatrixLine>,
-    /// Matrix can be connected: the secrets key is set.
+    /// Matrix can be connected: the secrets key is set (else K-18).
     matrix_offered: bool,
+    /// K-19 for Matrix: the saved connection cannot be read by this Foundry
+    /// (DD-2).
+    matrix_unavailable: bool,
     matrix_connect_path: &'static str,
     matrix_disconnect_path: &'static str,
     csrf: String,
@@ -370,6 +375,11 @@ impl FormAnswer {
 
     fn plain() -> Self {
         Self::with(None, StatusCode::OK)
+    }
+
+    /// The destination check refused the channel (Save and Send test alike).
+    fn cannot_post() -> Self {
+        Self::with(Some(CANNOT_POST), StatusCode::UNPROCESSABLE_ENTITY)
     }
 
     /// A preview: it never asks Slack for the channel list (DDR-25).
@@ -847,6 +857,13 @@ pub async fn send_test(
             .form(&state, &caller, &headers, &form, FormAnswer::plain())
             .await;
     };
+    // The destination check Save makes, with Save's answer: Send test posts
+    // only to a channel the picker offers (never a direct message).
+    if postable_destination(bot, &form.destination).await.is_none() {
+        return door
+            .form(&state, &caller, &headers, &form, FormAnswer::cannot_post())
+            .await;
+    }
     let message = encode_slack(&test_message(
         &door.target.project_name,
         &door.target.key_prefix,
@@ -863,7 +880,7 @@ pub async fn send_test(
         ChannelOutcome::Delivered => StatusCode::OK,
         _ => StatusCode::UNPROCESSABLE_ENTITY,
     };
-    let notice = test_notice(outcome, "the channel");
+    let notice = test_notice(outcome, &form.destination_label());
     door.form(
         &state,
         &caller,
@@ -899,13 +916,7 @@ pub async fn create_route(
     };
     let Some(destination) = checked else {
         return door
-            .form(
-                &state,
-                &caller,
-                &headers,
-                &form,
-                FormAnswer::with(Some(CANNOT_POST), StatusCode::UNPROCESSABLE_ENTITY),
-            )
+            .form(&state, &caller, &headers, &form, FormAnswer::cannot_post())
             .await;
     };
     if destination.shared_with_another_organisation && !form.shared_confirmed {
@@ -1010,16 +1021,11 @@ pub async fn delete_route(
     let Some(caller) = Caller::of(&state, &session).await else {
         return sign_in();
     };
-    let Ok(managed) = managed_route(&caller, &team_slug, &project_slug, &route_id).await else {
-        return change_route(
-            &state,
-            &session,
-            &team_slug,
-            &project_slug,
-            &route_id,
-            RouteAction::Delete,
-        )
-        .await;
+    // Without the route's settings there is no room to leave: nothing is
+    // deleted, so no bot is left in a room no route uses.
+    let managed = match managed_route(&caller, &team_slug, &project_slug, &route_id).await {
+        Ok(managed) => managed,
+        Err(response) => return response,
     };
     let deleted = caller
         .services
@@ -1537,7 +1543,7 @@ async fn create_matrix_route(
         return refused(NO_CHAT_CONNECTION.to_string()).await;
     };
     let room = form.destination.trim().to_string();
-    let (room_id, facts) = match enrol_in_room(bot, &room).await {
+    let (room_id, facts) = match enrol_in_room(caller, bot, &room).await {
         Ok(joined) => joined,
         Err(refusal) => return refused(door.room_refusal(refusal, &room)).await,
     };
@@ -1561,7 +1567,7 @@ async fn create_matrix_route(
         )
         .await;
     if let Err(err) = saved {
-        let _ = bot.withdraw(&room_id).await;
+        withdraw_unless_routed(caller, bot, &room_id).await;
         return refusal(err);
     }
     let notice = BOT_IN_ROOM
@@ -1573,8 +1579,9 @@ async fn create_matrix_route(
 
 /// Bring `bot` into `room` and read it: the room's id and what it shows, for
 /// an unencrypted room the bot joined. Else why not; the bot leaves a room it
-/// joined but cannot use.
+/// joined but cannot use, unless another route keeps it there.
 async fn enrol_in_room(
+    caller: &Caller,
     bot: &MatrixBot,
     room: &str,
 ) -> Result<(DestinationRef, RoomFacts), RoomRefusal> {
@@ -1589,10 +1596,27 @@ async fn enrol_in_room(
         other => {
             let refusal = other.map_or_else(|refusal| refusal, |_| RoomRefusal::Encrypted);
             if refusal != RoomRefusal::NotInvited {
-                let _ = bot.withdraw(&room_id).await;
+                withdraw_unless_routed(caller, bot, &room_id).await;
             }
             Err(refusal)
         }
+    }
+}
+
+/// After a Matrix save that failed: the bot leaves `room_id` only when no
+/// route of the workspace uses it (a room another project routes to keeps
+/// its bot), and never when that cannot be read.
+async fn withdraw_unless_routed(caller: &Caller, bot: &MatrixBot, room_id: &DestinationRef) {
+    let still_routed = caller
+        .services
+        .room_still_routed(
+            &caller.principal(),
+            foundry_services::integrations::MATRIX,
+            &room_id.0,
+        )
+        .await;
+    if matches!(still_routed, Ok(false)) {
+        let _ = bot.withdraw(room_id).await;
     }
 }
 
@@ -1864,14 +1888,16 @@ async fn workspace_page(
     };
     let integrations = state.integrations.current();
     let offer = integrations.slack_offer();
+    let matrix_offer = integrations.matrix_offer();
     let reconnect = slack_lost.is_some();
     let slack = slack.or_else(|| slack_lost.map(|lost| lost_words(&lost)));
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let page = WorkspacePage {
         nav: caller.nav(state, csrf.clone()).await,
         csrf,
+        matrix_offered: matrix_offer != MatrixOffer::NoSecretsKey,
+        matrix_unavailable: matrix_offer == MatrixOffer::Unavailable && matrix.is_some(),
         matrix,
-        matrix_offered: integrations.settings().secrets.is_some(),
         matrix_connect_path: MATRIX_CONNECT_PATH,
         matrix_disconnect_path: MATRIX_DISCONNECT_PATH,
         notice: notice.map(str::to_string),

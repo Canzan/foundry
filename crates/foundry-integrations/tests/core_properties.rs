@@ -254,7 +254,6 @@ proptest! {
     ///
     /// CONTRACT_SHAPE: pure-function
     #[test]
-    #[ignore = "RED until review fix A2"]
     fn claimable_head_takes_the_head_only_without_a_live_lease(
         mut deliveries in proptest::collection::vec(
             (maybe_at(), maybe_at(), -5i64..=5), 0..6

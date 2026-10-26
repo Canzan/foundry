@@ -207,6 +207,13 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 - Emails sent through an SMTP relay declare UTF-8, so non-ASCII text such as the stop-link
   footer's "·" displays correctly.
+- A Matrix route stopped because its bot was removed from the room can be resumed once the bot
+  is back in the room; Resume now re-checks the room on the homeserver instead of asking Slack.
+- Send test checks the destination the way Save does: it posts only to a channel Foundry may
+  post to, never to a private channel Foundry is not in or as a direct message.
+- Foundry's Matrix bot no longer leaves a room another project still routes to when a route save
+  to that room fails, and a route is never deleted while its bot stays behind in a room no route
+  uses.
 
 ### Security
 

@@ -52,52 +52,52 @@ struct Case {
 const CASES: &[Case] = &[
     Case {
         name: "a1_refused_matrix_route_resumes_once_the_bot_is_back_with_slack_connected",
-        ignore: Some("RED until review fix A1"),
+        ignore: None,
         body: |w| a1_resume(w, true).boxed(),
     },
     Case {
         name: "a1_refused_matrix_route_resumes_once_the_bot_is_back_without_slack",
-        ignore: Some("RED until review fix A1"),
+        ignore: None,
         body: |w| a1_resume(w, false).boxed(),
     },
     Case {
         name: "b1_a_save_the_lane_check_refuses_never_takes_the_bot_out_of_a_routed_room",
-        ignore: Some("RED until review fix B1"),
+        ignore: None,
         body: |w| b1_lane_gone(w).boxed(),
     },
     Case {
         name: "b1_a_failed_room_read_never_takes_the_bot_out_of_a_routed_room",
-        ignore: Some("RED until review fix B1"),
+        ignore: None,
         body: |w| b1_room_read_fails(w).boxed(),
     },
     Case {
         name: "b2_a_route_delete_never_leaves_the_bot_in_a_room_no_route_uses",
-        ignore: Some("RED until review fix B2"),
+        ignore: None,
         body: |w| b2_delete_reads_fail(w).boxed(),
     },
     Case {
         name: "b3_send_test_never_posts_to_a_private_channel_foundry_is_not_in",
-        ignore: Some("RED until review fix B3"),
+        ignore: None,
         body: |w| b3_send_test_refused(w, Unoffered::PrivateChannel).boxed(),
     },
     Case {
         name: "b3_send_test_never_posts_a_direct_message",
-        ignore: Some("RED until review fix B3"),
+        ignore: None,
         body: |w| b3_send_test_refused(w, Unoffered::DirectMessage).boxed(),
     },
     Case {
         name: "b4i_a_failed_slack_send_test_names_the_channel",
-        ignore: Some("RED until review fix B4"),
+        ignore: None,
         body: |w| b4_send_test_names_channel(w).boxed(),
     },
     Case {
         name: "b4ii_matrix_without_a_secrets_key_reads_k18",
-        ignore: Some("RED until review fix B4"),
+        ignore: None,
         body: |w| b4_matrix_without_key(w).boxed(),
     },
     Case {
         name: "b4iii_a_matrix_connection_the_key_cannot_open_reads_k19",
-        ignore: Some("RED until review fix B4"),
+        ignore: None,
         body: |w| b4_matrix_unreadable(w).boxed(),
     },
 ];

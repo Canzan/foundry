@@ -1274,7 +1274,6 @@ async fn give_up_at(pool: &PgPool, id: i64) -> OffsetDateTime {
 ///
 /// CONTRACT_SHAPE: unbounded-preservation
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "RED until review fix A2"]
 async fn a_route_head_at_its_give_up_time_is_never_claimed() {
     let pg = postgres().await;
     let pool = pg.pool().await;
@@ -1303,7 +1302,6 @@ async fn a_route_head_at_its_give_up_time_is_never_claimed() {
 ///
 /// CONTRACT_SHAPE: unbounded-preservation
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-#[ignore = "RED until review fix A2"]
 async fn an_email_at_its_give_up_time_is_never_claimed() {
     let pg = postgres().await;
     let pool = pg.pool().await;
@@ -1673,10 +1671,11 @@ async fn sweeps_apply_exactly_the_plan_ids() {
         };
         assert_eq!(row.status, want, "delivery {n}");
     }
-    // The fourth is delivered now; the second stays pending.
+    // The fourth is delivered; the second stays pending. A sender claims
+    // only before give-up, so the fourth is claimed at `t0`, before its own.
     let ClaimOutcome::Claimed(claim) = lab
         .store
-        .claim_delivery(lab.route, late, LEASE, |view: &ClaimView| {
+        .claim_delivery(lab.route, t0, LEASE, |view: &ClaimView| {
             view.deliveries
                 .iter()
                 .find(|d| d.id == ids[3])

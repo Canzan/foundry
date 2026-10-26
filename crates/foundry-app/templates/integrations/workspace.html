@@ -20,7 +20,11 @@
 </section>
 <section data-integration="matrix">
   <h2>Matrix</h2>
+  {% if matrix_unavailable %}
+  <p data-connection="matrix">Matrix is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key.</p>
+  {% else %}
   {% if let Some(line) = matrix %}<p data-connection="matrix">{{ line.connected }} <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>{% endif %}
+  {% endif %}
   {% if matrix_offered %}
   <form method="post" action="{{ matrix_connect_path }}">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
@@ -29,7 +33,7 @@
     <p><button type="submit">{% if matrix.is_some() %}Replace token{% else %}Connect Matrix{% endif %}</button></p>
   </form>
   {% else %}
-  <p>Matrix cannot be connected on this Foundry yet: an instance operator needs to set the secrets key.</p>
+  <p>Matrix is not set up on this Foundry yet. An instance operator sets it up once.</p>
   {% endif %}
 </section>
 <section>

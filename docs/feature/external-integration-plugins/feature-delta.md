@@ -3847,6 +3847,7 @@ The user approved R-1..R-10 as proposed and added R-11. The scenarios assert eac
 | R-9 | A deliberate disconnect is a stop: what was queued is dropped and nothing filed while disconnected is sent after reconnecting | as stated | 78 (the ratified rule). Connection loss queues up to 24 h and delivers on reconnect: scenario 46, which traces to DISCUSS D-8 and needed no ratification |
 | R-10 | DESIGN's burst-of-moves line (UI-3) and connection-lost email subjects (UI-5) | "7 issues moved to Todo in Identity Platform by Lena Park"; "Foundry lost its Slack connection for Canzan Labs"; "Foundry lost its Matrix connection for Canzan Labs" | 40; 41, 42, 44, 50, 67; 95 |
 | R-11 | Stop links never expire (DESIGN DD-7, UI-2); US-EIP-11 AC 4 reads "A tampered link" | a tampered link changes nothing and reveals nothing; no expired-link row exists | 112 |
+| R-12 | The wrapper for a Send test the vendor did not deliver, before the reason's words (which name the channel or room as the picker showed it). Ratified by the user 2026-10-25 during the DELIVER review | "The test message was not delivered: {reason}." | review finding B4 (i) (`eip_review_findings.rs`, which asserts the reason and the named channel) |
 
 **US-EIP-11 AC 4 → R-11**: AC 4 is covered by 112 (tampered links) only; R-11 is why there is no expiry row.
 

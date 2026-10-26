@@ -7,13 +7,15 @@
 //! - the [`Dispatcher`] turns whole committed source transactions into
 //!   deliveries through the pure [`DispatchPlan::build`] (one active
 //!   dispatcher, the store's advisory lock);
-//! - the [`Sender`] first fails every delivery past its give-up time through
-//!   the pure [`expiry_set`] (so nothing is attempted at or after it), then
-//!   claims each route's head delivery, and each member's head project email
-//!   (ADR-EIP-007), through the pure [`claimable_head`]
+//! - the give-up sweep fails every delivery at or past its give-up time
+//!   through the pure [`expiry_set`];
+//! - the [`Sender`] claims each route's head delivery, and each member's head
+//!   project email (ADR-EIP-007), through the pure [`claimable_head`]
 //!   under a fenced lease, sends it outside any transaction, and records the
 //!   outcome fenced by its `claim_id`, settled by [`RetryPolicy::settle`]
-//!   (backoff, "retry after", a refused route or connection);
+//!   (backoff, "retry after", a refused route or connection). Neither the
+//!   choice nor the claim's compare-and-set takes a delivery at or past its
+//!   give-up time, so nothing is attempted at or after it;
 //! - the [`Retention`] sweep, at most once an hour of the clock, deletes what
 //!   the pure [`prune_set`] names (DD-10).
 //!
@@ -480,7 +482,6 @@ impl Sender {
         clock: &dyn Clock,
         lease: Duration,
     ) -> Result<(), foundry_store::StoreError> {
-        self.expire(clock).await?;
         for route_id in self.claims.routes_with_pending(SEND_BATCH).await? {
             let now = clock.now();
             let choose = |view: &ClaimView| head_of(view, now);
@@ -520,8 +521,9 @@ impl Sender {
         self.attempt(integrations, clock, claim, attempt).await
     }
 
-    /// The give-up sweep: every delivery past its give-up time fails, so
-    /// nothing is attempted at or after it.
+    /// The give-up sweep: every delivery at or past its give-up time, holding
+    /// no live lease, fails (a claim never takes one, so it is never attempted
+    /// again).
     async fn expire(&self, clock: &dyn Clock) -> Result<(), foundry_store::StoreError> {
         let expire = |due: &[PendingDelivery]| expiry_of(due, clock.now());
         let failed = self

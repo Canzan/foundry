@@ -44,6 +44,17 @@ pub enum SlackOffer {
     Ready,
 }
 
+/// What `/workspace/integrations` may offer for Matrix.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatrixOffer {
+    /// K-18: no secrets key, so no bot token can be sealed (DD-6).
+    NoSecretsKey,
+    /// K-19: the boot probe found stored credentials no configured key opens
+    /// (DD-2 degraded start).
+    Unavailable,
+    Ready,
+}
+
 /// A chat route's kind as stored or submitted: Matrix, else Slack.
 pub(crate) fn chat_kind(wire: &str) -> ChannelKind {
     match ChannelKind::from_wire_name(wire) {
@@ -113,7 +124,9 @@ pub fn key_check(secrets: &SecretBox) -> Option<KeyCheck> {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SecretsCheck {
     /// The ids of the keys stored credentials were sealed with that this
-    /// Foundry does not hold, or holds but cannot prove (never a key).
+    /// Foundry does not hold, or holds under an id whose stored check value
+    /// does not open to the canary (never a key). A held key with no check
+    /// value stored counts as proven, by design.
     pub missing_key_ids: Vec<String>,
 }
 
@@ -207,6 +220,14 @@ impl Integrations {
 
     pub fn settings(&self) -> &IntegrationSettings {
         &self.settings
+    }
+
+    pub fn matrix_offer(&self) -> MatrixOffer {
+        match &self.settings.secrets {
+            None => MatrixOffer::NoSecretsKey,
+            Some(_) if self.secrets.degraded() => MatrixOffer::Unavailable,
+            Some(_) => MatrixOffer::Ready,
+        }
     }
 
     pub fn slack_offer(&self) -> SlackOffer {
@@ -308,16 +329,23 @@ fn outbound_client(settings: &IntegrationSettings) -> OutboundHttp {
     client
 }
 
-/// A route's destination is re-checked through the connection's Slack bot
-/// (Resume, D-8).
+/// A route's destination is re-checked through the bot of the connection's
+/// kind (Resume, D-8): a Slack channel through the Slack bot, a Matrix room
+/// through the Matrix bot.
 impl foundry_services::integrations::DestinationCatalogs for Integrations {
     fn catalogue(
         &self,
+        kind: &str,
         connection: &foundry_store::integrations::SealedConnection,
     ) -> Option<Box<dyn foundry_integrations::DestinationCatalog>> {
-        let sealed = connection.sealed_credential.clone()?;
-        let bot = self.slack_bot(connection.id, sealed)?;
-        Some(Box::new(bot))
+        match ChannelKind::from_wire_name(kind)? {
+            ChannelKind::Matrix => Some(Box::new(self.matrix_bot(connection)?)),
+            ChannelKind::Slack => {
+                let sealed = connection.sealed_credential.clone()?;
+                Some(Box::new(self.slack_bot(connection.id, sealed)?))
+            }
+            _ => None,
+        }
     }
 }
 

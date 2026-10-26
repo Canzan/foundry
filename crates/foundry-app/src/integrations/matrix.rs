@@ -16,6 +16,8 @@
 //! - [`MatrixBot::room_id`], [`MatrixBot::room`] read a room (alias, name,
 //!   members, encryption), and the [`DestinationEnrolment`] port joins and
 //!   leaves it (decision 2);
+//! - the [`DestinationCatalog`] port reads whether the bot is in a room and
+//!   may post there, so Resume can re-check a refused room (D-8);
 //! - [`DeliveryChannel::deliver`] re-reads the room's encryption, then sends
 //!   one `m.notice` with the delivery id as its `txnId` (decisions 3-4);
 //!   [`classify_matrix`] reads the answer (decision 5).
@@ -25,8 +27,9 @@
 use super::outbound::{OutboundError, OutboundHttp};
 use async_trait::async_trait;
 use foundry_integrations::{
-    classify_matrix, ChannelKind, ChannelOutcome, DeliveryChannel, DeliveryKey,
-    DestinationEnrolment, DestinationRef, EncodedMessage, MatrixAnswer, ReasonCode,
+    classify_matrix, ChannelKind, ChannelOutcome, DeliveryChannel, DeliveryKey, Destination,
+    DestinationCatalog, DestinationCheck, DestinationEnrolment, DestinationRef, EncodedMessage,
+    MatrixAnswer, ReasonCode,
 };
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
@@ -224,6 +227,31 @@ impl MatrixBot {
         })
     }
 
+    /// Whether the bot is in `room_id` and may post there: it is among the
+    /// room's joined members (a room it is not in refuses the read), and the
+    /// room is not encrypted.
+    async fn membership(&self, room_id: &str) -> Result<DestinationCheck, RoomRefusal> {
+        let bot = self.whoami().await.map_err(|_| RoomRefusal::Unreachable)?;
+        let path = format!("/rooms/{}/joined_members", urlencoding::encode(room_id));
+        let member = match self.get(&path).await {
+            Ok((200, Some(body))) => body["joined"].get(&bot).is_some(),
+            Ok((403 | 404, _)) => false,
+            _ => return Err(RoomRefusal::Unreachable),
+        };
+        let encrypted = member
+            && self
+                .state(room_id, "m.room.encryption")
+                .await
+                .map_err(|_| RoomRefusal::Unreachable)?
+                .is_some();
+        Ok(DestinationCheck {
+            can_post: member && !encrypted,
+            member,
+            shared_with_another_organisation: false,
+            encrypted,
+        })
+    }
+
     async fn join(&self, room_id: &str) -> Result<(), RoomRefusal> {
         let path = format!("/join/{}", urlencoding::encode(room_id));
         match self.post(&path).await {
@@ -302,6 +330,32 @@ impl DeliveryChannel for MatrixBot {
             },
             Err(_) => classify_matrix(None),
         }
+    }
+}
+
+/// Read-only: the bot's token, and a room's membership as Resume re-checks
+/// it. A room is typed on the route form, never listed.
+#[async_trait]
+impl DestinationCatalog for MatrixBot {
+    async fn verify_connection(&self) -> Result<(), ReasonCode> {
+        match self.whoami().await {
+            Ok(_) => Ok(()),
+            Err(ConnectRefusal::TokenRefused) => Err(ReasonCode::TokenRevoked),
+            Err(_) => Err(ReasonCode::HomeserverNoAnswer),
+        }
+    }
+
+    async fn list_destinations(&self) -> Result<Vec<Destination>, ReasonCode> {
+        Ok(Vec::new())
+    }
+
+    async fn check_destination(
+        &self,
+        destination: &DestinationRef,
+    ) -> Result<DestinationCheck, ReasonCode> {
+        self.membership(&destination.0)
+            .await
+            .map_err(RoomRefusal::reason)
     }
 }
 

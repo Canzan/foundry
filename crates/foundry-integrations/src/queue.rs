@@ -42,7 +42,8 @@ fn lease_is_live(lease_until: Option<OffsetDateTime>, now: OffsetDateTime) -> bo
 }
 
 /// The delivery a sender may claim on one route: the head (its lowest id), and
-/// only while the head holds no live lease, is due, and its destination's
+/// only while the head holds no live lease, is due, is before its give-up
+/// time (one at or past it belongs to the expiry sweep) and its destination's
 /// pacing allows a send now. Never a later row, so per-route order holds
 /// across replicas.
 pub fn claimable_head(
@@ -54,7 +55,8 @@ pub fn claimable_head(
         return None;
     }
     let head = deliveries.iter().min_by_key(|delivery| delivery.id)?;
-    (!head.is_leased_at(now) && head.is_due_at(now)).then_some(head.id)
+    (!head.is_leased_at(now) && head.is_due_at(now) && !head.is_past_give_up_at(now))
+        .then_some(head.id)
 }
 
 /// The deliveries the expiry sweep fails: exactly those at or past their

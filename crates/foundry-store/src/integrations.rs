@@ -661,14 +661,16 @@ const TALLY_COLUMNS: &str = "
        event_kind, status, EXTRACT(EPOCH FROM now() - occurred_at)::float8";
 
 /// The claim's compare-and-set: the row the choice saw, unchanged, still the
-/// route's (`$5`) or the member's (`$10`).
+/// route's (`$5`) or the member's (`$10`), and before its give-up time (`$4`
+/// is now): a row at or past `give_up_at` belongs to the expiry sweep, never
+/// to a sender (DDR-5).
 const CLAIM_SQL: &str = "
     UPDATE integration_deliveries
        SET claim_id = $2, attempts = attempts + 1, lease_until = $3,
            first_attempt_at = COALESCE(first_attempt_at, $4)
      WHERE id = $1 AND route_id IS NOT DISTINCT FROM $5
        AND recipient_user_id IS NOT DISTINCT FROM $10
-       AND status = 'pending' AND attempts = $6
+       AND status = 'pending' AND give_up_at > $4 AND attempts = $6
        AND claim_id IS NOT DISTINCT FROM $7
        AND lease_until IS NOT DISTINCT FROM $8
        AND next_attempt_at IS NOT DISTINCT FROM $9";
