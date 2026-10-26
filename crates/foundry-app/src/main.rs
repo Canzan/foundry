@@ -323,7 +323,19 @@ async fn main() -> anyhow::Result<()> {
     let (integrations, secrets_check) =
         match foundry_app::integrations::config::IntegrationSettings::from_env(&public_url) {
             Ok(settings) => {
-                let integrations = foundry_app::integrations::Integrations::new(settings);
+                let integrations = match foundry_app::integrations::Integrations::try_new(settings)
+                {
+                    Ok(integrations) => integrations,
+                    Err(err) => {
+                        tracing::error!(
+                            event = "health.startup.refused",
+                            probe = "integrations",
+                            detail = %err,
+                            "the Slack app's client could not be built — refusing to start"
+                        );
+                        return Err(err.into());
+                    }
+                };
                 let check = probe_secrets(&store, &integrations).await;
                 (
                     foundry_app::integrations::IntegrationsHandle::new(

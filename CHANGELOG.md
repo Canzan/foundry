@@ -214,6 +214,13 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 - Foundry's Matrix bot no longer leaves a room another project still routes to when a route save
   to that room fails, and a route is never deleted while its bot stays behind in a room no route
   uses.
+- A project email is never sent without its Stop these emails link: when Foundry cannot build
+  the link, the email is recorded as failed instead of sent.
+- Foundry refuses to start (`health.startup.refused`, probe `integrations`) when the Slack app's
+  HTTP client cannot be built, instead of falling back to a client that follows redirects and
+  has no timeout.
+- `FOUNDRY_SECRETS_KEY_PREVIOUS` entries are trimmed and blank entries ignored, so a list typed
+  with spaces after its commas no longer refuses start as a malformed key.
 
 ### Security
 

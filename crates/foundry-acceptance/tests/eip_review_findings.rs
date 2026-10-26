@@ -114,7 +114,7 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "r2a_a_project_email_without_its_stop_link_is_failed_not_sent",
-        ignore: Some("RED until review fix R2-a"),
+        ignore: None,
         body: |w| r2a_no_stop_link(w).boxed(),
     },
 ];

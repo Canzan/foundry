@@ -26,7 +26,7 @@ use foundry_store::integrations::KeyCheck;
 use outbound::OutboundHttp;
 use project_emails::ProjectMail;
 use secrecy::{ExposeSecret, SecretString};
-use slack::{SlackApp, SlackBot};
+use slack::{SlackApp, SlackBot, SlackClientError};
 use std::collections::BTreeSet;
 use std::sync::{Arc, RwLock};
 use worker::AdminMail;
@@ -148,8 +148,20 @@ pub struct Integrations {
 }
 
 impl Integrations {
+    /// The integrations of `settings`; refused when the Slack app's client
+    /// cannot be built, and startup stops.
+    pub fn try_new(settings: IntegrationSettings) -> Result<Self, SlackClientError> {
+        let slack = settings.slack.as_ref().map(SlackApp::build).transpose()?;
+        Ok(Self::assembled(settings, slack))
+    }
+
+    /// [`Self::try_new`] for tests, whose clients always build.
+    #[cfg(any(test, feature = "test-support"))]
     pub fn new(settings: IntegrationSettings) -> Self {
-        let slack = settings.slack.as_ref().map(SlackApp::new);
+        Self::try_new(settings).expect("the Slack app's client builds")
+    }
+
+    fn assembled(settings: IntegrationSettings, slack: Option<SlackApp>) -> Self {
         Self {
             settings,
             slack,
@@ -388,7 +400,10 @@ impl IntegrationsHandle {
 
     /// No Slack app, no secrets key: integrations are not offered.
     pub fn off(public_url: &str) -> Self {
-        Self::new(Integrations::new(IntegrationSettings::off(public_url)))
+        Self::new(Integrations::assembled(
+            IntegrationSettings::off(public_url),
+            None,
+        ))
     }
 
     /// The integrations as they are now.

@@ -182,7 +182,6 @@ fn previous_key_opens_during_a_rotation() {
 ///
 /// CONTRACT_SHAPE: pure-function
 #[test]
-#[ignore = "RED until review fix R2-e"]
 fn previous_keys_are_trimmed_and_blank_entries_dropped() {
     const KEY_C: [u8; 32] = [99; 32];
     let encode = |key: &[u8; 32]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key);

@@ -34,14 +34,12 @@ CREATE TABLE IF NOT EXISTS integration_connections (
     bot_user_id          TEXT NULL,
     label                TEXT NOT NULL,
     detail               TEXT NULL,
-    endpoint             TEXT NULL,
     sealed_credential    BYTEA NULL,
     credential_saved_at  TIMESTAMPTZ NULL,
     lost_reason          TEXT NULL,
     lost_at              TIMESTAMPTZ NULL,
     connected_by         UUID NULL REFERENCES users(id) ON DELETE SET NULL,
     connected_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
-    not_before           TIMESTAMPTZ NULL,
     CONSTRAINT integration_connections_one_per_kind UNIQUE (workspace_id, kind),
     CONSTRAINT integration_connections_credential_shape
         CHECK ((state = 'disconnected') = (sealed_credential IS NULL))

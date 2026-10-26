@@ -633,15 +633,17 @@ impl Sender {
         let public_url = &integrations.settings().public_url;
         let mut lines = compose_email(&view, scope, &format!("{public_url}{SETTINGS_PATH}"));
         // ADR-EIP-007 decision 5: the footer's signed stop link and the
-        // one-click headers, for this one choice.
-        let stop =
+        // one-click headers, for this one choice. A project email never goes
+        // out without them: when no stop link can be built, it fails.
+        let Some(stop) =
             self.project_mail
-                .stop_links(public_url, facts.user_id, facts.project_id, &facts.event);
-        if let Some(stop) = &stop {
-            stop.attach(&mut lines);
-        }
+                .stop_links(public_url, facts.user_id, facts.project_id, &facts.event)
+        else {
+            return Ok(failed(ReasonCode::SecretUnavailable));
+        };
+        stop.attach(&mut lines);
         let mut email = encode_email(&facts.recipient, &lines);
-        email.unsubscribe = stop.map(|stop| stop.unsubscribe());
+        email.unsubscribe = Some(stop.unsubscribe());
         let sent = match self.project_mail.transport() {
             Some(transport) => transport.send(&email).await,
             None => Err(EmailTransportError::Transient),
@@ -885,6 +887,13 @@ fn gone_reason(context: &DeliveryContext) -> ReasonCode {
 fn skipped(reason: ReasonCode) -> DeliveryResult {
     DeliveryResult::Skipped {
         final_reason: reason.wire_name().to_string(),
+    }
+}
+
+fn failed(reason: ReasonCode) -> DeliveryResult {
+    DeliveryResult::Failed {
+        final_reason: reason.wire_name().to_string(),
+        vendor_reason: None,
     }
 }
 

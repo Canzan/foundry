@@ -59,6 +59,53 @@ pub const DESTINATION_SPACING: Duration = Duration::from_secs(1);
 
 const STATUS_PENDING: &str = "pending";
 
+/// A stored integration kind, read closed at the store boundary: a kind this
+/// Foundry does not know (a newer release's, a hand edit's) is a decode
+/// error, never a string handed on for a caller to guess at. The kinds are
+/// `foundry_integrations::ChannelKind`'s, which the store may not name
+/// (deny.toml rule 4); readers keep handing on their wire names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StoredKind {
+    Slack,
+    Matrix,
+    Email,
+    Webhook,
+}
+
+impl StoredKind {
+    const ALL: [StoredKind; 4] = [Self::Slack, Self::Matrix, Self::Email, Self::Webhook];
+
+    fn wire_name(self) -> &'static str {
+        match self {
+            Self::Slack => "slack",
+            Self::Matrix => "matrix",
+            Self::Email => "email",
+            Self::Webhook => "webhook",
+        }
+    }
+
+    /// The kind's wire name, as the row structs carry it.
+    fn wire(self) -> String {
+        self.wire_name().to_string()
+    }
+}
+
+impl sqlx::Type<sqlx::Postgres> for StoredKind {
+    fn type_info() -> sqlx::postgres::PgTypeInfo {
+        <&str as sqlx::Type<sqlx::Postgres>>::type_info()
+    }
+}
+
+impl<'r> sqlx::Decode<'r, sqlx::Postgres> for StoredKind {
+    fn decode(value: sqlx::postgres::PgValueRef<'r>) -> Result<Self, sqlx::error::BoxDynError> {
+        let wire = <&str as sqlx::Decode<sqlx::Postgres>>::decode(value)?;
+        Self::ALL
+            .into_iter()
+            .find(|kind| kind.wire_name() == wire)
+            .ok_or_else(|| format!("unknown integration kind {wire:?}").into())
+    }
+}
+
 /// One committed, undispatched outbox row with an event id.
 #[derive(Debug, Clone, PartialEq)]
 pub struct OutboxEvent {
@@ -403,7 +450,7 @@ async fn connection_lost(
         .bind(connection_id)
         .fetch_one(&mut **tx)
         .await?;
-    let (workspace_name, kind, reason): (String, String, Option<String>) =
+    let (workspace_name, kind, reason): (String, StoredKind, Option<String>) =
         sqlx::query_as(LOST_CONNECTION_SQL)
             .bind(connection_id)
             .fetch_one(&mut **tx)
@@ -415,7 +462,7 @@ async fn connection_lost(
     Ok(LostConnection {
         workspace_id,
         workspace_name,
-        kind,
+        kind: kind.wire(),
         reason,
         admins: admins.into_iter().map(|(email,)| email).collect(),
     })
@@ -634,8 +681,8 @@ const DISPATCH_ROUTES_SQL: &str = "
       LEFT JOIN integration_connections c ON c.id = r.connection_id
       LEFT JOIN integration_route_lanes l ON l.route_id = r.id
       LEFT JOIN lanes x ON x.id = l.lane_id AND x.project_id = r.project_id
-     WHERE r.project_id::text IN (
-               SELECT payload->>'project_id' FROM outbox WHERE id = ANY($1))
+     WHERE r.project_id IN (
+               SELECT (payload->>'project_id')::uuid FROM outbox WHERE id = ANY($1))
      GROUP BY r.id, c.state
      ORDER BY r.id";
 
@@ -644,8 +691,8 @@ const DISPATCH_EMAIL_CHOICES_SQL: &str = "
     SELECT ch.user_id, p.workspace_id, ch.project_id, ch.event, ch.scope
       FROM integration_email_choices ch
       JOIN live_projects p ON p.id = ch.project_id
-     WHERE ch.project_id::text IN (
-               SELECT payload->>'project_id' FROM outbox WHERE id = ANY($1))
+     WHERE ch.project_id IN (
+               SELECT (payload->>'project_id')::uuid FROM outbox WHERE id = ANY($1))
      ORDER BY ch.user_id, ch.project_id, ch.event";
 
 const INSERT_DELIVERY_SQL: &str = "
@@ -822,7 +869,7 @@ type RouteRow = (
     Uuid,
     Uuid,
     Uuid,
-    String,
+    StoredKind,
     Option<Uuid>,
     Option<String>,
     Vec<String>,
@@ -836,7 +883,7 @@ type RouteRow = (
 /// `route_settings`' row: kind, destination ref and label, events, content
 /// level, lane slugs.
 type SettingsRow = (
-    String,
+    StoredKind,
     String,
     String,
     Vec<String>,
@@ -1672,6 +1719,14 @@ async fn read_dispatch_batch(
         .into_iter()
         .map(outbox_event)
         .collect::<Result<Vec<_>, _>>()?;
+    if events.is_empty() {
+        // An idle tick: no project to read routes or choices for.
+        return Ok(DispatchBatch {
+            events,
+            routes: Vec::new(),
+            email_choices: Vec::new(),
+        });
+    }
     let ids: Vec<i64> = events.iter().map(|e| e.id).collect();
     let routes: Vec<RouteRow> = sqlx::query_as(DISPATCH_ROUTES_SQL)
         .bind(&ids)
@@ -1807,7 +1862,7 @@ fn dispatch_route(row: RouteRow) -> DispatchRoute {
         id,
         workspace_id,
         project_id,
-        kind,
+        kind: kind.wire(),
         connection_id,
         connection_state,
         events,
@@ -2029,7 +2084,7 @@ fn project_route(row: &sqlx::postgres::PgRow) -> Result<ProjectRoute, sqlx::Erro
     let head_reason: Option<String> = row.try_get("last_vendor_reason")?;
     Ok(ProjectRoute {
         id: row.try_get("id")?,
-        kind: row.try_get("kind")?,
+        kind: row.try_get::<StoredKind, _>("kind")?.wire(),
         destination_label: row.try_get("destination_label")?,
         paused: row.try_get("paused")?,
         connection_state: row.try_get("connection_state")?,
@@ -2230,7 +2285,7 @@ const LANE_LABELS_SQL: &str =
 /// `workspace_connections`' row as Postgres answers it.
 type SealedConnectionTuple = (Uuid, String, String, Option<String>, Option<Vec<u8>>);
 type ConnectionTuple = (
-    String,
+    StoredKind,
     String,
     Option<String>,
     String,
@@ -2500,7 +2555,7 @@ impl Store {
                     connected_by_name,
                     connected_at,
                 )| ConnectionRow {
-                    kind,
+                    kind: kind.wire(),
                     state,
                     lost_reason,
                     workspace_name,
@@ -2590,7 +2645,7 @@ impl Store {
             )| {
                 RouteSettings {
                     id: route_id,
-                    kind,
+                    kind: kind.wire(),
                     destination_ref,
                     destination_label,
                     events,
@@ -2802,7 +2857,7 @@ impl Store {
             delivery_id,
             event_kind: row.try_get(0)?,
             give_up_at: row.try_get(1)?,
-            route_kind: row.try_get(2)?,
+            route_kind: row.try_get::<StoredKind, _>(2)?.wire(),
             content_level: row.try_get(3)?,
             route_paused: row.try_get(4)?,
             connection_id: row.try_get(5)?,

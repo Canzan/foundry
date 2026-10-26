@@ -115,21 +115,33 @@ pub struct SlackApp {
     authorize_url: String,
 }
 
+/// The Slack app's HTTP client could not be built: startup is refused,
+/// never continued on a default client (which follows redirects and has no
+/// timeout).
+#[derive(Debug, thiserror::Error)]
+#[error("the Slack app's HTTP client could not be built: {0}")]
+pub struct SlackClientError(#[from] reqwest::Error);
+
 impl SlackApp {
-    pub fn new(settings: &SlackSettings) -> Self {
+    pub fn build(settings: &SlackSettings) -> Result<Self, SlackClientError> {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .timeout(CALL_TIMEOUT)
-            .build()
-            .unwrap_or_default();
-        Self {
+            .build()?;
+        Ok(Self {
             http,
             client_id: settings.client_id.clone(),
             client_secret: settings.client_secret.clone(),
             signing_secret: settings.signing_secret.clone(),
             api_base_url: settings.api_base_url.clone(),
             authorize_url: settings.authorize_url.clone(),
-        }
+        })
+    }
+
+    /// [`Self::build`] for this module's tests, whose client always builds.
+    #[cfg(test)]
+    fn new(settings: &SlackSettings) -> Self {
+        Self::build(settings).expect("the Slack app's client builds")
     }
 
     /// Slack's approval screen for this app, returning to `redirect_uri`.

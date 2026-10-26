@@ -15,6 +15,7 @@
 //! closed enum. ADR-006: the port has NO `Debug` supertrait and no secret ever
 //! appears in a log line, error, or debug output.
 
+use crate::integrations::config::SEND_SHARE_SECONDS;
 use async_trait::async_trait;
 use foundry_integrations::{EmailTransport, EmailTransportError, OutboundEmail};
 use hmac::{Hmac, Mac};
@@ -380,7 +381,9 @@ impl Notifier {
     /// external-integration-plugins (ADR-EIP-007 decision 4): the first
     /// active `smtp` or `email_api` provider as the project emails'
     /// [`EmailTransport`]; `None` when there is none, and project emails are
-    /// unavailable (K-13).
+    /// unavailable (K-13). Its send gives up at the per-provider timeout or
+    /// the send's share of the delivery lease, whichever is sooner, so a
+    /// claimed email is recorded under the claim that sent it.
     pub fn email_transport(&self) -> Option<Arc<dyn EmailTransport>> {
         let provider = self
             .providers
@@ -388,7 +391,9 @@ impl Notifier {
             .find(|provider| sends_member_email(provider.kind()))?;
         Some(Arc::new(ProviderEmailTransport {
             provider: provider.clone(),
-            timeout: self.delivery_timeout,
+            timeout: self
+                .delivery_timeout
+                .min(Duration::from_secs(SEND_SHARE_SECONDS)),
         }))
     }
 

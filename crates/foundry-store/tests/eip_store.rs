@@ -3186,7 +3186,6 @@ async fn a_matrix_room_two_routes_share_stays_routed_until_the_last_is_deleted()
 ///
 /// CONTRACT_SHAPE: pure-function
 #[tokio::test]
-#[ignore = "RED until review fix R2-d"]
 async fn a_stored_kind_this_foundry_does_not_know_is_refused_when_read() {
     const UNKNOWN: &str = "carrier_pigeon";
     let pg = postgres().await;

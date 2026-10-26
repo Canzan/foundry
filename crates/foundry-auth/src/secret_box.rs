@@ -151,11 +151,12 @@ impl SealedSecret {
 }
 
 /// The retired keys of a comma-separated `FOUNDRY_SECRETS_KEY_PREVIOUS`
-/// value, blank entries ignored.
+/// value, each entry trimmed and blank entries ignored.
 fn previous_keys(list: &SecretString) -> Result<Vec<SecretsKey>, SecretBoxError> {
     list.expose_secret()
         .split(',')
-        .filter(|entry| !entry.trim().is_empty())
+        .map(str::trim)
+        .filter(|entry| !entry.is_empty())
         .map(|entry| {
             SecretsKey::parse(
                 &SecretString::from(entry.to_string()),
@@ -182,8 +183,9 @@ impl SecretBox {
     }
 
     /// Build from the `FOUNDRY_SECRETS_KEY` value and the optional
-    /// comma-separated `FOUNDRY_SECRETS_KEY_PREVIOUS` value (blank entries are
-    /// ignored). A malformed key is refused naming its setting only.
+    /// comma-separated `FOUNDRY_SECRETS_KEY_PREVIOUS` value (entries are
+    /// trimmed, blank entries ignored). A malformed key is refused naming its
+    /// setting only.
     pub fn from_settings(
         current: &SecretString,
         previous: Option<&SecretString>,

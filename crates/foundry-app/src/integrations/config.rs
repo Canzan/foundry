@@ -32,9 +32,16 @@ pub const WORKER: &str = "FOUNDRY_INTEGRATIONS_WORKER";
 pub const DEFAULT_POLL_MS: u64 = 1_000;
 pub const DEFAULT_LEASE_SECONDS: u64 = 45;
 pub const DEFAULT_GIVE_UP_SECONDS: u64 = 86_400;
-/// The worst-case claim-to-record path (resolve 5 s, pre-send read 10 s, send
-/// 10 s) plus 10 s: a shorter lease could expire under a live send.
-pub const MIN_LEASE_SECONDS: u64 = 35;
+/// The worst-case claim-to-record path (resolve, pre-send read, send) plus a
+/// spare: a shorter lease could expire under a live send.
+pub const MIN_LEASE_SECONDS: u64 =
+    RESOLVE_SHARE_SECONDS + PRE_SEND_READ_SHARE_SECONDS + SEND_SHARE_SECONDS + SPARE_SECONDS;
+/// The send's share of the lease: no send may take longer, whatever else
+/// bounds it (a project email through the notifier's transport included).
+pub const SEND_SHARE_SECONDS: u64 = 10;
+const RESOLVE_SHARE_SECONDS: u64 = 5;
+const PRE_SEND_READ_SHARE_SECONDS: u64 = 10;
+const SPARE_SECONDS: u64 = 10;
 
 pub const DEFAULT_SLACK_API_BASE_URL: &str = "https://slack.com/api";
 pub const DEFAULT_SLACK_AUTHORIZE_URL: &str = "https://slack.com/oauth/v2/authorize";

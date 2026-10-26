@@ -40,8 +40,9 @@ pub const NO_EMAIL_TRANSPORT: &str =
 
 /// The transport project emails go through, and the secret their stop links
 /// are signed with. Cloning shares both; it sends nothing until the
-/// composition root hands it the notifier's transport, and its emails carry
-/// no stop link until it hands it `SESSION_SECRET`.
+/// composition root hands it the notifier's transport, and every email it
+/// would send fails until it hands it `SESSION_SECRET` (no email goes out
+/// without its stop link).
 #[derive(Clone, Default)]
 pub struct ProjectMail {
     transport: Arc<RwLock<Option<Arc<dyn EmailTransport>>>>,

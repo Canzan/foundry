@@ -69,7 +69,6 @@ fn project_email() -> OutboundEmail {
 ///
 /// CONTRACT_SHAPE: bounded-change
 #[tokio::test]
-#[ignore = "RED until review fix R2-b"]
 async fn a_project_email_send_gives_up_within_the_leases_send_share() {
     assert_eq!(
         SEND_SHARE + REST_OF_THE_LEASE,
@@ -119,7 +118,6 @@ async fn a_project_email_send_gives_up_within_the_leases_send_share() {
 ///
 /// CONTRACT_SHAPE: pure-function
 #[test]
-#[ignore = "RED until review fix R2-c"]
 fn the_slack_apps_client_never_falls_back_to_a_default_client() {
     let source = include_str!("../src/integrations/slack.rs");
     let builds: Vec<&str> = source
