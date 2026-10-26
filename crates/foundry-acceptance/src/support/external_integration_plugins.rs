@@ -614,6 +614,9 @@ pub struct EipState {
     pub held_return: Option<String>,
     pub draft: Option<Route>,
     pub before: Option<Universe>,
+    /// Each mail recorder's delivery count when the When began
+    /// ([`capture_before`]); "receives no email" counts only what came after.
+    pub email_mark: Vec<(Arc<DeliveryRecorder>, usize)>,
     pub when_started: Option<Instant>,
     pub when_answer: Option<Answer>,
     pub last_key: Option<String>,
@@ -1252,11 +1255,12 @@ pub async fn rewire(world: &mut FoundryWorld) {
     // composition root hands to `project_mail` once (ADR-EIP-007 decision 4).
     // The in-process notifier always holds the recorder, so "no email
     // provider" reaches the app through that same seam: no transport.
+    // `@needs-smtp`: the relay is the shipped SMTP provider pointed at the
+    // pinned mailpit, built from the same settings the instance reads.
     let project_transport = match world.eip.spec.email {
         EmailSetup::None => None,
-        EmailSetup::Recorder | EmailSetup::SmtpRelay { .. } => {
-            harness.app.state.notifier.email_transport()
-        }
+        EmailSetup::Recorder => harness.app.state.notifier.email_transport(),
+        EmailSetup::SmtpRelay { .. } => Some(relay_transport(world).await),
     };
     harness
         .app
@@ -1268,6 +1272,39 @@ pub async fn rewire(world: &mut FoundryWorld) {
         let public_url = replicas.base_url();
         replicas.install_integrations(|| scenario_settings(world, true, &public_url, "a replica"));
     }
+}
+
+/// The project-email transport for `@needs-smtp`, through the composition
+/// root's own path (`build_notifier`'s `smtp` arm, then
+/// `Notifier::email_transport`): `SmtpConfig::from_lookup` over the settings
+/// [`instance_env`] hands a subprocess instance, the shipped `SmtpProvider`,
+/// its startup probe, then the notifier's member-email transport.
+async fn relay_transport(world: &FoundryWorld) -> Arc<dyn foundry_integrations::EmailTransport> {
+    let env = instance_env(world);
+    let config = foundry_app::SmtpConfig::from_lookup(|key| {
+        env.iter()
+            .find(|(name, _)| *name == key)
+            .map(|(_, value)| value.clone())
+    })
+    .expect("the relay's SMTP settings");
+    use foundry_app::NotificationProvider as _;
+    let provider = foundry_app::SmtpProvider::new(config)
+        .unwrap_or_else(|err| panic!("the shipped SMTP provider for the relay: {err}"));
+    // The relay container is started without a readiness wait: give its SMTP
+    // listener a moment to come up before the probe must pass.
+    let start = Instant::now();
+    while let Err(err) = provider.probe().await {
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "the relay answers the SMTP provider's probe: {err}"
+        );
+        tokio::time::sleep(POLL).await;
+    }
+    foundry_app::Notifier::new(vec![
+        Arc::new(provider) as Arc<dyn foundry_app::NotificationProvider>
+    ])
+    .email_transport()
+    .expect("the SMTP provider sends members' project emails")
 }
 
 // ===========================================================================
@@ -3925,6 +3962,14 @@ pub fn universe_from_pages(
 }
 
 pub async fn capture_before(world: &mut FoundryWorld) {
+    // The email mark first: anything delivered from here on is the When's.
+    world.eip.email_mark = email_recorders(world)
+        .into_iter()
+        .map(|r| {
+            let n = r.sent().len();
+            (r, n)
+        })
+        .collect();
     let u = universe(world).await;
     world.eip.before = Some(u);
 }
@@ -4113,7 +4158,33 @@ pub fn received_emails(world: &FoundryWorld, email: &str) -> Vec<ReceivedEmail> 
             to: d.to,
             subject: d.subject,
             body: d.body,
-            headers: BTreeMap::new(),
+            headers: d.headers,
+        })
+        .collect()
+}
+
+/// What a person has received since the When began: on each recorder, only
+/// the deliveries after the mark [`capture_before`] set (a recorder the mark
+/// does not know counts from its start). A Given's earlier email to the same
+/// person is not something the When sent.
+pub fn received_emails_since_when(world: &FoundryWorld, email: &str) -> Vec<ReceivedEmail> {
+    email_recorders(world)
+        .iter()
+        .flat_map(|r| {
+            let from = world
+                .eip
+                .email_mark
+                .iter()
+                .find(|(known, _)| Arc::ptr_eq(known, r))
+                .map_or(0, |(_, n)| *n);
+            r.sent().into_iter().skip(from)
+        })
+        .filter(|d| d.to.eq_ignore_ascii_case(email) && d.outcome == "delivered")
+        .map(|d| ReceivedEmail {
+            to: d.to,
+            subject: d.subject,
+            body: d.body,
+            headers: d.headers,
         })
         .collect()
 }
@@ -4177,7 +4248,7 @@ pub async fn then_email_about(
 pub async fn then_no_email_about(world: &mut FoundryWorld, who: &str, key: &str) {
     tokio::time::sleep(DELIVERY_BUDGET).await;
     let email = tm::resolve_person(world, who).email;
-    let got: Vec<String> = received_emails(world, &email)
+    let got: Vec<String> = received_emails_since_when(world, &email)
         .into_iter()
         .filter(|e| e.subject.contains(key) || e.body.contains(key))
         .map(|e| e.subject)
@@ -4550,7 +4621,14 @@ pub async fn when_one_click(world: &mut FoundryWorld) {
                 e.headers
             )
         });
-    let url = header.trim_matches(|c| c == '<' || c == '>').to_string();
+    // The header names the instance's public address; the mail client's POST
+    // reaches this scenario's Foundry at the same path (as `stop_link` does).
+    let address = header.trim_matches(|c| c == '<' || c == '>');
+    let path = address
+        .find(EMAIL_STOP_ONE_CLICK)
+        .map(|i| &address[i..])
+        .unwrap_or_else(|| panic!("List-Unsubscribe names the one-click stop address; {address}"));
+    let url = format!("{}{path}", base(world));
     let resp = http(world)
         .post(&url)
         .header(CONTENT_TYPE, "application/x-www-form-urlencoded")

@@ -73,8 +73,22 @@ async fn setup(base: &str, stmts: &[&str]) {
 }
 
 /// external-integration-plugins: 0028's outbox columns and dispatch start,
-/// 0029's index and 0030's eight tables (ADR-EIP-002 Earned Trust), for schema
-/// `s`. Every healthy schema needs them since the probe asks for them.
+/// 0029's index, 0030's eight tables (ADR-EIP-002 Earned Trust) and 0031's
+/// project-email choices, for schema `s`. Every healthy schema needs them
+/// since the probe asks for them.
+fn integrations_0028_0031(s: &str) -> Vec<String> {
+    let mut out = integrations_0028_0030(s);
+    out.push(email_choices_0031(s));
+    out
+}
+
+/// 0031's `integration_email_choices` (project emails), for schema `s`.
+fn email_choices_0031(s: &str) -> String {
+    format!("CREATE TABLE {s}.integration_email_choices (id bigint)")
+}
+
+/// 0028's outbox columns and dispatch start, 0029's index and 0030's eight
+/// tables, without 0031's table.
 fn integrations_0028_0030(s: &str) -> Vec<String> {
     let mut out = vec![
         format!(
@@ -157,7 +171,7 @@ async fn probe_column_check_is_scoped_to_current_schema() {
         ]
         .into_iter()
         .map(str::to_string)
-        .chain(integrations_0028_0030("sibling"))
+        .chain(integrations_0028_0031("sibling"))
         .collect::<Vec<_>>()
         .iter()
         .map(String::as_str)
@@ -234,7 +248,7 @@ async fn probe_refuses_a_schema_without_the_provisioned_marker() {
              WHERE deleted_at IS NULL"
                 .to_string(),
         ])
-        .chain(integrations_0028_0030("current"))
+        .chain(integrations_0028_0031("current"))
         .collect();
     stmts.extend(owned.iter().map(String::as_str));
     setup(&base, &stmts).await;
@@ -350,7 +364,7 @@ async fn probe_project_lifecycle_events_check_is_scoped_to_current_schema() {
     stmts.extend(through_0024("sibling"));
     stmts.push(records_0025("sibling"));
     stmts.extend(projects_0026("sibling", true, true));
-    stmts.extend(integrations_0028_0030("sibling"));
+    stmts.extend(integrations_0028_0031("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active")
@@ -382,7 +396,7 @@ async fn probe_deleted_marker_and_live_view_check_is_scoped_to_current_schema() 
     }
     stmts.extend(projects_0026("active", false, false));
     stmts.extend(projects_0026("sibling", true, true));
-    stmts.extend(integrations_0028_0030("sibling"));
+    stmts.extend(integrations_0028_0031("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active").await.expect_err(
@@ -414,7 +428,7 @@ async fn probe_detach_column_check_is_scoped_to_current_schema() {
     }
     stmts.extend(projects_0026("active", true, false));
     stmts.extend(projects_0026("sibling", true, true));
-    stmts.extend(integrations_0028_0030("sibling"));
+    stmts.extend(integrations_0028_0031("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active")
@@ -427,4 +441,40 @@ async fn probe_detach_column_check_is_scoped_to_current_schema() {
     probe_message(&base, "sibling")
         .await
         .expect("probe must PASS when the active schema has the detach column");
+}
+
+// external-integration-plugins 05-01: the probe asks for 0031's
+// integration_email_choices. A sibling schema that holds it does not satisfy
+// the probe for an ACTIVE schema that has everything through 0030 but lacks
+// it, and the healthy schema passes.
+#[tokio::test]
+async fn probe_email_choices_check_is_scoped_to_current_schema() {
+    assert!(
+        migration_exists("0031_integration_email_choices.sql"),
+        "RED gate: migration 0031 does not exist yet (external-integration-plugins 05-01)"
+    );
+    let (base, _pg) = postgres().await;
+    let mut stmts: Vec<String> = vec![
+        "CREATE SCHEMA active".into(),
+        "CREATE SCHEMA sibling".into(),
+    ];
+    for s in ["active", "sibling"] {
+        stmts.extend(through_0024(s));
+        stmts.push(records_0025(s));
+        stmts.extend(projects_0026(s, true, true));
+    }
+    stmts.extend(integrations_0028_0030("active"));
+    stmts.extend(integrations_0028_0031("sibling"));
+    let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
+    setup(&base, &refs).await;
+    let msg = probe_message(&base, "active")
+        .await
+        .expect_err("probe must FAIL when the ACTIVE schema lacks integration_email_choices");
+    assert!(
+        msg.contains("0031"),
+        "expected a missing-0031 probe error, got: {msg}"
+    );
+    probe_message(&base, "sibling")
+        .await
+        .expect("probe must PASS when the active schema has integration_email_choices");
 }

@@ -129,7 +129,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     And Sam reads "Stopped: New comment in Identity Platform. Your other choices are unchanged."
     And Sam's Project emails show New issue chosen and New comment not chosen for Identity Platform
 
-  @pending @us-eip-11 @kpi @contract-shape:unbounded-preservation
+  @us-eip-11 @kpi @contract-shape:unbounded-preservation
   Scenario: A stopped choice sends no more emails
     Given Sam has chosen New comment for all issues in Identity Platform
     And Sam has received a New comment email from Identity Platform
@@ -144,7 +144,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     When a link scanner opens its Stop these emails link without confirming
     Then Sam's Project emails show New comment chosen for Identity Platform
 
-  @pending @us-eip-11 @kpi @contract-shape:bounded-change
+  @us-eip-11 @kpi @contract-shape:bounded-change
   Scenario: A mail client's one-click unsubscribe stops the same choice
     Given Sam has chosen New comment and New issue for all issues in Identity Platform
     And Sam has received a New comment email from Identity Platform

@@ -1219,6 +1219,7 @@ dependencies = [
  "foundry-app",
  "foundry-auth",
  "foundry-core",
+ "foundry-integrations",
  "foundry-oidc",
  "foundry-realtime",
  "foundry-store",

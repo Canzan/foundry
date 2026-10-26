@@ -25,10 +25,12 @@
 
 use async_trait::async_trait;
 use foundry_app::{
-    DeliveryError, EmailApiConfig, EmailApiProvider, Notification, NotificationProvider, Notifier,
-    ProviderKind, SuppressionError, SuppressionPolicy, WebhookConfig, WebhookProvider,
+    DeliveryError, EmailApiConfig, EmailApiProvider, Notification, NotificationEvent,
+    NotificationProvider, Notifier, ProviderKind, SuppressionError, SuppressionPolicy,
+    WebhookConfig, WebhookProvider,
 };
-use std::collections::HashSet;
+use foundry_integrations::OutboundEmail;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -208,6 +210,10 @@ pub struct RecordedDelivery {
     /// The rendered body (carries the reset/invite link for the legacy body
     /// assertions).
     pub body: String,
+    /// Lower-cased header name → value, as the provider would put them on the
+    /// wire: a project email's one-click unsubscribe (`list-unsubscribe`,
+    /// `list-unsubscribe-post`, RFC 8058). Empty for plain notifications.
+    pub headers: BTreeMap<String, String>,
 }
 
 /// Shared, thread-safe recorder every [`RecordingProvider`] writes into. Held as
@@ -335,9 +341,14 @@ impl RecordingProvider {
     }
 }
 
-#[async_trait]
-impl NotificationProvider for RecordingProvider {
-    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
+impl RecordingProvider {
+    /// Record one delivery as the transport of `kind` would carry it, with the
+    /// message's `headers` (empty for a plain notification).
+    async fn record_delivery(
+        &self,
+        notification: &Notification,
+        headers: BTreeMap<String, String>,
+    ) -> Result<(), DeliveryError> {
         if self.recorder.is_failing() {
             // Full transport outage: record nothing and fail. The infallible
             // notifier contains this — the originating request is unaffected.
@@ -358,6 +369,7 @@ impl NotificationProvider for RecordingProvider {
                 to: notification.recipient.clone(),
                 subject: notification.subject.clone(),
                 body: notification.body.clone(),
+                headers: headers.clone(),
             });
             tokio::time::sleep(std::time::Duration::from_secs(5)).await;
             return Err(DeliveryError::Transient(
@@ -375,6 +387,7 @@ impl NotificationProvider for RecordingProvider {
                 to: notification.recipient.clone(),
                 subject: notification.subject.clone(),
                 body: notification.body.clone(),
+                headers: headers.clone(),
             });
             return Err(DeliveryError::Transient(
                 "recording provider: endpoint unreachable (test)".to_string(),
@@ -387,8 +400,35 @@ impl NotificationProvider for RecordingProvider {
             to: notification.recipient.clone(),
             subject: notification.subject.clone(),
             body: notification.body.clone(),
+            headers,
         });
         Ok(())
+    }
+}
+
+#[async_trait]
+impl NotificationProvider for RecordingProvider {
+    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
+        self.record_delivery(notification, BTreeMap::new()).await
+    }
+
+    /// A project email keeps its one-click unsubscribe headers, spelled as the
+    /// shipped SMTP provider puts them on the wire (`List-Unsubscribe: <url>`,
+    /// `List-Unsubscribe-Post`), so a scenario can act as the mail client.
+    async fn send_email(&self, email: &OutboundEmail) -> Result<(), DeliveryError> {
+        let mut headers = BTreeMap::new();
+        if let Some((url, post)) = &email.unsubscribe {
+            headers.insert("list-unsubscribe".to_string(), format!("<{url}>"));
+            headers.insert("list-unsubscribe-post".to_string(), post.clone());
+        }
+        let notification = Notification {
+            event: NotificationEvent::ProjectEmail,
+            recipient: email.recipient.clone(),
+            subject: email.subject.clone(),
+            body: email.text_body.clone(),
+            workspace_id: None,
+        };
+        self.record_delivery(&notification, headers).await
     }
 
     fn kind(&self) -> ProviderKind {
@@ -452,6 +492,7 @@ impl NotificationProvider for RecordingWebhookProvider {
             to: notification.recipient.clone(),
             subject: notification.subject.clone(),
             body: notification.body.clone(),
+            headers: BTreeMap::new(),
         });
         result
     }
@@ -499,6 +540,7 @@ impl NotificationProvider for RecordingEmailApiProvider {
             to: notification.recipient.clone(),
             subject: notification.subject.clone(),
             body: notification.body.clone(),
+            headers: BTreeMap::new(),
         });
         result
     }

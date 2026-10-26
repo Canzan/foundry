@@ -25,6 +25,9 @@ foundry-app   = { path = "../foundry-app", features = ["test-support"] }
 # keycloak-sso: the harness builds the SHIPPED provider (deny.toml rule 3 lists this crate).
 foundry-oidc = { path = "../foundry-oidc" }
 foundry-realtime = { path = "../foundry-realtime" }
+# external-integration-plugins: the recorder keeps a project email's headers
+# (OutboundEmail); deny.toml rule 4 lists this crate as a wrapper.
+foundry-integrations = { path = "../foundry-integrations" }
 
 cucumber = { workspace = true }
 tokio = { workspace = true }
