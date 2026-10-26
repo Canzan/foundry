@@ -18,7 +18,7 @@
 use async_trait::async_trait;
 use foundry_integrations::{EmailTransport, EmailTransportError, OutboundEmail};
 use hmac::{Hmac, Mac};
-use lettre::message::header::{HeaderName, HeaderValue};
+use lettre::message::header::{ContentType, HeaderName, HeaderValue};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
@@ -782,7 +782,9 @@ impl SmtpProvider {
             .to(recipient.parse().map_err(|_| {
                 DeliveryError::Permanent("smtp recipient address is invalid".to_string())
             })?)
-            .subject(subject.to_string());
+            .subject(subject.to_string())
+            // Every body is UTF-8 plain text; undeclared, readers assume ASCII.
+            .header(ContentType::TEXT_PLAIN);
         if let Some((url, post)) = unsubscribe {
             builder = builder
                 .raw_header(HeaderValue::new(
@@ -1634,6 +1636,36 @@ mod tests {
             !rendered.contains(SMTP_PASSWORD_SENTINEL),
             "the SMTP password must never appear in a delivery error or its debug output: {rendered}"
         );
+    }
+
+    #[test]
+    fn smtp_messages_declare_utf8_plain_text_so_non_ascii_survives_the_relay() {
+        // Without a declared charset mail readers assume ASCII and the footer's
+        // "·" arrives as "Â·". Every SMTP body is UTF-8 plain text, project
+        // emails and security notices alike.
+        let provider = SmtpProvider::new(
+            SmtpConfig::from_lookup(smtp_env("hunter2", None)).expect("smtp config parses"),
+        )
+        .expect("smtp provider builds");
+        let unsubscribe = (
+            "https://foundry.example/email/stop/one-click?t=abc".to_string(),
+            "List-Unsubscribe=One-Click".to_string(),
+        );
+        for headers in [None, Some(&unsubscribe)] {
+            let message = provider
+                .message(
+                    "sam.okafor@canzan.dev",
+                    "New comment on AUTH-7",
+                    "Stop these emails · Change what you get",
+                    headers,
+                )
+                .expect("the message builds");
+            assert_eq!(
+                message.headers().get::<ContentType>(),
+                Some(ContentType::TEXT_PLAIN),
+                "an SMTP message must declare text/plain; charset=utf-8"
+            );
+        }
     }
 
     #[tokio::test]

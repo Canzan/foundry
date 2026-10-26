@@ -203,6 +203,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   no waiting delivery still needs, and worker heartbeats not renewed for 7 days are deleted by an
   hourly sweep.
 
+### Fixed
+
+- Emails sent through an SMTP relay declare UTF-8, so non-ASCII text such as the stop-link
+  footer's "·" displays correctly.
+
 ### Security
 
 - **tokio 1.54.1** (RUSTSEC-2026-0386): upgraded from 1.52.3; the async runtime's `AsyncFd` is

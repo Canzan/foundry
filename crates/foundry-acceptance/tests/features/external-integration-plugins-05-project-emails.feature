@@ -184,7 +184,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     When Sam asks for a password reset
     Then Sam receives the password-reset email
 
-  @pending @us-eip-11 @needs-smtp @adapter-integration @kpi @contract-shape:bounded-change
+  @us-eip-11 @needs-smtp @adapter-integration @kpi @contract-shape:bounded-change
   Scenario: A project email sent through the relay carries its one-click stop link
     Given the instance sends email through its SMTP relay
     And Sam has chosen New comment for all issues in Identity Platform
