@@ -38,6 +38,8 @@ const BOT_REMOVED: &str = "Needs attention: @foundry:canzan.dev was removed from
 const K18: &str = "Matrix is not set up on this Foundry yet. An instance operator sets it up once.";
 /// K-19 with {Kind} = Matrix (DESIGN UI-1, DD-2; ratified 2026-10-22).
 const K19_MATRIX: &str = "Matrix is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key.";
+/// R-12 (ratified 2026-10-25) around the archived-channel reason words.
+const R12_ARCHIVED: &str = "The test message was not delivered: #auth-dev was archived.";
 /// A case's bound: setup, the homeserver, and the status budget.
 const CASE_BOUND: Duration = Duration::from_secs(300);
 
@@ -99,6 +101,21 @@ const CASES: &[Case] = &[
         name: "b4iii_a_matrix_connection_the_key_cannot_open_reads_k19",
         ignore: None,
         body: |w| b4_matrix_unreadable(w).boxed(),
+    },
+    Case {
+        name: "r1_deleting_the_only_route_to_a_room_takes_the_bot_out_of_it",
+        ignore: None,
+        body: |w| r1_delete_leaves_the_room(w).boxed(),
+    },
+    Case {
+        name: "r1_a_refused_save_to_a_room_no_route_uses_takes_the_bot_back_out",
+        ignore: None,
+        body: |w| r1_refused_save_leaves_the_room(w).boxed(),
+    },
+    Case {
+        name: "r2a_a_project_email_without_its_stop_link_is_failed_not_sent",
+        ignore: Some("RED until review fix R2-a"),
+        body: |w| r2a_no_stop_link(w).boxed(),
     },
 ];
 
@@ -445,9 +462,9 @@ async fn b3_send_test_refused(world: &mut FoundryWorld, destination: Unoffered) 
 /// B4 (i) (handlers `send_test`: `test_notice(outcome, "the channel")`).
 /// Slack refuses Send test's post because #auth-dev was archived meanwhile;
 /// the notice names the channel as the picker showed it ("#auth-dev was
-/// archived", the ratified reason words), never "the channel". The
-/// "The test message was not delivered: …" wrapper is not asserted (the
-/// user is deciding about it).
+/// archived", the ratified reason words), never "the channel", inside the
+/// wrapper the user ratified on 2026-10-25 (R-12): "The test message was not
+/// delivered: {reason}."
 ///
 /// CONTRACT_SHAPE: bounded-change
 /// Outcome anchor: DISCUSS Elevator Pitch US-EIP-02.
@@ -467,6 +484,10 @@ async fn b4_send_test_names_channel(world: &mut FoundryWorld) {
     let tested = eip::send_test_for_reference(world, "Lena", "Identity Platform", &reference).await;
 
     let said = notice(&tested).unwrap_or_default();
+    assert!(
+        said.contains(R12_ARCHIVED),
+        "Send test's failure reads R-12 {R12_ARCHIVED:?}; it reads {said:?}"
+    );
     assert!(
         said.contains("#auth-dev was archived"),
         "Send test's failure names #auth-dev; it reads {said:?}"
@@ -516,6 +537,164 @@ async fn b4_matrix_unreadable(world: &mut FoundryWorld) {
     assert!(
         matrix.contains(K19_MATRIX),
         "the Matrix section reads K-19 {K19_MATRIX:?}; it reads {matrix:?}"
+    );
+}
+
+// ===========================================================================
+// R1 mutation gaps: the bot leaves a room no route uses (passing today)
+// ===========================================================================
+
+/// After a delete or a refused save: Foundry asked the homeserver to take
+/// the bot out of the room, and the room no longer reads it as a member.
+async fn bot_left(world: &mut FoundryWorld, leaves_before: usize) {
+    let leaves = eip::fault_proxy(world).requests_to("/leave") - leaves_before;
+    assert!(
+        leaves >= 1,
+        "Foundry never asked the homeserver to take the bot out of {ROOM}, which no route uses"
+    );
+    assert!(
+        !eip::bot_is_member(world, ROOM).await,
+        "the bot is still in {ROOM}, which no route uses"
+    );
+}
+
+/// R1 mutation gap (handlers `delete_route` -> `Default::default()`; the
+/// leave after a delete). Identity Platform's route is the only one to the
+/// room; Lena confirms its delete. She is sent back to the project's page,
+/// the route is gone, and the bot left the room.
+///
+/// CONTRACT_SHAPE: bounded-change
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-09.
+async fn r1_delete_leaves_the_room(world: &mut FoundryWorld) {
+    workspace(world).await;
+    matrix_connected(world).await;
+    eip::given_routed(world, "Lena", new_issue_route("Identity Platform", ROOM)).await;
+    assert!(
+        eip::bot_is_member(world, ROOM).await,
+        "precondition: the bot is in the room for the route"
+    );
+    let dialog = eip::delete_dialog(world, "Lena", ROOM).await;
+    let confirm = tm::forms(&dialog.body)
+        .into_iter()
+        .find(|f| f.action.ends_with("/delete"))
+        .unwrap_or_else(|| {
+            panic!(
+                "the delete dialog's confirm form; {}",
+                tm::describe(&dialog)
+            )
+        });
+    let leaves_before = eip::fault_proxy(world).requests_to("/leave");
+
+    let answer = eip::submit_form(world, "Lena", &confirm.action, &confirm.fields).await;
+
+    assert_eq!(
+        answer.status,
+        StatusCode::SEE_OTHER,
+        "the delete sends Lena back to the project's page; {}",
+        tm::describe(&answer)
+    );
+    assert!(
+        eip::route_status(world, "Identity Platform", ROOM)
+            .await
+            .is_none(),
+        "Identity Platform's route to {ROOM} is deleted"
+    );
+    bot_left(world, leaves_before).await;
+}
+
+/// R1 mutation gaps (handlers `withdraw_unless_routed` -> `()`, and
+/// `enrol_in_room`'s `refusal != RoomRefusal::NotInvited`). The bot is
+/// invited to an encrypted room no route uses; Lena saves a route to it. The
+/// bot joins, finds the room encrypted, and the save is refused; the bot,
+/// which nothing keeps there, leaves.
+///
+/// CONTRACT_SHAPE: bounded-change
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-09.
+async fn r1_refused_save_leaves_the_room(world: &mut FoundryWorld) {
+    workspace(world).await;
+    eip::given_homeserver_accounts(world, "@foundry:canzan.dev", "@lena:canzan.dev").await;
+    eip::given_room(world, ROOM, Some("Identity Platform"), 5, true).await;
+    eip::given_matrix_connected(world).await;
+    eip::invite_bot(world, ROOM).await;
+    eip::given_creating(world, "Lena", new_issue_route("Identity Platform", ROOM)).await;
+    let leaves_before = eip::fault_proxy(world).requests_to("/leave");
+
+    eip::when_save_route(world, "Lena").await;
+
+    eip::then_no_route(world, "Identity Platform").await;
+    bot_left(world, leaves_before).await;
+}
+
+// ===========================================================================
+// R2-a: a project email never goes out without its stop link
+// ===========================================================================
+
+/// The status of the latest project-email delivery to `email`, once it is
+/// no longer pending (`None` if none settles within the email budget).
+/// Crate-level oracle: project emails have no status page.
+async fn settled_email_delivery(world: &FoundryWorld, email: &str) -> Option<String> {
+    let pool = tm::pool(world);
+    let start = std::time::Instant::now();
+    while start.elapsed() < eip::EMAIL_BUDGET {
+        let status: Option<String> = sqlx::query_scalar(
+            "SELECT d.status FROM integration_deliveries d
+               JOIN users u ON u.id = d.recipient_user_id
+              WHERE u.email_lower = lower($1)
+              ORDER BY d.id DESC LIMIT 1",
+        )
+        .bind(email)
+        .fetch_optional(&pool)
+        .await
+        .expect("read the email delivery");
+        if let Some(status) = status.filter(|s| s != "pending") {
+            return Some(status);
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    None
+}
+
+/// R2-a (review part 2, non-blocking: "missing stop link sends the email
+/// silently"; the user chose to fail it, 2026-10-25). Sam chose New issue for
+/// all issues in Identity Platform. The delivery worker's project mail can
+/// send but cannot build a stop link (it was never handed the secret stop
+/// links are signed with). Lena files an issue: Sam is not emailed, and the
+/// delivery is recorded as failed. A project email never goes out without
+/// its "Stop these emails" footer and its List-Unsubscribe headers. RED
+/// today: the email is sent without them and recorded as delivered.
+///
+/// CONTRACT_SHAPE: bounded-change
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-11 (a member stops one kind
+/// of project email from the email itself).
+async fn r2a_no_stop_link(world: &mut FoundryWorld) {
+    workspace(world).await;
+    eip::given_email_setup(world, true).await;
+    eip::given_chosen(world, "Sam", "New issue", "all issues", "Identity Platform").await;
+    eip::run_worker_without_stop_links(world);
+    let sam = tm::resolve_person(world, "Sam").email;
+
+    eip::file(
+        world,
+        "Lena",
+        "Identity Platform",
+        "Rotate the bind password",
+    )
+    .await;
+
+    let settled = settled_email_delivery(world, &sam).await;
+    let received: Vec<(String, bool)> = eip::received_emails(world, &sam)
+        .into_iter()
+        .map(|e| (e.subject, e.body.contains("Stop these emails")))
+        .collect();
+    assert!(
+        received.is_empty(),
+        "Sam was emailed although no stop link could be built ((subject, carries a stop \
+         link) per email): {received:?}"
+    );
+    assert_eq!(
+        settled.as_deref(),
+        Some("failed"),
+        "Sam's New issue email is recorded as failed (it reads {settled:?})"
     );
 }
 

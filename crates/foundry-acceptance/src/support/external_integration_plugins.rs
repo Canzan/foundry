@@ -921,6 +921,39 @@ fn run_worker_on_wall_time(world: &mut FoundryWorld) {
     );
 }
 
+/// DELIVER review R2-a (crate-level, no scenario): the in-process delivery
+/// worker rebuilt as [`run_worker_on_wall_time`] builds it, but over its own
+/// integrations handle whose project mail holds the scenario's email
+/// transport and was never handed `SESSION_SECRET`: no project email it sends
+/// has a stop link it can build. The composition root always hands the secret
+/// (`integrations::start`); this is the state the worker must refuse to send
+/// from. The app's pages keep the scenario's handle.
+pub fn run_worker_without_stop_links(world: &mut FoundryWorld) {
+    use foundry_app::integrations::{
+        store_capabilities::StoreCapabilities, worker::IntegrationsWorker, Integrations,
+        IntegrationsHandle,
+    };
+    let base_url = tm::harness(world).base_url();
+    let settings = scenario_settings(world, true, &base_url, "the stop-link-less worker");
+    let harness = world
+        .harness
+        .as_mut()
+        .expect("the Background spawned foundry for this scenario");
+    if let Some(running) = harness.app.worker_task.take() {
+        running.abort();
+    }
+    let state = &harness.app.state;
+    let handle = IntegrationsHandle::new(Integrations::new(settings));
+    handle
+        .project_mail()
+        .use_transport(state.integrations.project_mail().transport());
+    let clock: Arc<dyn foundry_app::Clock> =
+        Arc::new(WallTickingClock::new(harness.fake_clock.clone()));
+    harness.app.worker_task = Some(
+        IntegrationsWorker::new(StoreCapabilities::new(state.store.clone()), handle, clock).spawn(),
+    );
+}
+
 /// "the Canzan Labs workspace with these people" — spawn foundry, seed the
 /// workspace, its teams (from the table) and people.
 pub async fn given_workspace_people(world: &mut FoundryWorld, step: &Step) {

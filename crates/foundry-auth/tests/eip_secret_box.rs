@@ -172,6 +172,46 @@ fn previous_key_opens_during_a_rotation() {
     );
 }
 
+/// R2-e (DELIVER review, part 1, non-blocking; fixed before release by the
+/// user's decision of 2026-10-25): `FOUNDRY_SECRETS_KEY_PREVIOUS` is a
+/// comma-separated list an operator types by hand. Spaces around an entry
+/// are trimmed and blank entries are dropped, so " k1 , ,k2 " gives exactly
+/// two retired keys, each opening what it sealed. RED today: the entries are
+/// parsed untrimmed, so " k1 " is refused as malformed and Foundry will not
+/// start.
+///
+/// CONTRACT_SHAPE: pure-function
+#[test]
+#[ignore = "RED until review fix R2-e"]
+fn previous_keys_are_trimmed_and_blank_entries_dropped() {
+    const KEY_C: [u8; 32] = [99; 32];
+    let encode = |key: &[u8; 32]| base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(key);
+    let typed = SecretString::from(format!(" {} , ,{} ", encode(&KEY_B), encode(&KEY_C)));
+
+    let rotating = SecretBox::from_settings(&b64url(&KEY_A), Some(&typed))
+        .expect("entries with spaces around them and a blank entry are well-formed");
+
+    let id_of = |key: &[u8; 32]| secret_box(key, &[]).current_key_id();
+    assert_eq!(
+        rotating.key_ids(),
+        vec![id_of(&KEY_A), id_of(&KEY_B), id_of(&KEY_C)],
+        "the current key, then exactly the two retired keys, in order"
+    );
+    let slot = slack_token_slot("row-1");
+    for retired in [&KEY_B, &KEY_C] {
+        let sealed = secret_box(retired, &[])
+            .seal(&token("xoxb-retired"), &slot)
+            .expect("seal");
+        assert_eq!(
+            rotating
+                .open(&sealed, &slot)
+                .expect("a trimmed retired key opens what it sealed")
+                .expose_secret(),
+            "xoxb-retired"
+        );
+    }
+}
+
 #[test]
 fn key_accepts_base64url_with_or_without_padding() {
     // Bytes whose encoding uses both URL-safe characters ('-' and '_').

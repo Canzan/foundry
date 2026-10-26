@@ -3171,3 +3171,78 @@ async fn a_matrix_room_two_routes_share_stays_routed_until_the_last_is_deleted()
         "no route sends to the room once both are deleted"
     );
 }
+
+/// R2-d (DELIVER review part 1, non-blocking: "kind is a String and
+/// `chat_kind` falls back to Slack"; the user chose kind as a type,
+/// 2026-10-25). A stored kind is read into the closed `ChannelKind` at the
+/// store boundary, and a kind this Foundry does not know is an error there:
+/// never a silent Slack, never a string handed on for a caller to guess at.
+///
+/// The CHECK constraints of 0030 keep such a kind out of a schema this
+/// release migrated (asserted first), so the test drops them in its own
+/// schema (a row a newer release or a hand edit wrote). That is a fault
+/// injected from the test, not a product seam. RED today: both reads hand
+/// the unknown kind on as a string.
+///
+/// CONTRACT_SHAPE: pure-function
+#[tokio::test]
+#[ignore = "RED until review fix R2-d"]
+async fn a_stored_kind_this_foundry_does_not_know_is_refused_when_read() {
+    const UNKNOWN: &str = "carrier_pigeon";
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    for (table, id) in [
+        ("integration_connections", lab.connection),
+        ("integration_routes", lab.route),
+    ] {
+        let refused = sqlx::query(&format!("UPDATE {table} SET kind = $2 WHERE id = $1"))
+            .bind(id)
+            .bind(UNKNOWN)
+            .execute(&pool)
+            .await;
+        assert_eq!(
+            refused
+                .map_err(StoreError::from)
+                .err()
+                .as_ref()
+                .and_then(sqlstate),
+            Some("23514".to_string()),
+            "precondition: {table}'s CHECK keeps an unknown kind out"
+        );
+    }
+    exec(
+        &pool,
+        "ALTER TABLE integration_connections DROP CONSTRAINT integration_connections_kind_check;
+         ALTER TABLE integration_routes DROP CONSTRAINT integration_routes_kind_check;",
+    )
+    .await;
+    for (table, id) in [
+        ("integration_connections", lab.connection),
+        ("integration_routes", lab.route),
+    ] {
+        sqlx::query(&format!("UPDATE {table} SET kind = $2 WHERE id = $1"))
+            .bind(id)
+            .bind(UNKNOWN)
+            .execute(&pool)
+            .await
+            .expect("write the unknown kind");
+    }
+
+    let connections = lab.store.workspace_connections(lab.ws).await;
+    let routes = lab.store.project_routes(lab.auth).await;
+
+    assert!(
+        connections.is_err(),
+        "the workspace's connections were read with the kind {UNKNOWN:?} ({} row(s)); \
+         an unknown kind is an error at the store boundary",
+        connections.as_ref().map_or(0, Vec::len)
+    );
+    assert!(
+        routes.is_err(),
+        "the project's routes were read with the kind {UNKNOWN:?} ({} row(s)); \
+         an unknown kind is an error at the store boundary",
+        routes.as_ref().map_or(0, Vec::len)
+    );
+}
