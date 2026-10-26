@@ -203,6 +203,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   no waiting delivery still needs, and worker heartbeats not renewed for 7 days are deleted by an
   hourly sweep.
 
+### Security
+
+- **tokio 1.54.1** (RUSTSEC-2026-0386): upgraded from 1.52.3; the async runtime's `AsyncFd` is
+  no longer unsound.
+
 ### Operators
 
 - **`FOUNDRY_OUTBOUND_ALLOW`** (ConfigMap; unset by default): the private ranges and host names
