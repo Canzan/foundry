@@ -735,30 +735,7 @@ async fn main() -> anyhow::Result<()> {
     // loops, with their shutdown semantics (dropped when the runtime stops).
     // It runs while the integration settings say so and the secrets key is
     // set; it holds only the store capabilities, never the store.
-    // DDR-23: a lost connection's admins are told through the shipped
-    // notifier, by the worker and by the Slack events door alike.
-    state
-        .integrations
-        .admin_mail()
-        .use_notifier(state.notifier.clone());
-    // ADR-EIP-007 decision 4: members' project emails go through the first
-    // configured `smtp` or `email_api` provider; none, and they are off (K-13).
-    state
-        .integrations
-        .project_mail()
-        .use_transport(state.notifier.email_transport());
-    // ADR-EIP-007 decision 5: every project email carries its signed stop
-    // link, keyed on SESSION_SECRET.
-    state
-        .integrations
-        .project_mail()
-        .sign_stop_links_with(state.session_secret.clone());
-    let _integrations_worker = foundry_app::integrations::worker::IntegrationsWorker::new(
-        foundry_app::integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
-        state.integrations.clone(),
-        state.clock.clone(),
-    )
-    .spawn();
+    let _integrations_worker = foundry_app::integrations::start(&state);
 
     // Slice 8 (ADR-019 / D5) — hold a Store handle for the `store`
     // startup probe before `state` moves into the router.

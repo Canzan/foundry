@@ -389,10 +389,8 @@ fn answer_head(response: &reqwest::Response) -> (u16, Option<Duration>) {
 /// A channel Foundry can post to: public (`chat:write.public`), or private
 /// with the app a member; never archived.
 fn postable(channel: &Value) -> Option<Destination> {
-    let private = channel["is_private"].as_bool().unwrap_or(false);
-    let member = channel["is_member"].as_bool().unwrap_or(false);
-    let archived = channel["is_archived"].as_bool().unwrap_or(false);
-    if archived || (private && !member) {
+    if flag(channel, "is_archived") || (flag(channel, "is_private") && !flag(channel, "is_member"))
+    {
         return None;
     }
     Some(Destination {
@@ -404,11 +402,18 @@ fn postable(channel: &Value) -> Option<Destination> {
 
 /// Whether Slack reports the channel shared with another organisation.
 fn shared_with_another_organisation(channel: &Value) -> bool {
-    channel["is_ext_shared"].as_bool().unwrap_or(false)
+    flag(channel, "is_ext_shared")
+}
+
+/// A channel's yes-or-no field; absent reads as no.
+fn flag(channel: &Value, field: &str) -> bool {
+    channel[field].as_bool().unwrap_or(false)
 }
 
 /// The most pages of `conversations.list` one listing reads.
 const MAX_LIST_PAGES: usize = 10;
+/// The channels one `conversations.list` page asks for.
+const LIST_PAGE_SIZE: &str = "200";
 
 #[async_trait]
 impl DeliveryChannel for SlackBot {
@@ -473,7 +478,7 @@ impl DestinationCatalog for SlackBot {
                     &[
                         ("types", "public_channel,private_channel"),
                         ("exclude_archived", "true"),
-                        ("limit", "200"),
+                        ("limit", LIST_PAGE_SIZE),
                         ("cursor", cursor.as_str()),
                     ],
                 )
@@ -507,7 +512,7 @@ impl DestinationCatalog for SlackBot {
         let channel = &answer["channel"];
         Ok(DestinationCheck {
             can_post: postable(channel).is_some(),
-            member: channel["is_member"].as_bool().unwrap_or(false),
+            member: flag(channel, "is_member"),
             shared_with_another_organisation: shared_with_another_organisation(channel),
             encrypted: false,
         })

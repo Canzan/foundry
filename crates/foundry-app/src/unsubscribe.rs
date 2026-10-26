@@ -312,7 +312,6 @@ pub(crate) async fn render_settings(
     headers: &HeaderMap,
     saved: Option<String>,
 ) -> Response {
-    let state = state.clone();
     let email_lower = match state.store.find_user_email_lower_by_id(user.user_id).await {
         Ok(Some(email)) => email,
         Ok(None) => {
@@ -342,24 +341,28 @@ pub(crate) async fn render_settings(
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
+    let project_emails = match crate::integrations::project_emails::section(
+        state,
+        user.user_id,
+        &muted,
+        saved,
+    )
+    .await
+    {
+        Ok(section) => section,
+        Err(err) => {
+            tracing::error!(%err, "project emails section failed on settings page");
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        }
+    };
     // Assemble the shared rail exactly as the dashboard/other authed pages do:
     // the acting user's REAL instance-admin authority (fail-closed) + a per-request
     // double-submit CSRF token (also rendered into each row form's `_csrf`). Home
     // stays the active primary — settings is a footer destination (NFR-3).
-    let project_emails =
-        match crate::integrations::project_emails::section(&state, user.user_id, &muted, saved)
-            .await
-        {
-            Ok(section) => section,
-            Err(err) => {
-                tracing::error!(%err, "project emails section failed on settings page");
-                return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
-            }
-        };
-    let (csrf, set_cookie) = ensure_csrf_cookie(&state, headers);
-    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, user.user_id).await;
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(state, user.user_id).await;
     let nav = crate::nav::NavContext::home_for(
-        &state,
+        state,
         user.user_id,
         user.workspace_id,
         is_instance_admin,

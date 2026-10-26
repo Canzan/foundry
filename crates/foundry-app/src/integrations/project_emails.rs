@@ -17,7 +17,7 @@ use crate::email_stop::StopLinks;
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Form;
 use foundry_integrations::{email_events, EmailScope, EmailTransport, EventKind};
@@ -141,20 +141,6 @@ pub fn section_of(
     can_send: bool,
     saved: Option<String>,
 ) -> ProjectEmailsSection {
-    let mut muted_lines: Vec<String> = Vec::new();
-    for project in emails
-        .projects
-        .iter()
-        .filter(|p| muted.contains(&p.workspace_id))
-    {
-        let line = format!(
-            "{} is muted. These choices apply when you resubscribe.",
-            project.workspace_name
-        );
-        if !muted_lines.contains(&line) {
-            muted_lines.push(line);
-        }
-    }
     let chosen = |project_id: Uuid, event: EventKind, scope: EmailScope| {
         emails.choices.iter().any(|c| {
             c.project_id == project_id
@@ -191,9 +177,28 @@ pub fn section_of(
         can_send,
         unavailable: NO_EMAIL_TRANSPORT,
         saved,
-        muted: muted_lines,
+        muted: muted_lines(emails, muted),
         projects,
     }
+}
+
+/// One line per muted workspace among the offered projects', in their order.
+fn muted_lines(emails: &ProjectEmails, muted: &HashSet<Uuid>) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    for project in emails
+        .projects
+        .iter()
+        .filter(|p| muted.contains(&p.workspace_id))
+    {
+        let line = format!(
+            "{} is muted. These choices apply when you resubscribe.",
+            project.workspace_name
+        );
+        if !lines.contains(&line) {
+            lines.push(line);
+        }
+    }
+    lines
 }
 
 /// The member's section, read now.
@@ -294,11 +299,7 @@ pub async fn save(
         Err(IntegrationError::NotFound) => return crate::bootstrap::resource_not_found_page(),
         Err(IntegrationError::Store(err)) => {
             tracing::error!(%err, "project emails: save failed");
-            return (
-                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                "internal error",
-            )
-                .into_response();
+            return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
         }
     };
     let address = match state.store.find_user_email_lower_by_id(user.user_id).await {

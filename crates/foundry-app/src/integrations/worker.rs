@@ -34,24 +34,18 @@ use super::project_emails::ProjectMail;
 use super::store_capabilities::{
     ConnectionCredentials, DeliveryClaims, DeliverySweeps, DispatchLog, EventViewReads,
 };
-use super::{Integrations, IntegrationsHandle};
+use super::{chat_kind, Integrations, IntegrationsHandle};
 use crate::notify::{Notification, NotificationEvent, Notifier};
 use crate::Clock;
 use foundry_integrations::{
-    claimable_head, compose, encode_matrix, encode_slack, expiry_set, issue_url, ChannelKind,
-    ConnectionLostNotice, ConnectionState, ContentLevel, DeliveryChannel, DeliveryKey,
-    DestinationRef, DispatchPlan, EventKind, EventView, FilterLane, OutboxRow, PlannedDelivery,
-    QueuedDelivery, ReasonCode, RetryPolicy, RouteSpec, Settlement,
-};
-use foundry_integrations::{
-    compose_email, email_gate, encode_email, plan_emails, ChannelOutcome, EmailChoice, EmailFacts,
-    EmailScope, EmailTransportError, PlannedEmail,
-};
-use foundry_integrations::{
-    connection_census, delivery_labels, delivery_series, route_census, DeliveryOutcome,
-};
-use foundry_integrations::{
-    prune_set, Attempt, Jitter, PrunePlan, RetainedDelivery, RetainedOutboxRow, RETENTION,
+    claimable_head, compose, compose_email, connection_census, delivery_labels, delivery_series,
+    email_gate, encode_email, encode_matrix, encode_slack, expiry_set, issue_url, plan_emails,
+    prune_set, route_census, Attempt, ChannelKind, ChannelOutcome, ConnectionLostNotice,
+    ConnectionState, ContentLevel, DeliveryChannel, DeliveryKey, DeliveryOutcome, DestinationRef,
+    DispatchPlan, EmailChoice, EmailFacts, EmailScope, EmailTransportError, EncodedMessage,
+    EventKind, EventView, FilterLane, Jitter, MessageLines, OutboxRow, PlannedDelivery,
+    PlannedEmail, PrunePlan, QueuedDelivery, ReasonCode, RetainedDelivery, RetainedOutboxRow,
+    RetryPolicy, RouteSpec, Settlement, RETENTION,
 };
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, ClaimedDelivery, DeliveryContext, DeliveryResult, DeliveryTally,
@@ -73,6 +67,8 @@ const IDLE_POLL: Duration = Duration::from_millis(250);
 const DISPATCHER_ROLE: &str = "dispatcher";
 /// How often (on the clock) a worker runs the retention sweep.
 const RETENTION_SWEEP_EVERY: time::Duration = time::Duration::hours(1);
+/// Where a member changes what they get (K-12).
+const SETTINGS_PATH: &str = "/account/settings";
 
 /// The stall gauges (DDR-22; DEVOPS observability), on the database's clock.
 pub const OUTBOX_UNDISPATCHED: &str = "foundry_outbox_undispatched";
@@ -587,28 +583,22 @@ impl Sender {
         let level =
             ContentLevel::from_wire_name(&context.content_level).unwrap_or(ContentLevel::Summary);
         let lines = compose(&view, level);
+        let kind = chat_kind(&context.route_kind);
         let channel = match context.connection_id {
-            Some(connection_id) => {
-                self.channel(integrations, connection_id, &context.route_kind)
-                    .await?
-            }
+            Some(connection_id) => self.channel(integrations, connection_id, kind).await?,
             None => None,
         };
         let outcome = match channel {
-            Some((channel, kind)) => {
-                let message = match kind {
-                    ChannelKind::Matrix => encode_matrix(&lines),
-                    _ => encode_slack(&lines),
-                };
+            Some(channel) => {
                 channel
                     .deliver(
                         &DestinationRef(context.destination_ref.clone()),
-                        &message,
+                        &encoded(kind, &lines),
                         DeliveryKey(delivery_id),
                     )
                     .await
             }
-            None => foundry_integrations::ChannelOutcome::Transient {
+            None => ChannelOutcome::Transient {
                 reason: ReasonCode::SecretUnavailable,
                 retry_after: None,
             },
@@ -617,9 +607,7 @@ impl Sender {
             RetryPolicy::BACKOFF.settle(outcome, attempt, clock.now(), context.give_up_at);
         Ok(delivery_result(settled))
     }
-}
 
-impl Sender {
     /// A member's project email (ADR-EIP-007 decision 3): the send-time
     /// checks through the pure [`email_gate`], then the email composed and
     /// sent through the project mail transport.
@@ -659,38 +647,33 @@ impl Sender {
         Ok(email_result(sent, attempt, clock.now(), context.give_up_at))
     }
 
-    /// The route kind's channel on the connection `connection_id`, when this
+    /// The `kind` channel on the connection `connection_id`, when this
     /// Foundry can open its credential.
     async fn channel(
         &self,
         integrations: &Integrations,
         connection_id: uuid::Uuid,
-        route_kind: &str,
-    ) -> Result<Option<(Box<dyn DeliveryChannel>, ChannelKind)>, foundry_store::StoreError> {
+        kind: ChannelKind,
+    ) -> Result<Option<Box<dyn DeliveryChannel>>, foundry_store::StoreError> {
         let Some(sealed) = self.credentials.sealed_credential(connection_id).await? else {
             return Ok(None);
         };
-        Ok(match ChannelKind::from_wire_name(route_kind) {
-            Some(ChannelKind::Matrix) => {
-                let homeserver = self.credentials.connection_address(connection_id).await?;
-                homeserver
-                    .and_then(|homeserver| {
-                        integrations.matrix_bot_at(connection_id, &homeserver, sealed)
-                    })
-                    .map(|bot| {
-                        (
-                            Box::new(bot) as Box<dyn DeliveryChannel>,
-                            ChannelKind::Matrix,
-                        )
-                    })
-            }
-            _ => integrations.slack_bot(connection_id, sealed).map(|bot| {
-                (
-                    Box::new(bot) as Box<dyn DeliveryChannel>,
-                    ChannelKind::Slack,
-                )
-            }),
-        })
+        if kind != ChannelKind::Matrix {
+            let bot = integrations.slack_bot(connection_id, sealed);
+            return Ok(bot.map(|bot| Box::new(bot) as Box<dyn DeliveryChannel>));
+        }
+        let homeserver = self.credentials.connection_address(connection_id).await?;
+        let bot = homeserver
+            .and_then(|homeserver| integrations.matrix_bot_at(connection_id, &homeserver, sealed));
+        Ok(bot.map(|bot| Box::new(bot) as Box<dyn DeliveryChannel>))
+    }
+}
+
+/// `lines` in the `kind` chat's own message format.
+fn encoded(kind: ChannelKind, lines: &MessageLines) -> EncodedMessage {
+    match kind {
+        ChannelKind::Matrix => encode_matrix(lines),
+        _ => encode_slack(lines),
     }
 }
 
@@ -792,9 +775,6 @@ pub mod claimant_seam {
     }
 }
 
-/// Where a member changes what they get (K-12).
-const SETTINGS_PATH: &str = "/account/settings";
-
 /// The store's send-time facts as the core's gate reads them; a scope it
 /// does not know reads as a choice gone.
 fn email_facts(facts: &EmailSendFacts) -> EmailFacts {
@@ -822,10 +802,11 @@ fn email_result(
             retry_after: None,
         },
         Err(EmailTransportError::Permanent) => {
+            let refused = ReasonCode::EmailRefused.wire_name().to_string();
             return DeliveryResult::Failed {
-                final_reason: ReasonCode::EmailRefused.wire_name().to_string(),
-                vendor_reason: Some(ReasonCode::EmailRefused.wire_name().to_string()),
-            }
+                final_reason: refused.clone(),
+                vendor_reason: Some(refused),
+            };
         }
     };
     delivery_result(RetryPolicy::BACKOFF.settle(outcome, attempt, now, give_up_at))

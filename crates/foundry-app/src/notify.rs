@@ -276,6 +276,10 @@ impl EmailTransport for ProviderEmailTransport {
     }
 }
 
+/// The one-click unsubscribe headers a project email carries (RFC 8058).
+const LIST_UNSUBSCRIBE: &str = "List-Unsubscribe";
+const LIST_UNSUBSCRIBE_POST: &str = "List-Unsubscribe-Post";
+
 /// Whether a provider of `kind` sends email a member reads: `smtp` and
 /// `email_api`, and (test-support builds only) `log`, the acceptance
 /// harness's recorder (ADR-EIP-007 decision 4).
@@ -762,9 +766,7 @@ impl SmtpProvider {
             from: config.from,
         })
     }
-}
 
-impl SmtpProvider {
     /// One message to `recipient`, with the one-click unsubscribe headers when
     /// `unsubscribe` names them (RFC 8058: `List-Unsubscribe: <url>` and
     /// `List-Unsubscribe-Post`).
@@ -788,11 +790,11 @@ impl SmtpProvider {
         if let Some((url, post)) = unsubscribe {
             builder = builder
                 .raw_header(HeaderValue::new(
-                    HeaderName::new_from_ascii_str("List-Unsubscribe"),
+                    HeaderName::new_from_ascii_str(LIST_UNSUBSCRIBE),
                     format!("<{url}>"),
                 ))
                 .raw_header(HeaderValue::new(
-                    HeaderName::new_from_ascii_str("List-Unsubscribe-Post"),
+                    HeaderName::new_from_ascii_str(LIST_UNSUBSCRIBE_POST),
                     post.clone(),
                 ));
         }
@@ -1143,8 +1145,8 @@ impl EmailApiProvider {
         });
         if let Some((url, post)) = &email.unsubscribe {
             body["headers"] = serde_json::json!({
-                "List-Unsubscribe": format!("<{url}>"),
-                "List-Unsubscribe-Post": post,
+                LIST_UNSUBSCRIBE: format!("<{url}>"),
+                LIST_UNSUBSCRIBE_POST: post,
             });
         }
         body.to_string()

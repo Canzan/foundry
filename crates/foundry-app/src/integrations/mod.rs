@@ -21,6 +21,7 @@ pub mod worker;
 use crate::rate_limit::RevokeRateLimiter;
 use config::IntegrationSettings;
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
+use foundry_integrations::ChannelKind;
 use foundry_store::integrations::KeyCheck;
 use outbound::OutboundHttp;
 use project_emails::ProjectMail;
@@ -41,6 +42,39 @@ pub enum SlackOffer {
     /// (DD-2 degraded start).
     Unavailable,
     Ready,
+}
+
+/// A chat route's kind as stored or submitted: Matrix, else Slack.
+pub(crate) fn chat_kind(wire: &str) -> ChannelKind {
+    match ChannelKind::from_wire_name(wire) {
+        Some(ChannelKind::Matrix) => ChannelKind::Matrix,
+        _ => ChannelKind::Slack,
+    }
+}
+
+/// Hand the integrations the composition root's notifier (DDR-23: a lost
+/// connection's admins are told through it; ADR-EIP-007 decision 4: members'
+/// project emails go through its first `smtp` or `email_api` provider, none
+/// and they are off, K-13) and `SESSION_SECRET` (decision 5: every project
+/// email's signed stop link), then spawn the delivery worker (ADR-EIP-002).
+/// `main.rs` and the acceptance harness both start delivery here.
+pub fn start(state: &crate::AppState) -> tokio::task::JoinHandle<()> {
+    let integrations = &state.integrations;
+    integrations
+        .admin_mail()
+        .use_notifier(state.notifier.clone());
+    integrations
+        .project_mail()
+        .use_transport(state.notifier.email_transport());
+    integrations
+        .project_mail()
+        .sign_stop_links_with(state.session_secret.clone());
+    worker::IntegrationsWorker::new(
+        store_capabilities::StoreCapabilities::new(state.store.clone()),
+        integrations.clone(),
+        state.clock.clone(),
+    )
+    .spawn()
 }
 
 /// The plaintext every key's check value seals (`integration_key_checks`).

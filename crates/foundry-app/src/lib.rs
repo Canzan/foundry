@@ -1119,24 +1119,7 @@ pub mod test_support {
                 .await
                 .ok();
         });
-        state
-            .integrations
-            .admin_mail()
-            .use_notifier(state.notifier.clone());
-        state
-            .integrations
-            .project_mail()
-            .use_transport(state.notifier.email_transport());
-        state
-            .integrations
-            .project_mail()
-            .sign_stop_links_with(state.session_secret.clone());
-        let worker_task = integrations::worker::IntegrationsWorker::new(
-            integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
-            state.integrations.clone(),
-            state.clock.clone(),
-        )
-        .spawn();
+        let worker_task = integrations::start(&state);
         Ok(TestApp {
             addr,
             state,

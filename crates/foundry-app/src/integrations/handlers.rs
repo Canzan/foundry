@@ -65,10 +65,10 @@
 //!   lost and tells its admins once. Anything else is acknowledged and
 //!   changes nothing.
 
-use super::matrix::{self, ConnectRefusal, MatrixBot, RoomRefusal};
-use super::slack::{self, InstallState, SlackEvent, SlackGrant};
+use super::matrix::{self, ConnectRefusal, MatrixBot, RoomFacts, RoomRefusal};
+use super::slack::{self, InstallState, SlackEvent};
 use super::store_capabilities::{ConnectionHealth, StoreCapabilities};
-use super::{Integrations, SlackOffer};
+use super::{chat_kind, credential_slot, SlackOffer};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::{ensure_csrf_cookie, response_with_optional_cookie};
 use crate::session::SESSION_KEY_USER_ID;
@@ -78,7 +78,6 @@ use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::{Form, Json};
-use foundry_auth::secret_box::SecretSlot;
 use foundry_integrations::{
     compose, encode_matrix, encode_slack, issue_url, test_message, ChannelKind, ChannelOutcome,
     ConnectionLostNotice, ConnectionState, ContentLevel, DeliveryChannel, DeliveryKey,
@@ -419,6 +418,18 @@ impl Caller {
         })
     }
 
+    /// The caller when they are an admin of their workspace; else signing in,
+    /// or the uniform not-found page.
+    async fn admin(state: &AppState, session: &Session) -> Result<Self, Response> {
+        let caller = Self::of(state, session).await.ok_or_else(sign_in)?;
+        caller
+            .services
+            .require_workspace_admin(&caller.principal())
+            .await
+            .map_err(refusal)?;
+        Ok(caller)
+    }
+
     fn principal(&self) -> Principal {
         Principal::Human {
             user_id: self.user.user_id,
@@ -456,16 +467,10 @@ pub async fn show_slack_setup(
     session: Session,
     headers: HeaderMap,
 ) -> Response {
-    let Some(caller) = Caller::of(&state, &session).await else {
-        return sign_in();
+    let caller = match Caller::admin(&state, &session).await {
+        Ok(caller) => caller,
+        Err(response) => return response,
     };
-    if let Err(err) = caller
-        .services
-        .require_workspace_admin(&caller.principal())
-        .await
-    {
-        return refusal(err);
-    }
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
     let page = SetupPage {
         nav: caller.nav(&state, csrf).await,
@@ -479,16 +484,10 @@ pub async fn start_slack_install(
     session: Session,
     headers: HeaderMap,
 ) -> Response {
-    let Some(caller) = Caller::of(&state, &session).await else {
-        return sign_in();
+    let caller = match Caller::admin(&state, &session).await {
+        Ok(caller) => caller,
+        Err(response) => return response,
     };
-    if let Err(err) = caller
-        .services
-        .require_workspace_admin(&caller.principal())
-        .await
-    {
-        return refusal(err);
-    }
     let integrations = state.integrations.current();
     let (Some(app), SlackOffer::Ready) = (integrations.slack(), integrations.slack_offer()) else {
         return workspace_page(&state, &caller, &headers, None).await;
@@ -507,13 +506,10 @@ pub async fn finish_slack_install(
     headers: HeaderMap,
     Query(returned): Query<SlackReturn>,
 ) -> Response {
-    let Some(caller) = Caller::of(&state, &session).await else {
-        return sign_in();
+    let caller = match Caller::admin(&state, &session).await {
+        Ok(caller) => caller,
+        Err(response) => return response,
     };
-    let principal = caller.principal();
-    if let Err(err) = caller.services.require_workspace_admin(&principal).await {
-        return refusal(err);
-    }
     let held = session
         .remove::<InstallState>(InstallState::SESSION_KEY)
         .await
@@ -530,7 +526,7 @@ pub async fn finish_slack_install(
         ) if held.accepts(returned_state, caller.user.workspace_id, state.clock.now()) => code,
         _ => return workspace_page(&state, &caller, &headers, Some(NOT_CONNECTED)).await,
     };
-    match connect(&state, &caller, &principal, code).await {
+    match connect(&state, &caller, code).await {
         Ok(()) => Redirect::to(WORKSPACE_PATH).into_response(),
         Err(NotConnected::OtherWorkspace {
             approved,
@@ -604,63 +600,58 @@ fn disconnect_path(kind: ChannelKind) -> &'static str {
     }
 }
 
-/// The Matrix disconnect: the bot's access token is forgotten and its routes
-/// pause, in one transaction; nothing is asked of the homeserver (the bot
-/// stays in its rooms).
-pub async fn disconnect_matrix(State(state): State<AppState>, session: Session) -> Response {
-    let Some(caller) = Caller::of(&state, &session).await else {
-        return sign_in();
-    };
-    match caller
+/// The workspace's connection of `kind` disconnected (admins; anyone else
+/// gets the uniform not-found page): its credential forgotten and its routes
+/// paused, in one transaction.
+async fn disconnect(
+    state: &AppState,
+    session: &Session,
+    kind: ChannelKind,
+) -> Result<DisconnectOutcome, Response> {
+    let caller = Caller::of(state, session).await.ok_or_else(sign_in)?;
+    caller
         .services
-        .disconnect(
-            &caller.principal(),
-            ChannelKind::Matrix.wire_name(),
-            state.clock.now(),
-        )
+        .disconnect(&caller.principal(), kind.wire_name(), state.clock.now())
         .await
-    {
+        .map_err(refusal)
+}
+
+/// The Matrix disconnect: nothing is asked of the homeserver (the bot stays
+/// in its rooms).
+pub async fn disconnect_matrix(State(state): State<AppState>, session: Session) -> Response {
+    match disconnect(&state, &session, ChannelKind::Matrix).await {
         Ok(_) => Redirect::to(WORKSPACE_PATH).into_response(),
-        Err(err) => refusal(err),
+        Err(response) => response,
     }
 }
 
-/// The disconnect: Foundry forgets the credential first, then asks Slack to
-/// withdraw the access it granted, so a Slack failure only goes to the log.
+/// The Slack disconnect: Foundry forgets the credential first, then asks
+/// Slack to withdraw the access it granted, so a Slack failure only goes to
+/// the log.
 pub async fn disconnect_slack(State(state): State<AppState>, session: Session) -> Response {
-    let Some(caller) = Caller::of(&state, &session).await else {
-        return sign_in();
+    let outcome = match disconnect(&state, &session, ChannelKind::Slack).await {
+        Ok(outcome) => outcome,
+        Err(response) => return response,
     };
-    match caller
-        .services
-        .disconnect(
-            &caller.principal(),
-            ChannelKind::Slack.wire_name(),
-            state.clock.now(),
-        )
-        .await
+    if let DisconnectOutcome::Disconnected {
+        connection_id,
+        sealed_credential,
+        ..
+    } = outcome
     {
-        Ok(DisconnectOutcome::Disconnected {
-            connection_id,
-            sealed_credential,
-            ..
-        }) => {
-            let withdrawn = state
-                .integrations
-                .current()
-                .withdraw_slack_access(connection_id, sealed_credential)
-                .await;
-            if !withdrawn {
-                tracing::warn!(
-                    reason = "apps_uninstall",
-                    "slack disconnect: Slack did not withdraw Foundry's access; the credential is forgotten"
-                );
-            }
-            Redirect::to(WORKSPACE_PATH).into_response()
+        let withdrawn = state
+            .integrations
+            .current()
+            .withdraw_slack_access(connection_id, sealed_credential)
+            .await;
+        if !withdrawn {
+            tracing::warn!(
+                reason = "apps_uninstall",
+                "slack disconnect: Slack did not withdraw Foundry's access; the credential is forgotten"
+            );
         }
-        Ok(DisconnectOutcome::Unchanged) => Redirect::to(WORKSPACE_PATH).into_response(),
-        Err(err) => refusal(err),
     }
+    Redirect::to(WORKSPACE_PATH).into_response()
 }
 
 /// US-EIP-07's disconnect question: "Disconnect Slack? 3 routes in 2
@@ -731,7 +722,7 @@ pub async fn show_route_history(
         Ok(history) => history,
         Err(err) => return refusal(err),
     };
-    let channel = ChannelKind::from_wire_name(&kind).unwrap_or(ChannelKind::Slack);
+    let channel = stored_kind(&kind);
     let now = state.clock.now();
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
     let page = RouteHistoryPage {
@@ -761,7 +752,7 @@ pub async fn show_new_route(
         Ok(door) => door,
         Err(response) => return response,
     };
-    let kind = route_kind(query.kind.as_deref());
+    let kind = chat_kind(query.kind.as_deref().unwrap_or_default());
     door.of_kind(kind)
         .form(
             &state,
@@ -849,8 +840,7 @@ pub async fn send_test(
             .await;
     }
     if let Some((_, route_id)) = fields.iter().find(|(name, _)| name == "route_id") {
-        let at = (team_slug.as_str(), project_slug.as_str());
-        return send_matrix_test(&state, &caller, &headers, &door, at, route_id).await;
+        return send_matrix_test(&state, &caller, &headers, &door, route_id).await;
     }
     let Some(bot) = door.bot.as_ref() else {
         return door
@@ -869,18 +859,11 @@ pub async fn send_test(
             DeliveryKey(0),
         )
         .await;
-    let (notice, status) = match outcome {
-        ChannelOutcome::Delivered => (TEST_SENT.to_string(), StatusCode::OK),
-        ChannelOutcome::Transient { reason, .. }
-        | ChannelOutcome::RouteRefused { reason }
-        | ChannelOutcome::ConnectionRefused { reason } => (
-            format!(
-                "The test message was not delivered: {}.",
-                reason.words("the channel")
-            ),
-            StatusCode::UNPROCESSABLE_ENTITY,
-        ),
+    let status = match outcome {
+        ChannelOutcome::Delivered => StatusCode::OK,
+        _ => StatusCode::UNPROCESSABLE_ENTITY,
     };
+    let notice = test_notice(outcome, "the channel");
     door.form(
         &state,
         &caller,
@@ -906,18 +889,9 @@ pub async fn create_route(
         Err(response) => return response,
     };
     let form = RouteForm::read(&fields);
-    if route_kind(Some(&form.kind)) == ChannelKind::Matrix {
+    if chat_kind(&form.kind) == ChannelKind::Matrix {
         let door = door.of_kind(ChannelKind::Matrix);
-        return create_matrix_route(
-            &state,
-            &caller,
-            &headers,
-            &door,
-            form,
-            &team_slug,
-            &project_slug,
-        )
-        .await;
+        return create_matrix_route(&state, &caller, &headers, &door, &form).await;
     }
     let checked = match door.bot.as_ref() {
         Some(bot) => postable_destination(bot, &form.destination).await,
@@ -1033,8 +1007,11 @@ pub async fn delete_route(
     session: Session,
     Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
 ) -> Response {
-    let delete = || {
-        change_route(
+    let Some(caller) = Caller::of(&state, &session).await else {
+        return sign_in();
+    };
+    let Ok(managed) = managed_route(&caller, &team_slug, &project_slug, &route_id).await else {
+        return change_route(
             &state,
             &session,
             &team_slug,
@@ -1042,12 +1019,7 @@ pub async fn delete_route(
             &route_id,
             RouteAction::Delete,
         )
-    };
-    let Some(caller) = Caller::of(&state, &session).await else {
-        return sign_in();
-    };
-    let Ok(managed) = managed_route(&caller, &team_slug, &project_slug, &route_id).await else {
-        return delete().await;
+        .await;
     };
     let deleted = caller
         .services
@@ -1201,7 +1173,7 @@ pub async fn show_delete_route(
             Ok(managed) => managed,
             Err(response) => return response,
         };
-    let kind = ChannelKind::from_wire_name(&route.kind).unwrap_or(ChannelKind::Slack);
+    let kind = stored_kind(&route.kind);
     let base = base_path(&team_slug, &project_slug);
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
     let page = RouteDeletePage {
@@ -1241,6 +1213,8 @@ struct RouteDoor {
     matrix: Option<MatrixBot>,
     /// The kind of route the form makes.
     kind: ChannelKind,
+    team_slug: String,
+    project_slug: String,
     routes_path: String,
     /// Where Save posts: `routes_path`, or the edited route's edit path.
     action_path: String,
@@ -1267,23 +1241,23 @@ impl RouteDoor {
     /// The door for an already checked `target`. Opening the bot asks Slack
     /// nothing.
     fn at(state: &AppState, target: RouteTarget, team_slug: &str, project_slug: &str) -> Self {
+        let integrations = state.integrations.current();
         let bot = target.connection.as_ref().and_then(|connection| {
             let sealed = connection.sealed_credential.clone()?;
-            state
-                .integrations
-                .current()
-                .slack_bot(connection.id, sealed)
+            integrations.slack_bot(connection.id, sealed)
         });
         let matrix = target
             .matrix_connection
             .as_ref()
-            .and_then(|connection| state.integrations.current().matrix_bot(connection));
+            .and_then(|connection| integrations.matrix_bot(connection));
         let routes_path = format!("{}/routes", base_path(team_slug, project_slug));
         Self {
             target,
             bot,
             matrix,
             kind: ChannelKind::Slack,
+            team_slug: team_slug.to_string(),
+            project_slug: project_slug.to_string(),
             action_path: routes_path.clone(),
             routes_path,
             editing: None,
@@ -1297,6 +1271,64 @@ impl RouteDoor {
             .as_ref()
             .map(|c| c.external_id.clone())
             .unwrap_or_default()
+    }
+
+    /// The words for a room the bot cannot take a route in (K-14, K-15).
+    fn room_refusal(&self, refusal: RoomRefusal, room: &str) -> String {
+        match refusal {
+            RoomRefusal::NotInvited => {
+                let bot = self
+                    .target
+                    .matrix_connection
+                    .as_ref()
+                    .and_then(|c| c.bot_user_id.as_deref())
+                    .unwrap_or_default();
+                INVITE_THE_BOT.replace("{bot}", bot).replace("{room}", room)
+            }
+            RoomRefusal::Encrypted => ROOM_ENCRYPTED.replace("{room}", room),
+            RoomRefusal::Unreachable => {
+                MATRIX_UNREACHABLE.replace("{homeserver}", &self.matrix_homeserver())
+            }
+        }
+    }
+
+    /// The project's integrations page, with `notice` above its routes.
+    async fn project_page(
+        &self,
+        state: &AppState,
+        caller: &Caller,
+        headers: &HeaderMap,
+        notice: String,
+    ) -> Response {
+        project_page(
+            state,
+            caller,
+            headers,
+            &self.team_slug,
+            &self.project_slug,
+            Some(notice),
+        )
+        .await
+    }
+
+    /// The form's heading: the edited route's, or the new route's.
+    fn heading(&self) -> String {
+        match &self.editing {
+            Some(destination) => format!("Edit the route to {}", destination.label),
+            None => format!(
+                "New {} route for {}",
+                self.kind.display_name(),
+                self.target.project_name
+            ),
+        }
+    }
+
+    /// K-4: no connection of the form's kind that this Foundry can open.
+    fn no_connection(&self) -> bool {
+        match self.kind {
+            ChannelKind::Matrix => self.matrix.is_none(),
+            _ => self.bot.is_none(),
+        }
     }
 
     /// The door for a route of `kind`.
@@ -1361,14 +1393,7 @@ impl RouteDoor {
         let page = RouteFormPage {
             nav: caller.nav(state, csrf.clone()).await,
             csrf,
-            heading: match &self.editing {
-                Some(destination) => format!("Edit the route to {}", destination.label),
-                None => format!(
-                    "New {} route for {}",
-                    self.kind.display_name(),
-                    self.target.project_name
-                ),
-            },
+            heading: self.heading(),
             action_path: self.action_path.clone(),
             test_path: format!("{}/test", self.routes_path),
             preview_path: format!("{}/preview", self.routes_path),
@@ -1379,10 +1404,7 @@ impl RouteDoor {
             shared_confirmed: form.shared_confirmed,
             preview: answer.preview,
             no_issue_yet: format!("{} has no issue to preview yet.", self.target.project_name),
-            no_connection: match self.kind {
-                ChannelKind::Matrix => self.matrix.is_none(),
-                _ => self.bot.is_none(),
-            },
+            no_connection: self.no_connection(),
             matrix: self.kind == ChannelKind::Matrix && self.editing.is_none(),
             channels: channels
                 .into_iter()
@@ -1409,15 +1431,7 @@ impl RouteDoor {
             private_channels: PRIVATE_CHANNELS,
             no_chat_connection: NO_CHAT_CONNECTION,
         };
-        match page.render() {
-            Ok(html) => {
-                response_with_optional_cookie(answer.status, Html(html).into_response(), set_cookie)
-            }
-            Err(err) => {
-                tracing::error!(error = %err, "integrations: render failed");
-                (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
-            }
-        }
+        render_with(answer.status, page.render(), set_cookie)
     }
 }
 
@@ -1430,13 +1444,10 @@ pub async fn connect_matrix(
     headers: HeaderMap,
     Form(fields): Form<Vec<(String, String)>>,
 ) -> Response {
-    let Some(caller) = Caller::of(&state, &session).await else {
-        return sign_in();
+    let caller = match Caller::admin(&state, &session).await {
+        Ok(caller) => caller,
+        Err(response) => return response,
     };
-    let principal = caller.principal();
-    if let Err(err) = caller.services.require_workspace_admin(&principal).await {
-        return refusal(err);
-    }
     let field = |name: &str| {
         fields
             .iter()
@@ -1485,7 +1496,7 @@ async fn save_matrix(
         .await
         .map_err(|_| MATRIX_NOT_CONNECTED.to_string())?;
     let sealed = secrets
-        .seal(&token, &super::credential_slot(connection_id))
+        .seal(&token, &credential_slot(connection_id))
         .map_err(|_| MATRIX_NOT_CONNECTED.to_string())?;
     let login = MatrixLogin {
         homeserver,
@@ -1502,28 +1513,16 @@ async fn save_matrix(
     }
 }
 
-/// A form's `kind`: Matrix, else Slack.
-fn route_kind(kind: Option<&str>) -> ChannelKind {
-    match kind.and_then(ChannelKind::from_wire_name) {
-        Some(ChannelKind::Matrix) => ChannelKind::Matrix,
-        _ => ChannelKind::Slack,
-    }
-}
-
 /// Save a Matrix route: bring the bot into the room, read the room, and save
 /// the route only for an unencrypted room the bot joined; then say so on the
-/// project's page. A refused room is explained on the form; the bot leaves a
-/// room it joined but cannot use.
+/// project's page. A refused room is explained on the form.
 async fn create_matrix_route(
     state: &AppState,
     caller: &Caller,
     headers: &HeaderMap,
     door: &RouteDoor,
-    form: RouteForm,
-    team_slug: &str,
-    project_slug: &str,
+    form: &RouteForm,
 ) -> Response {
-    let form = &form;
     let refused = |notice: String| async move {
         door.form(
             state,
@@ -1538,39 +1537,9 @@ async fn create_matrix_route(
         return refused(NO_CHAT_CONNECTION.to_string()).await;
     };
     let room = form.destination.trim().to_string();
-    let bot_id = door
-        .target
-        .matrix_connection
-        .as_ref()
-        .and_then(|c| c.bot_user_id.clone())
-        .unwrap_or_default();
-    let words = |refusal: RoomRefusal| match refusal {
-        RoomRefusal::NotInvited => INVITE_THE_BOT
-            .replace("{bot}", &bot_id)
-            .replace("{room}", &room),
-        RoomRefusal::Encrypted => ROOM_ENCRYPTED.replace("{room}", &room),
-        RoomRefusal::Unreachable => {
-            MATRIX_UNREACHABLE.replace("{homeserver}", &door.matrix_homeserver())
-        }
-    };
-    let room_id = match bot.room_id(&room).await {
-        Ok(room_id) => DestinationRef(room_id),
-        Err(refusal) => return refused(words(refusal)).await,
-    };
-    let joined = match bot.enrol(&room_id).await {
-        Ok(()) => bot.room(&room_id.0).await,
-        Err(ReasonCode::BotNotInRoom) => Err(RoomRefusal::NotInvited),
-        Err(_) => Err(RoomRefusal::Unreachable),
-    };
-    let facts = match joined {
-        Ok(facts) if !facts.encrypted => facts,
-        other => {
-            let refusal = other.map_or_else(|refusal| refusal, |_| RoomRefusal::Encrypted);
-            if refusal != RoomRefusal::NotInvited {
-                let _ = bot.withdraw(&room_id).await;
-            }
-            return refused(words(refusal)).await;
-        }
+    let (room_id, facts) = match enrol_in_room(bot, &room).await {
+        Ok(joined) => joined,
+        Err(refusal) => return refused(door.room_refusal(refusal, &room)).await,
     };
     let draft = RouteDraft {
         kind: foundry_services::integrations::MATRIX.to_string(),
@@ -1585,8 +1554,8 @@ async fn create_matrix_route(
         .services
         .create_route(
             &caller.principal(),
-            team_slug,
-            project_slug,
+            &door.team_slug,
+            &door.project_slug,
             draft,
             state.clock.now(),
         )
@@ -1599,15 +1568,32 @@ async fn create_matrix_route(
         .replace("{room}", &room)
         .replace("{name}", &facts.name)
         .replace("{members}", &facts.members.to_string());
-    project_page(
-        state,
-        caller,
-        headers,
-        team_slug,
-        project_slug,
-        Some(notice),
-    )
-    .await
+    door.project_page(state, caller, headers, notice).await
+}
+
+/// Bring `bot` into `room` and read it: the room's id and what it shows, for
+/// an unencrypted room the bot joined. Else why not; the bot leaves a room it
+/// joined but cannot use.
+async fn enrol_in_room(
+    bot: &MatrixBot,
+    room: &str,
+) -> Result<(DestinationRef, RoomFacts), RoomRefusal> {
+    let room_id = DestinationRef(bot.room_id(room).await?);
+    let joined = match bot.enrol(&room_id).await {
+        Ok(()) => bot.room(&room_id.0).await,
+        Err(ReasonCode::BotNotInRoom) => Err(RoomRefusal::NotInvited),
+        Err(_) => Err(RoomRefusal::Unreachable),
+    };
+    match joined {
+        Ok(facts) if !facts.encrypted => Ok((room_id, facts)),
+        other => {
+            let refusal = other.map_or_else(|refusal| refusal, |_| RoomRefusal::Encrypted);
+            if refusal != RoomRefusal::NotInvited {
+                let _ = bot.withdraw(&room_id).await;
+            }
+            Err(refusal)
+        }
+    }
 }
 
 /// Send test on a saved Matrix route: K-7 once to its room, as a fresh
@@ -1617,14 +1603,13 @@ async fn send_matrix_test(
     caller: &Caller,
     headers: &HeaderMap,
     door: &RouteDoor,
-    (team_slug, project_slug): (&str, &str),
     route_id: &str,
 ) -> Response {
-    let ManagedRoute { route, .. } =
-        match managed_route(caller, team_slug, project_slug, route_id).await {
-            Ok(managed) => managed,
-            Err(response) => return response,
-        };
+    let managed = managed_route(caller, &door.team_slug, &door.project_slug, route_id).await;
+    let ManagedRoute { route, .. } = match managed {
+        Ok(managed) => managed,
+        Err(response) => return response,
+    };
     let (Some(ChannelKind::Matrix), Some(bot)) = (
         ChannelKind::from_wire_name(&route.kind),
         door.matrix.as_ref(),
@@ -1636,24 +1621,22 @@ async fn send_matrix_test(
         &door.target.key_prefix,
     ));
     let txn_id = uuid::Uuid::new_v4().to_string();
-    let notice = match bot.send(&route.destination_ref, &message, &txn_id).await {
+    let outcome = bot.send(&route.destination_ref, &message, &txn_id).await;
+    let notice = test_notice(outcome, &route.destination_label);
+    door.project_page(state, caller, headers, notice).await
+}
+
+/// What Send test says of `outcome` for the route to `destination` (K-7).
+fn test_notice(outcome: ChannelOutcome, destination: &str) -> String {
+    match outcome {
         ChannelOutcome::Delivered => TEST_SENT.to_string(),
         ChannelOutcome::Transient { reason, .. }
         | ChannelOutcome::RouteRefused { reason }
         | ChannelOutcome::ConnectionRefused { reason } => format!(
             "The test message was not delivered: {}.",
-            reason.words(&route.destination_label)
+            reason.words(destination)
         ),
-    };
-    project_page(
-        state,
-        caller,
-        headers,
-        team_slug,
-        project_slug,
-        Some(notice),
-    )
-    .await
+    }
 }
 
 /// The project's integrations page, with `notice` above its routes.
@@ -1712,8 +1695,31 @@ fn base_path(team_slug: &str, project_slug: &str) -> String {
 /// A stored route, its K-9 status (derived, DDR-19) and its history page
 /// under the project's integrations path `base`.
 fn route_line(route: &ProjectRoute, base: &str) -> RouteLine {
-    let facts = RouteFacts {
-        kind: ChannelKind::from_wire_name(&route.kind).unwrap_or(ChannelKind::Slack),
+    let stopped = route.paused || route.problem_reason.is_some();
+    let (toggle, toggle_label) = if stopped {
+        ("resume", "Resume")
+    } else {
+        ("pause", "Pause")
+    };
+    let route_path = format!("{base}/routes/{}", route.id);
+    RouteLine {
+        id: route.id,
+        destination_label: route.destination_label.clone(),
+        status: RouteStatus::derive(&route_facts(route))
+            .words_naming(&route.destination_label, route.bot_user_id.as_deref()),
+        history_path: format!("{route_path}/history"),
+        edit_path: format!("{route_path}/edit"),
+        delete_path: format!("{route_path}/delete"),
+        toggle_path: format!("{route_path}/{toggle}"),
+        toggle_label,
+        matrix: route.kind == foundry_services::integrations::MATRIX,
+    }
+}
+
+/// What K-9's status is derived from, read from the stored route.
+fn route_facts(route: &ProjectRoute) -> RouteFacts {
+    RouteFacts {
+        kind: stored_kind(&route.kind),
         paused: route.paused,
         connection_state: route
             .connection_state
@@ -1736,26 +1742,12 @@ fn route_line(route: &ProjectRoute, base: &str) -> RouteLine {
             .as_ref()
             .map(|reason| reason.as_deref().and_then(ReasonCode::from_wire_name)),
         last_delivered_at: route.last_delivered_at,
-    };
-    let stopped = route.paused || route.problem_reason.is_some();
-    let (toggle, toggle_label) = if stopped {
-        ("resume", "Resume")
-    } else {
-        ("pause", "Pause")
-    };
-    let route_path = format!("{base}/routes/{}", route.id);
-    RouteLine {
-        id: route.id,
-        destination_label: route.destination_label.clone(),
-        status: RouteStatus::derive(&facts)
-            .words_naming(&route.destination_label, route.bot_user_id.as_deref()),
-        history_path: format!("{route_path}/history"),
-        edit_path: format!("{route_path}/edit"),
-        delete_path: format!("{route_path}/delete"),
-        toggle_path: format!("{route_path}/{toggle}"),
-        toggle_label,
-        matrix: route.kind == foundry_services::integrations::MATRIX,
     }
+}
+
+/// A stored route's kind; one this Foundry does not know reads as Slack.
+fn stored_kind(wire: &str) -> ChannelKind {
+    ChannelKind::from_wire_name(wire).unwrap_or(ChannelKind::Slack)
 }
 
 /// A stored delivery's history line as of `now`, worded by the core (UI-7).
@@ -1784,7 +1776,6 @@ fn history_line(
     .line(destination, now)
 }
 
-/// Exchange the code, read the domain, seal the token for its row, save.
 /// Why a Slack install left the workspace's connection as it was.
 enum NotConnected {
     /// The approval was for another Slack workspace than the connected one.
@@ -1801,20 +1792,17 @@ impl From<&'static str> for NotConnected {
     }
 }
 
-async fn connect(
-    state: &AppState,
-    caller: &Caller,
-    principal: &Principal,
-    code: &str,
-) -> Result<(), NotConnected> {
-    let integrations: std::sync::Arc<Integrations> = state.integrations.current();
+/// Exchange the code, read the domain, seal the token for its row, save.
+async fn connect(state: &AppState, caller: &Caller, code: &str) -> Result<(), NotConnected> {
+    let principal = &caller.principal();
+    let integrations = state.integrations.current();
     let (Some(app), Some(secrets)) = (
         integrations.slack(),
         integrations.settings().secrets.as_ref(),
     ) else {
         return Err("slack_not_offered".into());
     };
-    let grant: SlackGrant = app
+    let grant = app
         .exchange(code, &integrations.slack_return_url())
         .await
         .map_err(|_| "oauth_exchange")?;
@@ -1827,13 +1815,8 @@ async fn connect(
         .slack_connection_id(principal)
         .await
         .map_err(|_| "connection_row")?;
-    let slot = SecretSlot::new(
-        "integration_connections",
-        &connection_id.to_string(),
-        "sealed_credential",
-    );
     let sealed = secrets
-        .seal(&grant.access_token, &slot)
+        .seal(&grant.access_token, &credential_slot(connection_id))
         .map_err(|_| "seal")?;
     let approved = grant.team_name.clone();
     let install = SlackInstall {
@@ -1941,27 +1924,41 @@ pub async fn slack_events(
             app_id,
             reason,
         } => {
-            let health = StoreCapabilities::new(state.store.clone());
-            match health
-                .slack_app_lost(&team_id, &app_id, reason.wire_name(), state.clock.now())
-                .await
-            {
-                Ok(Some(lost)) => {
-                    state
-                        .integrations
-                        .admin_mail()
-                        .connection_lost(&lost, &integrations.settings().public_url)
-                        .await;
-                    StatusCode::OK.into_response()
-                }
-                Ok(None) => StatusCode::OK.into_response(),
-                Err(err) => {
-                    tracing::error!(error = %err, "integrations: Slack event not recorded");
-                    (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
-                }
-            }
+            let public_url = &integrations.settings().public_url;
+            slack_app_lost(&state, public_url, &team_id, &app_id, reason).await
         }
         SlackEvent::Other => StatusCode::OK.into_response(),
+    }
+}
+
+/// The Foundry app left the Slack workspace `team_id`: its connection turns
+/// lost, and the record that turned it tells the workspace's admins, with the
+/// address at `public_url` that reconnects it.
+async fn slack_app_lost(
+    state: &AppState,
+    public_url: &str,
+    team_id: &str,
+    app_id: &str,
+    reason: ReasonCode,
+) -> Response {
+    let health = StoreCapabilities::new(state.store.clone());
+    let lost = health
+        .slack_app_lost(team_id, app_id, reason.wire_name(), state.clock.now())
+        .await;
+    match lost {
+        Ok(Some(lost)) => {
+            state
+                .integrations
+                .admin_mail()
+                .connection_lost(&lost, public_url)
+                .await;
+            StatusCode::OK.into_response()
+        }
+        Ok(None) => StatusCode::OK.into_response(),
+        Err(err) => {
+            tracing::error!(error = %err, "integrations: Slack event not recorded");
+            internal_error()
+        }
     }
 }
 
@@ -1975,19 +1972,29 @@ fn sign_in() -> Response {
 fn refusal(err: IntegrationError) -> Response {
     if let IntegrationError::Store(err) = err {
         tracing::error!(error = %err, "integrations: store read failed");
-        return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();
+        return internal_error();
     }
     resource_not_found_page()
 }
 
+fn internal_error() -> Response {
+    (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+}
+
 fn render(rendered: Result<String, askama::Error>, set_cookie: Option<String>) -> Response {
+    render_with(StatusCode::OK, rendered, set_cookie)
+}
+
+fn render_with(
+    status: StatusCode,
+    rendered: Result<String, askama::Error>,
+    set_cookie: Option<String>,
+) -> Response {
     match rendered {
-        Ok(html) => {
-            response_with_optional_cookie(StatusCode::OK, Html(html).into_response(), set_cookie)
-        }
+        Ok(html) => response_with_optional_cookie(status, Html(html).into_response(), set_cookie),
         Err(err) => {
             tracing::error!(error = %err, "integrations: render failed");
-            (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
+            internal_error()
         }
     }
 }

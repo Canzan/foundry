@@ -33,6 +33,9 @@ use serde_json::Value;
 
 const CLIENT_API: &str = "/_matrix/client/v3";
 
+/// A homeserver's answer: its status and its body (`None` when not JSON).
+type Answer = (u16, Option<Value>);
+
 /// Why a bot token was not saved (US-EIP-08).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectRefusal {
@@ -109,14 +112,13 @@ impl MatrixBot {
         }
     }
 
-    /// One client-server call: its status and its body (`None` when not
-    /// JSON).
+    /// One client-server call.
     async fn call(
         &self,
         method: reqwest::Method,
         path: &str,
         body: Option<&Value>,
-    ) -> Result<(u16, Option<Value>), OutboundError> {
+    ) -> Result<Answer, OutboundError> {
         let url = format!("{}{CLIENT_API}{path}", self.homeserver);
         let mut request = self
             .http
@@ -131,12 +133,19 @@ impl MatrixBot {
         Ok((status, body))
     }
 
+    async fn get(&self, path: &str) -> Result<Answer, OutboundError> {
+        self.call(reqwest::Method::GET, path, None).await
+    }
+
+    /// A `POST` with an empty JSON object, as `join` and `leave` take.
+    async fn post(&self, path: &str) -> Result<Answer, OutboundError> {
+        self.call(reqwest::Method::POST, path, Some(&serde_json::json!({})))
+            .await
+    }
+
     /// The bot's user id, when the homeserver accepts its token.
     pub async fn whoami(&self) -> Result<String, ConnectRefusal> {
-        match self
-            .call(reqwest::Method::GET, "/account/whoami", None)
-            .await
-        {
+        match self.get("/account/whoami").await {
             Err(OutboundError::Refused) => Err(ConnectRefusal::Address),
             Err(_) => Err(ConnectRefusal::Unreachable),
             Ok((401 | 403, Some(body))) if body["errcode"].is_string() => {
@@ -160,7 +169,7 @@ impl MatrixBot {
             return Err(RoomRefusal::NotInvited);
         }
         let path = format!("/directory/room/{}", urlencoding::encode(room));
-        match self.call(reqwest::Method::GET, &path, None).await {
+        match self.get(&path).await {
             Ok((200, Some(body))) => body["room_id"]
                 .as_str()
                 .map(str::to_string)
@@ -176,12 +185,12 @@ impl MatrixBot {
         &self,
         room_id: &str,
         event_type: &str,
-    ) -> Result<Option<Value>, Option<(u16, Option<Value>)>> {
+    ) -> Result<Option<Value>, Option<Answer>> {
         let path = format!(
             "/rooms/{}/state/{event_type}/",
             urlencoding::encode(room_id)
         );
-        match self.call(reqwest::Method::GET, &path, None).await {
+        match self.get(&path).await {
             Ok((200, body)) => Ok(Some(body.unwrap_or(Value::Null))),
             Ok((404, _)) => Ok(None),
             Ok(answer) => Err(Some(answer)),
@@ -204,7 +213,7 @@ impl MatrixBot {
             .and_then(|content| content["name"].as_str().map(str::to_string))
             .unwrap_or_default();
         let path = format!("/rooms/{}/joined_members", urlencoding::encode(room_id));
-        let members = match self.call(reqwest::Method::GET, &path, None).await {
+        let members = match self.get(&path).await {
             Ok((200, Some(body))) => body["joined"].as_object().map_or(0, |m| m.len()),
             _ => return Err(RoomRefusal::Unreachable),
         };
@@ -217,10 +226,7 @@ impl MatrixBot {
 
     async fn join(&self, room_id: &str) -> Result<(), RoomRefusal> {
         let path = format!("/join/{}", urlencoding::encode(room_id));
-        match self
-            .call(reqwest::Method::POST, &path, Some(&serde_json::json!({})))
-            .await
-        {
+        match self.post(&path).await {
             Ok((200, _)) => Ok(()),
             Ok((403 | 404, _)) => Err(RoomRefusal::NotInvited),
             _ => Err(RoomRefusal::Unreachable),
@@ -229,10 +235,7 @@ impl MatrixBot {
 
     async fn leave(&self, room_id: &str) -> Result<(), RoomRefusal> {
         let path = format!("/rooms/{}/leave", urlencoding::encode(room_id));
-        match self
-            .call(reqwest::Method::POST, &path, Some(&serde_json::json!({})))
-            .await
-        {
+        match self.post(&path).await {
             Ok((200, _)) => Ok(()),
             _ => Err(RoomRefusal::Unreachable),
         }
@@ -253,30 +256,26 @@ impl MatrixBot {
                 }
             }
             Ok(None) => {}
-            Err(Some((status, body))) => {
-                return classify_matrix(Some(MatrixAnswer {
-                    status,
-                    body: body.as_ref(),
-                }))
-            }
-            Err(None) => return classify_matrix(None),
+            Err(answer) => return classified(answer.as_ref()),
         }
         let path = format!(
             "/rooms/{}/send/m.room.message/{}",
             urlencoding::encode(room_id),
             urlencoding::encode(txn_id)
         );
-        match self
+        let sent = self
             .call(reqwest::Method::PUT, &path, Some(&message.0))
-            .await
-        {
-            Ok((status, body)) => classify_matrix(Some(MatrixAnswer {
-                status,
-                body: body.as_ref(),
-            })),
-            Err(_) => classify_matrix(None),
-        }
+            .await;
+        classified(sent.ok().as_ref())
     }
+}
+
+/// What a homeserver's answer, or its silence, means for a send.
+fn classified(answer: Option<&Answer>) -> ChannelOutcome {
+    classify_matrix(answer.map(|(status, body)| MatrixAnswer {
+        status: *status,
+        body: body.as_ref(),
+    }))
 }
 
 #[async_trait]
