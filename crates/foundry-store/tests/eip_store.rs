@@ -1257,6 +1257,107 @@ async fn claim_compare_and_set_misses_a_changed_row() {
     );
 }
 
+/// A delivery's `give_up_at`, as dispatch stored it.
+async fn give_up_at(pool: &PgPool, id: i64) -> OffsetDateTime {
+    sqlx::query_scalar("SELECT give_up_at FROM integration_deliveries WHERE id = $1")
+        .bind(id)
+        .fetch_one(pool)
+        .await
+        .expect("give_up_at")
+}
+
+/// ADR-EIP-002 decision 9, DDR-5 (review finding A2): a pending route head at
+/// its give-up time, holding no lease, is never claimed, whatever the choice
+/// names: the claim is a compare-and-set, and a row at or past `give_up_at`
+/// belongs to the expiry sweep, never to a sender. The row and the
+/// destination's pace are untouched.
+///
+/// CONTRACT_SHAPE: unbounded-preservation
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "RED until review fix A2"]
+async fn a_route_head_at_its_give_up_time_is_never_claimed() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let id = lab.one_delivery().await;
+    let before = lab.delivery(id).await;
+    let now = give_up_at(&pool, id).await;
+
+    let outcome = lab
+        .store
+        .claim_delivery(lab.route, now, LEASE, head_if_free(now))
+        .await
+        .expect("claim");
+
+    assert!(
+        !matches!(outcome, ClaimOutcome::Claimed(_)),
+        "a head at its give-up time is not claimed: {outcome:?}"
+    );
+    assert_eq!(lab.delivery(id).await, before, "the row is untouched");
+    assert_eq!(lab.pacing("C0AUTHDEV").await, None, "nothing is paced");
+}
+
+/// As [`a_route_head_at_its_give_up_time_is_never_claimed`], for a member's
+/// project email (ADR-EIP-007 decision 2): the same compare-and-set.
+///
+/// CONTRACT_SHAPE: unbounded-preservation
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ignore = "RED until review fix A2"]
+async fn an_email_at_its_give_up_time_is_never_claimed() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    old_write(&pool, Some(lab.auth)).await;
+    let lena = lab.lena;
+    let outcome = lab
+        .store
+        .dispatch_tick(100, OffsetDateTime::now_utc(), GIVE_UP, |batch| {
+            batch
+                .events
+                .iter()
+                .map(|event| NewDelivery {
+                    workspace_id: lab.ws,
+                    project_id: lab.auth,
+                    target: DeliveryTarget::Recipient(lena),
+                    event_kind: "issue.created".to_string(),
+                    event_id: event.event_id,
+                    outbox_ids: vec![event.id],
+                    issue_id: None,
+                    issue_key: event.payload["key"].as_str().map(str::to_string),
+                    occurred_at: event.created_at,
+                })
+                .collect()
+        })
+        .await
+        .expect("dispatch");
+    assert!(
+        matches!(outcome, DispatchOutcome::Dispatched { deliveries: 1, .. }),
+        "precondition: one email queued for Lena: {outcome:?}"
+    );
+    let id: i64 =
+        sqlx::query_scalar("SELECT id FROM integration_deliveries WHERE recipient_user_id = $1")
+            .bind(lena)
+            .fetch_one(&pool)
+            .await
+            .expect("the email's id");
+    let before = lab.delivery(id).await;
+    let now = give_up_at(&pool, id).await;
+
+    let claimed = lab
+        .store
+        .claim_email_delivery(lena, now, LEASE, head_if_free(now))
+        .await
+        .expect("claim");
+
+    assert!(
+        !matches!(claimed, ClaimOutcome::Claimed(_)),
+        "an email at its give-up time is not claimed: {claimed:?}"
+    );
+    assert_eq!(lab.delivery(id).await, before, "the row is untouched");
+}
+
 /// Two routes to one channel share its pace (NFR-EIP-3), across senders: a
 /// claim on the second route made while the first route's claim is still
 /// open waits for it, then finds the channel paced, even when no claim had

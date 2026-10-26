@@ -661,6 +661,9 @@ pub struct EipState {
     /// The room of the scenario's last Matrix route (whose history tells
     /// when Foundry has recorded the homeserver's answer).
     pub matrix_destination: Option<String>,
+    /// The scenario's route registry: each destination (as the scenario names
+    /// it) → the project its last saved route was created in.
+    pub route_projects: HashMap<String, String>,
 }
 
 impl std::fmt::Debug for EipState {
@@ -922,6 +925,13 @@ fn run_worker_on_wall_time(world: &mut FoundryWorld) {
 /// workspace, its teams (from the table) and people.
 pub async fn given_workspace_people(world: &mut FoundryWorld, step: &Step) {
     let rows = table_rows(step);
+    seed_workspace_people(world, &rows[1..]).await;
+}
+
+/// The Background's workspace for a crate-level test that has no Gherkin
+/// table: one `[person, workspace role, teams]` row per person, as the
+/// feature files spell them.
+pub async fn seed_workspace_people(world: &mut FoundryWorld, rows: &[Vec<String>]) {
     world.harness = Some(InProcHarness::spawn(tm::ts("2026-10-21T14:02:00Z")).await);
     run_worker_on_wall_time(world);
     world.http = Some(
@@ -937,7 +947,7 @@ pub async fn given_workspace_people(world: &mut FoundryWorld, step: &Step) {
     for team in ["Backend", "Ops"] {
         seed_team(world, team).await;
     }
-    for row in rows.iter().skip(1) {
+    for row in rows {
         let (name, role, teams) = (
             row[0].as_str(),
             row[1].as_str(),
@@ -1765,6 +1775,9 @@ pub async fn given_routed(world: &mut FoundryWorld, who: &str, route: Route) {
     let path = format!("{}/routes", integrations_path(world, &route.project));
     let fields = route_fields(world, &route);
     let answer = post(world, who, &path, &fields, true).await;
+    if saved(&answer) {
+        record_route(world, &route);
+    }
     let answer = follow(world, who, answer).await;
     went_through(&answer, &format!("{who}'s route to {}", route.destination));
     if route.kind == Kind::Matrix {
@@ -1852,6 +1865,9 @@ pub async fn when_save_route(world: &mut FoundryWorld, who: &str) {
     let path = format!("{}/routes", integrations_path(world, &route.project));
     let fields = route_fields(world, &route);
     let answer = post(world, who, &path, &fields, true).await;
+    if saved(&answer) {
+        record_route(world, &route);
+    }
     let answer = follow(world, who, answer).await;
     world.eip.when_answer = Some(answer);
 }
@@ -2001,15 +2017,36 @@ fn shown_destination(world: &FoundryWorld, destination: &str) -> String {
         .unwrap_or_else(|| destination.to_string())
 }
 
-/// The project a destination's route lives on in this scenario (the last
-/// route made to it).
+/// Record that the scenario saved a route to `route.destination` in
+/// `route.project` (the route registry [`project_of_destination`] reads).
+fn record_route(world: &mut FoundryWorld, route: &Route) {
+    world
+        .eip
+        .route_projects
+        .insert(route.destination.clone(), route.project.clone());
+}
+
+/// Whether a route form's save went through: a redirect to the project's
+/// page (Slack), or the project's page itself (Matrix, which says where the
+/// bot is); a refusal answers the form again (422) or the not-found page.
+fn saved(answer: &Answer) -> bool {
+    answer.status.is_redirection() || answer.status == StatusCode::OK
+}
+
+/// The project a destination's route lives on in this scenario: the project
+/// the last route saved to it was created in (the route registry).
 fn project_of_destination(world: &FoundryWorld, destination: &str) -> String {
-    if destination == "#ops-alerts" {
-        "Homelab Ops".into()
-    } else {
-        let _ = world;
-        "Identity Platform".into()
-    }
+    world
+        .eip
+        .route_projects
+        .get(destination)
+        .cloned()
+        .unwrap_or_else(|| {
+            panic!(
+                "the scenario saved a route to {destination} before acting on it; routes saved: {:?}",
+                world.eip.route_projects
+            )
+        })
 }
 
 /// A route lifecycle action (`pause`, `resume`, `delete`) on the route to `destination`.
@@ -3536,7 +3573,11 @@ pub async fn when_route_attempt(
             route.events = EventChoice::ALL.to_vec();
             let path = format!("{}/routes", integrations_path(world, project));
             let fields = route_fields(world, &route);
-            post(world, who, &path, &fields, true).await
+            let answer = post(world, who, &path, &fields, true).await;
+            if saved(&answer) {
+                record_route(world, &route);
+            }
+            answer
         }
     };
     world.eip.when_answer = Some(answer);
@@ -4602,10 +4643,48 @@ pub async fn given_stopped(world: &mut FoundryWorld) {
     );
 }
 
+/// "a link scanner opens its Stop these emails link without confirming":
+/// the GET answers the confirm page, asking about the choice the email's
+/// footer names (US-EIP-11: "Stop New comment emails from Identity
+/// Platform?"), and changes nothing by itself.
 pub async fn when_scanner_opens(world: &mut FoundryWorld) {
     capture_before(world).await;
     let link = stop_link(world);
-    let _ = get(world, "a signed-out visitor", &link).await;
+    let question = stop_question_of(world);
+    let page = get(world, "a signed-out visitor", &link).await;
+    assert_eq!(
+        page.status,
+        StatusCode::OK,
+        "the stop link opens its confirm page; {}",
+        tm::describe(&page)
+    );
+    assert!(
+        text(&page).contains(&question),
+        "the confirm page asks {question:?}; {}",
+        tm::describe(&page)
+    );
+    world.eip.when_answer = Some(page);
+}
+
+/// The question the received email's stop link confirms, from its K-12
+/// footer: "You get this because you chose {event} for {scope} in
+/// {project}." → "Stop {event} emails from {project}?".
+fn stop_question_of(world: &FoundryWorld) -> String {
+    let e = world.eip.received.as_ref().expect("an email was received");
+    let footer = e
+        .body
+        .split("You get this because you chose ")
+        .nth(1)
+        .unwrap_or_else(|| panic!("the email carries the K-12 footer; {}", e.body));
+    let (event, rest) = footer
+        .split_once(" for ")
+        .unwrap_or_else(|| panic!("the footer names the event; {footer}"));
+    let project = rest
+        .split_once(" in ")
+        .and_then(|(_, p)| p.split_once(". Stop these emails"))
+        .map(|(p, _)| p)
+        .unwrap_or_else(|| panic!("the footer names the project; {footer}"));
+    format!("Stop {event} emails from {project}?")
 }
 
 pub async fn when_one_click(world: &mut FoundryWorld) {
@@ -6015,9 +6094,7 @@ pub async fn given_sam_commented(world: &mut FoundryWorld, key: &str, body: &str
 
 /// A precondition the Background already makes true ("Sam has never touched
 /// AUTH-9": Lena filed it and nobody else wrote to it).
-pub fn given_nothing(world: &mut FoundryWorld) {
-    let _ = world;
-}
+pub fn given_nothing(_world: &mut FoundryWorld) {}
 
 pub async fn then_notice_plain_text(world: &mut FoundryWorld) {
     let (bold, line) = world
@@ -6652,4 +6729,111 @@ mod comment_notice_oracle_tests {
             assert!(!is_comment_notice(&body, "AUTH-7"), "{body}");
         }
     }
+}
+
+// ===========================================================================
+// Crate-level review-finding tests (tests/eip_review_findings.rs): the same
+// doors and doubles, reached without a Gherkin step.
+// ===========================================================================
+
+/// The scenario's Slack double.
+pub fn slack_double(world: &FoundryWorld) -> Arc<SlackDouble> {
+    slack(world)
+}
+
+/// The scenario's Matrix fault proxy (every request Foundry made to the
+/// homeserver passes through it and is recorded).
+pub fn fault_proxy(world: &FoundryWorld) -> &FaultProxy {
+    world
+        .eip
+        .proxy
+        .as_ref()
+        .expect("the scenario has a homeserver")
+}
+
+/// The bot's account joins `room` itself (it had been invited): the room now
+/// reads the bot as a member that can post.
+pub async fn bot_joins(world: &mut FoundryWorld, room: &str) {
+    let server = hs(world).await;
+    let bot = account(world, "@foundry:canzan.dev").await;
+    server.join(&bot, &room_id(world, room)).await;
+}
+
+/// Send test on `project`'s new Slack route form, as the browser submits it
+/// (every field the form carries, the picker's channel names included), for
+/// the channel whose Slack id is `reference`.
+pub async fn send_test_for_reference(
+    world: &mut FoundryWorld,
+    who: &str,
+    project: &str,
+    reference: &str,
+) -> Answer {
+    let page = open_new_route(world, who, project).await;
+    let base = integrations_path(world, project);
+    let mut fields = form_fields(&page, &format!("{base}/routes"));
+    fields.retain(|(k, _)| k != "destination" && k != "events");
+    fields.push(("destination".into(), reference.to_string()));
+    fields.push(("events".into(), "issue.created".into()));
+    let path = format!("{base}/routes/test");
+    let answer = post(world, who, &path, &fields, true).await;
+    world.eip.when_answer = Some(answer.clone());
+    answer
+}
+
+/// Restart the in-process Foundry with the secrets key `key` (`None`: no
+/// key), as the binary starts: the settings, then the boot secrets probe over
+/// the stored credentials and key check values (`main.rs`'s
+/// `probe_secrets`), then those integrations installed.
+pub async fn restart_in_process_with_key(world: &mut FoundryWorld, key: Option<&str>) {
+    use foundry_app::integrations::Integrations;
+    world.eip.spec.secrets_key = key.map(str::to_string);
+    rewire(world).await;
+    let harness = tm::harness(world);
+    let settings = scenario_settings(
+        world,
+        world.eip.spec.in_process_worker,
+        &harness.base_url(),
+        "the restarted in-process app",
+    );
+    let integrations = Integrations::new(settings);
+    let store = &harness.app.state.store;
+    if let Some(check) = integrations.key_check() {
+        store
+            .record_key_check(&check)
+            .await
+            .expect("record the key check");
+    }
+    let credentials = store
+        .sealed_credentials()
+        .await
+        .expect("stored credentials");
+    let checks = store.key_checks().await.expect("stored key checks");
+    let probe = integrations.check_secrets(&credentials, &checks);
+    harness
+        .app
+        .state
+        .integrations
+        .install(integrations.with_secrets_check(probe));
+}
+
+/// Whether the bot is a member of `room`, as Lena's client reads the room.
+pub async fn bot_is_member(world: &mut FoundryWorld, room: &str) -> bool {
+    let server = hs(world).await;
+    let lena = account(world, "@lena:canzan.dev").await;
+    let bot = account(world, "@foundry:canzan.dev").await;
+    server
+        .joined_members(&lena, &room_id(world, room))
+        .await
+        .contains(&bot.user_id)
+}
+
+/// POST `fields` (with the form token) to `path` as `who`, as a browser
+/// submits a form it already holds; the answer is not followed.
+pub async fn submit_form(
+    world: &mut FoundryWorld,
+    who: &str,
+    path: &str,
+    fields: &[(String, String)],
+) -> Answer {
+    post(world, who, path, fields, true).await
 }

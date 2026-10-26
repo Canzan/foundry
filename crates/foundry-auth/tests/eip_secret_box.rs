@@ -365,12 +365,22 @@ proptest! {
         prop_assert!(token.verify(&other_secret).is_err());
     }
 
-    /// DD-7: the token carries no time, so one minted long ago is the token
-    /// minted now: the same link, and it still verifies.
+    /// DD-7: the token carries no time. Its signature is exactly the HMAC of
+    /// `stop|v1|{user_id}|{project_id}|{event}` (spelled out here, not read
+    /// from the module), so nothing it signs can lapse; one minted long ago is
+    /// the token minted now: the same link, and it still verifies.
+    ///
+    /// CONTRACT_SHAPE: pure-function
     #[test]
     fn stop_token_never_expires((user, project, event) in a_choice()) {
         let secret = session_secret();
         let long_ago = ProjectEmailStopToken::new(user, project, event, &secret).expect("sign");
+        let timeless = format!("stop|v1|{user}|{project}|{event}");
+        prop_assert_eq!(
+            &long_ago.signature,
+            &foundry_auth::sign(&secret, timeless.as_bytes()).expect("sign the payload"),
+            "the signature covers the choice and nothing else"
+        );
         let now = ProjectEmailStopToken::new(user, project, event, &secret).expect("sign");
         prop_assert_eq!(&long_ago, &now);
         prop_assert!(long_ago.verify(&secret).is_ok());

@@ -246,10 +246,15 @@ proptest! {
         }
     }
 
-    /// ADR-EIP-002 decision 4: the claim choice is the route's head (its
-    /// lowest id) or nothing — the head only while it has no live lease, is due
-    /// and its destination's pacing allows a send now.
+    /// ADR-EIP-002 decisions 4 and 9, DDR-5: the claim choice is the route's
+    /// head (its lowest id) or nothing — the head only while it has no live
+    /// lease, is due, is before its give-up time (a delivery at or past
+    /// `give_up_at` is never sent again: the expiry sweep fails it) and its
+    /// destination's pacing allows a send now.
+    ///
+    /// CONTRACT_SHAPE: pure-function
     #[test]
+    #[ignore = "RED until review fix A2"]
     fn claimable_head_takes_the_head_only_without_a_live_lease(
         mut deliveries in proptest::collection::vec(
             (maybe_at(), maybe_at(), -5i64..=5), 0..6
@@ -268,6 +273,7 @@ proptest! {
         let expected = deliveries.first().copied().filter(|head| {
             head.lease_until.is_none_or(|until| until <= now)
                 && head.next_attempt_at.is_none_or(|next| next <= now)
+                && head.give_up_at > now
                 && not_before.is_none_or(|paced| paced <= now)
         }).map(|head| head.id);
         if !deliveries.is_empty() {
@@ -892,26 +898,64 @@ fn unescape(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
+/// `issue`'s view with a never-sent part in every field D-3 keeps out of a
+/// message at `level`: the description, the attachment's name, the author's
+/// email address and an internal id `id`, each where compose could read it.
+fn planted(issue: &HeldIssue, level: ContentLevel, id: &str) -> EventView {
+    let mut view = issue.view.clone();
+    let single = view.issue_count == 1;
+    let forbidden_comment = !single
+        || level != ContentLevel::SummaryWithComment
+        || view.kind != EventKind::CommentAdded;
+    if forbidden_comment {
+        view.comment_text = format!("{} {id}", issue.description);
+    }
+    if !single || view.kind != EventKind::IssueMoved || level == ContentLevel::LinkOnly {
+        view.from_lane_label = format!("{} {id}", issue.attachment);
+    }
+    if !single || level == ContentLevel::LinkOnly {
+        view.title = format!("{} {}", issue.description, issue.attachment);
+    }
+    if single && level == ContentLevel::LinkOnly {
+        view.actor_name = issue.author_email.clone();
+        view.lane_label = format!("{} {id}", issue.attachment);
+    }
+    view
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
     /// D-3: at every level, no description, attachment name, email address
     /// or internal id reaches a message; the issue key does (unless a burst
     /// names no one issue).
+    ///
+    /// [`EventView`] has no field for the never-sent parts, so they are
+    /// planted where `compose` CAN read: every field D-3 keeps out of a
+    /// message at that level (at Link only the title, the actor, both lanes
+    /// and the comment; at Summary the comment, and the from-lane of anything
+    /// but a move; at Summary with comment text the comment of anything but a
+    /// single new comment; in a burst the title, the from-lane and the
+    /// comment). A level that let one of those fields through would carry a
+    /// never-sent part, and this property would fail.
+    ///
+    /// CONTRACT_SHAPE: pure-function
     #[test]
     fn compose_never_sends_description_attachment_email_or_internal_id(issue in held_issue()) {
+        let id = issue.ids[0].to_string();
         for level in LEVELS {
-            let sent = encode_slack(&compose(&issue.view, level)).0.to_string();
+            let view = planted(&issue, level, &id);
+            let sent = encode_slack(&compose(&view, level)).0.to_string();
             prop_assert!(!sent.contains('§'), "a never-sent part leaked at {level:?}: {sent}");
             prop_assert!(!sent.contains(&issue.description));
             prop_assert!(!sent.contains(&issue.attachment));
             prop_assert!(!sent.contains(&issue.author_email));
             for id in &issue.ids {
-                prop_assert!(!sent.contains(&id.to_string()), "an id leaked: {sent}");
+                prop_assert!(!sent.contains(&id.to_string()), "an id leaked at {level:?}: {sent}");
                 prop_assert!(!sent.contains(&id.simple().to_string()), "an id leaked: {sent}");
             }
-            if issue.view.issue_count == 1 {
-                prop_assert!(sent.contains(&issue.view.issue_key), "the key is sent: {sent}");
+            if view.issue_count == 1 {
+                prop_assert!(sent.contains(&view.issue_key), "the key is sent: {sent}");
             }
         }
     }
@@ -1923,6 +1967,65 @@ fn plan_emails_matches_both_the_project_and_the_event_of_a_choice() {
     assert_eq!(planned[0].recipient_user_id, SAM);
     assert_eq!(planned[0].project_id, project(0));
     assert_eq!(planned[0].event_kind, EventKind::CommentAdded);
+}
+
+/// Lena, who chose the same events as Sam.
+const LENA: Uuid = Uuid::from_u128(0x5001);
+
+fn choice_of(user_id: Uuid, event: EventKind) -> foundry_integrations::EmailChoice {
+    foundry_integrations::EmailChoice {
+        user_id,
+        ..sams_choice(0, event)
+    }
+}
+
+/// OD-11: the member who acted is not emailed about their own action, even
+/// though they chose the event; everyone else who chose it is.
+///
+/// CONTRACT_SHAPE: pure-function
+#[test]
+fn plan_emails_skips_the_member_who_acted() {
+    use foundry_integrations::plan_emails;
+    let choices = [
+        choice_of(SAM, EventKind::CommentAdded),
+        choice_of(LENA, EventKind::CommentAdded),
+    ];
+    let mut by_sam = project_row(0, 0, "CommentAdded");
+    by_sam.payload["author_id"] = serde_json::json!(SAM);
+    let recipients: Vec<Uuid> = plan_emails(&[by_sam], &choices)
+        .into_iter()
+        .map(|email| email.recipient_user_id)
+        .collect();
+    assert_eq!(
+        recipients,
+        vec![LENA],
+        "Sam commented: only Lena is emailed"
+    );
+}
+
+/// OD-11: an event that names no author (a row written before `author_id`
+/// was recorded) emails everyone who chose it.
+///
+/// CONTRACT_SHAPE: pure-function
+#[test]
+fn plan_emails_without_an_author_emails_everyone_who_chose_it() {
+    use foundry_integrations::plan_emails;
+    let choices = [
+        choice_of(SAM, EventKind::IssueCreated),
+        choice_of(LENA, EventKind::IssueCreated),
+    ];
+    let mut anonymous = project_row(0, 0, "IssueCreated");
+    anonymous
+        .payload
+        .as_object_mut()
+        .expect("a payload object")
+        .remove("author_id");
+    let mut recipients: Vec<Uuid> = plan_emails(&[anonymous], &choices)
+        .into_iter()
+        .map(|email| email.recipient_user_id)
+        .collect();
+    recipients.sort();
+    assert_eq!(recipients, vec![SAM, LENA], "no author: both are emailed");
 }
 
 proptest! {

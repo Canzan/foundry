@@ -17,6 +17,15 @@ name = "acceptance"
 path = "tests/acceptance.rs"
 harness = false
 
+# external-integration-plugins DELIVER Phase 4 review findings: crate-level
+# tests through the same doors and doubles as the acceptance lane, without
+# Gherkin. Its own runner (like `acceptance`), so the shared Postgres and
+# homeserver containers are removed while the runtime is still alive.
+[[test]]
+name = "eip_review_findings"
+path = "tests/eip_review_findings.rs"
+harness = false
+
 [dependencies]
 foundry-core = { path = "../foundry-core" }
 foundry-store = { path = "../foundry-store", features = ["test-support"] }
