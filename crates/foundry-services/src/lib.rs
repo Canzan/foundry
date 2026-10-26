@@ -403,6 +403,27 @@ impl Services {
         integrations::save_project_emails(&*self.store, user_id, choices).await
     }
 
+    /// external-integration-plugins US-EIP-11 — what a stop link's confirm
+    /// page names; it changes nothing.
+    pub async fn email_stop_target(
+        &self,
+        project_id: uuid::Uuid,
+        event: &str,
+    ) -> Result<integrations::EmailStop, integrations::IntegrationError> {
+        integrations::email_stop_target(&*self.store, project_id, event).await
+    }
+
+    /// external-integration-plugins US-EIP-11 — stop one of the member's
+    /// project email choices from its stop link.
+    pub async fn stop_project_email(
+        &self,
+        user_id: uuid::Uuid,
+        project_id: uuid::Uuid,
+        event: &str,
+    ) -> Result<integrations::EmailStop, integrations::IntegrationError> {
+        integrations::stop_project_email(&*self.store, user_id, project_id, event).await
+    }
+
     /// external-integration-plugins — the workspace integrations page.
     pub async fn workspace_integrations(
         &self,

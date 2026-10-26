@@ -18,6 +18,7 @@
 use async_trait::async_trait;
 use foundry_integrations::{EmailTransport, EmailTransportError, OutboundEmail};
 use hmac::{Hmac, Mac};
+use lettre::message::header::{HeaderName, HeaderValue};
 use lettre::transport::smtp::authentication::Credentials;
 use lettre::transport::smtp::client::{Tls, TlsParameters};
 use lettre::{AsyncSmtpTransport, AsyncTransport, Message, Tokio1Executor};
@@ -763,21 +764,42 @@ impl SmtpProvider {
     }
 }
 
-#[async_trait]
-impl NotificationProvider for SmtpProvider {
-    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
-        let email = Message::builder()
+impl SmtpProvider {
+    /// One message to `recipient`, with the one-click unsubscribe headers when
+    /// `unsubscribe` names them (RFC 8058: `List-Unsubscribe: <url>` and
+    /// `List-Unsubscribe-Post`).
+    fn message(
+        &self,
+        recipient: &str,
+        subject: &str,
+        body: &str,
+        unsubscribe: Option<&(String, String)>,
+    ) -> Result<Message, DeliveryError> {
+        let mut builder = Message::builder()
             .from(self.from.parse().map_err(|_| {
                 DeliveryError::Permanent("smtp 'from' address is invalid".to_string())
             })?)
-            .to(notification.recipient.parse().map_err(|_| {
+            .to(recipient.parse().map_err(|_| {
                 DeliveryError::Permanent("smtp recipient address is invalid".to_string())
             })?)
-            .subject(notification.subject.clone())
-            .body(notification.body.clone())
-            .map_err(|_| {
-                DeliveryError::Permanent("smtp message could not be constructed".to_string())
-            })?;
+            .subject(subject.to_string());
+        if let Some((url, post)) = unsubscribe {
+            builder = builder
+                .raw_header(HeaderValue::new(
+                    HeaderName::new_from_ascii_str("List-Unsubscribe"),
+                    format!("<{url}>"),
+                ))
+                .raw_header(HeaderValue::new(
+                    HeaderName::new_from_ascii_str("List-Unsubscribe-Post"),
+                    post.clone(),
+                ));
+        }
+        builder.body(body.to_string()).map_err(|_| {
+            DeliveryError::Permanent("smtp message could not be constructed".to_string())
+        })
+    }
+
+    async fn send(&self, email: Message) -> Result<(), DeliveryError> {
         // Hand-built, secret-free classification (ADR-006): never interpolate the
         // raw transport error (or any credential) into the delivery error.
         self.transport.send(email).await.map_err(|err| {
@@ -788,6 +810,31 @@ impl NotificationProvider for SmtpProvider {
             }
         })?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl NotificationProvider for SmtpProvider {
+    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
+        let email = self.message(
+            &notification.recipient,
+            &notification.subject,
+            &notification.body,
+            None,
+        )?;
+        self.send(email).await
+    }
+
+    /// external-integration-plugins (ADR-EIP-007 decision 5): a project email
+    /// with its one-click unsubscribe headers.
+    async fn send_email(&self, email: &OutboundEmail) -> Result<(), DeliveryError> {
+        let message = self.message(
+            &email.recipient,
+            &email.subject,
+            &email.text_body,
+            email.unsubscribe.as_ref(),
+        )?;
+        self.send(message).await
     }
 
     fn kind(&self) -> ProviderKind {
@@ -1079,12 +1126,29 @@ impl EmailApiProvider {
         })
         .to_string()
     }
-}
 
-#[async_trait]
-impl NotificationProvider for EmailApiProvider {
-    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
-        let body = Self::render_body(&self.from, notification);
+    /// A project email's send body (ADR-EIP-007 decision 5): the same shape,
+    /// event `project_email`, plus `headers` carrying the one-click
+    /// unsubscribe (`List-Unsubscribe`, `List-Unsubscribe-Post`) when the
+    /// email names one.
+    fn render_email_body(from: &str, email: &OutboundEmail) -> String {
+        let mut body = serde_json::json!({
+            "from": from,
+            "to": email.recipient,
+            "subject": email.subject,
+            "body": email.text_body,
+            "event": NotificationEvent::ProjectEmail.as_str(),
+        });
+        if let Some((url, post)) = &email.unsubscribe {
+            body["headers"] = serde_json::json!({
+                "List-Unsubscribe": format!("<{url}>"),
+                "List-Unsubscribe-Post": post,
+            });
+        }
+        body.to_string()
+    }
+
+    async fn post(&self, body: String) -> Result<(), DeliveryError> {
         // ADR-006: expose the key ONLY here, as the bearer credential header, and
         // never elsewhere. Nothing secret survives past this request construction.
         let response = self
@@ -1118,6 +1182,19 @@ impl NotificationProvider for EmailApiProvider {
                 "email_api vendor rejected the delivery".to_string(),
             ))
         }
+    }
+}
+
+#[async_trait]
+impl NotificationProvider for EmailApiProvider {
+    async fn deliver(&self, notification: &Notification) -> Result<(), DeliveryError> {
+        self.post(Self::render_body(&self.from, notification)).await
+    }
+
+    /// external-integration-plugins (ADR-EIP-007 decision 5): a project email
+    /// with its one-click unsubscribe headers.
+    async fn send_email(&self, email: &OutboundEmail) -> Result<(), DeliveryError> {
+        self.post(Self::render_email_body(&self.from, email)).await
     }
 
     fn kind(&self) -> ProviderKind {

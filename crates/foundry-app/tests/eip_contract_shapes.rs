@@ -1,28 +1,49 @@
 //! external-integration-plugins — foundry-app gold tests below the acceptance
 //! lane (DESIGN [REF] Driven Ports and Contract Shapes, check-arch rule 5,
-//! Earned Trust; DEVOPS C-7, C-13). Pending stubs written by DISTILL 2026-10-21
-//! (ADR-025 scaffolded RED): each is `#[ignore]`d with its DELIVER step id and
-//! panics with the RED marker until DELIVER replaces its body (through
-//! `foundry_app::build_router`, like `api_docs_page.rs`).
+//! Earned Trust; DEVOPS C-7, C-13). Written as pending stubs by DISTILL
+//! 2026-10-21 (ADR-025 scaffolded RED); each body was made real by the DELIVER
+//! step it named, the last (the CSRF exempt set) in 05-02.
 
-macro_rules! pending {
-    ($name:ident, $step:literal, $what:literal) => {
-        #[test]
-        #[ignore = concat!("pending: external-integration-plugins ", $step, " ", $what)]
-        fn $name() {
-            panic!(concat!(
-                "Not yet implemented -- RED scaffold (external-integration-plugins ",
-                $step,
-                ": ",
-                $what,
-                ")"
-            ));
-        }
-    };
+// Check-arch rule 5 (DELIVER 05-02; DDR-11, DDR-16): the double-submit
+// CSRF check skips exactly three POST paths, each a machine post
+// authenticated by its own token or signature, and nothing that merely
+// resembles one of them.
+#[test]
+fn csrf_exempt_set_is_exactly_three_paths() {
+    use foundry_app::csrf::{is_exempt_path, CSRF_EXEMPT_PATHS};
+    assert_eq!(
+        CSRF_EXEMPT_PATHS,
+        [
+            "/bootstrap",
+            "/integrations/slack/events",
+            "/email/stop/one-click"
+        ]
+    );
+    for path in CSRF_EXEMPT_PATHS {
+        assert!(is_exempt_path(path), "{path} is exempt");
+    }
+    for path in [
+        "/",
+        "",
+        "/email/stop",
+        "/email/stop/",
+        "/email/stop/one-click/",
+        "/email/stop/one-click/x",
+        "/email/stop/one-clicks",
+        "/EMAIL/STOP/ONE-CLICK",
+        "/unsubscribe",
+        "/bootstrap/",
+        "/bootstrapx",
+        "/integrations/slack",
+        "/integrations/slack/events/",
+        "/integrations/slack/return",
+        "/account/settings/project-emails",
+        "/api/v1/projects",
+        "/sign-in",
+    ] {
+        assert!(!is_exempt_path(path), "{path:?} is CSRF-checked");
+    }
 }
-
-// Handlers (slices 01-03).
-pending!(csrf_exempt_set_is_exactly_three_paths, "03-02", "check-arch rule 5: is_exempt_path is /bootstrap, /integrations/slack/events, /email/stop/one-click and nothing else");
 
 // DDR-23 (03-02): the connection-lost admin email is a suppressible account
 // event (D-15: a muted admin is not emailed), and the composition root's

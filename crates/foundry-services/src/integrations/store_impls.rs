@@ -168,4 +168,17 @@ impl IntegrationRecords for Store {
     ) -> Result<bool, StoreError> {
         Store::save_email_choices(self, user_id, project_id, choices).await
     }
+
+    async fn email_stop_project(&self, project_id: Uuid) -> Result<Option<String>, StoreError> {
+        Store::email_stop_project(self, project_id).await
+    }
+
+    async fn stop_email_choice(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+        event: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Store::stop_email_choice(self, user_id, project_id, event).await
+    }
 }

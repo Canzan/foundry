@@ -13,6 +13,7 @@
 //!   open gets the uniform 404 and saves nothing.
 
 use crate::bootstrap::SessionUser;
+use crate::email_stop::StopLinks;
 use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use axum::extract::State;
@@ -24,6 +25,7 @@ use foundry_services::integrations::{
     EmailChoiceInput, IntegrationError, ProjectEmails, SavedEmailChoice,
 };
 use foundry_services::Services;
+use secrecy::SecretString;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use tower_sessions::Session;
@@ -36,25 +38,56 @@ pub const PROJECT_EMAILS_PATH: &str = "/account/settings/project-emails";
 pub const NO_EMAIL_TRANSPORT: &str =
     "This Foundry cannot send email yet. An instance operator needs to set up email delivery.";
 
-/// The transport project emails go through. Cloning shares it; it sends
-/// nothing until the composition root hands it the notifier's transport.
+/// The transport project emails go through, and the secret their stop links
+/// are signed with. Cloning shares both; it sends nothing until the
+/// composition root hands it the notifier's transport, and its emails carry
+/// no stop link until it hands it `SESSION_SECRET`.
 #[derive(Clone, Default)]
-pub struct ProjectMail(Arc<RwLock<Option<Arc<dyn EmailTransport>>>>);
+pub struct ProjectMail {
+    transport: Arc<RwLock<Option<Arc<dyn EmailTransport>>>>,
+    stop_secret: Arc<RwLock<Option<Arc<SecretString>>>>,
+}
 
 impl ProjectMail {
     /// Send project emails through `transport` from now on (`None`: this
     /// Foundry cannot send email).
     pub fn use_transport(&self, transport: Option<Arc<dyn EmailTransport>>) {
-        *self.0.write().unwrap_or_else(|p| p.into_inner()) = transport;
+        *self.transport.write().unwrap_or_else(|p| p.into_inner()) = transport;
     }
 
     /// The transport, when this Foundry can send email.
     pub fn transport(&self) -> Option<Arc<dyn EmailTransport>> {
-        self.0.read().unwrap_or_else(|p| p.into_inner()).clone()
+        self.transport
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     pub fn can_send(&self) -> bool {
         self.transport().is_some()
+    }
+
+    /// Sign every project email's stop link with `secret` (ADR-EIP-007
+    /// decision 5: `SESSION_SECRET`, as the stop doors verify it).
+    pub fn sign_stop_links_with(&self, secret: Arc<SecretString>) {
+        *self.stop_secret.write().unwrap_or_else(|p| p.into_inner()) = Some(secret);
+    }
+
+    /// The stop links of the choice `(user_id, project_id, event)` on the
+    /// Foundry at `public_url`.
+    pub fn stop_links(
+        &self,
+        public_url: &str,
+        user_id: Uuid,
+        project_id: Uuid,
+        event: &str,
+    ) -> Option<StopLinks> {
+        let secret = self
+            .stop_secret
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()?;
+        StopLinks::sign(public_url, &secret, user_id, project_id, event)
     }
 }
 

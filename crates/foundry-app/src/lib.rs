@@ -20,6 +20,7 @@ pub mod bootstrap;
 pub mod clock;
 pub mod comments;
 pub mod csrf;
+pub mod email_stop;
 pub mod events;
 pub mod instance_admin;
 pub mod integrations;
@@ -477,6 +478,18 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/unsubscribe",
             get(unsubscribe::show_confirm).post(unsubscribe::submit_confirm),
+        )
+        // external-integration-plugins US-EIP-11 (ADR-EIP-007 decision 5,
+        // DDR-16): a project email's signed stop link. The GET confirm changes
+        // nothing; the POST confirm is CSRF-checked; the one-click POST is a
+        // mail client's (RFC 8058), CSRF-exempt and signature-authenticated.
+        .route(
+            email_stop::EMAIL_STOP_PATH,
+            get(email_stop::show_confirm).post(email_stop::confirm),
+        )
+        .route(
+            email_stop::EMAIL_STOP_ONE_CLICK_PATH,
+            post(email_stop::one_click),
         )
         // multi-workspace-tenancy 02-05 (ADR-005) — the multi-membership active-
         // workspace switcher. Mounted HERE so it sits UNDER `csrf_middleware` +
@@ -1114,6 +1127,10 @@ pub mod test_support {
             .integrations
             .project_mail()
             .use_transport(state.notifier.email_transport());
+        state
+            .integrations
+            .project_mail()
+            .sign_stop_links_with(state.session_secret.clone());
         let worker_task = integrations::worker::IntegrationsWorker::new(
             integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
             state.integrations.clone(),

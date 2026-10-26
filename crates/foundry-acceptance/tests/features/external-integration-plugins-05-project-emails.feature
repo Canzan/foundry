@@ -45,7 +45,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     And its footer reads "You get this because you chose New comment for issues you created or commented on in Identity Platform. Stop these emails · Change what you get"
     And it carries the comment "The new bind DN is live on staging; can you verify the Grafana login?" and Open in Foundry
 
-  @pending @us-eip-10 @driving_port @kpi @contract-shape:bounded-change
+  @us-eip-10 @driving_port @kpi @contract-shape:bounded-change
   Scenario: Saving shows exactly what will be emailed, three steps from the board
     Given Sam has no project email choices and has followed Settings in the sidebar of the Identity Platform board
     When Sam ticks New comment for issues he created or commented on in Identity Platform and saves
@@ -119,7 +119,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     And Sam has no project email choices
     And Sam's own choice for Identity Platform is still accepted
 
-  @pending @us-eip-11 @kpi @contract-shape:bounded-change
+  @us-eip-11 @kpi @contract-shape:bounded-change
   Scenario: A member stops one kind of email from the email itself
     Given Sam has chosen New comment and New issue for all issues in Identity Platform
     And Sam has received a New comment email from Identity Platform
@@ -137,7 +137,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     When Lena comments "One more thing." on AUTH-7
     Then Sam receives no email about AUTH-7
 
-  @pending @us-eip-11 @error @contract-shape:unbounded-preservation
+  @us-eip-11 @error @contract-shape:unbounded-preservation
   Scenario: Merely opening a stop link changes nothing
     Given Sam has chosen New comment for all issues in Identity Platform
     And Sam has received a New comment email from Identity Platform
@@ -151,7 +151,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     When Sam's mail client sends the one-click unsubscribe of that email
     Then Sam's Project emails show New issue chosen and New comment not chosen for Identity Platform
 
-  @pending @us-eip-11 @error @kpi @contract-shape:unbounded-preservation
+  @us-eip-11 @error @kpi @contract-shape:unbounded-preservation
   Scenario: Losing access stops the emails without any setting changing
     Given Tomás has chosen New issue for all issues in Identity Platform
     And Sam has chosen New issue for all issues in Identity Platform
@@ -160,7 +160,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
     Then Tomás receives no email about AUTH-20
     And Sam receives within 2 minutes an email about AUTH-20 whose footer reads "You get this because you chose New issue for all issues in Identity Platform. Stop these emails · Change what you get"
 
-  @pending @us-eip-11 @error @contract-shape:unbounded-preservation
+  @us-eip-11 @error @contract-shape:unbounded-preservation
   Scenario Outline: A tampered stop link changes nothing and reveals nothing
     Given Sam has chosen New comment for all issues in Identity Platform
     And Sam has received a New comment email from Identity Platform
@@ -176,7 +176,7 @@ Feature: A member chooses which project events Foundry emails them, and stops an
       | confirms                | naming Homelab Ops instead of Identity Platform  |
       | sends as a one-click to | with its signature altered                       |
 
-  @pending @us-eip-11 @error @contract-shape:unbounded-preservation
+  @us-eip-11 @error @contract-shape:unbounded-preservation
   Scenario: Stopping project emails never stops security emails
     Given Sam has chosen New comment for all issues in Identity Platform
     And Sam has received a New comment email from Identity Platform

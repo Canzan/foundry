@@ -546,7 +546,7 @@ fn decode_and_verify(state: &AppState, t: &str, sig: &str) -> Option<(String, uu
 /// The UNIFORM non-enumerable unsubscribe refusal (ADR-002) — every invalid-link
 /// reason (tampered / unknown / missing / deleted-workspace) collapses to THIS
 /// byte-identical fixed-200 response. Mirrors `invites_accept::invite_refusal_page`.
-fn unsubscribe_refusal_page() -> Response {
+pub(crate) fn unsubscribe_refusal_page() -> Response {
     invalid_page(
         StatusCode::OK,
         "This unsubscribe link is no longer valid",

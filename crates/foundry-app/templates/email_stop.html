@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block title %}{% if let Some(stopped) = stopped %}{{ stopped }}{% else %}{{ question }}{% endif %}{% endblock %}
+{% block content %}
+<main>
+{%- if let Some(stopped) = stopped %}
+<h1>{{ stopped }}</h1>
+<p>Security emails such as password resets are always delivered.</p>
+{%- else %}
+<h1>{{ question }}</h1>
+<p>Only this choice stops. Security emails such as password resets are always delivered.</p>
+<form method="post" action="/email/stop">
+<input type="hidden" name="_csrf" value="{{ csrf }}">
+<input type="hidden" name="t" value="{{ t }}">
+<input type="hidden" name="sig" value="{{ sig }}">
+<button type="submit">Confirm</button>
+</form>
+{%- endif %}
+</main>
+{% endblock %}

@@ -16,6 +16,13 @@
 //!     with no browser and no cookie. Slack's request signature (the
 //!     signing secret's HMAC over the timestamp and body, checked by the
 //!     handler) is its forgery defence (DDR-11).
+//!   - `/email/stop/one-click` — a mail client's RFC 8058 one-click
+//!     unsubscribe, a cookie-less POST. The stop link's signature
+//!     (`ProjectEmailStopToken`, checked by the handler) is its forgery
+//!     defence, and it can only switch one email choice off (DDR-16).
+//!
+//! The set is exactly [`CSRF_EXEMPT_PATHS`] (check-arch rule 5, pinned by a
+//! gold test).
 
 use crate::AppState;
 use axum::body::{to_bytes, Body};
@@ -147,12 +154,19 @@ fn is_safe_method(m: &Method) -> bool {
     matches!(*m, Method::GET | Method::HEAD | Method::OPTIONS)
 }
 
-fn is_exempt_path(path: &str) -> bool {
-    // The bootstrap POST is pre-session (no cookie yet). The /bootstrap
-    // single-use token in the URL already provides CSRF-equivalent
-    // protection: an attacker would need the operator's secret token,
-    // and the token is consumed on first POST.
-    path == "/bootstrap" || path == "/integrations/slack/events"
+/// The POST paths the double-submit check does not apply to, and no other.
+/// The bootstrap POST is pre-session (no cookie yet): its single-use token in
+/// the URL already provides CSRF-equivalent protection. Slack's events and a
+/// mail client's one-click are machine posts authenticated by a signature.
+pub const CSRF_EXEMPT_PATHS: [&str; 3] = [
+    "/bootstrap",
+    "/integrations/slack/events",
+    "/email/stop/one-click",
+];
+
+/// Whether `path` is one of [`CSRF_EXEMPT_PATHS`] (exactly, no prefix).
+pub fn is_exempt_path(path: &str) -> bool {
+    CSRF_EXEMPT_PATHS.contains(&path)
 }
 
 fn constant_time_eq(a: &str, b: &str) -> bool {

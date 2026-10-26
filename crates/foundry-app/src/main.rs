@@ -747,6 +747,12 @@ async fn main() -> anyhow::Result<()> {
         .integrations
         .project_mail()
         .use_transport(state.notifier.email_transport());
+    // ADR-EIP-007 decision 5: every project email carries its signed stop
+    // link, keyed on SESSION_SECRET.
+    state
+        .integrations
+        .project_mail()
+        .sign_stop_links_with(state.session_secret.clone());
     let _integrations_worker = foundry_app::integrations::worker::IntegrationsWorker::new(
         foundry_app::integrations::store_capabilities::StoreCapabilities::new(state.store.clone()),
         state.integrations.clone(),

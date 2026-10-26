@@ -56,7 +56,7 @@ use foundry_core::TeamAccess;
 use foundry_integrations::{
     cancel_set, DestinationCatalog, DestinationRef, ReasonCode, TargetedDelivery,
 };
-use foundry_integrations::{EmailScope, EventKind};
+use foundry_integrations::{email_events, EmailScope, EventKind};
 use foundry_store::integrations::{
     AuditRow, CancelCandidate, ConnectionChange, ConnectionRow, ConnectionWriteOutcome,
     DeliveryHistoryRow, DeliveryIssue, DisconnectOutcome, DisconnectPreview, EmailChoiceRow,
@@ -170,6 +170,13 @@ pub(crate) trait IntegrationRecords: Sync {
         project_id: Uuid,
         choices: &[(String, String)],
     ) -> Result<bool, StoreError>;
+    async fn email_stop_project(&self, project_id: Uuid) -> Result<Option<String>, StoreError>;
+    async fn stop_email_choice(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+        event: &str,
+    ) -> Result<Option<String>, StoreError>;
 }
 
 /// The events a chat route may choose (D-2).
@@ -1053,4 +1060,55 @@ pub(crate) async fn save_project_emails(
         }
     }
     Ok(saved)
+}
+
+/// The one choice a stop link names, as its pages say it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmailStop {
+    pub project_name: String,
+    pub event: EventKind,
+}
+
+/// The event a stop link may name: one a member can choose by email.
+fn stoppable(event: &str) -> Result<EventKind, IntegrationError> {
+    EventKind::from_wire_name(event)
+        .filter(|kind| email_events().any(|e| e == *kind))
+        .ok_or(IntegrationError::NotFound)
+}
+
+/// What a stop link's confirm page names (it changes nothing): the live
+/// project and the event; anything else is the uniform refusal.
+pub(crate) async fn email_stop_target(
+    records: &impl IntegrationRecords,
+    project_id: Uuid,
+    event: &str,
+) -> Result<EmailStop, IntegrationError> {
+    let event = stoppable(event)?;
+    let project_name = records
+        .email_stop_project(project_id)
+        .await?
+        .ok_or(IntegrationError::NotFound)?;
+    Ok(EmailStop {
+        project_name,
+        event,
+    })
+}
+
+/// Stop the member's `event` emails from `project_id` (US-EIP-11): that one
+/// choice goes, the others stay. Stopping twice stops once.
+pub(crate) async fn stop_project_email(
+    records: &impl IntegrationRecords,
+    user_id: Uuid,
+    project_id: Uuid,
+    event: &str,
+) -> Result<EmailStop, IntegrationError> {
+    let event = stoppable(event)?;
+    let project_name = records
+        .stop_email_choice(user_id, project_id, event.wire_name())
+        .await?
+        .ok_or(IntegrationError::NotFound)?;
+    Ok(EmailStop {
+        project_name,
+        event,
+    })
 }

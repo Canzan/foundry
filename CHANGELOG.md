@@ -9,6 +9,17 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ### Added
 
+- **One-click stop links for project emails**: every project email's footer carries a signed
+  Stop these emails link for the one choice that caused it, and the email carries the RFC 8058
+  `List-Unsubscribe` and `List-Unsubscribe-Post` headers, so a mail client's one-click
+  unsubscribe stops the same choice. Opening the link changes nothing (a link scanner stops
+  nothing); it asks "Stop New comment emails from Identity Platform?", and confirming reads
+  "Stopped: New comment in Identity Platform. Your other choices are unchanged." Stop links never
+  expire; a tampered link gets the same refusal page as any invalid link and changes nothing. A
+  member who loses access to a project gets no more of its emails without any setting changing,
+  and security emails such as password resets are never stopped. `/email/stop/one-click` is
+  CSRF-exempt (signature-authenticated); the exempt set is exactly `/bootstrap`,
+  `/integrations/slack/events` and `/email/stop/one-click`.
 - **Project email choices**: in Notification settings, a member's new Project emails section
   lists only the projects they can open, with nothing chosen for them. For each project they can
   tick New issue, Issue moved, New comment and Issue deleted, for all issues or only issues they
@@ -162,6 +173,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   (suppressible) on the `foundry_notification_*` families.
 
 ### Changed
+
+- The sidebar's Notifications link is now Settings (it still opens `/account/settings`).
 
 - **Reconnecting delivers what was missed**: when a workspace admin reconnects a lost Slack
   connection (Reconnect, then approving Foundry for the same Slack workspace), the routes read

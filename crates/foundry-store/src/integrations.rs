@@ -2127,7 +2127,7 @@ pub struct DeliveryIssue {
 /// whether they muted its workspace, and whether they filed the issue or
 /// have a comment on it that is not deleted.
 const EMAIL_FACTS_SQL: &str = "
-    SELECT u.email_display, ch.scope,
+    SELECT u.email_display, ch.scope, u.id, d.project_id, d.event_kind,
            EXISTS (SELECT 1 FROM live_projects p
                      JOIN team_memberships tm ON tm.team_id = p.team_id
                     WHERE p.id = d.project_id AND tm.user_id = u.id),
@@ -2149,6 +2149,11 @@ const EMAIL_FACTS_SQL: &str = "
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmailSendFacts {
     pub recipient: String,
+    /// The choice the email is sent under: its member, project and event
+    /// (its stop link names exactly this choice).
+    pub user_id: Uuid,
+    pub project_id: Uuid,
+    pub event: String,
     /// The member's choice's scope (`all`, `mine`); `None` once it is gone.
     pub scope: Option<String>,
     pub can_open: bool,
@@ -2677,18 +2682,23 @@ impl Store {
         &self,
         delivery_id: i64,
     ) -> Result<Option<EmailSendFacts>, StoreError> {
-        let row: Option<(String, Option<String>, bool, bool, bool)> =
-            sqlx::query_as(EMAIL_FACTS_SQL)
-                .bind(delivery_id)
-                .fetch_optional(&self.pool)
-                .await?;
+        type Row = (String, Option<String>, Uuid, Uuid, String, bool, bool, bool);
+        let row: Option<Row> = sqlx::query_as(EMAIL_FACTS_SQL)
+            .bind(delivery_id)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(row.map(
-            |(recipient, scope, can_open, muted, involved)| EmailSendFacts {
-                recipient,
-                scope,
-                can_open,
-                muted,
-                involved,
+            |(recipient, scope, user_id, project_id, event, can_open, muted, involved)| {
+                EmailSendFacts {
+                    recipient,
+                    user_id,
+                    project_id,
+                    event,
+                    scope,
+                    can_open,
+                    muted,
+                    involved,
+                }
             },
         ))
     }
@@ -3011,6 +3021,9 @@ const EMAIL_PROJECTS_SQL: &str = "
       JOIN workspaces w ON w.id = p.workspace_id
      ORDER BY w.name, w.id, p.name, p.id";
 
+/// A live project's name.
+const EMAIL_STOP_PROJECT_SQL: &str = "SELECT name FROM live_projects WHERE id = $1";
+
 /// A member's choices in live projects.
 const EMAIL_CHOICES_SQL: &str = "
     SELECT ch.project_id, ch.event, ch.scope
@@ -3053,6 +3066,47 @@ impl Store {
                 scope,
             })
             .collect())
+    }
+
+    /// The name of the live project `project_id` (a stop link's confirm
+    /// page); `None` once it is deleted.
+    pub async fn email_stop_project(&self, project_id: Uuid) -> Result<Option<String>, StoreError> {
+        Ok(sqlx::query_scalar(EMAIL_STOP_PROJECT_SQL)
+            .bind(project_id)
+            .fetch_optional(&self.pool)
+            .await?)
+    }
+
+    /// Stop `user_id`'s `event` emails from `project_id` (US-EIP-11): delete
+    /// that one choice, in one transaction that opens with
+    /// `lock_live_project` (rule 4). Idempotent. The project's name, or
+    /// `None`, with nothing written, when the project is not live.
+    pub async fn stop_email_choice(
+        &self,
+        user_id: Uuid,
+        project_id: Uuid,
+        event: &str,
+    ) -> Result<Option<String>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        if !lock_live_project(&mut tx, project_id).await? {
+            tx.rollback().await?;
+            return Ok(None);
+        }
+        sqlx::query(
+            "DELETE FROM integration_email_choices
+              WHERE user_id = $1 AND project_id = $2 AND event = $3",
+        )
+        .bind(user_id)
+        .bind(project_id)
+        .bind(event)
+        .execute(&mut *tx)
+        .await?;
+        let name: String = sqlx::query_scalar(EMAIL_STOP_PROJECT_SQL)
+            .bind(project_id)
+            .fetch_one(&mut *tx)
+            .await?;
+        tx.commit().await?;
+        Ok(Some(name))
     }
 
     /// Replace `user_id`'s choices in `project_id` with `choices`
