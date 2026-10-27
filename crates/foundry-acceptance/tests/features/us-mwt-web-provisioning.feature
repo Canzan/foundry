@@ -61,7 +61,7 @@
 #
 # Legacy-route-retired decision (ADR-003 / D3, RATIFIED RETIRE): the legacy identity-blind
 # `POST /workspaces` 409 guard (`bootstrap.rs:301`) is DELETED outright (not left inert), per
-# the repo AGENTS.md "## Dead code" policy (pre-stable: remove superseded code). The gated
+# the repo CODING_STANDARDS.md "## Dead code" policy (pre-stable: remove superseded code). The gated
 # `POST /admin/instance/workspaces` is the SOLE web provisioning path; the bootstrap CLAIM
 # remains the sole creator of workspace 1. Scenario 9 asserts the legacy route is GONE
 # (a POST to /workspaces is now refused as a never-existed path, not a 409).

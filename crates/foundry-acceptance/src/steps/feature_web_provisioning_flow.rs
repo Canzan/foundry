@@ -1273,7 +1273,7 @@ async fn web_page_reports_workspace_and_invite(world: &mut FoundryWorld) {
 //
 // The legacy `create_workspace` handler (bootstrap.rs) was a pure identity-blind
 // guard that hard-returned `409 CONFLICT` ("Only one workspace per instance") for
-// any second workspace. ADR-003 retires it outright (repo AGENTS.md "## Dead code":
+// any second workspace. ADR-003 retires it outright (repo CODING_STANDARDS.md "## Dead code":
 // pre-stable, DELETE superseded code — not leave it inert). The gated
 // `POST /admin/instance/workspaces` is the SOLE web provisioning path.
 //

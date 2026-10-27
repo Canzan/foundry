@@ -64,8 +64,8 @@ const PROJECT_SLUG: &str = "auth";
 // Every remaining @pending scenario's steps are UNWRITTEN rather than scaffolded,
 // and `.fail_on_skipped()` (UI-4) makes an unwired step FAIL by name the moment
 // one is unskipped — a louder, more honest RED than a shared panic string, and
-// the reason the scaffold is not kept "just in case" (AGENTS.md: remove dead code
-// outright, do not leave it inert).
+// the reason the scaffold is not kept "just in case" (CODING_STANDARDS.md "Dead code": remove
+// superseded code outright).
 
 fn now_anchor() -> time::OffsetDateTime {
     time::OffsetDateTime::parse(TEST_NOW, &time::format_description::well_known::Rfc3339)
@@ -2696,7 +2696,7 @@ async fn selection_moves_second_then_first(world: &mut FoundryWorld) {
 ///
 /// That arm SELF-RETIRED as promised: step 05-05 deleted the carrier (ADR-008),
 /// so there is no longer a wrong list on the page to be tempted by, and a guard
-/// against a tempting list that no longer exists is inert code (AGENTS.md:
+/// against a tempting list that no longer exists is inert code (CODING_STANDARDS.md "Dead code":
 /// remove it outright). What remains is the permanent claim, and it is the
 /// stronger one: `j` moves to the card Mei sees below the one she is on, proved
 /// against the RECTS. The retirement is now guarded where it belongs — by the
