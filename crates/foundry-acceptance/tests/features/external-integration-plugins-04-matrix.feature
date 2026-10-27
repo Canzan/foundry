@@ -224,6 +224,19 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then Identity Platform's integrations page no longer lists the route to #auth:canzan.dev
     And @foundry:canzan.dev is not a member of #auth:canzan.dev
 
+  # DIST-30 (a), approved by the user 2026-10-27 (DIST-36): the bot leaves a
+  # room only on the last route's delete (DESIGN adapter contract, DIST-26).
+  @us-eip-09 @contract-shape:bounded-change
+  Scenario: Deleting one of two routes to a room keeps the bot in it
+    Given Priya has connected Canzan Labs to Matrix with the bot's access token
+    And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
+    And Priya has routed New issue on Homelab Ops to #auth:canzan.dev
+    And Lena has routed New issue on Identity Platform to #auth:canzan.dev
+    And Lena has chosen Delete on the route to #auth:canzan.dev
+    When Lena confirms the route's delete
+    Then Identity Platform's integrations page no longer lists the route to #auth:canzan.dev
+    And @foundry:canzan.dev is a member of #auth:canzan.dev
+
   # Matrix disconnect (US-EIP-07 for Matrix; DESIGN door
   # /workspace/integrations/matrix/disconnect). USER DECISION 2026-10-25: built
   # like Slack's (03 route-lifecycle, scenarios 76-78 and the admin-only rows):

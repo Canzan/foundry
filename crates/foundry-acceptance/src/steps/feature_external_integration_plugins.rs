@@ -1014,7 +1014,7 @@ async fn muted(world: &mut FoundryWorld, who: String) {
 // =========================================================================== Project emails
 
 #[given(
-    regex = r"^(Sam|Tomás) has chosen (.+?) for (all issues|issues he created or commented on) in (Identity Platform)$"
+    regex = r"^(Sam|Tomás|Priya) has chosen (.+?) for (all issues|issues he created or commented on) in (Identity Platform|Homelab Ops)$"
 )]
 async fn chosen(
     world: &mut FoundryWorld,
@@ -1111,7 +1111,7 @@ async fn email_about(world: &mut FoundryWorld, key: String) {
     eip::then_email_about(world, "Sam", &key, None).await;
 }
 
-#[then(regex = r"^(Sam|Tomás) receives no email about (AUTH-\d+)$")]
+#[then(regex = r"^(Sam|Tomás|Priya) receives no email about (AUTH-\d+)$")]
 async fn no_email(world: &mut FoundryWorld, who: String, key: String) {
     eip::then_no_email_about(world, &who, &key).await;
 }

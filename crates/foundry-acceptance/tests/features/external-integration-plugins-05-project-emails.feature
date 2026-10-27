@@ -97,6 +97,20 @@ Feature: A member chooses which project events Foundry emails them, and stops an
       | New issue   | Sam files "Rotate the bind password" in Identity Platform  | AUTH-20 |
       | Issue moved | Sam moves AUTH-7 from In progress to Done                  | AUTH-7  |
 
+  # DIST-30 (b), approved by the user 2026-10-27 (DIST-36): "exactly the
+  # project events I chose" (US-EIP-10), its negative case. Priya leads both
+  # teams, so they can open both projects and choose only one of them.
+  @us-eip-10 @error @contract-shape:unbounded-preservation
+  Scenario Outline: A member gets no email about events or projects they did not choose
+    Given <member> has chosen New comment for all issues in <project>
+    When <action>
+    Then <member> receives no email about <issue>
+
+    Examples:
+      | member | project           | action                                        | issue  |
+      | Sam    | Identity Platform | Lena moves AUTH-9 from Todo to Done           | AUTH-9 |
+      | Priya  | Homelab Ops       | Lena comments "Retiring on Friday." on AUTH-9 | AUTH-9 |
+
   @us-eip-10 @error @contract-shape:unbounded-preservation
   Scenario: A muted workspace sends no project email
     Given Sam has chosen New issue for all issues in Identity Platform
