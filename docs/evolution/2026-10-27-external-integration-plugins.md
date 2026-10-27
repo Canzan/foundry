@@ -406,6 +406,8 @@ about 65.
    forces a reset of every local database that applied it. Prefer a new migration unless the
    column has never left the machine (it had not here).
 
+The root causes and countermeasures are in the [DELIVER retrospective](../feature/external-integration-plugins/deliver/retrospective.md).
+
 ## Issues encountered
 
 - 136 scenarios over 8 lanes, with 6 steps that each needed a second pass (01-10 blocked on the
