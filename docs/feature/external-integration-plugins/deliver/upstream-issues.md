@@ -22,6 +22,9 @@ settled an item, where there is one. Nothing here is released: no push, no tag.
 | UD-11 | 2026-10-27 | **FU-11 is fixed before release:** a connection this Foundry cannot read refuses every route write (create, edit, pause, resume, delete) and Send test with K-19 for its kind, and writes nothing. | FD DESIGN DD-2 (amended 2026-10-27); FD DISTILL DIST-34; FU-11 |
 | UD-12 | 2026-10-27 | **Disconnect and Replace token stay allowed on an unreadable connection, as repair paths** (DD-2 amended). The Slack disconnect question on such a connection warns that Foundry's access at Slack cannot be removed automatically and must be removed in Slack by hand: new copy R-13, proposed, awaiting ratification (PA-6). | FD DESIGN DD-2; FD DISTILL [REF] User ratification (R-13, proposed); DIST-34 |
 | UD-13 | 2026-10-27 | **"Unavailable" is judged per connection:** each workspace's page and doors judge their own connection. A workspace whose credential opens keeps Add to Slack/Reconnect, its connection line and its route writes, and reads no K-19, while another workspace's credential is unreadable. | FD DESIGN DD-2; DIST-34 (e) |
+| UD-14 | 2026-10-27 | **R-13 is ratified as written:** "Foundry cannot remove its access to {owner} Slack: remove the Foundry app in Slack by hand." On an unreadable Slack connection it replaces the disconnect question's last sentence ("Foundry's access to {owner} Slack is removed."); every other disconnect question keeps the ratified wording. | FD DISTILL [REF] User ratification (R-13); DIST-35; closes PA-6 |
+| UD-15 | 2026-10-27 | **The repair doors show beside K-19:** on an unreadable connection the workspace page offers Disconnect for Slack and Matrix next to K-19, and Matrix keeps its Replace token form. With no secrets key at all, only Disconnect (nothing can be sealed). | FD DESIGN DD-2 (amended); DIST-35 |
+| UD-16 | 2026-10-27 | **A refused Send test keeps using a rate-limit token** (one of the six a minute, R-5), on an unreadable connection as for any refusal. Current behaviour; no test pins it. | FD DESIGN DDR-25; FD DISTILL R-5; DIST-34 (b) |
 
 Earlier user decisions (OD-1..OD-15 "accept all", 2026-10-21; R-1..R-11, 2026-10-22) are recorded
 in FD DISCUSS [REF] User Decisions and FD DISTILL [REF] User ratification.
@@ -100,7 +103,7 @@ in FD DISCUSS [REF] User Decisions and FD DISTILL [REF] User ratification.
 | PA-3 | **Accept ADR-EIP-001..007.** They are still *Proposed*. DEVOPS took DD-1..DD-11 as accepted at their recommendations; the user has not confirmed them. Each ADR now carries an "Implemented" note. | FD DESIGN [REF] Open Design Decisions; `docs/product/architecture/adr-eip-00*.md` |
 | PA-4 | **Phase C session cleanup:** remove `deliver/.develop-progress.json` and `.nwave/des/deliver-session.json`. | nw-finalize Phase C |
 | PA-5 | **Push and tag**, only on the user's go and only after §5. | Release gate |
-| PA-6 | **Ratify R-13**, the Slack disconnect warning on a connection Foundry cannot read: "Foundry cannot remove its access to {owner} Slack: remove the Foundry app in Slack by hand." Also open: whether it replaces the question's last sentence ("Foundry's access to {owner} Slack is removed."), which is not true for such a connection; the test asserts only that R-13 is shown. | FD DISTILL [REF] User ratification (R-13); UD-12 |
+| PA-6 | **Closed 2026-10-27 (UD-14):** R-13 ratified as written, replacing the question's last sentence on an unreadable connection only. | FD DISTILL [REF] User ratification (R-13); UD-12, UD-14 |
 
 ## 5. Release gate (open; no release has been made)
 

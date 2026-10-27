@@ -199,6 +199,21 @@ const CASES: &[Case] = &[
         body: |w| fu11_disconnect(w, eip::Kind::Matrix).boxed(),
     },
     Case {
+        name: "fu11_c_slack_disconnect_of_a_readable_connection_keeps_its_question",
+        ignore: None,
+        body: |w| fu11_readable_disconnect_question(w).boxed(),
+    },
+    Case {
+        name: "fu11_c_slack_page_offers_disconnect_beside_k19",
+        ignore: Some(FU11),
+        body: |w| fu11_repair_doors(w, eip::Kind::Slack).boxed(),
+    },
+    Case {
+        name: "fu11_c_matrix_page_offers_disconnect_and_replace_token_beside_k19",
+        ignore: Some(FU11),
+        body: |w| fu11_repair_doors(w, eip::Kind::Matrix).boxed(),
+    },
+    Case {
         name: "fu11_c_replacing_the_matrix_token_repairs_an_unreadable_connection",
         ignore: Some(FU11),
         body: |w| fu11_replace_token(w).boxed(),
@@ -811,12 +826,17 @@ const FU11: &str = "RED until review fix FU-11";
 const CHANNEL: &str = "#auth-dev";
 /// K-19 with {Kind} = Slack (DESIGN UI-1, DD-2; ratified 2026-10-22, R-2).
 const K19_SLACK: &str = "Slack is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key.";
-/// R-13 (PROPOSED 2026-10-27, awaiting the user's ratification): the Slack
-/// disconnect question of a connection this Foundry cannot read, for Canzan
-/// Labs. Foundry cannot open the bot token, so it cannot ask Slack to
-/// withdraw its access (`apps.uninstall`); the admin removes the app in Slack.
+/// R-13 (ratified by the user 2026-10-27): the Slack disconnect question of
+/// a connection this Foundry cannot read, for Canzan Labs. Foundry cannot
+/// open the bot token, so it cannot ask Slack to withdraw its access
+/// (`apps.uninstall`); the admin removes the app in Slack. It replaces the
+/// question's last sentence ([`ACCESS_REMOVED_CANZAN_LABS`]) there, and only
+/// there.
 const R13_CANZAN_LABS: &str =
     "Foundry cannot remove its access to Canzan Labs' Slack: remove the Foundry app in Slack by hand.";
+/// The last sentence of US-EIP-07's Slack disconnect question, for Canzan
+/// Labs: true only when Foundry can ask Slack to withdraw its access.
+const ACCESS_REMOVED_CANZAN_LABS: &str = "Foundry's access to Canzan Labs' Slack is removed.";
 /// The second workspace of the per-connection cases (`tm::FOREIGN`).
 const GLOBEX_PROJECT: &str = "Globex Platform";
 /// Globex's Matrix rooms (the per-connection Matrix case).
@@ -1176,8 +1196,10 @@ async fn connection_state(world: &FoundryWorld, kind: eip::Kind) -> Option<Strin
 /// Priya opens Disconnect and confirms: the connection is forgotten, and the
 /// workspace page no longer reads K-19 or a connection. For Slack the
 /// question first warns that Foundry cannot remove its access at Slack
-/// (R-13, proposed): it cannot open the token `apps.uninstall` needs. RED
-/// today (Slack only): no warning. The Matrix case passes today and guards
+/// (R-13, ratified), in place of the question's last sentence ("Foundry's
+/// access to Canzan Labs' Slack is removed."): it cannot open the token
+/// `apps.uninstall` needs. RED today (Slack only): no warning, and the
+/// untrue sentence is shown. The Matrix case passes today and guards
 /// the repair path against the fix.
 ///
 /// CONTRACT_SHAPE: bounded-change
@@ -1202,6 +1224,12 @@ async fn fu11_disconnect(world: &mut FoundryWorld, kind: eip::Kind) {
             tm::describe(&question)
         ));
     }
+    if kind == eip::Kind::Slack && page(&question).contains(ACCESS_REMOVED_CANZAN_LABS) {
+        problems.push(format!(
+            "R-13 replaces {ACCESS_REMOVED_CANZAN_LABS:?}, which is not true here; {}",
+            tm::describe(&question)
+        ));
+    }
     let section = section_text(&answer, kind.wire());
     if section.contains(k19(kind)) {
         problems.push(format!(
@@ -1223,6 +1251,107 @@ async fn fu11_disconnect(world: &mut FoundryWorld, kind: eip::Kind) {
         &format!("{kind:?} Disconnect of a connection Foundry cannot read"),
         &problems,
     );
+}
+
+/// The links in the workspace page's `integration` section.
+fn section_links(answer: &tm::Answer, integration: &str) -> Vec<String> {
+    let doc = scraper::Html::parse_document(&answer.body);
+    let selector = scraper::Selector::parse(&format!(
+        "section[data-integration=\"{integration}\"] a[href]"
+    ))
+    .expect("selector");
+    doc.select(&selector)
+        .filter_map(|a| a.value().attr("href").map(str::to_string))
+        .collect()
+}
+
+/// Whether the Matrix section offers Replace token: the connect form, its
+/// button reading "Replace token".
+fn offers_replace_token(answer: &tm::Answer) -> bool {
+    let doc = scraper::Html::parse_document(&answer.body);
+    let selector = scraper::Selector::parse(&format!(
+        "section[data-integration=\"matrix\"] form[action=\"{}\"] button",
+        eip::MATRIX_CONNECT
+    ))
+    .expect("selector");
+    doc.select(&selector)
+        .any(|b| b.text().collect::<String>().trim() == "Replace token")
+}
+
+/// FU-11 (c), the guard for R-13's placement (user decision 2026-10-27).
+/// Canzan Labs' Slack connection, with a route, opens: Priya's disconnect
+/// question still ends "Foundry's access to Canzan Labs' Slack is removed."
+/// and carries no R-13. Passes today.
+///
+/// CONTRACT_SHAPE: pure-function
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-07.
+async fn fu11_readable_disconnect_question(world: &mut FoundryWorld) {
+    routed(world, eip::Kind::Slack).await;
+
+    eip::when_disconnect_dialog(world, "Priya", eip::Kind::Slack).await;
+
+    let question = world
+        .eip
+        .when_answer
+        .clone()
+        .expect("the disconnect question");
+    let read = page(&question);
+    let mut problems = Vec::new();
+    if !read.contains(ACCESS_REMOVED_CANZAN_LABS) {
+        problems.push(format!(
+            "the question still reads {ACCESS_REMOVED_CANZAN_LABS:?}; {}",
+            tm::describe(&question)
+        ));
+    }
+    if read.contains(R13_CANZAN_LABS) {
+        problems.push(format!(
+            "R-13 is only for a connection Foundry cannot read; {}",
+            tm::describe(&question)
+        ));
+    }
+    assert_none(
+        "Slack Disconnect of a connection Foundry can read",
+        &problems,
+    );
+}
+
+/// FU-11 (c), the repair doors beside K-19 (user decision 2026-10-27).
+/// Canzan Labs' `kind` connection, with a route, cannot be read by this
+/// Foundry. Priya opens the workspace page: the `kind` section reads K-19
+/// and offers Disconnect beside it; the Matrix section also keeps its
+/// Replace token form. RED today: K-19 hides the Disconnect link (Slack and
+/// Matrix); Replace token is still offered.
+///
+/// CONTRACT_SHAPE: pure-function
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-07 / US-EIP-08 (a
+/// workspace admin can mend a connection Foundry cannot read).
+async fn fu11_repair_doors(world: &mut FoundryWorld, kind: eip::Kind) {
+    routed(world, kind).await;
+    unreadable(world).await;
+
+    eip::when_open(world, "Priya", eip::WORKSPACE_INTEGRATIONS).await;
+
+    let answer = world.eip.when_answer.clone().expect("the page");
+    let section = section_text(&answer, kind.wire());
+    let mut problems = Vec::new();
+    if !section.contains(k19(kind)) {
+        problems.push(format!(
+            "the {kind:?} section reads K-19; it reads {section:?}"
+        ));
+    }
+    let links = section_links(&answer, kind.wire());
+    if !links.contains(&kind.disconnect_path().to_string()) {
+        problems.push(format!(
+            "the {kind:?} section offers Disconnect beside K-19 (a link to {}); its links {links:?}, it reads {section:?}",
+            kind.disconnect_path()
+        ));
+    }
+    if kind == eip::Kind::Matrix && !offers_replace_token(&answer) {
+        problems.push(format!(
+            "the Matrix section keeps its Replace token form beside K-19; it reads {section:?}"
+        ));
+    }
+    assert_none(&format!("{kind:?} repair doors beside K-19"), &problems);
 }
 
 /// FU-11 (c), Replace token as a repair (user decision 2026-10-27). The
@@ -1294,6 +1423,15 @@ async fn fu11_key_removed(world: &mut FoundryWorld) {
     if section.contains(K18) {
         problems.push(format!(
             "the Matrix section does not read K-18 for a saved connection; it reads {section:?}"
+        ));
+    }
+    // The repair beside K-19 (user decision 2026-10-27): Disconnect only.
+    // Replace token cannot work with no key at all (nothing can be sealed),
+    // so it is not asserted here.
+    if !section_links(&answer, "matrix").contains(&eip::MATRIX_DISCONNECT.to_string()) {
+        problems.push(format!(
+            "the Matrix section offers Disconnect Matrix beside K-19; {}",
+            tm::describe(&answer)
         ));
     }
     assert_none("Matrix with its secrets key removed", &problems);
