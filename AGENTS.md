@@ -50,7 +50,6 @@ Live dashboard URL is printed at startup next to "Token usage".
 - Do NOT use `rg`, `grep`, or bash file exploration before calling `graph_continue`.
 - Do NOT do broad/recursive exploration at any confidence level.
 - `max_supplementary_greps` and `max_supplementary_files` are hard caps - never exceed them.
-- Do NOT dump full chat history.
 - Do NOT call `graph_retrieve` more than once per turn.
 - After edits, call `graph_register_edit` with the changed files. Use `file::symbol` notation (e.g. `src/auth.ts::handleLogin`) when the edit targets a specific function, class, or hook.
 
@@ -78,85 +77,57 @@ When the user signals they are done (e.g. "bye", "done", "wrap up", "end session
 - **Key Decisions**: bullet list, max 3 items
 - **Next Steps**: bullet list, max 3 items
 
-Keep `CONTEXT.md` under 20 lines total. Do NOT summarize the full conversation — only what's needed to resume next session.
+Keep `CONTEXT.md` under 20 lines total.
 
 # Development Workflow
 
-This project uses **trunk-based development**.
+This project uses trunk-based development: commit on `main`, push to `main`, and
+open no pull requests. Work on another branch only when the user asks for one.
 
-- **Commit directly to `main` (trunk).** Do NOT create feature branches by default, and do NOT switch off `main` to do work unless the user explicitly asks.
-- **No pull requests.** Never open a PR. Land work by committing to `main` and pushing.
-- Commit when the user asks; keep commits small and frequent in the trunk-based style.
+### Pre-push gate: `cargo xtask ci`
 
-### MANDATORY pre-push gate: `cargo xtask ci` must be green
+Push only after `cargo xtask ci` prints `xtask ci :: all gates green`.
+`.github/workflows/ci.yml` runs this same command and nothing else, so a local
+pass is a CI pass.
 
-**Do NOT push to the GitHub repository unless every CI task passes locally.** CI
-minutes are not a debugging tool — the remote workflow runs the *exact same*
-command you run locally, so a red push is always avoidable.
+- A new CI gate goes into `xtask::run_ci`, never only into `ci.yml`. That
+  single source of truth keeps "green locally" and "green in CI" identical.
+- No host PostgreSQL client is needed: the US-03 backup lane runs
+  `pg_dump`/`pg_restore` from a pinned `postgres:16-alpine` container, and
+  `backup-verify` counts rows in-binary. xtask checks the other prerequisites
+  itself and prints an install hint for each one missing.
 
-- **One command = the entire CI.** `cargo xtask ci` replicates every CI check, in
-  order, stopping on the first failure: `cargo fmt --check`, `clippy
-  --all-targets --release -D warnings`, the **check-arch boundary guard**
-  (AST source-walk + the cargo-deny dependency-direction layer), `cargo build
-  --all --release`, the workspace unit/integration tests, `cargo deny check`,
-  and the full acceptance suite (`FOUNDRY_ACCEPTANCE_TAGS=all`, including the
-  `@docker-compose` and `@needs-pgclient` groups). `.github/workflows/ci.yml` is
-  a thin wrapper that runs this same `cargo xtask ci` — nothing runs in CI that
-  you cannot run locally.
-- **Run it before every push** and require a green `xtask ci :: all gates green`.
-  A local pass means a CI pass; if CI is the first place a check runs, that is a
-  process failure — add the check to `xtask::run_ci`, not just to the workflow.
-- **Prerequisites** (xtask checks for each and prints an install hint if
-  missing): a reachable Docker daemon (Colima/OrbStack/Docker Desktop) for the
-  `@docker-compose` group, `cargo-deny` (`cargo install --locked cargo-deny`), and
-  a `.env` (auto-seeded from `.env.example`). **No host PostgreSQL client**: the
-  US-03 backup lane runs `pg_dump`/`pg_restore` from a pinned `postgres:16-alpine`
-  container, and `backup-verify` counts rows in-binary (no `psql`).
-- **Never add a bespoke check to `ci.yml` alone.** If a gate belongs in CI it
-  belongs in `cargo xtask ci` so it runs locally too — that single-source-of-truth
-  invariant is what keeps "green locally" and "green in CI" identical.
+### Pre-commit gate: `cargo xtask smoke`
 
-### MANDATORY pre-commit smoke: `cargo xtask smoke`
-
-`cargo xtask ci` is the full pre-**push** gate, but it is slow (release build +
-the whole `@docker-compose` / `@needs-pgclient` acceptance suite). For the tight
-edit loop, **run `cargo xtask smoke` before every commit.** It runs the same
-`fmt`, `clippy`, check-arch boundary guard, and `cargo test --workspace (excl.
-foundry-acceptance) --release` steps as CI — a strict subset drawn verbatim from
-`run_ci`, so it can never drift from CI — while skipping only the acceptance
-suite and `cargo deny`. It is the check that catches the single most common
-avoidable red push: a unit/integration test that fails under `--release`.
-
-- **Commit gate**: a green `xtask smoke :: all gates green` before you `git commit`.
-- **Push gate**: a green `xtask ci :: all gates green` before you `git push`
-  (unchanged, still mandatory — smoke is a fast pre-filter, NOT a replacement).
-- Smoke's test step uses Postgres testcontainers, so a reachable Docker daemon is
-  still required for it (same as those tests inside `cargo xtask ci`).
+Commit only after `cargo xtask smoke` prints `xtask smoke :: all gates green`.
+Smoke is a subset of `run_ci` that skips the acceptance suite and `cargo deny`,
+so it is a fast pre-filter, not a replacement for the push gate. It catches the
+most common avoidable red push: a test that fails only under `--release`. Its
+test step uses Postgres testcontainers, so it needs a reachable Docker daemon.
 
 ## Acceptance Docker images
 
 The `@docker-compose` acceptance scenarios (US-01) build the `foundry` service
-image from source. **Build exactly one named, reusable image per run and clean
-it up afterward — never one image per test.**
+image from source. Build one named, shared image per run and remove it
+afterward.
 
-- The compose file pins the service image via `image: ${FOUNDRY_IMAGE:-foundry:latest}`
-  (`docker-compose.yml`). Without this, compose names each build `<project>-foundry`,
-  and because the harness uses a unique `COMPOSE_PROJECT_NAME` per scenario
-  (`foundry-at-<uuid>`), every scenario would leak its own image.
-- The acceptance suite overrides `FOUNDRY_IMAGE` to a single shared tag
-  (`compose_harness::SHARED_IMAGE` = `foundry-acceptance:latest`). The runner
-  (`tests/acceptance.rs`) calls `compose_harness::build_shared_image()` ONCE
-  before the compose lanes and `compose_harness::remove_shared_image()` ONCE
-  after, so the suite leaves no images behind.
-- If you add a new harness that builds an image, reuse `SHARED_IMAGE` (or add a
-  similarly named, built-once/removed-once tag) — do NOT let compose mint a
-  per-project image. Containers and volumes stay per-scenario for isolation;
-  only the image is shared.
+- `docker-compose.yml` pins the service image with
+  `image: ${FOUNDRY_IMAGE:-foundry:latest}`. Without it, compose names each
+  build `<project>-foundry`, and because the harness gives every scenario a
+  unique `COMPOSE_PROJECT_NAME` (`foundry-at-<uuid>`), every scenario would leak
+  its own image.
+- The suite sets `FOUNDRY_IMAGE` to `compose_harness::SHARED_IMAGE`
+  (`foundry-acceptance:latest`). The runner (`tests/acceptance.rs`) calls
+  `compose_harness::build_shared_image()` once before the compose lanes and
+  `compose_harness::remove_shared_image()` once after.
+- A new harness that builds an image reuses `SHARED_IMAGE` (or its own
+  built-once, removed-once tag). Containers and volumes stay per-scenario for
+  isolation; only the image is shared.
 
 ## Dead code
 
-This project has not reached a stable release. **Remove dead/legacy code outright — do not leave it inert.**
-
-- When a route, function, guard, or path is superseded, **delete it** in the same change rather than leaving it commented-out, feature-flagged-off, or unreachable "for safety."
-- Pre-stable, there is no backward-compatibility obligation, so defence-in-depth dead code is just carry: prefer a clean tree and rely on git history to recover anything removed.
-- Re-evaluate this policy once a stable version is released (at that point, deprecate-then-remove may be warranted instead).
+This project has not reached a stable release, so it carries no
+backward-compatibility obligation. When a route, function, guard, or path is
+superseded, delete it in the same change; git history recovers anything
+removed. Revisit this policy once a stable version ships, when
+deprecate-then-remove may fit better.
