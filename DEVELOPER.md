@@ -53,10 +53,17 @@ they cannot drift. It runs every check in order and stops on the first failure:
 | Licenses + advisories | `cargo deny check` |
 | Acceptance | `cargo test -p foundry-acceptance` with `FOUNDRY_ACCEPTANCE_TAGS=all` |
 
-**Do not push unless `cargo xtask ci` prints `all gates green`** — this is a
-hard project rule ([AGENTS.md](./AGENTS.md)). If a check ever runs for the first
-time in CI rather than locally, that's a process bug: add it to `xtask::run_ci`,
-not just to the workflow.
+**Do not push unless `cargo xtask ci` prints `all gates green`.** A new check
+goes into `xtask::run_ci`, never only into `ci.yml`: a check that first runs in
+CI rather than locally is a process bug, and keeping `run_ci` the single source
+of truth is what keeps "green locally" and "green in CI" identical.
+
+Before each commit, run the fast subset, `cargo xtask smoke`. It skips the
+acceptance suite, the standalone release build, and `cargo deny`, so it is a
+pre-filter, never a substitute for `cargo xtask ci`. It still runs the workspace
+tests under `--release`, which catches the most common avoidable red push (a
+test that fails only in release), and those tests use Postgres testcontainers,
+so smoke needs a reachable Docker daemon too.
 
 ```sh
 cargo xtask ci
@@ -233,11 +240,10 @@ is harder to review than five PRs that each turn one green.
 
 `.github/workflows/ci.yml` runs a **single job** on every push to `main` and
 every PR: `cargo xtask ci` — the same gate you run locally. Nothing runs in CI
-that you can't run locally, which is the whole point (see [AGENTS.md](./AGENTS.md)).
-A Forgejo mirror runs a near-identical pipeline in `.forgejo/workflows/ci.yml`.
+that you can't run locally, which is the whole point. A Forgejo mirror runs a
+near-identical pipeline in `.forgejo/workflows/ci.yml`.
 
-To add a check to CI, add it to `xtask::run_ci` (so it also runs locally) — never
-to the workflow alone.
+To add a check to CI, see [The local gate](#the-local-gate--cargo-xtask-ci).
 
 ### Releases
 

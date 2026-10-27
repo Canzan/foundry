@@ -247,10 +247,11 @@ fn run_ci() -> ExitCode {
 /// `@docker-compose` + `@needs-pgclient` acceptance suite, and `cargo deny`.
 ///
 /// This is the tight feedback loop while iterating; the FULL `cargo xtask ci`
-/// remains the mandatory pre-PUSH gate (see AGENTS.md). Steps are drawn verbatim
-/// from `run_ci`, so smoke can never drift from a strict subset of CI. Like the
-/// workspace tests inside `ci`, the test step uses Postgres testcontainers, so a
-/// reachable Docker daemon is still required for that step.
+/// remains the mandatory pre-PUSH gate (see DEVELOPER.md, "The local gate").
+/// Steps are drawn verbatim from `run_ci`, so smoke can never drift from a
+/// strict subset of CI. Like the workspace tests inside `ci`, the test step uses
+/// Postgres testcontainers, so a reachable Docker daemon is still required for
+/// that step.
 fn run_smoke() -> ExitCode {
     let steps: Vec<Gate<'_>> = vec![
         (

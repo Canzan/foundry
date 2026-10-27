@@ -2,7 +2,7 @@
 #
 # SINGLE SOURCE OF TRUTH: this workflow runs exactly ONE command —
 # `cargo xtask ci` — the same gate a developer runs locally before pushing
-# (see AGENTS.md "Development Workflow"). `cargo xtask ci` replicates every
+# (see DEVELOPER.md "The local gate"). `cargo xtask ci` replicates every
 # check in order and stops on the first failure: fmt, clippy, the check-arch
 # boundary guard (incl. the cargo-deny dependency-direction layer), a release
 # build, the workspace unit/integration tests, `cargo deny check`, and the full

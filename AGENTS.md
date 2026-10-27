@@ -32,19 +32,6 @@ This project uses a local dual-graph MCP server for efficient context retrieval.
    - `confidence=low` -> Call `fallback_rg` at most `max_supplementary_greps` time(s),
      then `graph_read` at most `max_supplementary_files` file(s). Then stop.
 
-## Token Usage
-
-A `token-counter` MCP is available for tracking live token usage.
-
-- To check how many tokens a large file or text will cost **before** reading it:
-  `count_tokens({text: "<content>"})`
-- To log actual usage after a task completes (if the user asks):
-  `log_usage({input_tokens: <est>, output_tokens: <est>, description: "<task>"})`
-- To show the user their running session cost:
-  `get_session_stats()`
-
-Live dashboard URL is printed at startup next to "Token usage".
-
 ## Rules
 
 - Do NOT use `rg`, `grep`, or bash file exploration before calling `graph_continue`.
@@ -72,57 +59,23 @@ graph_add_memory(type="decision|task|next|fact|blocker", content="one sentence m
 
 ## Session End
 
-When the user signals they are done (e.g. "bye", "done", "wrap up", "end session"), proactively update `CONTEXT.md` in the project root with:
-- **Current Task**: one sentence on what was being worked on
-- **Key Decisions**: bullet list, max 3 items
-- **Next Steps**: bullet list, max 3 items
-
-Keep `CONTEXT.md` under 20 lines total.
+User signals the session is over ("bye", "done", "wrap up") → rewrite `CONTEXT.md`
+in the project root: **Current Task** (one sentence), **Key Decisions** and
+**Next Steps** (at most 3 bullets each), under 20 lines in total.
 
 # Development Workflow
 
 This project uses trunk-based development: commit on `main`, push to `main`, and
 open no pull requests. Work on another branch only when the user asks for one.
 
-### Pre-push gate: `cargo xtask ci`
+- Commit only after `cargo xtask smoke` prints `xtask smoke :: all gates green`.
+- Push only after `cargo xtask ci` prints `xtask ci :: all gates green`.
 
-Push only after `cargo xtask ci` prints `xtask ci :: all gates green`.
-`.github/workflows/ci.yml` runs this same command and nothing else, so a local
-pass is a CI pass.
+Adding a CI check, or a gate fails on a missing prerequisite →
+[`DEVELOPER.md`, "The local gate"](./DEVELOPER.md#the-local-gate--cargo-xtask-ci).
 
-- A new CI gate goes into `xtask::run_ci`, never only into `ci.yml`. That
-  single source of truth keeps "green locally" and "green in CI" identical.
-- No host PostgreSQL client is needed: the US-03 backup lane runs
-  `pg_dump`/`pg_restore` from a pinned `postgres:16-alpine` container, and
-  `backup-verify` counts rows in-binary. xtask checks the other prerequisites
-  itself and prints an install hint for each one missing.
-
-### Pre-commit gate: `cargo xtask smoke`
-
-Commit only after `cargo xtask smoke` prints `xtask smoke :: all gates green`.
-Smoke is a subset of `run_ci` that skips the acceptance suite and `cargo deny`,
-so it is a fast pre-filter, not a replacement for the push gate. It catches the
-most common avoidable red push: a test that fails only under `--release`. Its
-test step uses Postgres testcontainers, so it needs a reachable Docker daemon.
-
-## Acceptance Docker images
-
-The `@docker-compose` acceptance scenarios (US-01) build the `foundry` service
-image from source. Build one named, shared image per run and remove it
-afterward.
-
-- `docker-compose.yml` pins the service image with
-  `image: ${FOUNDRY_IMAGE:-foundry:latest}`. Without it, compose names each
-  build `<project>-foundry`, and because the harness gives every scenario a
-  unique `COMPOSE_PROJECT_NAME` (`foundry-at-<uuid>`), every scenario would leak
-  its own image.
-- The suite sets `FOUNDRY_IMAGE` to `compose_harness::SHARED_IMAGE`
-  (`foundry-acceptance:latest`). The runner (`tests/acceptance.rs`) calls
-  `compose_harness::build_shared_image()` once before the compose lanes and
-  `compose_harness::remove_shared_image()` once after.
-- A new harness that builds an image reuses `SHARED_IMAGE` (or its own
-  built-once, removed-once tag). Containers and volumes stay per-scenario for
-  isolation; only the image is shared.
+Adding or changing a compose acceptance harness or the image it builds →
+`crates/foundry-acceptance/src/support/compose_harness.rs` module docs.
 
 ## Dead code
 

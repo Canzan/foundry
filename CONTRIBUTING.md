@@ -30,9 +30,10 @@ cargo xtask ci
 This runs the **exact** checks CI runs — formatting, lints, the architecture
 boundary guard, build, tests, license/advisory checks, and the full acceptance
 suite. **Do not push red.** Because CI runs this same command, green locally
-means green in CI. See [AGENTS.md](./AGENTS.md) for the policy and the
-[Developer Guide](./DEVELOPER.md) for one-time setup (Docker, a Postgres 16
-client, `cargo-deny`). Docs-only changes don't need this.
+means green in CI. See the Developer Guide's
+[local gate](./DEVELOPER.md#the-local-gate--cargo-xtask-ci) section for the
+policy and one-time setup (Docker, `cargo-deny`). Docs-only changes don't need
+this.
 
 ## How a code change is shaped
 

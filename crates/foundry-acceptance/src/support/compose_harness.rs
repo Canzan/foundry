@@ -10,11 +10,19 @@
 //! down even when a scenario panics.
 //!
 //! Image lifecycle: the compose file builds the `foundry` service from
-//! source. Left to compose's defaults, each unique project name would mint
-//! (and leak) its own `<project>-foundry` image. Instead every stack points
-//! the compose file's `${FOUNDRY_IMAGE}` at the single [`SHARED_IMAGE`] tag,
-//! so the image is built ONCE (see [`build_shared_image`]) and reused across
-//! all scenarios, then removed ONCE at suite end (see [`remove_shared_image`]).
+//! source, and `docker-compose.yml` pins its tag with
+//! `image: ${FOUNDRY_IMAGE:-foundry:latest}`. Keep that pin: without it
+//! compose names each build `<project>-foundry`, so every scenario's unique
+//! project name (`foundry-at-<hex>`) would mint and leak its own image.
+//! Instead every stack points `FOUNDRY_IMAGE` at the single [`SHARED_IMAGE`]
+//! tag, so the image is built ONCE (see [`build_shared_image`]) and reused
+//! across all scenarios, then removed ONCE at suite end (see
+//! [`remove_shared_image`]). The runner (`tests/acceptance.rs`) makes both
+//! calls, around the compose lanes.
+//!
+//! A new harness that builds an image reuses [`SHARED_IMAGE`] (or its own
+//! built-once, removed-once tag). Containers and volumes stay per-scenario
+//! for isolation; only the image is shared.
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
