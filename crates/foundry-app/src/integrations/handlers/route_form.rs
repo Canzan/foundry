@@ -9,14 +9,14 @@ use axum::response::Response;
 
 use super::routes::{base_path, project_page};
 use super::{
-    refusal, render_with, Caller, AUDIENCE, CANNOT_POST, INVITE_THE_BOT, MATRIX_UNREACHABLE,
-    NO_CHAT_CONNECTION, PRIVATE_CHANNELS, ROOM_ENCRYPTED, SHARED_CHANNEL,
+    refusal, render_with, unavailable_words, Caller, AUDIENCE, CANNOT_POST, INVITE_THE_BOT,
+    MATRIX_UNREACHABLE, NO_CHAT_CONNECTION, PRIVATE_CHANNELS, ROOM_ENCRYPTED, SHARED_CHANNEL,
 };
 use crate::integrations::matrix::{MatrixBot, RoomRefusal};
 use foundry_integrations::{
     ChannelKind, Destination, DestinationCatalog, DestinationRef, MessageLines,
 };
-use foundry_services::integrations::RouteTarget;
+use foundry_services::integrations::{RouteTarget, UnreadableConnections};
 
 #[derive(Template)]
 #[template(path = "integrations/route_form.html")]
@@ -44,7 +44,9 @@ struct RouteFormPage {
     lanes: Vec<Choice>,
     levels: Vec<Choice>,
     private_channels: &'static str,
-    no_chat_connection: &'static str,
+    /// What shows in the form's place without a usable connection: K-19 for
+    /// a saved connection this Foundry cannot read, else K-4.
+    no_chat_connection: String,
     /// A Matrix route: its room is typed, not picked.
     matrix: bool,
 }
@@ -156,6 +158,12 @@ impl FormAnswer {
         Self::with(Some(CANNOT_POST), StatusCode::UNPROCESSABLE_ENTITY)
     }
 
+    /// Refused on a connection this Foundry cannot read: K-19 shows in the
+    /// form's place (DD-2).
+    pub(super) fn unavailable() -> Self {
+        Self::with(None, StatusCode::UNPROCESSABLE_ENTITY)
+    }
+
     /// A preview: it never asks Slack for the channel list (DDR-25).
     pub(super) fn preview(lines: Option<MessageLines>) -> Self {
         Self {
@@ -176,6 +184,8 @@ pub(super) struct RouteDoor {
     pub(super) bot: Option<super::slack::SlackBot>,
     /// The workspace's Matrix bot, when it is connected and opens here.
     pub(super) matrix: Option<MatrixBot>,
+    /// The workspace's saved connections this Foundry cannot read (K-19).
+    unreadable: UnreadableConnections,
     /// The kind of route the form makes.
     kind: ChannelKind,
     pub(super) team_slug: String,
@@ -220,11 +230,19 @@ impl RouteDoor {
             .matrix_connection
             .as_ref()
             .and_then(|connection| integrations.matrix_bot(connection));
+        let unreadable = |connection: Option<&_>| {
+            connection.is_some_and(|connection| !integrations.opens(connection))
+        };
+        let unreadable = UnreadableConnections {
+            slack: unreadable(target.connection.as_ref()),
+            matrix: unreadable(target.matrix_connection.as_ref()),
+        };
         let routes_path = format!("{}/routes", base_path(team_slug, project_slug));
         Self {
             target,
             bot,
             matrix,
+            unreadable,
             kind: ChannelKind::Slack,
             team_slug: team_slug.to_string(),
             project_slug: project_slug.to_string(),
@@ -298,6 +316,30 @@ impl RouteDoor {
         match self.kind {
             ChannelKind::Matrix => self.matrix.is_none(),
             _ => self.bot.is_none(),
+        }
+    }
+
+    /// K-19: the workspace's connection of `kind` is saved, but this Foundry
+    /// cannot read it (DD-2), so no route write goes through on it.
+    pub(super) fn unreadable(&self, kind: ChannelKind) -> bool {
+        match kind {
+            ChannelKind::Matrix => self.unreadable.matrix,
+            _ => self.unreadable.slack,
+        }
+    }
+
+    /// [`Self::unreadable`] for the form's kind.
+    pub(super) fn unavailable(&self) -> bool {
+        self.unreadable(self.kind)
+    }
+
+    /// What shows in the form's place without a usable connection: K-19 or
+    /// K-4.
+    fn no_connection_words(&self) -> String {
+        if self.unavailable() {
+            unavailable_words(self.kind)
+        } else {
+            NO_CHAT_CONNECTION.to_string()
         }
     }
 
@@ -399,7 +441,7 @@ impl RouteDoor {
                 .collect(),
             levels: choices(&LEVEL_CHOICES, |value| form.content_level == value),
             private_channels: PRIVATE_CHANNELS,
-            no_chat_connection: NO_CHAT_CONNECTION,
+            no_chat_connection: self.no_connection_words(),
         };
         render_with(answer.status, page.render(), set_cookie)
     }

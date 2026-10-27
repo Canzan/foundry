@@ -66,6 +66,11 @@
 //!   workspace (`app_uninstalled`, `tokens_revoked`) turns that connection
 //!   lost and tells its admins once. Anything else is acknowledged and
 //!   changes nothing.
+//!
+//! On a connection this Foundry cannot read (DD-2, judged per connection),
+//! every route write and Send test answers K-19 for its kind and writes
+//! nothing; Disconnect and Matrix's Replace token stay open as repairs, and
+//! the Slack disconnect question carries R-13 in place of its last sentence.
 
 mod matrix_setup;
 mod route_form;
@@ -94,7 +99,8 @@ use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Redirect, Response};
-use foundry_services::integrations::IntegrationError;
+use foundry_integrations::ChannelKind;
+use foundry_services::integrations::{IntegrationError, UnreadableConnections};
 use foundry_services::{Principal, Services};
 use tower_sessions::Session;
 
@@ -138,6 +144,13 @@ pub const OTHER_SLACK_WORKSPACE: &str =
 /// K-4.
 pub const NO_CHAT_CONNECTION: &str =
     "This workspace has no chat connection yet. Ask a workspace admin to connect Slack or Matrix.";
+/// K-19, for the connection's `{kind}` (DD-2; R-2).
+pub const UNAVAILABLE: &str = "{kind} is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key.";
+/// R-13, for the Slack workspace's name in the possessive, `{owner}`: the
+/// disconnect question's last sentence on a connection this Foundry cannot
+/// read (DD-2 amended 2026-10-27).
+pub const CANNOT_REMOVE_ACCESS: &str =
+    "Foundry cannot remove its access to {owner} Slack: remove the Foundry app in Slack by hand.";
 /// R-5.
 pub const TOO_MANY_TESTS: &str = "Too many test messages. Try again in a minute.";
 /// The channel picker's note on private channels (US-EIP-02 example 2).
@@ -193,6 +206,22 @@ impl Caller {
         }
     }
 
+    /// Which of the caller's workspace's saved connections this Foundry
+    /// cannot read (DD-2, judged per connection). None, and nothing read,
+    /// when the boot probe proved every stored credential's key.
+    async fn unreadable_connections(
+        &self,
+        state: &AppState,
+    ) -> Result<UnreadableConnections, IntegrationError> {
+        let integrations = state.integrations.current();
+        if integrations.every_credential_opens() {
+            return Ok(UnreadableConnections::default());
+        }
+        self.services
+            .unreadable_connections(&self.principal(), &*integrations)
+            .await
+    }
+
     async fn nav(&self, state: &AppState, csrf: String) -> crate::nav::NavContext {
         let is_instance_admin =
             crate::nav::resolve_is_instance_admin(state, self.user.user_id).await;
@@ -220,6 +249,11 @@ pub(super) fn refusal(err: IntegrationError) -> Response {
         return internal_error();
     }
     resource_not_found_page()
+}
+
+/// K-19 for a connection of `kind`.
+pub(super) fn unavailable_words(kind: ChannelKind) -> String {
+    UNAVAILABLE.replace("{kind}", kind.display_name())
 }
 
 pub(super) fn internal_error() -> Response {

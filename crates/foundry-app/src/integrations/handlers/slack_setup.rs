@@ -3,7 +3,7 @@
 
 use super::workspace::workspace_page;
 use super::{
-    internal_error, render, Caller, LOG_TARGET, NOT_CONNECTED, OTHER_SLACK_WORKSPACE,
+    internal_error, refusal, render, Caller, LOG_TARGET, NOT_CONNECTED, OTHER_SLACK_WORKSPACE,
     WORKSPACE_PATH,
 };
 use crate::csrf::ensure_csrf_cookie;
@@ -63,8 +63,14 @@ pub async fn start_slack_install(
         Ok(caller) => caller,
         Err(response) => return response,
     };
+    let unreadable = match caller.unreadable_connections(&state).await {
+        Ok(unreadable) => unreadable,
+        Err(err) => return refusal(err),
+    };
     let integrations = state.integrations.current();
-    let (Some(app), SlackOffer::Ready) = (integrations.slack(), integrations.slack_offer()) else {
+    let (Some(app), SlackOffer::Ready) =
+        (integrations.slack(), integrations.slack_offer(unreadable))
+    else {
         return workspace_page(&state, &caller, &headers, None).await;
     };
     let held = InstallState::issue(caller.user.workspace_id, state.clock.now());
@@ -144,13 +150,20 @@ impl From<&'static str> for NotConnected {
     }
 }
 
-/// Exchange the code, read the domain, seal the token for its row, save.
+/// Exchange the code, read the domain, seal the token for its row, save;
+/// only while the workspace is offered Slack (not over a connection this
+/// Foundry cannot read, DD-2).
 async fn connect(state: &AppState, caller: &Caller, code: &str) -> Result<(), NotConnected> {
     let principal = &caller.principal();
+    let unreadable = caller
+        .unreadable_connections(state)
+        .await
+        .map_err(|_| "connection_row")?;
     let integrations = state.integrations.current();
-    let (Some(app), Some(secrets)) = (
+    let (Some(app), Some(secrets), SlackOffer::Ready) = (
         integrations.slack(),
         integrations.settings().secrets.as_ref(),
+        integrations.slack_offer(unreadable),
     ) else {
         return Err("slack_not_offered".into());
     };

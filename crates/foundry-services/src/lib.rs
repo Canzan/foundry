@@ -556,6 +556,16 @@ impl Services {
             .await
     }
 
+    /// Which of the workspace's saved connections `catalogs` cannot read
+    /// (admins only; DD-2, judged per connection).
+    pub async fn unreadable_connections(
+        &self,
+        principal: &Principal,
+        catalogs: &dyn integrations::DestinationCatalogs,
+    ) -> Result<integrations::UnreadableConnections, integrations::IntegrationError> {
+        integrations::unreadable_connections(&*self.store, principal, catalogs).await
+    }
+
     /// external-integration-plugins — save a checked Slack route (Manage).
     pub async fn create_route(
         &self,
@@ -585,19 +595,23 @@ impl Services {
     /// Pause, resume, edit or delete the project's route (Manage only), with
     /// its audit record; what is already so changes nothing. A route a vendor
     /// refusal stopped resumes only once the vendor shows its destination
-    /// usable again.
+    /// usable again. Nothing changes on a connection `catalogs` cannot read
+    /// ([`integrations::IntegrationError::Unavailable`], DD-2).
+    #[allow(clippy::too_many_arguments)]
     pub async fn change_route(
         &self,
         principal: &Principal,
         team_slug: &str,
         project_slug: &str,
         route_id: uuid::Uuid,
-        action: integrations::RouteAction<'_>,
+        action: integrations::RouteAction,
+        catalogs: &dyn integrations::DestinationCatalogs,
         now: time::OffsetDateTime,
     ) -> Result<foundry_store::integrations::RouteChangeOutcome, integrations::IntegrationError>
     {
         integrations::change_route(
             &*self.store,
+            catalogs,
             principal,
             team_slug,
             project_slug,

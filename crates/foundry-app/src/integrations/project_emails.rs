@@ -297,7 +297,9 @@ pub async fn save(
     };
     let saved = match saving {
         Ok(saved) => saved,
-        Err(IntegrationError::NotFound) => return crate::bootstrap::resource_not_found_page(),
+        Err(IntegrationError::NotFound | IntegrationError::Unavailable(_)) => {
+            return crate::bootstrap::resource_not_found_page()
+        }
         Err(IntegrationError::Store(err)) => {
             tracing::error!(%err, "project emails: save failed");
             return (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response();

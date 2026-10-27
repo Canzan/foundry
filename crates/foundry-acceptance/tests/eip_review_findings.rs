@@ -120,77 +120,77 @@ const CASES: &[Case] = &[
         body: |w| r2a_no_stop_link(w).boxed(),
     },    Case {
         name: "fu11_a_slack_create_on_an_unreadable_connection_reads_k19_and_saves_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_create(w, eip::Kind::Slack).boxed(),
     },
     Case {
         name: "fu11_a_slack_edit_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::Edit).boxed(),
     },
     Case {
         name: "fu11_a_slack_pause_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::Pause).boxed(),
     },
     Case {
         name: "fu11_a_slack_resume_of_a_paused_route_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::ResumePaused).boxed(),
     },
     Case {
         name: "fu11_a_slack_resume_of_a_refusal_stopped_route_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::ResumeStopped).boxed(),
     },
     Case {
         name: "fu11_a_slack_delete_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::Delete).boxed(),
     },
     Case {
         name: "fu11_a_matrix_create_on_an_unreadable_connection_reads_k19_and_saves_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_create(w, eip::Kind::Matrix).boxed(),
     },
     Case {
         name: "fu11_a_matrix_edit_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::Edit).boxed(),
     },
     Case {
         name: "fu11_a_matrix_pause_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::Pause).boxed(),
     },
     Case {
         name: "fu11_a_matrix_resume_of_a_paused_route_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::ResumePaused).boxed(),
     },
     Case {
         name: "fu11_a_matrix_resume_of_a_refusal_stopped_route_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::ResumeStopped).boxed(),
     },
     Case {
         name: "fu11_a_matrix_delete_on_an_unreadable_connection_reads_k19_and_writes_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::Delete).boxed(),
     },
     Case {
         name: "fu11_b_slack_send_test_on_an_unreadable_connection_reads_k19_and_sends_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_send_test(w, eip::Kind::Slack).boxed(),
     },
     Case {
         name: "fu11_b_matrix_send_test_on_an_unreadable_connection_reads_k19_and_sends_nothing",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_send_test(w, eip::Kind::Matrix).boxed(),
     },
     Case {
         name: "fu11_c_slack_disconnect_of_an_unreadable_connection_warns_and_forgets_it",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_disconnect(w, eip::Kind::Slack).boxed(),
     },
     Case {
@@ -205,32 +205,32 @@ const CASES: &[Case] = &[
     },
     Case {
         name: "fu11_c_slack_page_offers_disconnect_beside_k19",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_repair_doors(w, eip::Kind::Slack).boxed(),
     },
     Case {
         name: "fu11_c_matrix_page_offers_disconnect_and_replace_token_beside_k19",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_repair_doors(w, eip::Kind::Matrix).boxed(),
     },
     Case {
         name: "fu11_c_replacing_the_matrix_token_repairs_an_unreadable_connection",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_replace_token(w).boxed(),
     },
     Case {
         name: "fu11_d_matrix_with_its_secrets_key_removed_reads_k19_not_k18",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_key_removed(w).boxed(),
     },
     Case {
         name: "fu11_e_slack_unavailable_is_judged_per_connection",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_per_connection(w, eip::Kind::Slack).boxed(),
     },
     Case {
         name: "fu11_e_matrix_unavailable_is_judged_per_connection",
-        ignore: Some(FU11),
+        ignore: None,
         body: |w| fu11_per_connection(w, eip::Kind::Matrix).boxed(),
     },
 ];
@@ -820,8 +820,6 @@ async fn r2a_no_stop_link(world: &mut FoundryWorld) {
 // stay open as repairs; the unavailable state is judged per connection
 // ===========================================================================
 
-/// The ignore reason of every FU-11 case that is RED today.
-const FU11: &str = "RED until review fix FU-11";
 /// The channel the Slack cases route to.
 const CHANNEL: &str = "#auth-dev";
 /// K-19 with {Kind} = Slack (DESIGN UI-1, DD-2; ratified 2026-10-22, R-2).

@@ -4,7 +4,10 @@
 
 use super::matrix_setup::{create_matrix_route, leave_unrouted_room, send_matrix_test};
 use super::route_form::{FormAnswer, RouteDoor, RouteForm};
-use super::{refusal, render, sign_in, Caller, DELETE_QUESTION, TEST_SENT, TOO_MANY_TESTS};
+use super::{
+    refusal, render, render_with, sign_in, unavailable_words, Caller, DELETE_QUESTION, TEST_SENT,
+    TOO_MANY_TESTS,
+};
 use crate::bootstrap::resource_not_found_page;
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::chat_kind;
@@ -20,8 +23,8 @@ use foundry_integrations::{
     DestinationRef, EventKind, EventView, FinishedDelivery, ReasonCode, RouteFacts, RouteStatus,
 };
 use foundry_services::integrations::{
-    ManagedRoute, ProjectIntegrations, RouteAction, RouteDraft, RouteEditDraft, RouteHistory,
-    RoutePreview,
+    IntegrationError, ManagedRoute, ProjectIntegrations, RouteAction, RouteDraft, RouteEditDraft,
+    RouteHistory, RoutePreview,
 };
 use foundry_store::integrations::{DeliveryHistoryRow, ProjectRoute, RouteChangeOutcome};
 use serde::Deserialize;
@@ -239,6 +242,11 @@ pub async fn send_test(
     if let Some((_, route_id)) = fields.iter().find(|(name, _)| name == "route_id") {
         return send_matrix_test(&state, &caller, &headers, &door, route_id).await;
     }
+    if door.unavailable() {
+        return door
+            .form(&state, &caller, &headers, &form, FormAnswer::unavailable())
+            .await;
+    }
     let Some(bot) = door.bot.as_ref() else {
         return door
             .form(&state, &caller, &headers, &form, FormAnswer::plain())
@@ -293,8 +301,14 @@ pub async fn create_route(
         Err(response) => return response,
     };
     let form = RouteForm::read(&fields);
-    if chat_kind(&form.kind) == ChannelKind::Matrix {
-        let door = door.of_kind(ChannelKind::Matrix);
+    let kind = chat_kind(&form.kind);
+    let door = door.of_kind(kind);
+    if door.unavailable() {
+        return door
+            .form(&state, &caller, &headers, &form, FormAnswer::unavailable())
+            .await;
+    }
+    if kind == ChannelKind::Matrix {
         return create_matrix_route(&state, &caller, &headers, &door, &form).await;
     }
     let checked = match door.bot.as_ref() {
@@ -346,11 +360,13 @@ pub async fn create_route(
 pub async fn pause_route(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
 ) -> Response {
     change_route(
         &state,
         &session,
+        &headers,
         &team_slug,
         &project_slug,
         &route_id,
@@ -362,16 +378,17 @@ pub async fn pause_route(
 pub async fn resume_route(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
 ) -> Response {
-    let integrations = state.integrations.current();
     change_route(
         &state,
         &session,
+        &headers,
         &team_slug,
         &project_slug,
         &route_id,
-        RouteAction::Resume(&*integrations),
+        RouteAction::Resume,
     )
     .await
 }
@@ -379,6 +396,7 @@ pub async fn resume_route(
 pub async fn edit_route(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
     Form(fields): Form<Vec<(String, String)>>,
 ) -> Response {
@@ -392,6 +410,7 @@ pub async fn edit_route(
     change_route(
         &state,
         &session,
+        &headers,
         &team_slug,
         &project_slug,
         &route_id,
@@ -403,6 +422,7 @@ pub async fn edit_route(
 pub async fn delete_route(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     Path((team_slug, project_slug, route_id)): Path<(String, String, String)>,
 ) -> Response {
     let Some(caller) = Caller::of(&state, &session).await else {
@@ -422,6 +442,7 @@ pub async fn delete_route(
             &project_slug,
             managed.route.id,
             RouteAction::Delete,
+            &*state.integrations.current(),
             state.clock.now(),
         )
         .await;
@@ -432,7 +453,7 @@ pub async fn delete_route(
             }
             Redirect::to(&base_path(&team_slug, &project_slug)).into_response()
         }
-        Err(err) => refusal(err),
+        Err(err) => change_refused(&state, &caller, &headers, &team_slug, &project_slug, err).await,
     }
 }
 
@@ -441,10 +462,11 @@ pub async fn delete_route(
 async fn change_route(
     state: &AppState,
     session: &Session,
+    headers: &HeaderMap,
     team_slug: &str,
     project_slug: &str,
     route_id: &str,
-    action: RouteAction<'_>,
+    action: RouteAction,
 ) -> Response {
     let Some(caller) = Caller::of(state, session).await else {
         return sign_in();
@@ -460,13 +482,60 @@ async fn change_route(
             project_slug,
             route_id,
             action,
+            &*state.integrations.current(),
             state.clock.now(),
         )
         .await;
     match changed {
         Ok(_) => Redirect::to(&base_path(team_slug, project_slug)).into_response(),
-        Err(err) => refusal(err),
+        Err(err) => change_refused(state, &caller, headers, team_slug, project_slug, err).await,
     }
+}
+
+/// A refused route change: K-19 above the project's routes when the route's
+/// connection cannot be read here (DD-2), else the uniform answers.
+async fn change_refused(
+    state: &AppState,
+    caller: &Caller,
+    headers: &HeaderMap,
+    team_slug: &str,
+    project_slug: &str,
+    err: IntegrationError,
+) -> Response {
+    let IntegrationError::Unavailable(kind) = err else {
+        return refusal(err);
+    };
+    unavailable_page(
+        state,
+        caller,
+        headers,
+        team_slug,
+        project_slug,
+        chat_kind(&kind),
+    )
+    .await
+}
+
+/// The project's integrations page with K-19 for `kind` above its routes,
+/// answering a refused write (DD-2).
+pub(super) async fn unavailable_page(
+    state: &AppState,
+    caller: &Caller,
+    headers: &HeaderMap,
+    team_slug: &str,
+    project_slug: &str,
+    kind: ChannelKind,
+) -> Response {
+    project_answer(
+        state,
+        caller,
+        headers,
+        team_slug,
+        project_slug,
+        Some(unavailable_words(kind)),
+        StatusCode::UNPROCESSABLE_ENTITY,
+    )
+    .await
 }
 
 /// The project's route `route_id` for its edit form or delete dialog.
@@ -584,6 +653,28 @@ pub(super) async fn project_page(
     project_slug: &str,
     notice: Option<String>,
 ) -> Response {
+    project_answer(
+        state,
+        caller,
+        headers,
+        team_slug,
+        project_slug,
+        notice,
+        StatusCode::OK,
+    )
+    .await
+}
+
+/// [`project_page`], answered with `status`.
+async fn project_answer(
+    state: &AppState,
+    caller: &Caller,
+    headers: &HeaderMap,
+    team_slug: &str,
+    project_slug: &str,
+    notice: Option<String>,
+    status: StatusCode,
+) -> Response {
     let view = caller
         .services
         .project_integrations(&caller.principal(), team_slug, project_slug)
@@ -609,7 +700,7 @@ pub(super) async fn project_page(
             .map(|route| route_line(route, &base))
             .collect(),
     };
-    render(page.render(), set_cookie)
+    render_with(status, page.render(), set_cookie)
 }
 
 /// `/team/{t}/project/{p}/integrations`.

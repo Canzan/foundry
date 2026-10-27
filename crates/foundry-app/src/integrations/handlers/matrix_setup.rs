@@ -3,7 +3,7 @@
 //! and 2).
 
 use super::route_form::{FormAnswer, RouteDoor, RouteForm};
-use super::routes::{managed_route, test_notice};
+use super::routes::{managed_route, test_notice, unavailable_page};
 use super::workspace::workspace_page;
 use super::{
     refusal, Caller, ADDRESS_REFUSED, BOT_IN_ROOM, LOG_TARGET, MATRIX_NOT_CONNECTED,
@@ -253,10 +253,21 @@ pub(super) async fn send_matrix_test(
         Ok(managed) => managed,
         Err(response) => return response,
     };
-    let (Some(ChannelKind::Matrix), Some(bot)) = (
-        ChannelKind::from_wire_name(&route.kind),
-        door.matrix.as_ref(),
-    ) else {
+    if ChannelKind::from_wire_name(&route.kind) != Some(ChannelKind::Matrix) {
+        return resource_not_found_page();
+    }
+    if door.unreadable(ChannelKind::Matrix) {
+        return unavailable_page(
+            state,
+            caller,
+            headers,
+            &door.team_slug,
+            &door.project_slug,
+            ChannelKind::Matrix,
+        )
+        .await;
+    }
+    let Some(bot) = door.matrix.as_ref() else {
         return resource_not_found_page();
     };
     let message = encode_matrix(&test_message(

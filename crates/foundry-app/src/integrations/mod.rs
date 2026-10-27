@@ -22,7 +22,8 @@ use crate::rate_limit::RevokeRateLimiter;
 use config::IntegrationSettings;
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
 use foundry_integrations::ChannelKind;
-use foundry_store::integrations::KeyCheck;
+use foundry_services::integrations::{DestinationCatalogs, UnreadableConnections};
+use foundry_store::integrations::{KeyCheck, SealedConnection};
 use outbound::OutboundHttp;
 use project_emails::ProjectMail;
 use secrecy::{ExposeSecret, SecretString};
@@ -38,8 +39,8 @@ pub enum SlackOffer {
     NotSetUp,
     /// K-20: the app is set up, the secrets key is not (R-3, DD-2).
     NoSecretsKey,
-    /// K-19: the boot probe found stored credentials no configured key opens
-    /// (DD-2 degraded start).
+    /// K-19: this Foundry cannot read the workspace's saved Slack connection
+    /// (DD-2, judged per connection).
     Unavailable,
     Ready,
 }
@@ -49,8 +50,8 @@ pub enum SlackOffer {
 pub enum MatrixOffer {
     /// K-18: no secrets key, so no bot token can be sealed (DD-6).
     NoSecretsKey,
-    /// K-19: the boot probe found stored credentials no configured key opens
-    /// (DD-2 degraded start).
+    /// K-19: this Foundry cannot read the workspace's saved Matrix
+    /// connection (DD-2, judged per connection), with a key or without.
     Unavailable,
     Ready,
 }
@@ -234,21 +235,40 @@ impl Integrations {
         &self.settings
     }
 
-    pub fn matrix_offer(&self) -> MatrixOffer {
+    /// What a workspace whose `unreadable` connections these are is offered
+    /// for Matrix.
+    pub fn matrix_offer(&self, unreadable: UnreadableConnections) -> MatrixOffer {
         match &self.settings.secrets {
+            _ if unreadable.matrix => MatrixOffer::Unavailable,
             None => MatrixOffer::NoSecretsKey,
-            Some(_) if self.secrets.degraded() => MatrixOffer::Unavailable,
             Some(_) => MatrixOffer::Ready,
         }
     }
 
-    pub fn slack_offer(&self) -> SlackOffer {
+    /// What a workspace whose `unreadable` connections these are is offered
+    /// for Slack.
+    pub fn slack_offer(&self, unreadable: UnreadableConnections) -> SlackOffer {
         match (&self.slack, &self.settings.secrets) {
             (None, _) => SlackOffer::NotSetUp,
-            (Some(_), _) if self.secrets.degraded() => SlackOffer::Unavailable,
+            (Some(_), _) if unreadable.slack => SlackOffer::Unavailable,
             (Some(_), None) => SlackOffer::NoSecretsKey,
             (Some(_), Some(_)) => SlackOffer::Ready,
         }
+    }
+
+    /// Whether the boot probe proved the key of every stored credential: then
+    /// every connection opens, and none needs judging one by one (DD-2).
+    pub fn every_credential_opens(&self) -> bool {
+        self.settings.secrets.is_some() && !self.secrets.degraded()
+    }
+
+    /// Whether this Foundry's keys open `connection`'s credential.
+    pub(crate) fn opens(&self, connection: &SealedConnection) -> bool {
+        connection
+            .sealed_credential
+            .clone()
+            .and_then(|sealed| self.open_credential(connection.id, sealed))
+            .is_some()
     }
 
     pub(crate) fn slack(&self) -> Option<&SlackApp> {
@@ -311,10 +331,7 @@ impl Integrations {
     }
 
     /// The Matrix bot of a workspace's connection (route doors).
-    pub(crate) fn matrix_bot(
-        &self,
-        connection: &foundry_store::integrations::SealedConnection,
-    ) -> Option<matrix::MatrixBot> {
+    pub(crate) fn matrix_bot(&self, connection: &SealedConnection) -> Option<matrix::MatrixBot> {
         let sealed = connection.sealed_credential.clone()?;
         self.matrix_bot_at(connection.id, &connection.external_id, sealed)
     }
@@ -344,11 +361,11 @@ fn outbound_client(settings: &IntegrationSettings) -> OutboundHttp {
 /// A route's destination is re-checked through the bot of the connection's
 /// kind (Resume, D-8): a Slack channel through the Slack bot, a Matrix room
 /// through the Matrix bot.
-impl foundry_services::integrations::DestinationCatalogs for Integrations {
+impl DestinationCatalogs for Integrations {
     fn catalogue(
         &self,
         kind: &str,
-        connection: &foundry_store::integrations::SealedConnection,
+        connection: &SealedConnection,
     ) -> Option<Box<dyn foundry_integrations::DestinationCatalog>> {
         match ChannelKind::from_wire_name(kind)? {
             ChannelKind::Matrix => Some(Box::new(self.matrix_bot(connection)?)),
@@ -358,6 +375,10 @@ impl foundry_services::integrations::DestinationCatalogs for Integrations {
             }
             _ => None,
         }
+    }
+
+    fn readable(&self, connection: &SealedConnection) -> bool {
+        self.opens(connection)
     }
 }
 

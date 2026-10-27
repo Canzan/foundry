@@ -220,6 +220,27 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   has no timeout.
 - `FOUNDRY_SECRETS_KEY_PREVIOUS` entries are trimmed and blank entries ignored, so a list typed
   with spaces after its commas no longer refuses start as a malformed key.
+- A Slack or Matrix connection that Foundry's secrets key cannot read no longer accepts route
+  changes. Creating, editing, pausing, resuming or deleting one of its routes, and Send test,
+  answer "Slack is unavailable: this Foundry cannot read its saved connection. An instance
+  operator needs to check the secrets key." (or "Matrix is unavailable: …") and change nothing:
+  no route, delivery or activity record is written, and Matrix's bot leaves no room. Before,
+  most of these went through or answered "no chat connection" or a not-found page. A refused
+  Send test still counts towards the six a minute.
+- An unreadable connection can still be repaired. The workspace integrations page shows
+  Disconnect beside the unavailable line for Slack and Matrix, and Matrix keeps its Replace
+  token form (with no secrets key at all, only Disconnect). Disconnecting Slack there warns
+  "Foundry cannot remove its access to Canzan Labs' Slack: remove the Foundry app in Slack by
+  hand." in place of "Foundry's access to Canzan Labs' Slack is removed.", because Foundry
+  cannot ask Slack without the token. A Matrix token replaced under the current key reads as
+  connected again straight away, without a restart.
+- Whether a connection is unavailable is now judged for each workspace's own connection, not
+  for the whole instance. A workspace whose connection the current key opens keeps its
+  connection line, Add to Slack/Reconnect and route changes while another workspace's
+  connection is unreadable. The startup secrets probe's metric and `health.degraded` log line
+  are unchanged.
+- With no secrets key and a saved Matrix connection, the Matrix section reads "Matrix is
+  unavailable: …" instead of "Matrix is not set up on this Foundry yet."
 
 ### Security
 

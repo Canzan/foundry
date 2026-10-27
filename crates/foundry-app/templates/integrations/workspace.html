@@ -6,7 +6,7 @@
 <section data-integration="slack">
   <h2>Slack</h2>
   {% if unavailable %}
-  <p data-connection="slack">Slack is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key.</p>
+  <p data-connection="slack">Slack is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key. <a href="/workspace/integrations/slack/disconnect">Disconnect Slack</a></p>
   {% else %}
   <p data-connection="slack">{% if let Some(line) = slack_line %}{{ line }}{% endif %}{% if reconnect %} <a class="button" href="/workspace/integrations/slack/install">Reconnect</a>{% endif %}{% if slack_line.is_some() %} <a href="/workspace/integrations/slack/disconnect">Disconnect Slack</a>{% endif %}</p>
   {% endif %}
@@ -21,7 +21,7 @@
 <section data-integration="matrix">
   <h2>Matrix</h2>
   {% if matrix_unavailable %}
-  <p data-connection="matrix">Matrix is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key.</p>
+  <p data-connection="matrix">Matrix is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key. <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>
   {% else %}
   {% if let Some(line) = matrix %}<p data-connection="matrix">{{ line.connected }} <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>{% endif %}
   {% endif %}
@@ -32,7 +32,7 @@
     <p><label for="matrix-token">Bot access token</label> <input id="matrix-token" type="password" name="access_token" autocomplete="off" required>{% if let Some(line) = matrix %} <span data-token-saved>{{ line.token_saved }}</span>{% endif %}</p>
     <p><button type="submit">{% if matrix.is_some() %}Replace token{% else %}Connect Matrix{% endif %}</button></p>
   </form>
-  {% else %}
+  {% else if matrix_not_set_up %}
   <p>Matrix is not set up on this Foundry yet. An instance operator sets it up once.</p>
   {% endif %}
 </section>

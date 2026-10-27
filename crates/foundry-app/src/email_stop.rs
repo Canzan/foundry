@@ -147,7 +147,9 @@ pub async fn show_confirm(
         .await;
     let stop = match target {
         Ok(stop) => stop,
-        Err(IntegrationError::NotFound) => return crate::unsubscribe::unsubscribe_refusal_page(),
+        Err(IntegrationError::NotFound | IntegrationError::Unavailable(_)) => {
+            return crate::unsubscribe::unsubscribe_refusal_page()
+        }
         Err(IntegrationError::Store(err)) => return internal_error(&err, "confirm page"),
     };
     let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
@@ -170,7 +172,9 @@ async fn stop(state: &AppState, params: &StopParams, door: &str) -> Result<Email
         .stop_project_email(token.user_id, token.project_id, &token.event)
         .await
         .map_err(|err| match err {
-            IntegrationError::NotFound => crate::unsubscribe::unsubscribe_refusal_page(),
+            IntegrationError::NotFound | IntegrationError::Unavailable(_) => {
+                crate::unsubscribe::unsubscribe_refusal_page()
+            }
             IntegrationError::Store(err) => internal_error(&err, door),
         })
 }

@@ -2,8 +2,8 @@
 //! Matrix's (K-1, K-2, K-20, R-4, US-EIP-07).
 
 use super::{
-    refusal, render, sign_in, Caller, DISCONNECT_PATH, LOG_TARGET, MATRIX_CONNECT_PATH,
-    MATRIX_DISCONNECT_PATH, WORKSPACE_PATH,
+    refusal, render, sign_in, Caller, CANNOT_REMOVE_ACCESS, DISCONNECT_PATH, LOG_TARGET,
+    MATRIX_CONNECT_PATH, MATRIX_DISCONNECT_PATH, WORKSPACE_PATH,
 };
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::{MatrixOffer, SlackOffer};
@@ -27,14 +27,18 @@ struct WorkspacePage {
     reconnect: bool,
     not_set_up: bool,
     no_secrets_key: bool,
-    /// K-19: the saved connection cannot be read by this Foundry (DD-2).
+    /// K-19: the saved connection cannot be read by this Foundry (DD-2);
+    /// Disconnect is offered beside it, as a repair.
     unavailable: bool,
     /// The Matrix connection line and its token field, when connected.
     matrix: Option<MatrixLine>,
-    /// Matrix can be connected: the secrets key is set (else K-18).
+    /// Matrix's connect form (Connect Matrix, or Replace token): the secrets
+    /// key is set, so a token can be sealed.
     matrix_offered: bool,
+    /// K-18: no secrets key and no Matrix connection this Foundry cannot read.
+    matrix_not_set_up: bool,
     /// K-19 for Matrix: the saved connection cannot be read by this Foundry
-    /// (DD-2).
+    /// (DD-2); Disconnect and, with a key, Replace token beside it.
     matrix_unavailable: bool,
     matrix_connect_path: &'static str,
     matrix_disconnect_path: &'static str,
@@ -101,12 +105,16 @@ async fn show_disconnect(
         Ok(None) => return Redirect::to(WORKSPACE_PATH).into_response(),
         Err(err) => return refusal(err),
     };
+    let unreadable = match caller.unreadable_connections(state).await {
+        Ok(unreadable) => unreadable,
+        Err(err) => return refusal(err),
+    };
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let page = DisconnectPage {
         nav: caller.nav(state, csrf.clone()).await,
         csrf,
         kind: kind.display_name(),
-        question: disconnect_question(kind, &preview),
+        question: disconnect_question(kind, &preview, unreadable.slack),
         disconnect_path: disconnect_path(kind),
         workspace_path: WORKSPACE_PATH,
     };
@@ -177,8 +185,14 @@ pub async fn disconnect_slack(State(state): State<AppState>, session: Session) -
 
 /// US-EIP-07's disconnect question: "Disconnect Slack? 3 routes in 2
 /// projects stop posting. Foundry's access to Canzan Labs' Slack is removed."
-/// For Matrix (DIST-25): "… Foundry forgets the bot's access token."
-fn disconnect_question(kind: ChannelKind, preview: &DisconnectPreview) -> String {
+/// For Matrix (DIST-25): "… Foundry forgets the bot's access token." For a
+/// Slack connection this Foundry cannot read (`slack_unreadable`), R-13 in
+/// place of the last sentence: without the token Slack cannot be asked.
+fn disconnect_question(
+    kind: ChannelKind,
+    preview: &DisconnectPreview,
+    slack_unreadable: bool,
+) -> String {
     let count = |n: i64, noun: &str| {
         if n == 1 {
             format!("1 {noun}")
@@ -195,7 +209,11 @@ fn disconnect_question(kind: ChannelKind, preview: &DisconnectPreview) -> String
             } else {
                 format!("{}'s", preview.label)
             };
-            format!("Foundry's access to {owner} Slack is removed.")
+            if slack_unreadable {
+                CANNOT_REMOVE_ACCESS.replace("{owner}", &owner)
+            } else {
+                format!("Foundry's access to {owner} Slack is removed.")
+            }
         }
     };
     format!(
@@ -225,24 +243,29 @@ pub(super) async fn workspace_page(
         Ok(view) => view,
         Err(err) => return refusal(err),
     };
+    let unreadable = match caller.unreadable_connections(state).await {
+        Ok(unreadable) => unreadable,
+        Err(err) => return refusal(err),
+    };
     let integrations = state.integrations.current();
-    let offer = integrations.slack_offer();
-    let matrix_offer = integrations.matrix_offer();
+    let offer = integrations.slack_offer(unreadable);
+    let matrix_offer = integrations.matrix_offer(unreadable);
     let reconnect = slack_lost.is_some();
     let slack = slack.or_else(|| slack_lost.map(|lost| lost_words(&lost)));
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let page = WorkspacePage {
         nav: caller.nav(state, csrf.clone()).await,
         csrf,
-        matrix_offered: matrix_offer != MatrixOffer::NoSecretsKey,
-        matrix_unavailable: matrix_offer == MatrixOffer::Unavailable && matrix.is_some(),
+        matrix_offered: integrations.settings().secrets.is_some(),
+        matrix_not_set_up: matrix_offer == MatrixOffer::NoSecretsKey,
+        matrix_unavailable: matrix_offer == MatrixOffer::Unavailable,
         matrix,
         matrix_connect_path: MATRIX_CONNECT_PATH,
         matrix_disconnect_path: MATRIX_DISCONNECT_PATH,
         notice: notice.map(str::to_string),
         not_set_up: offer == SlackOffer::NotSetUp,
         no_secrets_key: offer == SlackOffer::NoSecretsKey,
-        unavailable: offer == SlackOffer::Unavailable && slack.is_some(),
+        unavailable: offer == SlackOffer::Unavailable,
         slack_line: slack,
         reconnect,
         activity,

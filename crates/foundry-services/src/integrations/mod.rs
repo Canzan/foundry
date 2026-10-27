@@ -23,7 +23,11 @@
 //!   deliveries the pure `cancel_set` names (DD-8); asking for what already
 //!   is so writes nothing. Resuming a route a vendor refusal stopped first
 //!   asks the vendor about its destination again ([`DestinationCatalogs`]);
-//!   while the problem lasts the route stays stopped (D-8).
+//!   while the problem lasts the route stays stopped (D-8). No change goes
+//!   through on a connection this Foundry cannot read (DD-2, amended
+//!   2026-10-27): [`IntegrationError::Unavailable`], nothing written.
+//! - [`unreadable_connections`]: which of the workspace's saved connections
+//!   this Foundry cannot read, judged per connection (DD-2).
 //!
 //! - [`room_still_routed`]: whether another route of the workspace still
 //!   sends to a destination (a deleted Matrix route's bot leaves a room no
@@ -43,8 +47,9 @@
 //!   live-project lock; a choice naming any other project refuses the whole
 //!   save, nothing written (ADR-EIP-007 decision 1).
 //!
-//! Every refusal is [`IntegrationError::NotFound`], which each door answers
-//! with its uniform 404. The use-cases read and write through
+//! Every refusal but one is [`IntegrationError::NotFound`], which each door
+//! answers with its uniform 404; a route change on a connection this Foundry
+//! cannot read is [`IntegrationError::Unavailable`] (K-19). The use-cases read and write through
 //! [`IntegrationRecords`], implemented over the store in `store_impls.rs`
 //! (check-arch `integrations-store-capability`).
 
@@ -96,6 +101,10 @@ pub trait DestinationCatalogs: Sync {
         kind: &str,
         connection: &SealedConnection,
     ) -> Option<Box<dyn DestinationCatalog>>;
+
+    /// Whether this Foundry's keys open the connection's credential (DD-2:
+    /// a connection they cannot open is unavailable).
+    fn readable(&self, connection: &SealedConnection) -> bool;
 }
 
 /// The persistence the integration use-cases need, and nothing more.
@@ -207,6 +216,10 @@ pub enum IntegrationError {
     /// No right, or nothing there: the uniform 404.
     #[error("not found")]
     NotFound,
+    /// The workspace's connection of this kind (`slack`, `matrix`) is saved,
+    /// but this Foundry cannot read it (DD-2): K-19, nothing written.
+    #[error("the {0} connection cannot be read")]
+    Unavailable(String),
     #[error(transparent)]
     Store(#[from] StoreError),
 }
@@ -346,13 +359,21 @@ pub struct RouteEditDraft {
 
 /// The four route changes a lead may ask for.
 #[derive(Clone)]
-pub enum RouteAction<'a> {
+pub enum RouteAction {
     Pause,
     /// Resume, re-checking a stopped route's destination through the
     /// connection's catalogue first.
-    Resume(&'a dyn DestinationCatalogs),
+    Resume,
     Edit(RouteEditDraft),
     Delete,
+}
+
+/// Which of a workspace's saved connections this Foundry cannot read (DD-2,
+/// judged per connection: another workspace's keys say nothing of these).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct UnreadableConnections {
+    pub slack: bool,
+    pub matrix: bool,
 }
 
 /// Admins only, else [`IntegrationError::NotFound`].
@@ -599,6 +620,38 @@ impl RouteTarget {
             _ => None,
         }
     }
+
+    /// [`IntegrationError::Unavailable`] when the workspace's connection of
+    /// `kind` is saved but this Foundry cannot read it (DD-2).
+    fn require_readable(
+        &self,
+        kind: &str,
+        catalogs: &dyn DestinationCatalogs,
+    ) -> Result<(), IntegrationError> {
+        match self.connection_of(kind) {
+            Some(connection) if !catalogs.readable(connection) => {
+                Err(IntegrationError::Unavailable(kind.to_string()))
+            }
+            _ => Ok(()),
+        }
+    }
+}
+
+/// Admins only: which of the workspace's saved connections (not
+/// disconnected) this Foundry cannot read.
+pub(crate) async fn unreadable_connections(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+    catalogs: &dyn DestinationCatalogs,
+) -> Result<UnreadableConnections, IntegrationError> {
+    require_admin(records, principal).await?;
+    let unreadable = |connection: Option<SealedConnection>| {
+        connection.is_some_and(|connection| !catalogs.readable(&connection))
+    };
+    Ok(UnreadableConnections {
+        slack: unreadable(usable_connection(records, principal, SLACK).await?),
+        matrix: unreadable(usable_connection(records, principal, MATRIX).await?),
+    })
 }
 
 /// What a preview renders (Manage): reads only, writes nothing, asks no
@@ -706,17 +759,24 @@ pub(crate) async fn managed_route(
 /// Manage only: one change of the project's route `route_id`, with its audit
 /// record. A pause skips exactly what [`cancel_set`] names at `now`; an edit
 /// is checked as a new route is. A route already so (or already gone)
-/// changes nothing.
+/// changes nothing. A route on a connection this Foundry cannot read is
+/// [`IntegrationError::Unavailable`], nothing written (DD-2).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn change_route(
     records: &impl IntegrationRecords,
+    catalogs: &dyn DestinationCatalogs,
     principal: &Principal,
     team_slug: &str,
     project_slug: &str,
     route_id: Uuid,
-    action: RouteAction<'_>,
+    action: RouteAction,
     now: OffsetDateTime,
 ) -> Result<RouteChangeOutcome, IntegrationError> {
     let target = route_target(records, principal, team_slug, project_slug).await?;
+    let settings = records.route_settings(target.project_id, route_id).await?;
+    if let Some(settings) = &settings {
+        target.require_readable(&settings.kind, catalogs)?;
+    }
     let change = RouteChange {
         project_id: target.project_id,
         route_id,
@@ -732,8 +792,8 @@ pub(crate) async fn change_route(
                 })
                 .await?
         }
-        RouteAction::Resume(catalogs) => {
-            if !problem_cleared(records, catalogs, &target, route_id).await? {
+        RouteAction::Resume => {
+            if !problem_cleared(catalogs, &target, settings).await {
                 return Ok(RouteChangeOutcome::Unchanged);
             }
             records.resume_route(&change).await?
@@ -817,32 +877,32 @@ fn connection_cancel_set(candidates: &[CancelCandidate], now: OffsetDateTime) ->
         .collect()
 }
 
-/// Whether the route `route_id` may resume: it has no channel problem, or
-/// the vendor of the route's own kind now shows that problem gone.
+/// Whether the route (its `settings`, `None` when it is gone) may resume: it
+/// has no channel problem, or the vendor of the route's own kind now shows
+/// that problem gone.
 async fn problem_cleared(
-    records: &impl IntegrationRecords,
     catalogs: &dyn DestinationCatalogs,
     target: &RouteTarget,
-    route_id: Uuid,
-) -> Result<bool, IntegrationError> {
-    let Some(settings) = records.route_settings(target.project_id, route_id).await? else {
-        return Ok(true);
+    settings: Option<RouteSettings>,
+) -> bool {
+    let Some(settings) = settings else {
+        return true;
     };
     let Some(problem) = settings.problem_reason else {
-        return Ok(true);
+        return true;
     };
     let Some(catalog) = target
         .connection_of(&settings.kind)
         .and_then(|c| catalogs.catalogue(&settings.kind, c))
     else {
-        return Ok(false);
+        return false;
     };
     let destination = DestinationRef(settings.destination_ref);
-    Ok(match catalog.check_destination(&destination).await {
+    match catalog.check_destination(&destination).await {
         Ok(check) => ReasonCode::from_wire_name(&problem)
             .map_or(check.can_post, |problem| check.clears(problem)),
         Err(_) => false,
-    })
+    }
 }
 
 fn targeted(candidates: &[CancelCandidate]) -> Vec<TargetedDelivery> {
