@@ -241,6 +241,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   are unchanged.
 - With no secrets key and a saved Matrix connection, the Matrix section reads "Matrix is
   unavailable: …" instead of "Matrix is not set up on this Foundry yet."
+- Two replicas starting together during the upgrade to this release could deadlock: one exited
+  with "deadlock detected" and, rarely, the new outbox index was left invalid, so every later
+  start failed until it was dropped (runbook R-7). A replica now waits for the migration lock
+  without blocking the other's concurrent index build, and logs
+  `event="migration.lock.waiting"` when it starts waiting and every 30 seconds after that.
 
 ### Security
 

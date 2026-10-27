@@ -1,12 +1,11 @@
 //! FU-21 / MIGRATE-LOCK — two replicas that boot together on one database
 //! must both come up, with every index valid.
 //!
-//! RED until the fix (DISTILL 2026-10-27, ADR-025 scaffolded RED): both tests
-//! are `#[ignore]`d. At HEAD they fail with Postgres `deadlock detected`
-//! (40P01). `Store::migrate` serialises replicas with a BLOCKING
-//! `SELECT pg_advisory_lock($1)`. A replica parked in that statement holds a
-//! snapshot for as long as it waits. Migration 0029's
-//! `CREATE INDEX CONCURRENTLY` waits for every older snapshot in the database,
+//! Scaffolded RED by DISTILL (2026-10-27, ADR-025). Before the fix both tests
+//! failed with Postgres `deadlock detected` (40P01): `Store::migrate`
+//! serialised replicas with a BLOCKING `SELECT pg_advisory_lock($1)`. A
+//! replica parked in that statement holds a snapshot for as long as it waits.
+//! Migration 0029's `CREATE INDEX CONCURRENTLY` waits for every older snapshot in the database,
 //! so the lock holder waits for the waiter while the waiter waits for the lock
 //! holder. Postgres kills one of them. If it kills the index build, the index
 //! is left INVALID and every later boot refuses with 42P07 until an operator
@@ -231,7 +230,6 @@ async fn assert_fully_migrated_and_healthy(pool: &PgPool) {
 /// At HEAD, one boot dies with "deadlock detected" (or the 0029 build is the
 /// victim and its index is left INVALID).
 #[tokio::test]
-#[ignore = "RED until fix MIGRATE-LOCK"]
 async fn two_replicas_booting_together_both_migrate_a_fresh_database() {
     let pg = fresh_database().await;
     let replica_a = Store::connect(&pg.url).await.expect("replica A connects");
@@ -256,7 +254,6 @@ async fn two_replicas_booting_together_both_migrate_a_fresh_database() {
 /// today (US-04 races only its staged 0099 on an already-migrated schema), but
 /// the fix must keep the twin in step with production.
 #[tokio::test]
-#[ignore = "RED until fix MIGRATE-LOCK"]
 async fn two_test_support_boots_together_both_migrate_a_fresh_database() {
     let pg = fresh_database().await;
     let pool_a = pg.pool().await;

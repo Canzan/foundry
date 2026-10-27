@@ -55,6 +55,13 @@ const ROLE_ADMIN: &str = "admin";
 /// (`data-access.md` §"Migration runner".)
 const MIGRATION_LOCK_ID: i64 = 0x_F0_0D_BA_BE_F0_0D_BA_BE_u64 as i64;
 
+/// How long a replica sleeps between tries for the migration lock
+/// (FU-21; see [`acquire_migration_lock`]).
+const MIGRATION_LOCK_POLL: Duration = Duration::from_millis(250);
+
+/// How often a replica still waiting for the migration lock says so.
+const MIGRATION_LOCK_WAIT_LOG_EVERY: Duration = Duration::from_secs(30);
+
 /// Slice 8 (ADR-020) — histogram name for per-migration apply latency.
 /// Carries the bounded `migration_id` label (one value per migration
 /// file). One observation is recorded per migration that ACTUALLY runs;
@@ -195,6 +202,16 @@ impl Store {
     /// Run sqlx migrations under an advisory lock so concurrent replicas
     /// serialize on application startup.
     ///
+    /// FU-21: the lock is polled with `pg_try_advisory_lock`, never waited
+    /// for inside a blocking `pg_advisory_lock`. A replica parked in the
+    /// blocking statement holds a snapshot for as long as it waits, and a
+    /// `CREATE INDEX CONCURRENTLY` migration (0029) run by the lock holder
+    /// waits for every older snapshot in the database: the holder and the
+    /// waiter would wait on each other until Postgres killed one, possibly
+    /// leaving the index INVALID. Between polls the waiter holds no snapshot.
+    /// There is no overall bound: another replica's long migration is
+    /// legitimate, and the wait is logged (see [`acquire_migration_lock`]).
+    ///
     /// Slice 8 (ADR-020): each migration that ACTUALLY applies records a
     /// `migration_apply_duration_seconds{migration_id}` observation. The
     /// compile-time `migrate!` migrator is iterated and each pending
@@ -204,10 +221,7 @@ impl Store {
     /// before — the whole set still applies under the lock.
     pub async fn migrate(&self) -> Result<(), StoreError> {
         let mut conn = self.pool.acquire().await?;
-        sqlx::query("SELECT pg_advisory_lock($1)")
-            .bind(MIGRATION_LOCK_ID)
-            .execute(&mut *conn)
-            .await?;
+        acquire_migration_lock(&mut conn, MIGRATION_LOCK_ID).await?;
         let migrator = sqlx::migrate!("./migrations");
         // `conn` is a PoolConnection; `&mut *conn` derefs to PgConnection,
         // which is what the `Migrate` trait is implemented for.
@@ -4009,6 +4023,42 @@ pub async fn run_boot_migrations_from_dir(
     run_migrator_timed(&migrator, &mut conn).await
 }
 
+/// FU-21 — take the session-scoped migration lock `lock_id` on `conn` by
+/// polling `pg_try_advisory_lock` every [`MIGRATION_LOCK_POLL`], so a waiting
+/// replica holds no snapshot between tries and cannot deadlock a sibling's
+/// `CREATE INDEX CONCURRENTLY` (see [`Store::migrate`]). The caller releases
+/// the lock with `pg_advisory_unlock` on the same connection, as before.
+///
+/// Waits without an overall bound. A replica that has to wait logs once when
+/// it starts and every [`MIGRATION_LOCK_WAIT_LOG_EVERY`] after that, so a
+/// boot stuck behind another replica's migration is visible in the logs.
+async fn acquire_migration_lock(
+    conn: &mut sqlx::PgConnection,
+    lock_id: i64,
+) -> Result<(), sqlx::Error> {
+    let started = std::time::Instant::now();
+    // The first tick completes at once: the first failed try logs.
+    let mut still_waiting = tokio::time::interval(MIGRATION_LOCK_WAIT_LOG_EVERY);
+    still_waiting.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    loop {
+        let (acquired,): (bool,) = sqlx::query_as("SELECT pg_try_advisory_lock($1)")
+            .bind(lock_id)
+            .fetch_one(&mut *conn)
+            .await?;
+        if acquired {
+            return Ok(());
+        }
+        tokio::select! {
+            _ = still_waiting.tick() => tracing::info!(
+                event = "migration.lock.waiting",
+                waited_secs = started.elapsed().as_secs(),
+                "another replica holds the migration lock; waiting for it"
+            ),
+            () = tokio::time::sleep(MIGRATION_LOCK_POLL) => {}
+        }
+    }
+}
+
 /// Slice 8 (ADR-020) — iterate a `Migrator` and apply each PENDING
 /// migration individually, recording one
 /// `migration_apply_duration_seconds{migration_id}` histogram
@@ -4213,7 +4263,7 @@ pub struct MigrationReport {
 
 /// Runtime sibling of [`run_migrations`]: load migrations from a
 /// directory at runtime (instead of compile-time `migrate!` macro) and
-/// run them under the SAME `pg_advisory_lock(MIGRATION_LOCK_ID)` guard
+/// run them under the SAME `MIGRATION_LOCK_ID` advisory-lock guard
 /// that the production path uses. Used by the US-04 acceptance suite
 /// to stage per-scenario test migrations into a `tempfile::TempDir`
 /// without touching production `crates/foundry-store/migrations/`.
@@ -4258,10 +4308,7 @@ pub async fn run_migrations_from_dir_with_delay(
         .unwrap_or(MIGRATION_LOCK_ID);
 
     let mut conn = pool.acquire().await?;
-    sqlx::query("SELECT pg_advisory_lock($1)")
-        .bind(lock_id)
-        .execute(&mut *conn)
-        .await?;
+    acquire_migration_lock(&mut conn, lock_id).await?;
 
     // Pre-snapshot of `_sqlx_migrations` AFTER acquiring the advisory
     // lock. This is the linchpin of per-invocation accounting: the
