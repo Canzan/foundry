@@ -253,13 +253,6 @@ impl IntegrationsWorker {
         }
     }
 
-    /// One dispatch, one give-up sweep, one round of sends and (when due) the
-    /// retention sweep.
-    pub async fn tick(&self, integrations: &Integrations) {
-        self.keep_house(integrations).await;
-        self.send_round(integrations).await;
-    }
-
     async fn keep_house(&self, integrations: &Integrations) {
         let worker = integrations.settings().worker;
         let now = self.clock.now();
