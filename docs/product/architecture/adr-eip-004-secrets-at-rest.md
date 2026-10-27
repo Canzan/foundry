@@ -2,6 +2,10 @@
 
 ## Status
 
+Implemented (external-integration-plugins DELIVER, finalized 2026-10-27 at `8c681b2`; not yet
+released). The status below stays Proposed until the user accepts it. Departures from this record
+are listed in `docs/evolution/2026-10-27-external-integration-plugins.md` (Key decisions).
+
 Proposed (2026-10-21, external-integration-plugins DESIGN). Resolves the mechanism of OD-12
 (accepted: "a database dump or backup alone must not yield a usable credential; new operator-held
 key setting").

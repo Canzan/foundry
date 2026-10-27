@@ -175,7 +175,6 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 ### Changed
 
 - The sidebar's Notifications link is now Settings (it still opens `/account/settings`).
-
 - **Reconnecting delivers what was missed**: when a workspace admin reconnects a lost Slack
   connection (Reconnect, then approving Foundry for the same Slack workspace), the routes read
   "Delivering" again and what happened while it was lost (up to 24 hours) is posted, in the
@@ -247,15 +246,15 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   is over five minutes old, Foundry logs the warning `integrations.dispatch.stalled`; the
   dispatcher's liveness is the `integration_worker_heartbeats` row of role `dispatcher`.
 - **`FOUNDRY_SECRETS_KEY`** (32 random bytes, base64url, padded or not; generate with
-  `openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'`) seals every Slack credential Foundry
-  stores. Keep an offline copy apart from database backups: losing every copy means workspace
-  admins reconnect Slack, nothing else is lost. `FOUNDRY_SECRETS_KEY_PREVIOUS` is set only during a
+  `openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'`) seals every Slack and Matrix credential
+  Foundry stores. Keep an offline copy apart from database backups: losing every copy means
+  workspace admins reconnect Slack and Matrix, nothing else is lost. `FOUNDRY_SECRETS_KEY_PREVIOUS` is set only during a
   rotation. A key that is not 32 bytes, a partial Slack trio or `FOUNDRY_INTEGRATIONS_LEASE_SECONDS`
   under 35 stops Foundry at start with `health.startup.refused` naming the setting (never its value).
 - **Degraded start instead of an outage**: when the secrets key is missing, or no configured key
-  opens a stored credential, Foundry starts and serves the board; the affected Slack connection
-  reads "Slack is unavailable: this Foundry cannot read its saved connection. An instance operator
-  needs to check the secrets key.", it is never marked lost and no admin is emailed, and its
+  opens a stored credential, Foundry starts and serves the board; the affected connection reads
+  "Slack is unavailable: this Foundry cannot read its saved connection. An instance operator needs
+  to check the secrets key." (or "Matrix is unavailable: …"), it is never marked lost and no admin is emailed, and its
   messages wait (and are given up after a day as usual). The new gauge
   `foundry_integration_secrets_degraded` reads 1, `probe_failures_total{probe_name="secrets"}`
   counts the boot failure, and a `health.degraded probe=secrets` warning names the missing key ids
@@ -298,6 +297,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   is simply not offered.
 - Migration `0031_integration_email_choices` applies at boot: one new table for members' project
   email choices, nothing else changed.
+- Migration `0032_integration_pending_indexes` applies at boot: two partial indexes on
+  `integration_deliveries`, nothing else changed.
 - **Rollback:** the previous release runs on the new schema (it never reads the new columns or
   tables, and its outbox writes still get an event id). Events written while it runs are delivered
   late after you upgrade again, unless you mark them dispatched first (`RELEASING.md`, R-6).
@@ -315,6 +316,10 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 - **`0031_integration_email_choices`** creates `integration_email_choices` (member, project,
   event, scope; no default rows). Additive, so the previous release boots on it (its boot
   migrator ignores the versions it does not know).
+- **`0032_integration_pending_indexes`** creates `idx_integration_deliveries_recipient_pending` and
+  `idx_integration_deliveries_give_up_pending` (partial, on pending deliveries) with a plain
+  `CREATE INDEX` in a transaction; `integration_deliveries` is new in this release, so no board
+  write waits on the build. Additive; the previous release boots on it.
 
 ## [v0.17.0] - 2026-10-20
 

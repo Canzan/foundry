@@ -816,11 +816,23 @@ See `adr-api-openapi-001-hand-written-document-checked-against-the-code.md`,
 
 ### Project events leave the board: integrations, routes and durable delivery
 
-**Designed (external-integration-plugins DESIGN, 2026-10-21); not yet delivered.** ADR-EIP-001 to
--007 are Proposed; the user confirms them through the feature's DD-1..DD-11. Deliverable A (slices
-01-03, Slack) and B (04-05, Matrix and member email) are designed to component level; deliverable C
-(signed webhooks, OAuth apps, routes by API) moves to its own feature, `integration-webhooks-and-oauth-apps`,
-and inherits the seams fixed here.
+**Shipped (external-integration-plugins DESIGN 2026-10-21; DELIVER finalize 2026-10-27, tip
+`8c681b2`; not yet released).** Deliverables A (slices 01-03, Slack) and B (04-05, Matrix and
+member email) are implemented. Deliverable C (signed webhooks, OAuth apps, routes by API) moves to
+its own feature, `integration-webhooks-and-oauth-apps`, and inherits the seams fixed here.
+ADR-EIP-001 to -007 are still Proposed: DEVOPS took DD-1..DD-11 at their recommendations, and the
+user has not formally accepted them yet.
+
+Where DELIVER departed from the design:
+- `SealedSecret` lives in `foundry-auth`, not `foundry-core`.
+- A fifth migration, 0032, adds the pending partial indexes.
+- 0030 lost the unused `endpoint` and `not_before` columns before the first push.
+- Kinds are decoded closed at the store boundary, but the row structs still carry a `String`
+  (moving `ChannelKind` to `foundry-core` is a pending decision).
+- Slack signature freshness reads the wall clock.
+- Disconnect calls `apps.uninstall`.
+- Matrix disconnect mirrors Slack's (user decision 2026-10-25).
+- Deleting the last route to a room takes the bot out of it.
 
 **The model.** A workspace admin makes a **connection** (one Slack, one Matrix per workspace). A
 team lead (`TeamAccess::can_manage`) makes **routes**: per project, which events, which lanes, how
@@ -910,10 +922,13 @@ mute and suppression gate are unchanged; the mute is checked at send time.
 **Crate placement.**
 - **`foundry-integrations`**, new: the pure core, port traits and domain enums. Its dependencies
   are an allow-list: `foundry-core`, `serde`, `serde_json`, `async-trait`, `uuid`, `time`, `ipnet`.
-- **`foundry-store/src/integrations.rs`**: tables, the dispatch and claim transactions.
-- **`foundry-services/src/integrations.rs`**: authority, use-cases and audit, which deliverable C's
-  `/api/v1` reuses.
-- **`foundry-app/src/integrations/`**: the adapters, the worker, the handlers and the wiring.
+- **`foundry-store/src/integrations/`**: tables, the dispatch and claim transactions (split by
+  concern: `dispatch`, `claims`, `recording`, `sweeps`, `routes`, `connections`, `emails`,
+  `history`, `context`, `keys`, `metrics`).
+- **`foundry-services/src/integrations/`**: authority, use-cases and audit, which deliverable C's
+  `/api/v1` reuses; `store_impls.rs` implements its store traits for `Store`.
+- **`foundry-app/src/integrations/`**: the adapters, the worker, the handlers (`handlers/`) and the
+  wiring.
 
 **For future features (consumers):**
 - **A new routable event** is a new `EventKind` variant plus the writer's outbox row in its
@@ -990,7 +1005,7 @@ mute and suppression gate are unchanged; the mute is checked at send time.
     compare-and-set on exactly those ids.
   - `DeliveryChannel::deliver` takes no credential. A `ChannelFactory` opens it and builds the
     per-connection adapter. Only the connect handlers call `SecretBox::seal`. `SealedSecret` is a
-    `foundry-core` newtype.
+    newtype in `foundry-auth` (as shipped; the design placed it in `foundry-core`).
 - **Payload enrichment.** `from_state` goes in both `IssueUpdated` writers. `author_id` and
   `title` go in `IssueDeleted` (via `DELETE … RETURNING` and `IssueDeleteContext`).
   `foundry-realtime` tolerates added fields.
@@ -1013,21 +1028,30 @@ See `adr-eip-001-delivery-channel-contract-and-crate-placement.md`,
 `adr-eip-007-member-project-email.md`, and `docs/feature/external-integration-plugins/feature-delta.md`
 (DESIGN DDR-1..27, DD-1..11).
 
-**Designed component inventory (external-integration-plugins).** It becomes the shipped inventory at
-the DELIVER finalize.
+**Shipped component inventory (external-integration-plugins, DELIVER finalize 2026-10-27).** Every
+designed row shipped. The changes from the design are in the "Shipped as" column, and two rows
+were added (pending indexes, test seams). Migration paths are under `crates/foundry-store/`.
 
-| Design element | Designed as | Where | DDR | Slice |
+| Design element | Shipped as | Where | DDR | Slice |
 |---|---|---|---|---|
 | Outbox as log | nullable `event_id`, `source_txid`, `dispatched_at` with metadata-only defaults; `integration_dispatch_start`; concurrent partial index | `migrations/0028_outbox_dispatch.sql`, `0029_outbox_dispatch_index.sql` | 3, 8, 17 | 01 |
-| Integration tables | connections, routes, route lanes, destination pacing, deliveries, audit, key checks, worker heartbeats | `migrations/0030_integrations.sql` | 17 | 01 |
+| Integration tables | connections (without the designed `endpoint`, `not_before`), routes, route lanes, destination pacing, deliveries, audit, key checks, worker heartbeats | `migrations/0030_integrations.sql` | 17 | 01 |
+| Pending indexes (added) | `(recipient_user_id, id)` and `(give_up_at)` partial on pending deliveries; dispatch compares project ids as UUIDs and skips an idle tick | `migrations/0032_integration_pending_indexes.sql` | 3, 5 | review R2 |
+| Store | dispatch, claims (with an advisory lock per destination at claim), recording, sweeps, routes, connections, emails, history, delivery context, key checks, metrics census; `StoredKind` closed decode | `foundry-store/src/integrations/` | 3-5, 17, 22 | 01-05 |
 | Store capabilities | `EventViewReads`, `DispatchLog`, `DeliveryClaims`, `DeliverySweeps`, `ConnectionHealth` | `foundry-app/src/integrations/store_capabilities.rs` | 26 | 01 |
-| Pure core | `ChannelKind`, `EventKind`, `ContentLevel`, `ReasonCode`, `DispatchPlan`, `compose`, encoders, classifiers, `RetryPolicy`, `RouteStatus`, `judge`; ports | `crates/foundry-integrations` | 1, 2, 5, 7, 19 | 01-05 |
-| Secret box | `SecretBox`, `SealedSecret`, key-check | `foundry-auth/src/secret_box.rs` | 9 | 01 |
-| Worker | dispatcher, sender, expiry and retention sweeps, connection health | `foundry-app/src/integrations/worker.rs` | 3-6, 23 | 01, 03 |
-| Slack | install, return, setup page, events endpoint, adapter | `foundry-app/src/integrations/slack.rs`, handlers | 10-12 | 01-03 |
-| Matrix and outbound | `OutboundHttp`, `FOUNDRY_OUTBOUND_ALLOW`, adapter, connect form | `foundry-app/src/integrations/{outbound,matrix}.rs` | 13, 14 | 04 |
-| Member email | `integration_email_choices`, `EmailTransport`, `ProjectEmailStopToken`, `/email/stop*` | `migrations/0031_integration_email_choices.sql`, `foundry-auth`, `foundry-app` | 15, 16 | 05 |
-| Seam rules | `integrations-pure-core`, `integrations-store-capability`, `integrations-secret-seam`, `integrations-outbound-client-seam`, extended write guard, CSRF exempt pin; `deny.toml` wrapper | `xtask/src/check_arch.rs`, `deny.toml`, `csrf.rs` | 2, 9, 14 | 01-05 |
+| Pure core | `ChannelKind`, `EventKind`, `ContentLevel`, `ReasonCode`, `DispatchPlan`, `compose`, encoders, classifiers, `RetryPolicy`, `RouteStatus`, `judge`, history lines, `meter`; ports incl. `EmailTransport` | `crates/foundry-integrations` | 1, 2, 5, 7, 19, 22 | 01-05 |
+| Use-cases | authority, routes, connections, email choices, audit; kind-aware destination catalogues | `foundry-services/src/integrations/` | 1, 20, 21 | 01-05 |
+| Secret box | `SecretBox`, `SealedSecret` (in `foundry-auth`, not `foundry-core`), key-check, trimmed previous keys; `ProjectEmailStopToken` | `foundry-auth/src/secret_box.rs`, `stop_token.rs` | 9, 16 | 01, 05 |
+| Worker | dispatcher, sender, give-up, retention sweeps, heartbeat, connection health; send timeout kept under the lease | `foundry-app/src/integrations/worker.rs`, `config.rs` | 3-6, 23 | 01, 03 |
+| Slack | install, return, setup page, signed events endpoint, adapter; a client build failure refuses start | `foundry-app/src/integrations/slack.rs`, `handlers/slack_setup.rs` | 10-12 | 01-03 |
+| Matrix and outbound | `OutboundHttp`, `FOUNDRY_OUTBOUND_ALLOW`, adapter, connect form, disconnect | `foundry-app/src/integrations/{outbound,matrix}.rs`, `handlers/matrix_setup.rs` | 13, 14 | 04 |
+| Pages | workspace integrations, route form (preview, test, save), routes (pause, resume, edit, delete, history) | `foundry-app/src/integrations/handlers/{workspace,route_form,routes}.rs` | 20, 25 | 01-04 |
+| Member email | `integration_email_choices`, `EmailTransport`, `/email/stop*`; no email leaves without its stop link | `migrations/0031_integration_email_choices.sql`, `foundry-app/src/integrations/project_emails.rs` | 15, 16 | 05 |
+| `doctor rotate-secrets` | one transaction re-seals every credential and writes the new canary | `foundry-app/src/admin_cli.rs` | 9 | 01 |
+| Seam rules | `integrations-pure-core`, `integrations-store-capability`, `integrations-secret-seam`, `integrations-outbound-client-seam`, `integrations-test-seam` (added: feature-gated seams, the Dockerfile build line, the binary marker grep), extended write guard, CSRF exempt pin; `deny.toml` wrapper | `xtask/src/check_arch.rs`, `deny.toml`, `csrf.rs`, `Dockerfile` | 2, 9, 14 | 01-05 |
+
+The record is `docs/evolution/2026-10-27-external-integration-plugins.md`. Follow-ups and the open
+release gate are in `docs/feature/external-integration-plugins/deliver/upstream-issues.md`.
 
 ### Crate graph
 

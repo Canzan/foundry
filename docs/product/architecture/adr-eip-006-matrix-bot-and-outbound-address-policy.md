@@ -2,6 +2,10 @@
 
 ## Status
 
+Implemented (external-integration-plugins DELIVER, finalized 2026-10-27 at `8c681b2`; not yet
+released). The status below stays Proposed until the user accepts it. Departures from this record
+are listed in `docs/evolution/2026-10-27-external-integration-plugins.md` (Key decisions).
+
 Proposed (2026-10-21, external-integration-plugins DESIGN). Builds on OD-4 (accepted: the admin enters
 homeserver and bot token), OD-5 (accepted: refuse encrypted rooms, K-15) and OD-13 (accepted: loopback,
 link-local and metadata always refused; private ranges only through an operator allow-list).
