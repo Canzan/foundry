@@ -2,9 +2,9 @@
 
 ## Status
 
-Implemented (external-integration-plugins DELIVER, finalized 2026-10-27 at `8c681b2`; not yet
-released). The status below stays Proposed until the user accepts it. Departures from this record
-are listed in `docs/evolution/2026-10-27-external-integration-plugins.md` (Key decisions).
+Accepted (2026-10-27, by the user at the end of external-integration-plugins DELIVER).
+Implemented (finalized 2026-10-27 at `8c681b2`; not yet released). DD-2 was amended on
+2026-10-27 (FU-11, fixed in `c7694b2`). Departures from this record are listed in `docs/evolution/2026-10-27-external-integration-plugins.md` (Key decisions).
 
 Proposed (2026-10-21, external-integration-plugins DESIGN). Builds on OD-3 (accepted: operator
 creates the app from a Foundry manifest; client id, client secret and signing secret are

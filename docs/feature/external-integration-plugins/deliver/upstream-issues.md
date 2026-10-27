@@ -98,9 +98,9 @@ in FD DISCUSS [REF] User Decisions and FD DISTILL [REF] User ratification.
 
 | # | Item | Relates to |
 |---|---|---|
-| PA-1 | **Two proposed scenarios (DIST-30), not ratified:** "Deleting one of two routes to a room keeps the bot in it" (the behaviour exists in the DESIGN adapter contract and in a store test only) and "A member gets no email about events or projects they did not choose". New Gherkin needs the user's approval. | FD DISTILL [REF] DISTILL decisions (DIST-30) |
-| PA-2 | **Move `ChannelKind` to `foundry-core`** so the store row structs can carry a typed kind. Deny rule 4 bans store → integrations today (DV-8). | FD DESIGN [REF] check-arch and Dependency Rules |
-| PA-3 | **Accept ADR-EIP-001..007.** They are still *Proposed*. DEVOPS took DD-1..DD-11 as accepted at their recommendations; the user has not confirmed them. Each ADR now carries an "Implemented" note. | FD DESIGN [REF] Open Design Decisions; `docs/product/architecture/adr-eip-00*.md` |
+| PA-1 | **Approved by the user 2026-10-27; Quinn adds them.** Two proposed scenarios (DIST-30): "Deleting one of two routes to a room keeps the bot in it" (the behaviour exists in the DESIGN adapter contract and in a store test only) and "A member gets no email about events or projects they did not choose". New Gherkin needs the user's approval. | FD DISTILL [REF] DISTILL decisions (DIST-30) |
+| PA-2 | **User decision 2026-10-27: a follow-up after release.** **Move `ChannelKind` to `foundry-core`** so the store row structs can carry a typed kind. Deny rule 4 bans store → integrations today (DV-8). | FD DESIGN [REF] check-arch and Dependency Rules |
+| PA-3 | **Closed 2026-10-27: the user accepted ADR-EIP-001..007.** They were *Proposed* until then. DEVOPS took DD-1..DD-11 as accepted at their recommendations; the user has not confirmed them. Each ADR now carries an "Implemented" note. | FD DESIGN [REF] Open Design Decisions; `docs/product/architecture/adr-eip-00*.md` |
 | PA-4 | **Phase C session cleanup:** remove `deliver/.develop-progress.json` and `.nwave/des/deliver-session.json`. | nw-finalize Phase C |
 | PA-5 | **Push and tag**, only on the user's go and only after §5. | Release gate |
 | PA-6 | **Closed 2026-10-27 (UD-14):** R-13 ratified as written, replacing the question's last sentence on an unreadable connection only. | FD DISTILL [REF] User ratification (R-13); UD-12, UD-14 |
