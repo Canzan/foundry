@@ -6,6 +6,8 @@
 //!
 //! Each case is RED today for the defect it names and is ignored with
 //! "RED until review fix <ID>"; the crafter lifts the ignore with the fix.
+//! Later rounds add their cases here too: R1/R2 (DIST-33) and the review fix
+//! FU-11 (DIST-34, `fu11_*`: a connection this Foundry cannot read).
 //!
 //! Its own runner (`harness = false`, like `tests/acceptance.rs`): the shared
 //! Postgres and homeserver containers live in process-wide slots that must be
@@ -21,7 +23,7 @@
 
 use foundry_acceptance::support::external_integration_plugins as eip;
 use foundry_acceptance::support::matrix_homeserver as mx;
-use foundry_acceptance::support::slack_double::Mood;
+use foundry_acceptance::support::slack_double::{Approval, Mood, SlackTeam};
 use foundry_acceptance::support::team_membership as tm;
 use foundry_acceptance::world::FoundryWorld;
 use futures::future::BoxFuture;
@@ -116,6 +118,105 @@ const CASES: &[Case] = &[
         name: "r2a_a_project_email_without_its_stop_link_is_failed_not_sent",
         ignore: None,
         body: |w| r2a_no_stop_link(w).boxed(),
+    },    Case {
+        name: "fu11_a_slack_create_on_an_unreadable_connection_reads_k19_and_saves_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_create(w, eip::Kind::Slack).boxed(),
+    },
+    Case {
+        name: "fu11_a_slack_edit_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::Edit).boxed(),
+    },
+    Case {
+        name: "fu11_a_slack_pause_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::Pause).boxed(),
+    },
+    Case {
+        name: "fu11_a_slack_resume_of_a_paused_route_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::ResumePaused).boxed(),
+    },
+    Case {
+        name: "fu11_a_slack_resume_of_a_refusal_stopped_route_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::ResumeStopped).boxed(),
+    },
+    Case {
+        name: "fu11_a_slack_delete_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Slack, RouteWrite::Delete).boxed(),
+    },
+    Case {
+        name: "fu11_a_matrix_create_on_an_unreadable_connection_reads_k19_and_saves_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_create(w, eip::Kind::Matrix).boxed(),
+    },
+    Case {
+        name: "fu11_a_matrix_edit_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::Edit).boxed(),
+    },
+    Case {
+        name: "fu11_a_matrix_pause_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::Pause).boxed(),
+    },
+    Case {
+        name: "fu11_a_matrix_resume_of_a_paused_route_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::ResumePaused).boxed(),
+    },
+    Case {
+        name: "fu11_a_matrix_resume_of_a_refusal_stopped_route_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::ResumeStopped).boxed(),
+    },
+    Case {
+        name: "fu11_a_matrix_delete_on_an_unreadable_connection_reads_k19_and_writes_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_route_write(w, eip::Kind::Matrix, RouteWrite::Delete).boxed(),
+    },
+    Case {
+        name: "fu11_b_slack_send_test_on_an_unreadable_connection_reads_k19_and_sends_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_send_test(w, eip::Kind::Slack).boxed(),
+    },
+    Case {
+        name: "fu11_b_matrix_send_test_on_an_unreadable_connection_reads_k19_and_sends_nothing",
+        ignore: Some(FU11),
+        body: |w| fu11_send_test(w, eip::Kind::Matrix).boxed(),
+    },
+    Case {
+        name: "fu11_c_slack_disconnect_of_an_unreadable_connection_warns_and_forgets_it",
+        ignore: Some(FU11),
+        body: |w| fu11_disconnect(w, eip::Kind::Slack).boxed(),
+    },
+    Case {
+        name: "fu11_c_matrix_disconnect_of_an_unreadable_connection_forgets_it",
+        ignore: None,
+        body: |w| fu11_disconnect(w, eip::Kind::Matrix).boxed(),
+    },
+    Case {
+        name: "fu11_c_replacing_the_matrix_token_repairs_an_unreadable_connection",
+        ignore: Some(FU11),
+        body: |w| fu11_replace_token(w).boxed(),
+    },
+    Case {
+        name: "fu11_d_matrix_with_its_secrets_key_removed_reads_k19_not_k18",
+        ignore: Some(FU11),
+        body: |w| fu11_key_removed(w).boxed(),
+    },
+    Case {
+        name: "fu11_e_slack_unavailable_is_judged_per_connection",
+        ignore: Some(FU11),
+        body: |w| fu11_per_connection(w, eip::Kind::Slack).boxed(),
+    },
+    Case {
+        name: "fu11_e_matrix_unavailable_is_judged_per_connection",
+        ignore: Some(FU11),
+        body: |w| fu11_per_connection(w, eip::Kind::Matrix).boxed(),
     },
 ];
 
@@ -695,6 +796,725 @@ async fn r2a_no_stop_link(world: &mut FoundryWorld) {
         settled.as_deref(),
         Some("failed"),
         "Sam's New issue email is recorded as failed (it reads {settled:?})"
+    );
+}
+
+// ===========================================================================
+// FU-11: a connection this Foundry cannot read refuses route writes (DD-2,
+// amended 2026-10-27): K-19 for every write; Disconnect and Replace token
+// stay open as repairs; the unavailable state is judged per connection
+// ===========================================================================
+
+/// The ignore reason of every FU-11 case that is RED today.
+const FU11: &str = "RED until review fix FU-11";
+/// The channel the Slack cases route to.
+const CHANNEL: &str = "#auth-dev";
+/// K-19 with {Kind} = Slack (DESIGN UI-1, DD-2; ratified 2026-10-22, R-2).
+const K19_SLACK: &str = "Slack is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key.";
+/// R-13 (PROPOSED 2026-10-27, awaiting the user's ratification): the Slack
+/// disconnect question of a connection this Foundry cannot read, for Canzan
+/// Labs. Foundry cannot open the bot token, so it cannot ask Slack to
+/// withdraw its access (`apps.uninstall`); the admin removes the app in Slack.
+const R13_CANZAN_LABS: &str =
+    "Foundry cannot remove its access to Canzan Labs' Slack: remove the Foundry app in Slack by hand.";
+/// The second workspace of the per-connection cases (`tm::FOREIGN`).
+const GLOBEX_PROJECT: &str = "Globex Platform";
+/// Globex's Matrix rooms (the per-connection Matrix case).
+const GLOBEX_ROOM: &str = "#globex:canzan.dev";
+const GLOBEX_OPS_ROOM: &str = "#globex-ops:canzan.dev";
+
+/// A route write the FU-11 cases try on a connection this Foundry cannot read.
+#[derive(Clone, Copy, Debug)]
+enum RouteWrite {
+    Edit,
+    Pause,
+    /// Resume of a route Lena paused.
+    ResumePaused,
+    /// Resume of a route a refusal stopped (Slack: the channel was
+    /// archived; Matrix: the bot was removed from the room).
+    ResumeStopped,
+    Delete,
+}
+
+fn k19(kind: eip::Kind) -> &'static str {
+    match kind {
+        eip::Kind::Slack => K19_SLACK,
+        eip::Kind::Matrix => K19_MATRIX,
+    }
+}
+
+fn destination(kind: eip::Kind) -> &'static str {
+    match kind {
+        eip::Kind::Slack => CHANNEL,
+        eip::Kind::Matrix => ROOM,
+    }
+}
+
+/// Canzan Labs' `kind` connection, made by Priya through the product.
+async fn connected(world: &mut FoundryWorld, kind: eip::Kind) {
+    match kind {
+        eip::Kind::Slack => slack_connected(world).await,
+        eip::Kind::Matrix => matrix_connected(world).await,
+    }
+}
+
+/// Canzan Labs with its `kind` connection, and Lena's New issue route from
+/// Identity Platform to it (#auth-dev, or the Matrix room).
+async fn routed(world: &mut FoundryWorld, kind: eip::Kind) {
+    workspace(world).await;
+    connected(world, kind).await;
+    eip::given_routed(
+        world,
+        "Lena",
+        new_issue_route("Identity Platform", destination(kind)),
+    )
+    .await;
+}
+
+/// The route stopped by a refusal: #auth-dev was archived, or the bot was
+/// removed from the room, and Sam's issue met the refusal.
+async fn stopped_by_refusal(world: &mut FoundryWorld, kind: eip::Kind) {
+    match kind {
+        eip::Kind::Slack => eip::slack_next_answer(world, CHANNEL, eip::SlackAnswer::Archived),
+        eip::Kind::Matrix => eip::kick_bot(world, ROOM).await,
+    }
+    eip::given_filed(
+        world,
+        "Sam",
+        "Identity Platform",
+        "Rotate LLDAP bind password",
+        false,
+    )
+    .await;
+    eip::then_route_reads_prefix(world, destination(kind), "Needs attention").await;
+}
+
+/// Foundry restarts with a secrets key that cannot open the saved
+/// connections (they were sealed under the key it was started with).
+async fn unreadable(world: &mut FoundryWorld) {
+    eip::restart_in_process_with_key(world, Some(eip::NEW_SECRETS_KEY)).await;
+}
+
+/// Sam files an issue and its delivery waits on the unreadable connection:
+/// the route has something queued for a write to keep or drop.
+async fn delivery_waiting(world: &mut FoundryWorld) {
+    eip::file(
+        world,
+        "Sam",
+        "Identity Platform",
+        "Rotate the bind password",
+    )
+    .await;
+    let pool = tm::pool(world);
+    let workspace = tm::workspace_id(world, tm::HOME);
+    let start = std::time::Instant::now();
+    while start.elapsed() < eip::STATUS_BUDGET {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM integration_deliveries d
+               JOIN integration_routes r ON r.id = d.route_id
+              WHERE r.workspace_id = $1 AND d.status = 'pending'",
+        )
+        .bind(workspace)
+        .fetch_one(&pool)
+        .await
+        .expect("read the waiting deliveries");
+        if waiting > 0 {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    panic!(
+        "precondition: Sam's issue has a delivery waiting on the route within {:?}",
+        eip::STATUS_BUDGET
+    );
+}
+
+/// What a route or connection write leaves in the store for `workspace`:
+/// its connections (the credential as a digest, never the bytes), routes,
+/// route deliveries and audit records. Crate-level oracle: the store is
+/// where "writes nothing" is decided; the pages show a projection of it.
+async fn stored(world: &FoundryWorld, workspace: &str) -> Vec<String> {
+    let pool = tm::pool(world);
+    let id = tm::workspace_id(world, workspace);
+    let mut lines = Vec::new();
+    for sql in [
+        "SELECT format('connection %s %s %s %s', id, kind, state,
+                       md5(coalesce(sealed_credential, ''::bytea)))
+           FROM integration_connections WHERE workspace_id = $1 ORDER BY id",
+        "SELECT format('route %s %s %s %s paused=%s problem=%s receives_from=%s lanes=%s',
+                       r.id, r.kind, r.events::text, r.content_level, r.paused_at IS NOT NULL,
+                       coalesce(r.problem_reason, '-'), r.receives_from,
+                       (SELECT count(*) FROM integration_route_lanes l WHERE l.route_id = r.id))
+           FROM integration_routes r WHERE r.workspace_id = $1 ORDER BY r.id",
+        "SELECT format('delivery %s route=%s %s', d.id, d.route_id, d.status)
+           FROM integration_deliveries d JOIN integration_routes r ON r.id = d.route_id
+          WHERE r.workspace_id = $1 ORDER BY d.id",
+        "SELECT format('audit %s %s %s', action, kind, subject)
+           FROM integration_audit_events WHERE workspace_id = $1 ORDER BY created_at, id",
+    ] {
+        let rows: Vec<String> = sqlx::query_scalar(sql)
+            .bind(id)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_else(|err| panic!("read the stored integrations: {err}"));
+        lines.extend(rows);
+    }
+    lines
+}
+
+/// `None` when `after` is `before`; else what was written and what went.
+fn written(before: &[String], after: &[String]) -> Option<String> {
+    if before == after {
+        return None;
+    }
+    let gone: Vec<&String> = before.iter().filter(|l| !after.contains(l)).collect();
+    let new: Vec<&String> = after.iter().filter(|l| !before.contains(l)).collect();
+    Some(format!("written {new:?}, gone {gone:?}"))
+}
+
+/// The requests Foundry made to take the bot out of a room (Matrix only).
+fn leaves(world: &FoundryWorld, kind: eip::Kind) -> usize {
+    match kind {
+        eip::Kind::Slack => 0,
+        eip::Kind::Matrix => eip::fault_proxy(world).requests_to("/leave"),
+    }
+}
+
+/// What Foundry sent towards the destination: Slack posts, or homeserver
+/// sends.
+fn sent(world: &FoundryWorld, kind: eip::Kind) -> usize {
+    match kind {
+        eip::Kind::Slack => eip::slack_double(world).all_posts().len(),
+        eip::Kind::Matrix => eip::fault_proxy(world).requests_to(mx::SEND_PATH),
+    }
+}
+
+/// The page text of `answer`, whitespace folded.
+fn page(answer: &tm::Answer) -> String {
+    tm::page_text(&answer.body)
+}
+
+/// Every part of a refused write that did not hold; empty when it was
+/// refused with K-19 and nothing was written or asked of the homeserver.
+async fn refusal_problems(
+    world: &mut FoundryWorld,
+    kind: eip::Kind,
+    answer: &tm::Answer,
+    before: &[String],
+    leaves_before: usize,
+) -> Vec<String> {
+    let mut problems = Vec::new();
+    let read = page(answer);
+    if !read.contains(k19(kind)) {
+        problems.push(format!(
+            "the answer reads K-19 {:?}; {}",
+            k19(kind),
+            tm::describe(answer)
+        ));
+    }
+    if let Some(what) = written(before, &stored(world, tm::HOME).await) {
+        problems.push(format!("nothing is written; {what}"));
+    }
+    let left = leaves(world, kind) - leaves_before;
+    if left != 0 {
+        problems.push(format!(
+            "Foundry asked the homeserver to take the bot out of a room {left} time(s)"
+        ));
+    }
+    problems
+}
+
+fn assert_none(what: &str, problems: &[String]) {
+    assert!(
+        problems.is_empty(),
+        "{what}:\n  - {}",
+        problems.join("\n  - ")
+    );
+}
+
+/// FU-11 (a), create. Canzan Labs' `kind` connection was sealed under a key
+/// this Foundry no longer holds. Lena saves a New issue route from Identity
+/// Platform to #auth-dev (or the room): the answer reads K-19 for that kind,
+/// no route or audit record is saved, and the bot is never taken out of a
+/// room. RED today: the save answers K-4 or "Foundry cannot post to that
+/// channel", not K-19.
+///
+/// CONTRACT_SHAPE: unbounded-preservation
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-02 / US-EIP-09 (a team lead
+/// routes a project, or learns why it cannot be routed now).
+async fn fu11_create(world: &mut FoundryWorld, kind: eip::Kind) {
+    workspace(world).await;
+    connected(world, kind).await;
+    unreadable(world).await;
+    let destination_ref = match kind {
+        eip::Kind::Slack => eip::slack_double(world).channel_id(CHANNEL),
+        eip::Kind::Matrix => world.eip.names.real(ROOM),
+    };
+    let fields = vec![
+        ("kind".to_string(), kind.wire().to_string()),
+        ("destination".to_string(), destination_ref),
+        ("events".to_string(), "issue.created".to_string()),
+        ("content_level".to_string(), "summary".to_string()),
+    ];
+    let before = stored(world, tm::HOME).await;
+    let leaves_before = leaves(world, kind);
+    let routes = format!(
+        "{}/routes",
+        eip::integrations_path(world, "Identity Platform")
+    );
+
+    let answer = eip::submit_form(world, "Lena", &routes, &fields).await;
+
+    let problems = refusal_problems(world, kind, &answer, &before, leaves_before).await;
+    assert_none(
+        &format!("{kind:?} create on a connection Foundry cannot read"),
+        &problems,
+    );
+}
+
+/// FU-11 (a), edit / pause / resume / delete. Identity Platform's route to
+/// #auth-dev (or the room) runs on Canzan Labs' `kind` connection, which was
+/// sealed under a key this Foundry no longer holds. For edit, pause and
+/// delete Sam's issue is waiting on the route. Lena makes the write: the
+/// answer reads K-19 for that kind, and nothing is written: the route as it
+/// was, its deliveries untouched, no audit record, and the bot never taken
+/// out of the room. RED today: every write except a refusal-stopped resume
+/// goes through (DD-2 says none is admitted), and none answers K-19.
+///
+/// CONTRACT_SHAPE: unbounded-preservation
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-07 (a team lead manages a
+/// route, and nothing changes behind a connection Foundry cannot read).
+async fn fu11_route_write(world: &mut FoundryWorld, kind: eip::Kind, write: RouteWrite) {
+    routed(world, kind).await;
+    let dest = destination(kind);
+    match write {
+        RouteWrite::ResumePaused => eip::given_route_action(world, "Lena", "pause", dest).await,
+        RouteWrite::ResumeStopped => stopped_by_refusal(world, kind).await,
+        RouteWrite::Edit | RouteWrite::Pause | RouteWrite::Delete => {}
+    }
+    unreadable(world).await;
+    if matches!(
+        write,
+        RouteWrite::Edit | RouteWrite::Pause | RouteWrite::Delete
+    ) {
+        delivery_waiting(world).await;
+    }
+    let before = stored(world, tm::HOME).await;
+    let leaves_before = leaves(world, kind);
+
+    let answer = match write {
+        RouteWrite::Edit => {
+            eip::edit_add_event(world, "Lena", eip::EventChoice::IssueMoved, dest).await
+        }
+        RouteWrite::Pause => eip::route_action(world, "Lena", "pause", dest, true).await,
+        RouteWrite::ResumePaused | RouteWrite::ResumeStopped => {
+            eip::route_action(world, "Lena", "resume", dest, true).await
+        }
+        RouteWrite::Delete => eip::route_action(world, "Lena", "delete", dest, true).await,
+    };
+
+    let problems = refusal_problems(world, kind, &answer, &before, leaves_before).await;
+    assert_none(
+        &format!("{kind:?} {write:?} on a connection Foundry cannot read"),
+        &problems,
+    );
+}
+
+/// FU-11 (b). Identity Platform routes to #auth-dev (or the room) on a
+/// connection this Foundry cannot read. Lena chooses Send test: the answer
+/// reads K-19 for that kind, nothing is sent, and nothing is written. RED
+/// today: Slack answers "Foundry cannot post to that channel" (K-4 on the
+/// form), Matrix the uniform not-found page. Whether the refused test uses
+/// one of Lena's six a minute (R-5) is left open: neither DD-2 nor DDR-25
+/// says.
+///
+/// CONTRACT_SHAPE: unbounded-preservation
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-02 (a team lead tests a
+/// route before relying on it).
+async fn fu11_send_test(world: &mut FoundryWorld, kind: eip::Kind) {
+    routed(world, kind).await;
+    unreadable(world).await;
+    let before = stored(world, tm::HOME).await;
+    let sent_before = sent(world, kind);
+
+    let answer = match kind {
+        eip::Kind::Slack => {
+            let reference = eip::slack_double(world).channel_id(CHANNEL);
+            eip::send_test_for_reference(world, "Lena", "Identity Platform", &reference).await
+        }
+        eip::Kind::Matrix => {
+            eip::when_matrix_test(world, "Lena", ROOM).await;
+            world.eip.when_answer.clone().expect("Send test's answer")
+        }
+    };
+
+    let mut problems = refusal_problems(world, kind, &answer, &before, 0).await;
+    let more = sent(world, kind) - sent_before;
+    if more != 0 {
+        problems.push(format!("nothing is sent; {more} send(s) were made"));
+    }
+    assert_none(
+        &format!("{kind:?} Send test on a connection Foundry cannot read"),
+        &problems,
+    );
+}
+
+/// The state of the workspace's connection of `kind`, from the store.
+async fn connection_state(world: &FoundryWorld, kind: eip::Kind) -> Option<String> {
+    sqlx::query_scalar(
+        "SELECT state FROM integration_connections WHERE workspace_id = $1 AND kind = $2",
+    )
+    .bind(tm::workspace_id(world, tm::HOME))
+    .bind(kind.wire())
+    .fetch_optional(&tm::pool(world))
+    .await
+    .expect("read the connection state")
+}
+
+/// FU-11 (c), Disconnect as a repair (user decision 2026-10-27). Canzan
+/// Labs' `kind` connection, with a route, cannot be read by this Foundry.
+/// Priya opens Disconnect and confirms: the connection is forgotten, and the
+/// workspace page no longer reads K-19 or a connection. For Slack the
+/// question first warns that Foundry cannot remove its access at Slack
+/// (R-13, proposed): it cannot open the token `apps.uninstall` needs. RED
+/// today (Slack only): no warning. The Matrix case passes today and guards
+/// the repair path against the fix.
+///
+/// CONTRACT_SHAPE: bounded-change
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-07 (a workspace admin
+/// disconnects a chat connection and knows what that leaves behind).
+async fn fu11_disconnect(world: &mut FoundryWorld, kind: eip::Kind) {
+    routed(world, kind).await;
+    unreadable(world).await;
+
+    eip::when_disconnect_dialog(world, "Priya", kind).await;
+    let question = world
+        .eip
+        .when_answer
+        .clone()
+        .expect("the disconnect question");
+    let answer = eip::disconnect(world, "Priya", kind, true).await;
+
+    let mut problems = Vec::new();
+    if kind == eip::Kind::Slack && !page(&question).contains(R13_CANZAN_LABS) {
+        problems.push(format!(
+            "the disconnect question warns R-13 {R13_CANZAN_LABS:?}; {}",
+            tm::describe(&question)
+        ));
+    }
+    let section = section_text(&answer, kind.wire());
+    if section.contains(k19(kind)) {
+        problems.push(format!(
+            "after the disconnect the {kind:?} section no longer reads K-19; it reads {section:?}"
+        ));
+    }
+    if section.contains("Connected to") || section.contains("Connected as") {
+        problems.push(format!(
+            "after the disconnect no {kind:?} connection is shown; it reads {section:?}"
+        ));
+    }
+    let state = connection_state(world, kind).await;
+    if state.as_deref() != Some("disconnected") {
+        problems.push(format!(
+            "the connection is forgotten (state disconnected); it is {state:?}"
+        ));
+    }
+    assert_none(
+        &format!("{kind:?} Disconnect of a connection Foundry cannot read"),
+        &problems,
+    );
+}
+
+/// FU-11 (c), Replace token as a repair (user decision 2026-10-27). The
+/// Matrix connection, with a route, cannot be read by this Foundry. Priya
+/// enters a fresh access token for the bot and chooses Replace token: the
+/// token is saved under the key Foundry holds, and the Matrix section reads
+/// the connection, not K-19. RED today: the section still reads K-19 (the
+/// unavailable state is the boot probe's, instance-wide, and never cleared).
+///
+/// CONTRACT_SHAPE: bounded-change
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-08 (a workspace admin
+/// connects Foundry's Matrix bot, or mends its connection).
+async fn fu11_replace_token(world: &mut FoundryWorld) {
+    routed(world, eip::Kind::Matrix).await;
+    unreadable(world).await;
+
+    let answer = eip::connect_matrix(
+        world,
+        "Priya",
+        mx::FOUNDRY_ADDRESS,
+        "a new access token for the bot",
+    )
+    .await;
+
+    let section = world
+        .eip
+        .names
+        .as_scenario(&section_text(&answer, "matrix"));
+    let mut problems = Vec::new();
+    if section.contains(K19_MATRIX) {
+        problems.push(format!(
+            "the repaired connection no longer reads K-19; it reads {section:?}"
+        ));
+    }
+    if !section.contains("Connected as @foundry:canzan.dev") {
+        problems.push(format!(
+            "the repaired connection reads \"Connected as @foundry:canzan.dev\"; it reads {section:?}"
+        ));
+    }
+    assert_none(
+        "Replace token on a Matrix connection Foundry cannot read",
+        &problems,
+    );
+}
+
+/// FU-11 (d) (`Integrations::matrix_offer` answers NoSecretsKey before it
+/// looks at the saved connection). Matrix is connected, then Foundry
+/// restarts with no secrets key at all: the Matrix section reads K-19, not
+/// K-18 ("not set up yet"), for a connection that exists. RED today: K-18,
+/// with the connection line and its Disconnect link.
+///
+/// CONTRACT_SHAPE: pure-function
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-08.
+async fn fu11_key_removed(world: &mut FoundryWorld) {
+    workspace(world).await;
+    matrix_connected(world).await;
+    eip::restart_in_process_with_key(world, None).await;
+
+    eip::when_open(world, "Priya", eip::WORKSPACE_INTEGRATIONS).await;
+
+    let answer = world.eip.when_answer.clone().expect("the page");
+    let section = section_text(&answer, "matrix");
+    let mut problems = Vec::new();
+    if !section.contains(K19_MATRIX) {
+        problems.push(format!(
+            "the Matrix section reads K-19; it reads {section:?}"
+        ));
+    }
+    if section.contains(K18) {
+        problems.push(format!(
+            "the Matrix section does not read K-18 for a saved connection; it reads {section:?}"
+        ));
+    }
+    assert_none("Matrix with its secrets key removed", &problems);
+}
+
+/// The id of the first route on `project`'s integrations page, as `who`
+/// reads it.
+async fn first_route_id(world: &mut FoundryWorld, who: &str, project: &str) -> String {
+    let path = eip::integrations_path(world, project);
+    eip::when_open(world, who, &path).await;
+    let answer = world.eip.when_answer.clone().expect("the project page");
+    let doc = scraper::Html::parse_document(&answer.body);
+    let selector = scraper::Selector::parse("[data-route-id]").expect("selector");
+    doc.select(&selector)
+        .find_map(|e| e.value().attr("data-route-id").map(str::to_string))
+        .unwrap_or_else(|| {
+            panic!(
+                "precondition: {project}'s page lists a route; {}",
+                tm::describe(&answer)
+            )
+        })
+}
+
+/// Tomás saves a New issue route from Globex Platform to `destination` (a
+/// Slack channel or a Matrix room, by its scenario name).
+async fn globex_route(world: &mut FoundryWorld, kind: eip::Kind, destination: &str) -> tm::Answer {
+    let destination_ref = match kind {
+        eip::Kind::Slack => eip::slack_double(world).channel_id(destination),
+        eip::Kind::Matrix => world.eip.names.real(destination),
+    };
+    let fields = vec![
+        ("kind".to_string(), kind.wire().to_string()),
+        ("destination".to_string(), destination_ref),
+        ("events".to_string(), "issue.created".to_string()),
+        ("content_level".to_string(), "summary".to_string()),
+    ];
+    let routes = format!("{}/routes", eip::integrations_path(world, GLOBEX_PROJECT));
+    eip::submit_form(world, "Tomás", &routes, &fields).await
+}
+
+fn went_through(answer: &tm::Answer) -> bool {
+    answer.status.is_success() || answer.status.is_redirection()
+}
+
+/// Globex's `kind` connection, made by its admin Tomás through the product
+/// (Slack: the Canzan Personal Slack workspace; Matrix: the same bot), and
+/// a route from Globex Platform to it.
+async fn globex_connected_and_routed(world: &mut FoundryWorld, kind: eip::Kind) {
+    let (answer, connected_line) = match kind {
+        eip::Kind::Slack => (
+            eip::connect_slack(
+                world,
+                "Tomás",
+                Approval::Approve(SlackTeam::named("Canzan Personal")),
+            )
+            .await,
+            "Connected to Canzan Personal",
+        ),
+        eip::Kind::Matrix => {
+            eip::given_room(world, GLOBEX_ROOM, Some("Globex"), 2, false).await;
+            eip::invite_bot(world, GLOBEX_ROOM).await;
+            let answer = eip::connect_matrix(
+                world,
+                "Tomás",
+                mx::FOUNDRY_ADDRESS,
+                "the bot's access token",
+            )
+            .await;
+            (answer, "Connected as @foundry:canzan.dev")
+        }
+    };
+    let read = world.eip.names.as_scenario(&page(&answer));
+    assert!(
+        read.contains(connected_line),
+        "precondition: Tomás reads {connected_line:?}; {}",
+        tm::describe(&answer)
+    );
+    let first = match kind {
+        eip::Kind::Slack => "#ops-alerts",
+        eip::Kind::Matrix => GLOBEX_ROOM,
+    };
+    let saved = globex_route(world, kind, first).await;
+    assert!(
+        went_through(&saved),
+        "precondition: Tomás saves Globex Platform's route to {first}; {}",
+        tm::describe(&saved)
+    );
+}
+
+/// FU-11 (e), per connection (user decision 2026-10-27). Canzan Labs' `kind`
+/// connection was sealed under the first secrets key. The operator rotates:
+/// a new key, the first kept as the previous one; Globex (Tomás) connects
+/// `kind` under the new key and routes Globex Platform to it. Then the first
+/// key is dropped. Canzan Labs' connection is unreadable; Globex's opens.
+///
+/// Globex: its page reads its connection and no K-19; for Slack, Add to
+/// Slack still takes Tomás to Slack's approval screen (Reconnect); its route
+/// writes go through (a new route saved, the first one paused). Canzan Labs:
+/// its page reads K-19, and pausing its route answers K-19 and writes
+/// nothing. RED today: the unavailable state is instance-wide, so Globex's
+/// page reads K-19 and Slack's Add to Slack goes nowhere, while Canzan Labs'
+/// pause goes through.
+///
+/// CONTRACT_SHAPE: bounded-change
+/// Outcome anchor: DISCUSS Elevator Pitch US-EIP-01 / US-EIP-08 (a
+/// workspace's chat connection works, whatever another workspace's does).
+async fn fu11_per_connection(world: &mut FoundryWorld, kind: eip::Kind) {
+    routed(world, kind).await;
+    tm::seed_foreign_workspace(world, "Platform", "Tomás Rivera", "tomas.rivera@canzan.dev").await;
+    eip::given_projects(
+        world,
+        &[(
+            GLOBEX_PROJECT.to_string(),
+            "GLX".to_string(),
+            "Platform".to_string(),
+        )],
+    )
+    .await;
+    world.eip.spec.previous_secrets_key = Some(eip::SECRETS_KEY.to_string());
+    eip::restart_in_process_with_key(world, Some(eip::NEW_SECRETS_KEY)).await;
+    globex_connected_and_routed(world, kind).await;
+    world.eip.spec.previous_secrets_key = None;
+    eip::restart_in_process_with_key(world, Some(eip::NEW_SECRETS_KEY)).await;
+
+    let mut problems = Vec::new();
+
+    // Globex: its connection opens.
+    eip::when_open(world, "Tomás", eip::WORKSPACE_INTEGRATIONS).await;
+    let globex_page = world.eip.when_answer.clone().expect("Globex's page");
+    let globex = world
+        .eip
+        .names
+        .as_scenario(&section_text(&globex_page, kind.wire()));
+    if globex.contains(k19(kind)) {
+        problems.push(format!(
+            "Globex's {kind:?} section does not read K-19 (its connection opens); it reads {globex:?}"
+        ));
+    }
+    let connected_line = match kind {
+        eip::Kind::Slack => "Connected to Canzan Personal",
+        eip::Kind::Matrix => "Connected as @foundry:canzan.dev",
+    };
+    if !globex.contains(connected_line) {
+        problems.push(format!(
+            "Globex's {kind:?} section reads {connected_line:?}; it reads {globex:?}"
+        ));
+    }
+    if kind == eip::Kind::Slack {
+        eip::when_open(world, "Tomás", eip::SLACK_INSTALL).await;
+        let install = world
+            .eip
+            .when_answer
+            .clone()
+            .expect("Add to Slack's answer");
+        let to_slack = install.location.clone().unwrap_or_default();
+        if !(install.status.is_redirection()
+            && to_slack.starts_with(&eip::slack_double(world).authorize_url()))
+        {
+            problems.push(format!(
+                "Add to Slack (Reconnect) takes Tomás to Slack's approval screen; {}",
+                tm::describe(&install)
+            ));
+        }
+    }
+    let globex_first = first_route_id(world, "Tomás", GLOBEX_PROJECT).await;
+    let second = match kind {
+        eip::Kind::Slack => "#general",
+        eip::Kind::Matrix => {
+            eip::given_room(world, GLOBEX_OPS_ROOM, Some("Globex ops"), 2, false).await;
+            eip::invite_bot(world, GLOBEX_OPS_ROOM).await;
+            GLOBEX_OPS_ROOM
+        }
+    };
+    let created = globex_route(world, kind, second).await;
+    if !went_through(&created) || page(&created).contains(k19(kind)) {
+        problems.push(format!(
+            "Tomás saves Globex Platform's route to {second}; {}",
+            tm::describe(&created)
+        ));
+    }
+    let pause = format!(
+        "{}/routes/{globex_first}/pause",
+        eip::integrations_path(world, GLOBEX_PROJECT)
+    );
+    let paused = eip::submit_form(world, "Tomás", &pause, &[]).await;
+    let paused_now: Option<bool> = sqlx::query_scalar(
+        "SELECT paused_at IS NOT NULL FROM integration_routes WHERE id::text = $1",
+    )
+    .bind(&globex_first)
+    .fetch_optional(&tm::pool(world))
+    .await
+    .expect("read Globex's route");
+    if paused.status != StatusCode::SEE_OTHER || paused_now != Some(true) {
+        problems.push(format!(
+            "Tomás pauses Globex Platform's first route (paused: {paused_now:?}); {}",
+            tm::describe(&paused)
+        ));
+    }
+
+    // Canzan Labs: its connection is unreadable.
+    eip::when_open(world, "Priya", eip::WORKSPACE_INTEGRATIONS).await;
+    let canzan_page = world.eip.when_answer.clone().expect("Canzan Labs' page");
+    let canzan = section_text(&canzan_page, kind.wire());
+    if !canzan.contains(k19(kind)) {
+        problems.push(format!(
+            "Canzan Labs' {kind:?} section reads K-19; it reads {canzan:?}"
+        ));
+    }
+    let before = stored(world, tm::HOME).await;
+    let leaves_before = leaves(world, kind);
+    let answer = eip::route_action(world, "Lena", "pause", destination(kind), true).await;
+    problems.extend(
+        refusal_problems(world, kind, &answer, &before, leaves_before)
+            .await
+            .into_iter()
+            .map(|p| format!("Canzan Labs' pause: {p}")),
+    );
+
+    assert_none(
+        &format!("{kind:?} unavailable judged per connection"),
+        &problems,
     );
 }
 

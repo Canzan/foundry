@@ -19,6 +19,9 @@ settled an item, where there is one. Nothing here is released: no push, no tag.
 | UD-8 | 2026-10-25 | **Accepted as known behaviour:** "mine" emails ("issues I created or commented on") for a deleted issue never send. | FD DISCUSS US-EIP-10 AC; FD DESIGN DDR-6 |
 | UD-9 | 2026-10-21 | **Deliverable C** (signed webhooks, OAuth apps, routes by API; slices 06-08) is split off as the feature `integration-webhooks-and-oauth-apps`. | FD DISCUSS [REF] User Decisions (OD-1); FD DESIGN [REF] What Deliverable C Inherits |
 | UD-10 | 2026-10-25 | **The release gate:** no tag until (a) the H-3 recorded Slack fixtures exist and the Slack scenarios pass with `FOUNDRY_EIP_HANDWRITTEN_SLACK` unset, (b) G1-G4 hold, and (c) a full `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` is green. | FD DEVOPS [REF] CI/CD pipeline outline (G1-G6); §5 |
+| UD-11 | 2026-10-27 | **FU-11 is fixed before release:** a connection this Foundry cannot read refuses every route write (create, edit, pause, resume, delete) and Send test with K-19 for its kind, and writes nothing. | FD DESIGN DD-2 (amended 2026-10-27); FD DISTILL DIST-34; FU-11 |
+| UD-12 | 2026-10-27 | **Disconnect and Replace token stay allowed on an unreadable connection, as repair paths** (DD-2 amended). The Slack disconnect question on such a connection warns that Foundry's access at Slack cannot be removed automatically and must be removed in Slack by hand: new copy R-13, proposed, awaiting ratification (PA-6). | FD DESIGN DD-2; FD DISTILL [REF] User ratification (R-13, proposed); DIST-34 |
+| UD-13 | 2026-10-27 | **"Unavailable" is judged per connection:** each workspace's page and doors judge their own connection. A workspace whose credential opens keeps Add to Slack/Reconnect, its connection line and its route writes, and reads no K-19, while another workspace's credential is unreadable. | FD DESIGN DD-2; DIST-34 (e) |
 
 Earlier user decisions (OD-1..OD-15 "accept all", 2026-10-21; R-1..R-11, 2026-10-22) are recorded
 in FD DISCUSS [REF] User Decisions and FD DISTILL [REF] User ratification.
@@ -77,7 +80,7 @@ in FD DISCUSS [REF] User Decisions and FD DISTILL [REF] User ratification.
 |---|---|---|
 | FU-9 | Email burst coalescing, as a feature (UD-7). | FD DISCUSS D-11 |
 | FU-10 | Burst copy for New issue and New comment bursts is unratified. It is unreachable today (no single action creates more than five issues or comments). | FD DESIGN UI-3; FD DISTILL R-10 |
-| FU-11 | DD-2 says degraded mode admits no connection or route write on an unavailable connection. 01-08 built the page side (Add to Slack hidden, K-19 shown). No later step recorded refusing route writes on an unavailable connection. Verify, and add a scenario if it is missing. | FD DESIGN DD-2 |
+| FU-11 | **In progress (2026-10-27): confirmed, chosen for release (UD-11..UD-13); RED tests written (DIST-34), fix pending.** DD-2 says degraded mode admits no connection or route write on an unavailable connection. 01-08 built the page side (Add to Slack hidden, K-19 shown). No later step refused route writes on an unavailable connection: edit, pause, resume (paused) and delete went through, create and Send test answered K-4 or the uniform 404, `matrix_offer` read K-18 for a saved Matrix connection with no key, and the unavailable state was instance-wide. | FD DESIGN DD-2 (amended 2026-10-27); FD DISTILL DIST-34 |
 | FU-12 | Mutation survivors left after `12cdbbe`: the worker's `Retention::tick`, `expiry_of` and `head_of` (they need a worker harness); `route_form` `matrix_homeserver` and the channels Matrix arm; `shared_tick`; Slack `answer_head` (Retry-After); services `room_still_routed` (needs a Postgres-backed services test); app lane rows not measured. | FD DEVOPS [REF] Mutation testing strategy |
 | FU-13 | No scenario follows a route's History link from the project page, and no scenario covers the three POST doors that redirect signed-out visitors (route create, route test, Slack return). | `b54a3b4` |
 | FU-14 | Rename the store test `previous_release_migrator_accepts_0028_to_0031`: it now migrates through 0032. | FD DEVOPS C-9 |
@@ -97,6 +100,7 @@ in FD DISCUSS [REF] User Decisions and FD DISTILL [REF] User ratification.
 | PA-3 | **Accept ADR-EIP-001..007.** They are still *Proposed*. DEVOPS took DD-1..DD-11 as accepted at their recommendations; the user has not confirmed them. Each ADR now carries an "Implemented" note. | FD DESIGN [REF] Open Design Decisions; `docs/product/architecture/adr-eip-00*.md` |
 | PA-4 | **Phase C session cleanup:** remove `deliver/.develop-progress.json` and `.nwave/des/deliver-session.json`. | nw-finalize Phase C |
 | PA-5 | **Push and tag**, only on the user's go and only after §5. | Release gate |
+| PA-6 | **Ratify R-13**, the Slack disconnect warning on a connection Foundry cannot read: "Foundry cannot remove its access to {owner} Slack: remove the Foundry app in Slack by hand." Also open: whether it replaces the question's last sentence ("Foundry's access to {owner} Slack is removed."), which is not true for such a connection; the test asserts only that R-13 is shown. | FD DISTILL [REF] User ratification (R-13); UD-12 |
 
 ## 5. Release gate (open; no release has been made)
 
