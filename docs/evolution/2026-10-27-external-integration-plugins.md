@@ -417,10 +417,19 @@ The root causes and countermeasures are in the [DELIVER retrospective](../featur
   - the New issue line read the lane at send time (02-01; fixed with the payload snapshot);
   - SMTP emails had no `Content-Type`, so "·" arrived as "Â·" (`4c43d8c`);
   - the probe fixture lacked 0031 (`7c8cc67`);
-  - the A1/A2 and B1-B3 review findings.
-- **Pre-existing flake to investigate before release:** two slice-8 `@migration-histogram`
-  scenarios migrate fresh schemas concurrently and hit "deadlock detected". This happens on the
-  pre-feature base too, and is likely 0028/0029 against a concurrent migrate.
+  - the A1/A2 and B1-B3 review findings;
+  - **release-blocking, found after finalize: concurrent migrations deadlock on 0029** (FU-21, in
+    progress). Two slice-8 `@migration-histogram` scenarios migrate concurrently and hit "deadlock
+    detected". This was first recorded as a pre-existing flake that also happened on the
+    pre-feature base. That was wrong. The RCA (2026-10-27) found it is this feature's defect: 10 of
+    10 two-boot trials deadlocked at `931227c`, 0 of 10 at the base `45a81d3`. `Store::migrate`
+    waits for the migration lock with a blocking `pg_advisory_lock`, and a waiting replica holds a
+    snapshot that 0029's `CREATE INDEX CONCURRENTLY` must outwait, while the index build's replica
+    holds the lock the waiter wants. Postgres kills one of them. When the index build is the
+    victim, `idx_outbox_undispatched` is left INVALID and every later boot fails with 42P07 until
+    R-7. Production hits it when two replicas boot together during the upgrade (surge, scale-out,
+    a restart racing a new pod). The proposed fix polls `pg_try_advisory_lock` instead; RED tests
+    are in `crates/foundry-store/tests/concurrent_migrate.rs`.
 - **Known flakes seen again:** sqlx `'\0'` under concurrency (an eip-01 row; passed alone);
   PortNotExposed and connection resets under load.
 - **Advisory:** RUSTSEC-2026-0386 (tokio), bumped to 1.54.1 in `4576521`.
@@ -474,8 +483,8 @@ The gate:
    held for the user's approval by design.
 6. G5/G6: the operator's H-1 (secrets key) and H-2 (Slack app) per cluster before integrations are
    offered there; the CHANGELOG and RELEASING edits are landed.
-7. Before the tag: investigate the migration deadlock flake (Issues), and work through the manual
-   Continuwuity checklist from 04-02.
+7. Before the tag: fix the concurrent-migration deadlock on 0029 (FU-21, Issues) until
+   `concurrent_migrate.rs` is green, and work through the manual Continuwuity checklist from 04-02.
 8. After deploy: DoD 3, the dogfood on dev:
    - the operator sets up the Slack app;
    - Priya connects Slack and Matrix;

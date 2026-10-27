@@ -314,8 +314,14 @@ The seven root causes do not contradict each other. Two of them link:
 
 ## Not analysed here
 
-- The migration "deadlock detected" flake: it happens on the pre-feature base too, so it is not a
-  DELIVER cause. It is open before the tag (`upstream-issues.md` §5).
+- The migration "deadlock detected" failure. This section first called it a flake that also
+  happens on the pre-feature base. That was wrong. The RCA (2026-10-27) showed it is a defect of
+  this feature: 0029's `CREATE INDEX CONCURRENTLY` deadlocks with a replica waiting in
+  `Store::migrate`'s blocking `pg_advisory_lock` (10 of 10 two-boot trials at `931227c`, 0 of 10
+  at the base `45a81d3`). ADR-EIP-002 / U-D7 weighed the concurrent build against board writes but
+  not against a sibling replica waiting for the migration lock. It is release-blocking and in
+  progress as FU-21 (`upstream-issues.md` §3c, §5); its root cause is not analysed with the seven
+  above.
 - FU-11 (degraded mode may not refuse route writes): a possible gap, not yet confirmed
   (`upstream-issues.md` §3c).
 
