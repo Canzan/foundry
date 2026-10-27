@@ -3245,3 +3245,338 @@ async fn a_stored_kind_this_foundry_does_not_know_is_refused_when_read() {
         routes.as_ref().map_or(0, Vec::len)
     );
 }
+
+// ---------------------------------------------------------------------------
+// DELIVER Phase 5: store edges the mutation measurement found untested here
+// ---------------------------------------------------------------------------
+
+/// The lab route's change by Lena, now.
+fn change_of(lab: &Lab, route_id: Id) -> RouteChange {
+    RouteChange {
+        project_id: lab.auth,
+        route_id,
+        actor_id: lab.lena,
+        via: "web".to_string(),
+        at: OffsetDateTime::now_utc(),
+    }
+}
+
+async fn route_audit(pool: &PgPool) -> Vec<String> {
+    sqlx::query_scalar(
+        "SELECT action FROM integration_audit_events
+          WHERE action LIKE 'route_%' ORDER BY created_at, id",
+    )
+    .fetch_all(pool)
+    .await
+    .expect("audit")
+}
+
+async fn route_events(pool: &PgPool, route: Id) -> (Vec<String>, String) {
+    sqlx::query_as("SELECT events, content_level FROM integration_routes WHERE id = $1")
+        .bind(route)
+        .fetch_one(pool)
+        .await
+        .expect("the route")
+}
+
+// US-EIP-07: an edit changes the route with one record; an edit of a route
+// that is not there changes nothing; an edit in a deleted project is refused
+// as deleted and changes nothing.
+#[tokio::test]
+async fn an_edit_changes_its_route_once_and_nothing_else() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let edit = foundry_store::integrations::RouteEdit {
+        events: vec!["issue.deleted".to_string()],
+        content_level: "link_only".to_string(),
+        lanes: vec![],
+    };
+    let before = route_audit(&pool).await;
+
+    assert_eq!(
+        lab.store
+            .edit_route(&change_of(&lab, Id::now_v7()), &edit)
+            .await
+            .expect("edit a route that is not there"),
+        RouteChangeOutcome::Unchanged
+    );
+    assert_eq!(route_audit(&pool).await, before, "nothing recorded");
+
+    assert_eq!(
+        lab.store
+            .edit_route(&change_of(&lab, lab.route), &edit)
+            .await
+            .expect("edit"),
+        RouteChangeOutcome::Changed { cancelled: 0 }
+    );
+    assert_eq!(
+        route_events(&pool, lab.route).await,
+        (vec!["issue.deleted".to_string()], "link_only".to_string())
+    );
+    let mut edited = before.clone();
+    edited.push("route_edited".to_string());
+    assert_eq!(route_audit(&pool).await, edited);
+
+    lab.store
+        .soft_delete_project(lab.ws, lab.team, lab.auth, lab.lena)
+        .await
+        .expect("delete Identity Platform");
+    let again = foundry_store::integrations::RouteEdit {
+        events: vec!["issue.created".to_string()],
+        content_level: "summary".to_string(),
+        lanes: vec![],
+    };
+    assert_eq!(
+        lab.store
+            .edit_route(&change_of(&lab, lab.route), &again)
+            .await
+            .expect("edit in a deleted project"),
+        RouteChangeOutcome::ProjectDeleted
+    );
+    assert_eq!(
+        route_events(&pool, lab.route).await,
+        (vec!["issue.deleted".to_string()], "link_only".to_string()),
+        "the route is as it was"
+    );
+    assert_eq!(route_audit(&pool).await, edited);
+}
+
+// ADR-EIP-004 decision 4: the boot probe reads every stored credential, one
+// per connection, in row order; a disconnected one holds none.
+#[tokio::test]
+async fn the_probe_reads_every_stored_credential() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let matrix = Id::now_v7();
+    lab.store
+        .upsert_connection(&NewConnection {
+            id: matrix,
+            workspace_id: lab.ws,
+            kind: "matrix".to_string(),
+            external_id: "https://matrix.canzan.dev".to_string(),
+            app_id: None,
+            bot_user_id: Some("@foundry:canzan.dev".to_string()),
+            label: "matrix.canzan.dev".to_string(),
+            detail: Some("@foundry:canzan.dev".to_string()),
+            sealed_credential: vec![9, 8, 7],
+            connected_by: lab.lena,
+            connected_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .expect("connect Matrix");
+    assert_eq!(
+        lab.store.sealed_credentials().await.expect("credentials"),
+        vec![vec![0], vec![9, 8, 7]]
+    );
+    // A connection read with its credential names its row in a log line,
+    // never the credential.
+    let read = lab
+        .store
+        .sealed_connection(lab.ws, "matrix")
+        .await
+        .expect("read")
+        .expect("the Matrix connection");
+    assert_eq!(
+        format!("{read:?}"),
+        format!("SealedConnection {{ id: {matrix}, state: \"connected\", .. }}")
+    );
+}
+
+// ADR-EIP-003: a delivery's event names its lane by the lane's label now,
+// not by its slug.
+#[tokio::test]
+async fn a_deliverys_event_names_its_lane_by_label() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let (slug, label): (String, String) = sqlx::query_as(
+        "SELECT slug, label FROM lanes WHERE project_id = $1 AND slug <> label
+          ORDER BY position LIMIT 1",
+    )
+    .bind(lab.auth)
+    .fetch_one(&pool)
+    .await
+    .expect("a lane whose label is not its slug");
+    sqlx::query("INSERT INTO outbox (event_type, payload) VALUES ('IssueCreated', $1)")
+        .bind(serde_json::json!({
+            "project_id": lab.auth.to_string(), "key": "AUTH-1", "state": slug
+        }))
+        .execute(&pool)
+        .await
+        .expect("an event in the lane");
+    lab.store
+        .dispatch_tick(
+            100,
+            OffsetDateTime::now_utc(),
+            GIVE_UP,
+            every_matching_route,
+        )
+        .await
+        .expect("dispatch");
+    let id: i64 = sqlx::query_scalar("SELECT max(id) FROM integration_deliveries")
+        .fetch_one(&pool)
+        .await
+        .expect("the delivery");
+    let context = lab
+        .store
+        .delivery_context(id)
+        .await
+        .expect("context")
+        .expect("the delivery");
+    assert_eq!(context.event.lane_label, Some(label));
+}
+
+// R-4 and US-EIP-05: the workspace's activity and a route's history read back
+// what was recorded.
+#[tokio::test]
+async fn activity_and_route_history_read_back_what_was_recorded() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let activity = lab
+        .store
+        .integration_activity(lab.ws, 10)
+        .await
+        .expect("activity");
+    assert_eq!(
+        activity
+            .iter()
+            .map(|row| (
+                row.actor_name.as_deref(),
+                row.action.as_str(),
+                row.kind.as_str(),
+                row.subject.as_str()
+            ))
+            .collect::<Vec<_>>(),
+        vec![(Some("Lena"), "route_created", "slack", "#auth-dev")]
+    );
+    let delivery = lab.one_delivery().await;
+    let history = lab
+        .store
+        .route_history(lab.route, 10)
+        .await
+        .expect("history");
+    assert_eq!(history.len(), 1, "the one delivery (id {delivery})");
+}
+
+// US-EIP-06: a credential sealed for another row than the workspace's
+// connection of its kind is refused as stale; nothing changes.
+#[tokio::test]
+async fn a_credential_sealed_for_another_row_is_refused_as_stale() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let universe = || async {
+        let connections: Vec<String> =
+            sqlx::query_scalar("SELECT row_to_json(c)::text FROM integration_connections c")
+                .fetch_all(&pool)
+                .await
+                .expect("connections");
+        let audit: Vec<String> = sqlx::query_scalar("SELECT action FROM integration_audit_events")
+            .fetch_all(&pool)
+            .await
+            .expect("audit");
+        (connections, audit)
+    };
+    let before = universe().await;
+    let stale = lab
+        .store
+        .upsert_connection(&NewConnection {
+            id: Id::now_v7(),
+            workspace_id: lab.ws,
+            kind: "slack".to_string(),
+            external_id: "T0CANZAN".to_string(),
+            app_id: Some("A0EIPFOUNDRY".to_string()),
+            bot_user_id: Some("U0FOUNDRYBOT".to_string()),
+            label: "Canzan Labs".to_string(),
+            detail: None,
+            sealed_credential: vec![4, 4, 4],
+            connected_by: lab.lena,
+            connected_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .expect("the stale write");
+    assert_eq!(stale, ConnectionWriteOutcome::StaleRow);
+    assert_eq!(universe().await, before, "nothing changed");
+}
+
+// US-EIP-10 and US-EIP-11: a member's choices read back; a stop names the
+// live project and removes exactly its one choice; once the project is
+// deleted, a stop finds nothing and removes nothing.
+#[tokio::test]
+async fn email_choices_read_back_and_a_stop_removes_exactly_one() {
+    let pg = postgres().await;
+    let pool = pg.pool().await;
+    run_migrations(&pool).await.expect("head");
+    let lab = lab(&pool).await;
+    let choices = [
+        ("comment.added".to_string(), "mine".to_string()),
+        ("issue.created".to_string(), "all".to_string()),
+        ("issue.moved".to_string(), "all".to_string()),
+    ];
+    assert!(lab
+        .store
+        .save_email_choices(lab.lena, lab.auth, &choices)
+        .await
+        .expect("save"));
+    let read = |events: &[&str]| -> Vec<foundry_store::integrations::EmailChoiceRow> {
+        choices
+            .iter()
+            .filter(|(event, _)| events.contains(&event.as_str()))
+            .map(
+                |(event, scope)| foundry_store::integrations::EmailChoiceRow {
+                    project_id: lab.auth,
+                    event: event.clone(),
+                    scope: scope.clone(),
+                },
+            )
+            .collect()
+    };
+    assert_eq!(
+        lab.store.email_choices(lab.lena).await.expect("read"),
+        read(&["comment.added", "issue.created", "issue.moved"])
+    );
+    assert_eq!(
+        lab.store.email_stop_project(lab.auth).await.expect("name"),
+        Some("Identity Platform".to_string())
+    );
+    assert_eq!(
+        lab.store
+            .stop_email_choice(lab.lena, lab.auth, "issue.created")
+            .await
+            .expect("stop"),
+        Some("Identity Platform".to_string())
+    );
+    assert_eq!(
+        lab.store.email_choices(lab.lena).await.expect("read"),
+        read(&["comment.added", "issue.moved"])
+    );
+
+    lab.store
+        .soft_delete_project(lab.ws, lab.team, lab.auth, lab.lena)
+        .await
+        .expect("delete Identity Platform");
+    assert_eq!(
+        lab.store.email_stop_project(lab.auth).await.expect("name"),
+        None
+    );
+    assert_eq!(
+        lab.store
+            .stop_email_choice(lab.lena, lab.auth, "issue.moved")
+            .await
+            .expect("stop"),
+        None
+    );
+    let left: i64 = sqlx::query_scalar("SELECT count(*) FROM integration_email_choices")
+        .fetch_one(&pool)
+        .await
+        .expect("count");
+    assert_eq!(left, 2, "a deleted project's stop removes nothing");
+}

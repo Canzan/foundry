@@ -16062,4 +16062,24 @@ cc = "1"
             );
         }
     }
+
+    /// DELIVER Phase 5: the marker read is the one the seam module's body
+    /// declares, found from the module's opening brace even when the brace
+    /// sits far below `mod claimant_seam` and a decoy `const` stands just
+    /// above the module: the decoy is never the marker.
+    #[test]
+    fn test_seam_marker_is_read_from_the_seam_modules_body() {
+        let seam = format!(
+            "pub const CLAIMANT_SEAM_MARKER: &str = \"decoy-before-the-seam\";\n\
+             #[cfg(feature = \"test-support\")]\n\
+             pub mod claimant_seam\n\
+             // {:-<82}\n\
+             {{\n    pub const CLAIMANT_SEAM_MARKER: &str = \"seam-marker-under-test\";\n}}\n",
+            "a note between the module's name and its body "
+        );
+        let tree = seam_tree(&seam, CLEAN_BUILD, &[]);
+        assert_eq!(test_seam_marker(tree.path()), Ok(MARKER.to_string()));
+        let violations = check_integrations_test_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
 }

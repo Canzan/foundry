@@ -2062,3 +2062,18 @@ proptest! {
         prop_assert_eq!(planned, expected);
     }
 }
+
+// DELIVER Phase 5: a connection's state reads back from its stored name, for
+// every state; an unknown name is no state.
+#[test]
+fn every_connection_state_reads_back_from_its_stored_name() {
+    for (state, name) in [
+        (ConnectionState::Connected, "connected"),
+        (ConnectionState::Lost, "lost"),
+        (ConnectionState::Disconnected, "disconnected"),
+    ] {
+        assert_eq!(state.wire_name(), name);
+        assert_eq!(ConnectionState::from_wire_name(name), Some(state), "{name}");
+    }
+    assert_eq!(ConnectionState::from_wire_name("paused"), None);
+}
