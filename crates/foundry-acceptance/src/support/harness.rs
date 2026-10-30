@@ -51,6 +51,7 @@ static PG_CONTAINER: Mutex<Option<ContainerAsync<Postgres>>> = Mutex::new(None);
 static PG_CONTAINER_INIT: AsyncOnceCell<()> = AsyncOnceCell::const_new();
 static PG_BASE_URL: OnceCell<String> = OnceCell::new();
 static SCHEMA_COUNTER: Mutex<u64> = Mutex::new(0);
+const POSTGRES_SHM_BYTES: u64 = 256 * 1024 * 1024;
 
 /// Boot the shared Postgres container if not already up. Returns the
 /// `postgres://...` URL pointing at the default `postgres` database
@@ -73,9 +74,13 @@ pub async fn ensure_postgres() -> &'static str {
             // Pin to `16-alpine` to match production (docker-compose.yml +
             // deploy/k8s); testcontainers' `Postgres::default()` would otherwise
             // pull 11-alpine, testing against a different major version than ships.
+            // Docker's default 64 MB /dev/shm is too small here: late in @all the
+            // catalog holds ~2,000 scenario schemas, and pg_dump's parallel catalog
+            // query fails with "could not resize shared memory segment".
             let container: ContainerAsync<Postgres> = Postgres::default()
                 .with_tag("16-alpine")
                 .with_cmd(["postgres", "-c", "max_connections=300"])
+                .with_shm_size(POSTGRES_SHM_BYTES)
                 .start()
                 .await
                 .expect("start postgres container");
