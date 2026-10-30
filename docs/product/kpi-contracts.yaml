@@ -883,6 +883,25 @@ features:
             c1: {p50: 61.894, p95: 119.717, p99: 232.972}
             c4: {p50: 301.475, p95: 463.746, p99: 597.208}
           note: "lane_move latency grows with the destination column's size (a move drops the card at the top of the column; block medians 18 ms at an empty column to 116 ms at ~500 cards for c1, and c4 runs after c1 on a column of 500-1050 cards). Arms move into their own project's column in lockstep, so the B/A ratio is unaffected; absolute move numbers are not a per-card cost"
+        guardrail_measured:
+          command: "EIP_KPI4_MODE=guardrail timeout 30m cargo test -p foundry-acceptance --release --test eip_kpi4_bench -- --ignored --nocapture (after eip_warm, scripts/eip-lanes.sh), 4 invocations pooled"
+          commit: 48c41988c720ac6766c529919fbf549023f58179   # a dry run; release gate G3 reruns on the tagged commit
+          verdict: PASS   # the first 3 runs were INCONCLUSIVE; the 4th pooled run completed the method's 1 + 3 repeats
+          result_file: target/eip-kpi4/48c41988c720ac6766c529919fbf549023f58179.json
+          runs: 4
+          machine: Mac16,5
+          cores: 16
+          load_average_during_run: "9-15 (1-min) across the 4 runs; other sessions active, not a quiet machine"
+          postgres_image: postgres:16-alpine
+          profile: release
+          deliveries: "each run queued about 2,097 per kind and attempted 1 per kind; Slack and Matrix holes each saw 5 connections"
+          ratio_p95_b_over_a:
+            issue_create:
+              c1: {ratio: 0.930, ci95: [0.818, 1.009], verdict: PASS}
+              c4: {ratio: 0.908, ci95: [0.825, 1.005], verdict: PASS}
+            lane_move:
+              c1: {ratio: 1.012, ci95: [0.948, 1.077], verdict: PASS}
+              c4: {ratio: 0.989, ci95: [0.933, 1.054], verdict: PASS}
         method: "UI-9 adopted: #[ignore]d foundry-acceptance test tests/eip_kpi4_bench.rs; release subprocess on postgres:16-alpine; arm A no routes, arm B Slack + Matrix + email routes black-holed with the worker active; 50 warm-up calls discarded; 500 creates and 500 moves at concurrency 1 and again at 4; arms interleaved in blocks of 50; bootstrap (2,000 resamples, fixed seed) 95% interval on p95(B)/p95(A). PASS if the upper bound <= 1.10; FAIL if the lower bound > 1.10; otherwise INCONCLUSIVE: 3 full repeats, median ratio with the pooled interval"
         instruments:
           - {kind: bench, ref: "timeout 90m cargo test -p foundry-acceptance --release --test eip_kpi4_bench -- --ignored --nocapture, one invocation per repeat, each bounded; own postgres:16-alpine container with a 256 MB /dev/shm; output target/eip-kpi4/<sha>.json with a verdict field", oracle: "verdict field PASS (release gate G3 reads the field)"}
