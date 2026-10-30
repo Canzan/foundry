@@ -17,9 +17,10 @@
 //! field, read by G3) plus each run's raw samples under `target/eip-kpi4/<sha>/`.
 //!
 //! Modes (`EIP_KPI4_MODE`):
-//! - `guardrail` (default): arms A and B; refuses to run while arm B cannot be
-//!   built (route creation lands with slice 01), rather than report a verdict
-//!   it did not measure.
+//! - `guardrail` (default): arms A and B, with the worker sending to three
+//!   black holes (listeners that accept and never answer); a run in which any
+//!   route kind saw no attempt fails, rather than report a verdict it did not
+//!   measure.
 //! - `baseline`: arm A only (task T-1); verdict `BASELINE`, the arm-A
 //!   p50/p95/p99 per operation and concurrency go into `kpi-contracts.yaml`.
 //!
@@ -27,6 +28,10 @@
 //! over loopback; the board's htmx forms are what is driven.
 
 use foundry_acceptance::steps::handler_instrumentation::FoundrySubprocess;
+use foundry_acceptance::support::external_integration_plugins::SECRETS_KEY;
+use foundry_acceptance::support::matrix_homeserver::{MAILPIT_IMAGE, MAILPIT_TAG};
+use foundry_app::integrations::credential_slot;
+use foundry_auth::secret_box::SecretBox;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use secrecy::SecretString;
@@ -34,12 +39,18 @@ use serde_json::{json, Value};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions, PgSslMode};
 use sqlx::PgPool;
 use std::collections::BTreeMap;
+use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::str::FromStr;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use testcontainers_modules::postgres::Postgres;
+use testcontainers_modules::testcontainers::core::{IntoContainerPort, Mount};
 use testcontainers_modules::testcontainers::runners::AsyncRunner;
-use testcontainers_modules::testcontainers::ImageExt;
+use testcontainers_modules::testcontainers::{ContainerAsync, GenericImage, ImageExt};
+use tokio::io::AsyncReadExt;
+use tokio::net::{TcpListener, TcpStream};
 
 const POSTGRES_TAG: &str = "16-alpine";
 const SHM_BYTES: u64 = 256 * 1024 * 1024;
@@ -56,6 +67,8 @@ const PASSWORD: &str = "eip-kpi4-bench-password";
 const EMAIL: &str = "bench@example.test";
 const TEAM: &str = "bench";
 const MOVE_TARGET: &str = "in_progress";
+const RECIPIENT_EMAIL: &str = "reader@example.test";
+const BENCH_EVENTS: [&str; 2] = ["issue.created", "issue.moved"];
 
 #[test]
 #[ignore = "manual: EIP-KPI-4 bench (run via eip-kpi4-bench)"]
@@ -71,19 +84,30 @@ async fn run_bench() {
     let started = Instant::now();
     let mode = Mode::from_env();
     let arms = mode.arms();
-    if let Some(reason) = arms.iter().find_map(|arm| arm.unavailable_reason()) {
-        panic!(
-            "EIP-KPI-4 {mode:?} run refused: {reason}. Run EIP_KPI4_MODE=baseline for arm A only."
-        );
-    }
 
     let database = BenchDatabase::start().await;
     for arm in &arms {
         database.seed_project(arm).await;
     }
-    let foundry = FoundrySubprocess::spawn(&database.url_with_schema(), SCHEMA.to_string(), 5)
-        .await
-        .expect("spawn the release foundry subprocess");
+    let holes = match mode {
+        Mode::Guardrail => Some(BlackHoles::bind().await),
+        Mode::Baseline => None,
+    };
+    if let Some(holes) = &holes {
+        database.seed_routes(&Arm::B, holes).await;
+    }
+    let env = holes.as_ref().map(BlackHoles::env).unwrap_or_default();
+    let foundry = FoundrySubprocess::spawn_with_env_overrides(
+        &database.url_with_schema(),
+        SCHEMA.to_string(),
+        5,
+        &env,
+    )
+    .await
+    .expect("spawn the release foundry subprocess");
+    if let Some(holes) = &holes {
+        holes.set_relay_paused(true);
+    }
     let base = format!("http://{}", foundry.main_addr);
     let client = BoardClient::sign_in(&base).await;
 
@@ -100,7 +124,13 @@ async fn run_bench() {
             }
         }
     }
+    if let Some(holes) = &holes {
+        database.assert_every_kind_attempted(holes).await;
+    }
     drop(foundry);
+    if let Some(holes) = holes {
+        holes.stop().await;
+    }
     database.stop().await;
 
     let run = RunRecord::new(mode, samples, started.elapsed());
@@ -160,14 +190,121 @@ impl Arm {
         project_slug: "arm-b",
         key_prefix: "ARMB",
     };
+}
 
-    /// Arm B's routes need the integration route model, which lands with slice
-    /// 01 (Slack), 04 (Matrix) and 05 (email). Until then the arm cannot exist.
-    fn unavailable_reason(&self) -> Option<&'static str> {
-        (*self == Self::B).then_some(
-            "arm B unavailable before slice 01: no integration routes exist yet \
-             (Slack 01, Matrix 04, email 05)",
-        )
+// ------------------------------------------------------------- the black holes
+
+/// A listener for Slack or Matrix: it accepts, counts and holds each connection
+/// and never writes, so a send lasts until its own timeout.
+struct BlackHole {
+    port: u16,
+    connections: Arc<AtomicUsize>,
+}
+
+impl BlackHole {
+    async fn bind(address: IpAddr) -> Self {
+        let listener = TcpListener::bind((address, 0))
+            .await
+            .expect("bind a black hole");
+        let port = listener.local_addr().expect("a black hole's port").port();
+        let connections = Arc::new(AtomicUsize::new(0));
+        let counted = connections.clone();
+        tokio::spawn(async move {
+            let mut held = Vec::new();
+            while let Ok((stream, _)) = listener.accept().await {
+                counted.fetch_add(1, Ordering::SeqCst);
+                held.push(stream);
+            }
+        });
+        Self { port, connections }
+    }
+
+    fn connections(&self) -> usize {
+        self.connections.load(Ordering::SeqCst)
+    }
+}
+
+/// SMTP is the pinned relay, paused once Foundry has booted: the shipped
+/// provider requires STARTTLS at its startup probe, so a silent socket would
+/// refuse the boot, and a paused relay answers nothing after it.
+struct BlackHoles {
+    slack: BlackHole,
+    matrix: BlackHole,
+    matrix_address: IpAddr,
+    relay: ContainerAsync<GenericImage>,
+    smtp_port: u16,
+}
+
+impl BlackHoles {
+    async fn bind() -> Self {
+        let tls = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/tls");
+        let relay = GenericImage::new(MAILPIT_IMAGE, MAILPIT_TAG)
+            .with_exposed_port(1025.tcp())
+            .with_mount(Mount::bind_mount(tls, "/tls"))
+            .with_env_var("MP_SMTP_TLS_CERT", "/tls/mailpit-test.crt")
+            .with_env_var("MP_SMTP_TLS_KEY", "/tls/mailpit-test.private-key")
+            .with_env_var("MP_SMTP_REQUIRE_STARTTLS", "true")
+            .with_label("foundry-acceptance", "eip")
+            .start()
+            .await
+            .expect("start the bench's relay");
+        let smtp_port = relay
+            .get_host_port_ipv4(1025.tcp())
+            .await
+            .expect("the relay's smtp port");
+        await_smtp_greeting(smtp_port).await;
+        let matrix_address = lan_address();
+        Self {
+            slack: BlackHole::bind(IpAddr::V4(Ipv4Addr::LOCALHOST)).await,
+            matrix: BlackHole::bind(matrix_address).await,
+            matrix_address,
+            relay,
+            smtp_port,
+        }
+    }
+
+    fn set_relay_paused(&self, paused: bool) {
+        let verb = if paused { "pause" } else { "unpause" };
+        let status = std::process::Command::new("docker")
+            .args([verb, self.relay.id()])
+            .stdout(std::process::Stdio::null())
+            .status()
+            .expect("run docker pause");
+        assert!(status.success(), "docker {verb} the bench's relay");
+    }
+
+    async fn stop(self) {
+        self.set_relay_paused(false);
+        if let Err(err) = self.relay.rm().await {
+            eprintln!("warning: could not remove the bench relay: {err}");
+        }
+    }
+
+    /// The operator's settings for this instance; poll and lease stay default.
+    fn env(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("FOUNDRY_SECRETS_KEY", SECRETS_KEY.to_string()),
+            (
+                "FOUNDRY_PUBLIC_URL",
+                "https://foundry.bench.test".to_string(),
+            ),
+            (
+                "FOUNDRY_OUTBOUND_ALLOW",
+                format!("{}/32", self.matrix_address),
+            ),
+            ("SLACK_CLIENT_ID", "bench-client".to_string()),
+            ("SLACK_CLIENT_SECRET", "bench-secret".to_string()),
+            ("SLACK_SIGNING_SECRET", "bench-signing".to_string()),
+            (
+                "SLACK_API_BASE_URL",
+                format!("http://127.0.0.1:{}/api", self.slack.port),
+            ),
+            ("NOTIFICATION_PROVIDERS", "smtp".to_string()),
+            ("SMTP_HOST", "127.0.0.1".to_string()),
+            ("SMTP_PORT", self.smtp_port.to_string()),
+            ("SMTP_FROM", "foundry@bench.test".to_string()),
+            ("SMTP_TLS_VERIFY", "false".to_string()),
+        ]
     }
 }
 
@@ -259,6 +396,125 @@ impl BenchDatabase {
         .expect("seed an arm's lanes");
     }
 
+    /// Arm B's Slack and Matrix connections and routes, and a second member's
+    /// email choices, all for the two events the bench drives.
+    async fn seed_routes(&self, arm: &Arm, holes: &BlackHoles) {
+        let (workspace, project): (uuid::Uuid, uuid::Uuid) =
+            sqlx::query_as("SELECT workspace_id, id FROM projects WHERE slug = $1")
+                .bind(arm.project_slug)
+                .fetch_one(&self.pool)
+                .await
+                .expect("read the arm's project");
+        let matrix_address = format!("https://{}:{}", holes.matrix_address, holes.matrix.port);
+        for (kind, external_id, destination) in [
+            ("slack", "T0BENCH", "C0BENCH"),
+            ("matrix", matrix_address.as_str(), "!bench:bench.test"),
+        ] {
+            let connection = uuid::Uuid::now_v7();
+            sqlx::query(
+                "INSERT INTO integration_connections
+                        (id, workspace_id, kind, state, external_id, app_id, bot_user_id,
+                         label, sealed_credential, credential_saved_at)
+                 VALUES ($1, $2, $3, 'connected', $4, 'A0BENCH', 'bench-bot', 'Bench', $5, now())",
+            )
+            .bind(connection)
+            .bind(workspace)
+            .bind(kind)
+            .bind(external_id)
+            .bind(sealed_credential(connection))
+            .execute(&self.pool)
+            .await
+            .expect("seed a connection");
+            sqlx::query(
+                "INSERT INTO integration_routes
+                        (id, workspace_id, project_id, connection_id, kind, destination_ref,
+                         destination_label, events, content_level, receives_from, created_via)
+                 VALUES ($1, $2, $3, $4, $5, $6, 'bench', $7, 'summary', now(), 'web')",
+            )
+            .bind(uuid::Uuid::now_v7())
+            .bind(workspace)
+            .bind(project)
+            .bind(connection)
+            .bind(kind)
+            .bind(destination)
+            .bind(BENCH_EVENTS)
+            .execute(&self.pool)
+            .await
+            .expect("seed a route");
+        }
+
+        let recipient = uuid::Uuid::now_v7();
+        sqlx::query(
+            "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+             VALUES ($1, $2, $2, 'Bench Reader', 'unused')",
+        )
+        .bind(recipient)
+        .bind(RECIPIENT_EMAIL)
+        .execute(&self.pool)
+        .await
+        .expect("seed the email recipient");
+        sqlx::query(
+            "INSERT INTO workspace_memberships (workspace_id, user_id, role)
+             VALUES ($1, $2, 'member')",
+        )
+        .bind(workspace)
+        .bind(recipient)
+        .execute(&self.pool)
+        .await
+        .expect("seed the recipient's workspace membership");
+        sqlx::query(
+            "INSERT INTO team_memberships (team_id, user_id, role)
+             SELECT team_id, $1, 'member' FROM projects WHERE id = $2",
+        )
+        .bind(recipient)
+        .bind(project)
+        .execute(&self.pool)
+        .await
+        .expect("seed the recipient's team membership");
+        for event in BENCH_EVENTS {
+            sqlx::query(
+                "INSERT INTO integration_email_choices (user_id, project_id, event, scope)
+                 VALUES ($1, $2, $3, 'all')",
+            )
+            .bind(recipient)
+            .bind(project)
+            .bind(event)
+            .execute(&self.pool)
+            .await
+            .expect("seed an email choice");
+        }
+    }
+
+    /// The verdict means nothing unless the worker really was busy: each kind
+    /// has queued deliveries with attempts, and each black hole saw a connection.
+    async fn assert_every_kind_attempted(&self, holes: &BlackHoles) {
+        let rows: Vec<(String, i64, i64)> = sqlx::query_as(
+            "SELECT COALESCE(r.kind, 'email'), COUNT(*), COUNT(*) FILTER (WHERE d.attempts > 0)
+               FROM integration_deliveries d
+               LEFT JOIN integration_routes r ON r.id = d.route_id
+              GROUP BY 1",
+        )
+        .fetch_all(&self.pool)
+        .await
+        .expect("read the delivery census");
+        println!("EIP-KPI-4 deliveries (kind, queued, attempted): {rows:?}");
+        for kind in ["slack", "matrix", "email"] {
+            assert!(
+                rows.iter().any(|row| row.0 == kind && row.2 > 0),
+                "EIP-KPI-4: no {kind} delivery was attempted; arm B measured an idle worker"
+            );
+        }
+        let connections = [
+            ("slack", holes.slack.connections()),
+            ("matrix", holes.matrix.connections()),
+        ];
+        println!("EIP-KPI-4 black-hole connections: {connections:?}");
+        assert!(
+            connections.iter().all(|(_, count)| *count > 0),
+            "EIP-KPI-4: a black hole saw no connection: {connections:?}"
+        );
+    }
+
     async fn ensure_member_and_team(&self) -> uuid::Uuid {
         if let Some(id) = sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM workspaces LIMIT 1")
             .fetch_optional(&self.pool)
@@ -324,6 +580,46 @@ impl BenchDatabase {
 enum Bind {
     Id(uuid::Uuid),
     Text(String),
+}
+
+/// This machine's private address. The outbound policy refuses loopback outright,
+/// so the Matrix hole must sit where `FOUNDRY_OUTBOUND_ALLOW` can admit it. A UDP
+/// `connect` only picks the route; nothing is sent.
+fn lan_address() -> IpAddr {
+    let socket = std::net::UdpSocket::bind(("0.0.0.0", 0)).expect("bind a UDP socket");
+    socket
+        .connect(("10.255.255.255", 9))
+        .expect("this machine has a route to a private address");
+    socket.local_addr().expect("the route's address").ip()
+}
+
+/// The relay's published port answers before the relay does, so wait for "220".
+async fn await_smtp_greeting(port: u16) {
+    for _ in 0..150 {
+        if let Ok(mut stream) = TcpStream::connect(("127.0.0.1", port)).await {
+            let mut greeting = [0u8; 3];
+            let read = stream.read_exact(&mut greeting);
+            if let Ok(Ok(_)) = tokio::time::timeout(Duration::from_secs(1), read).await {
+                return;
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    panic!("the bench's relay never greeted on {port}");
+}
+
+/// A bot token sealed the way the app seals one, so the worker opens it.
+fn sealed_credential(connection: uuid::Uuid) -> Vec<u8> {
+    let key = SecretString::new(SECRETS_KEY.to_string().into());
+    SecretBox::from_settings(&key, None)
+        .expect("the bench's secrets key")
+        .seal(
+            &SecretString::new("bench-bot-token".to_string().into()),
+            &credential_slot(connection),
+        )
+        .expect("seal the bench's bot token")
+        .as_bytes()
+        .to_vec()
 }
 
 // ------------------------------------------------------------ the board client
