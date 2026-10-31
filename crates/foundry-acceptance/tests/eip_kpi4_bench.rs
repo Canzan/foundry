@@ -23,6 +23,15 @@
 //!   measure.
 //! - `baseline`: arm A only (task T-1); verdict `BASELINE`, the arm-A
 //!   p50/p95/p99 per operation and concurrency go into `kpi-contracts.yaml`.
+//! - `worker-off`: arms A and B with routes seeded and the worker stopped, so a
+//!   B/A difference cannot be the worker's (FU-24). Its verdict is `CONTROL`, so
+//!   it can never satisfy G3.
+//!
+//! `EIP_KPI4_DIAGNOSE=1` (always on for `worker-off`) also records each call's
+//! start time, gaps in a thread that only sleeps (a stall of the whole process
+//! or VM), and Postgres's slow statements, lock waits, checkpoints and autovacuums,
+//! all in unix or UTC time so they line up. Those runs go under
+//! `target/eip-kpi4-diagnose/`, never into G3's results.
 //!
 //! Latencies are client-side wall-clock per request (send to full body read)
 //! over loopback; the board's htmx forms are what is driven.
@@ -42,8 +51,8 @@ use std::collections::BTreeMap;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use testcontainers_modules::postgres::Postgres;
 use testcontainers_modules::testcontainers::core::{IntoContainerPort, Mount};
@@ -69,6 +78,16 @@ const TEAM: &str = "bench";
 const MOVE_TARGET: &str = "in_progress";
 const RECIPIENT_EMAIL: &str = "reader@example.test";
 const BENCH_EVENTS: [&str; 2] = ["issue.created", "issue.moved"];
+/// A sleeping thread's wake-up this late means the process did not get a CPU.
+const STALL_THRESHOLD_MS: f64 = 50.0;
+const STALL_PROBE_SLEEP: Duration = Duration::from_millis(5);
+const POSTGRES_DIAGNOSTIC_SETTINGS: [(&str, &str); 5] = [
+    ("log_min_duration_statement", "100"),
+    ("log_lock_waits", "on"),
+    ("deadlock_timeout", "50"),
+    ("log_checkpoints", "on"),
+    ("log_autovacuum_min_duration", "0"),
+];
 
 #[test]
 #[ignore = "manual: EIP-KPI-4 bench (run via eip-kpi4-bench)"]
@@ -86,17 +105,24 @@ async fn run_bench() {
     let arms = mode.arms();
 
     let database = BenchDatabase::start().await;
+    let diagnostics = mode.diagnosed().then(Diagnostics::start);
+    if diagnostics.is_some() {
+        database.log_slow_work().await;
+    }
     for arm in &arms {
         database.seed_project(arm).await;
     }
     let holes = match mode {
-        Mode::Guardrail => Some(BlackHoles::bind().await),
+        Mode::Guardrail | Mode::WorkerOff => Some(BlackHoles::bind().await),
         Mode::Baseline => None,
     };
     if let Some(holes) = &holes {
         database.seed_routes(&Arm::B, holes).await;
     }
-    let env = holes.as_ref().map(BlackHoles::env).unwrap_or_default();
+    let mut env = holes.as_ref().map(BlackHoles::env).unwrap_or_default();
+    if mode == Mode::WorkerOff {
+        env.push(("FOUNDRY_INTEGRATIONS_WORKER", "off".to_string()));
+    }
     let foundry = FoundrySubprocess::spawn_with_env_overrides(
         &database.url_with_schema(),
         SCHEMA.to_string(),
@@ -109,7 +135,8 @@ async fn run_bench() {
         holes.set_relay_paused(true);
     }
     let base = format!("http://{}", foundry.main_addr);
-    let client = BoardClient::sign_in(&base).await;
+    let calls = diagnostics.as_ref().map(|d| d.calls.clone());
+    let client = BoardClient::sign_in(&base, calls).await;
 
     let mut samples = Samples::default();
     let mut cursors: Vec<IssueCursor> = arms.iter().map(|_| IssueCursor::default()).collect();
@@ -124,17 +151,23 @@ async fn run_bench() {
             }
         }
     }
-    if let Some(holes) = &holes {
-        database.assert_every_kind_attempted(holes).await;
+    match (mode, &holes) {
+        (Mode::Guardrail, Some(holes)) => database.assert_every_kind_attempted(holes).await,
+        (Mode::WorkerOff, _) => database.assert_nothing_dispatched().await,
+        _ => {}
     }
     drop(foundry);
     if let Some(holes) = holes {
         holes.stop().await;
     }
+    let diagnostics = match diagnostics {
+        Some(diagnostics) => Some(diagnostics.finish(database.postgres_log().await)),
+        None => None,
+    };
     database.stop().await;
 
-    let run = RunRecord::new(mode, samples, started.elapsed());
-    let report = ResultStore::for_commit(&run.commit).record(run);
+    let run = RunRecord::new(mode, samples, diagnostics, started.elapsed());
+    let report = ResultStore::for_commit(&run.commit, mode.diagnosed()).record(run);
     println!("{}", report.summary_line());
 }
 
@@ -144,21 +177,25 @@ async fn run_bench() {
 enum Mode {
     Guardrail,
     Baseline,
+    WorkerOff,
 }
 
 impl Mode {
     fn from_env() -> Self {
         match std::env::var("EIP_KPI4_MODE").as_deref() {
             Ok("baseline") => Self::Baseline,
+            Ok("worker-off") => Self::WorkerOff,
             Ok("guardrail") | Err(_) => Self::Guardrail,
-            Ok(other) => panic!("EIP_KPI4_MODE must be guardrail or baseline; got {other:?}"),
+            Ok(other) => {
+                panic!("EIP_KPI4_MODE must be guardrail, baseline or worker-off; got {other:?}")
+            }
         }
     }
 
     fn arms(self) -> Vec<Arm> {
         match self {
             Self::Baseline => vec![Arm::A],
-            Self::Guardrail => vec![Arm::A, Arm::B],
+            Self::Guardrail | Self::WorkerOff => vec![Arm::A, Arm::B],
         }
     }
 
@@ -166,7 +203,59 @@ impl Mode {
         match self {
             Self::Guardrail => "guardrail",
             Self::Baseline => "baseline",
+            Self::WorkerOff => "worker-off",
         }
+    }
+
+    fn diagnosed(self) -> bool {
+        self == Self::WorkerOff || std::env::var_os("EIP_KPI4_DIAGNOSE").is_some()
+    }
+}
+
+// ------------------------------------------------------------------ diagnostics
+
+/// Each measured call: when it started (unix ms), its path, its latency (ms).
+type CallTrace = Arc<Mutex<Vec<(u64, String, f64)>>>;
+
+/// What lets a slow call be placed against everything else going on.
+struct Diagnostics {
+    calls: CallTrace,
+    stall_probe_stop: Arc<AtomicBool>,
+    stall_probe: std::thread::JoinHandle<Vec<(u64, f64)>>,
+}
+
+impl Diagnostics {
+    fn start() -> Self {
+        let stop = Arc::new(AtomicBool::new(false));
+        let stopping = stop.clone();
+        let stall_probe = std::thread::spawn(move || {
+            let mut stalls = Vec::new();
+            while !stopping.load(Ordering::Relaxed) {
+                let before = Instant::now();
+                std::thread::sleep(STALL_PROBE_SLEEP);
+                let gap = before.elapsed().as_secs_f64() * 1_000.0;
+                if gap >= STALL_THRESHOLD_MS {
+                    stalls.push((unix_ms(), gap));
+                }
+            }
+            stalls
+        });
+        Self {
+            calls: CallTrace::default(),
+            stall_probe_stop: stop,
+            stall_probe,
+        }
+    }
+
+    fn finish(self, postgres_log: String) -> Value {
+        self.stall_probe_stop.store(true, Ordering::Relaxed);
+        let stalls = self.stall_probe.join().expect("the stall probe");
+        let calls = self.calls.lock().unwrap_or_else(|p| p.into_inner());
+        json!({
+            "calls": *calls,
+            "stalls_unix_ms_gap_ms": stalls,
+            "postgres_log": postgres_log,
+        })
     }
 }
 
@@ -367,6 +456,29 @@ impl BenchDatabase {
         format!("{}?options=-csearch_path%3D{SCHEMA}", self.base_url)
     }
 
+    /// FU-24's evidence: what Postgres itself was doing around a slow call.
+    async fn log_slow_work(&self) {
+        for (name, value) in POSTGRES_DIAGNOSTIC_SETTINGS {
+            sqlx::query(&format!("ALTER SYSTEM SET {name} = '{value}'"))
+                .execute(&self.pool)
+                .await
+                .expect("set a postgres logging setting");
+        }
+        sqlx::query("SELECT pg_reload_conf()")
+            .execute(&self.pool)
+            .await
+            .expect("reload the postgres settings");
+    }
+
+    async fn postgres_log(&self) -> String {
+        let log = self
+            .container
+            .stderr_to_vec()
+            .await
+            .expect("read the postgres log");
+        String::from_utf8_lossy(&log).into_owned()
+    }
+
     /// One workspace, team and member, plus one project with its lanes per arm.
     async fn seed_project(&self, arm: &Arm) {
         let workspace = self.ensure_member_and_team().await;
@@ -515,6 +627,15 @@ impl BenchDatabase {
         );
     }
 
+    /// The control means nothing unless the worker really was stopped.
+    async fn assert_nothing_dispatched(&self) {
+        let (deliveries,): (i64,) = sqlx::query_as("SELECT COUNT(*) FROM integration_deliveries")
+            .fetch_one(&self.pool)
+            .await
+            .expect("read the delivery count");
+        assert_eq!(deliveries, 0, "EIP-KPI-4: the worker-off run dispatched");
+    }
+
     async fn ensure_member_and_team(&self) -> uuid::Uuid {
         if let Some(id) = sqlx::query_scalar::<_, uuid::Uuid>("SELECT id FROM workspaces LIMIT 1")
             .fetch_optional(&self.pool)
@@ -630,6 +751,7 @@ struct BoardClient {
     base: String,
     cookie: String,
     csrf: String,
+    calls: Option<CallTrace>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -656,7 +778,7 @@ struct BlockLatencies {
 }
 
 impl BoardClient {
-    async fn sign_in(base: &str) -> Self {
+    async fn sign_in(base: &str, calls: Option<CallTrace>) -> Self {
         let http = reqwest::Client::builder()
             .redirect(reqwest::redirect::Policy::none())
             .pool_max_idle_per_host(8)
@@ -686,6 +808,7 @@ impl BoardClient {
             base: base.to_string(),
             cookie: format!("foundry_session={session}; foundry_csrf={csrf}"),
             csrf,
+            calls,
         }
     }
 
@@ -751,6 +874,7 @@ impl BoardClient {
     async fn timed_post(&self, url: &str, form: &[(&str, &str)]) -> f64 {
         let mut fields: Vec<(&str, &str)> = form.to_vec();
         fields.push(("_csrf", self.csrf.as_str()));
+        let started_unix_ms = unix_ms();
         let start = Instant::now();
         let response = self
             .http
@@ -765,6 +889,13 @@ impl BoardClient {
         let body = response.text().await.unwrap_or_default();
         let elapsed = start.elapsed().as_secs_f64() * 1_000.0;
         assert!(status.is_success(), "POST {url} answered {status}: {body}");
+        if let Some(calls) = &self.calls {
+            let path = url.trim_start_matches(&self.base).to_string();
+            calls
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push((started_unix_ms, path, elapsed));
+        }
         elapsed
     }
 }
@@ -935,6 +1066,7 @@ enum Verdict {
     Inconclusive,
     Fail,
     Baseline,
+    Control,
 }
 
 impl Verdict {
@@ -944,6 +1076,7 @@ impl Verdict {
             Self::Inconclusive => "INCONCLUSIVE",
             Self::Fail => "FAIL",
             Self::Baseline => "BASELINE",
+            Self::Control => "CONTROL",
         }
     }
 
@@ -1005,15 +1138,17 @@ struct RunRecord {
     mode: Mode,
     commit: String,
     samples: Samples,
+    diagnostics: Option<Value>,
     wall_clock: Duration,
 }
 
 impl RunRecord {
-    fn new(mode: Mode, samples: Samples, wall_clock: Duration) -> Self {
+    fn new(mode: Mode, samples: Samples, diagnostics: Option<Value>, wall_clock: Duration) -> Self {
         Self {
             mode,
             commit: command_output("git", &["rev-parse", "HEAD"]),
             samples,
+            diagnostics,
             wall_clock,
         }
     }
@@ -1028,11 +1163,7 @@ impl RunRecord {
             ).is_empty(),
             "recorded_at_unix": unix_now(),
             "wall_clock_seconds": self.wall_clock.as_secs(),
-            "machine": {
-                "model": command_output("sysctl", &["-n", "hw.model"]),
-                "cores": command_output("sysctl", &["-n", "hw.ncpu"]),
-                "load_average": command_output("sysctl", &["-n", "vm.loadavg"]),
-            },
+            "machine": machine(),
             "postgres_image": format!("postgres:{POSTGRES_TAG}"),
             "profile": "release",
             "method": {
@@ -1047,6 +1178,7 @@ impl RunRecord {
             },
             "distribution": distribution(&self.samples),
             "samples_ms": self.samples.to_json(),
+            "diagnostics": self.diagnostics,
         })
     }
 }
@@ -1074,12 +1206,16 @@ impl Report {
 }
 
 impl ResultStore {
-    fn for_commit(commit: &str) -> Self {
+    fn for_commit(commit: &str, diagnosed: bool) -> Self {
         let target = std::env::var_os("CARGO_TARGET_DIR")
             .map(PathBuf::from)
             .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target"));
         Self {
-            dir: target.join("eip-kpi4"),
+            dir: target.join(if diagnosed {
+                "eip-kpi4-diagnose"
+            } else {
+                "eip-kpi4"
+            }),
             commit: commit.to_string(),
         }
     }
@@ -1097,9 +1233,14 @@ impl ResultStore {
             .as_object_mut()
             .expect("record object")
             .remove("samples_ms");
+        summary
+            .as_object_mut()
+            .expect("record object")
+            .remove("diagnostics");
         let (verdict, runs, cells) = match run.mode {
             Mode::Baseline => (Verdict::Baseline, 1, Value::Null),
             Mode::Guardrail => self.guardrail_verdict(&run.samples),
+            Mode::WorkerOff => (Verdict::Control, 1, guardrail(&run.samples).1),
         };
         summary["verdict"] = json!(verdict.name());
         summary["runs"] = json!(runs);
@@ -1157,8 +1298,39 @@ fn command_output(program: &str, args: &[&str]) -> String {
         .unwrap_or_default()
 }
 
+/// `sysctl` on the Mac; a Linux guest answers none of these names.
+fn machine() -> Value {
+    let or_else = |answer: String, fallback: String| {
+        if answer.is_empty() {
+            fallback
+        } else {
+            answer
+        }
+    };
+    json!({
+        "model": or_else(
+            command_output("sysctl", &["-n", "hw.model"]),
+            command_output("uname", &["-srm"]),
+        ),
+        "cores": std::thread::available_parallelism().map_or(0, std::num::NonZero::get),
+        "load_average": or_else(
+            command_output("sysctl", &["-n", "vm.loadavg"]),
+            std::fs::read_to_string("/proc/loadavg")
+                .unwrap_or_default()
+                .trim()
+                .to_string(),
+        ),
+    })
+}
+
 fn unix_now() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map_or(0, |elapsed| elapsed.as_secs())
+}
+
+fn unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |elapsed| elapsed.as_millis() as u64)
 }
