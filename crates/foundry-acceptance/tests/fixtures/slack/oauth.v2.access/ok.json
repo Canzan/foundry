@@ -1,0 +1,17 @@
+{
+  "access_token": "redacted",
+  "app_id": "redacted",
+  "authed_user": {
+    "id": "redacted"
+  },
+  "bot_user_id": "redacted",
+  "enterprise": null,
+  "is_enterprise_install": false,
+  "ok": true,
+  "scope": "chat:write,chat:write.public,channels:read,groups:read",
+  "team": {
+    "id": "redacted",
+    "name": "redacted"
+  },
+  "token_type": "bot"
+}

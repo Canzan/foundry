@@ -1,0 +1,10 @@
+{
+  "error": "not_authed",
+  "ok": false,
+  "response_metadata": {
+    "warnings": [
+      "redacted"
+    ]
+  },
+  "warning": "redacted"
+}

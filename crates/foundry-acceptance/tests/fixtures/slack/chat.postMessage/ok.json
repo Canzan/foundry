@@ -1,0 +1,51 @@
+{
+  "channel": "redacted",
+  "message": {
+    "app_id": "redacted",
+    "blocks": [
+      {
+        "block_id": "redacted",
+        "elements": [
+          {
+            "elements": [
+              {
+                "text": "redacted",
+                "type": "text"
+              }
+            ],
+            "type": "rich_text_section"
+          }
+        ],
+        "type": "rich_text"
+      }
+    ],
+    "bot_id": "redacted",
+    "bot_profile": {
+      "app_id": "redacted",
+      "deleted": false,
+      "icons": {
+        "image_36": "redacted",
+        "image_48": "redacted",
+        "image_72": "redacted"
+      },
+      "id": "redacted",
+      "name": "redacted",
+      "team_id": "redacted",
+      "updated": 0,
+      "user_id": "redacted"
+    },
+    "team": "redacted",
+    "text": "redacted",
+    "ts": "redacted",
+    "type": "message",
+    "user": "redacted"
+  },
+  "ok": true,
+  "response_metadata": {
+    "warnings": [
+      "redacted"
+    ]
+  },
+  "ts": "redacted",
+  "warning": "redacted"
+}

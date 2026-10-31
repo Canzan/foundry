@@ -1,0 +1,10 @@
+{
+  "error": "invalid_auth",
+  "ok": false,
+  "response_metadata": {
+    "warnings": [
+      "redacted"
+    ]
+  },
+  "warning": "redacted"
+}

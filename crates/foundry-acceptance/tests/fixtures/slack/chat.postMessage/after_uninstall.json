@@ -1,0 +1,10 @@
+{
+  "error": "account_inactive",
+  "ok": false,
+  "response_metadata": {
+    "warnings": [
+      "redacted"
+    ]
+  },
+  "warning": "redacted"
+}

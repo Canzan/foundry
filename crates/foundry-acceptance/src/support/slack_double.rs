@@ -23,10 +23,10 @@
 //! `chat.delete`, `apps.uninstall`. It records every call, every
 //! post (channel, the JSON body, when) and every code exchanged.
 //!
-//! Answers are Slack's documented shapes; DEVOPS H-3 / `eip-slack-live` refresh
-//! them against a real test workspace and DELIVER records them under
-//! `tests/fixtures/slack/<method>/<case>.json` (the double then serves the
-//! recorded bodies; the shapes below are the contract until then).
+//! Answers are written here, and `tests/eip_slack_fixtures.rs` holds them to the
+//! real answers recorded under `tests/fixtures/slack/<method>/<case>.json`
+//! (DEVOPS H-3; `scripts/slack-record.sh` refreshes them): the double may invent
+//! no key Slack does not send.
 //!
 //! Faults are scripted per scenario ([`Mood`]): no answer (the connection is
 //! dropped on accept and any pooled request hangs), a held post (answered only

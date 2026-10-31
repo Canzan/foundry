@@ -1,0 +1,16 @@
+{
+  "error": "invalid_blocks",
+  "errors": [
+    "redacted"
+  ],
+  "ok": false,
+  "response_metadata": {
+    "messages": [
+      "redacted"
+    ],
+    "warnings": [
+      "redacted"
+    ]
+  },
+  "warning": "redacted"
+}

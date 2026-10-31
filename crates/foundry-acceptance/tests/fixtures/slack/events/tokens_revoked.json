@@ -1,0 +1,18 @@
+{
+  "api_app_id": "redacted",
+  "event": {
+    "event_ts": "redacted",
+    "tokens": {
+      "bot": [
+        "redacted"
+      ],
+      "oauth": []
+    },
+    "type": "tokens_revoked"
+  },
+  "event_id": "redacted",
+  "event_time": 0,
+  "team_id": "redacted",
+  "token": "redacted",
+  "type": "event_callback"
+}

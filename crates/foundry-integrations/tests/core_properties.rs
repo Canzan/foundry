@@ -1148,8 +1148,8 @@ type AnswerRow = (
 );
 
 /// Slack's answers, one row per classifier class (ADR-EIP-005 decision 5).
-/// Hand-written shapes (FOUNDRY_EIP_HANDWRITTEN_SLACK=1, the user's decision;
-/// recorded fixtures, DEVOPS H-3, replace them before release).
+/// Hand-written rows; `eip_slack_fixtures.rs` in foundry-acceptance runs the
+/// classifier over Slack's recorded answers (DEVOPS H-3).
 #[test]
 fn classify_slack_recorded_answers() {
     use serde_json::json;

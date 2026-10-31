@@ -1,0 +1,47 @@
+{
+  "channel": {
+    "context_team_id": "redacted",
+    "created": 0,
+    "creator": "redacted",
+    "id": "redacted",
+    "is_archived": false,
+    "is_channel": true,
+    "is_ext_shared": false,
+    "is_general": true,
+    "is_group": false,
+    "is_im": false,
+    "is_member": false,
+    "is_mpim": false,
+    "is_org_shared": false,
+    "is_pending_ext_shared": false,
+    "is_private": false,
+    "is_read_only": false,
+    "is_shared": false,
+    "is_thread_only": false,
+    "name": "redacted",
+    "name_normalized": "redacted",
+    "parent_conversation": null,
+    "pending_connected_team_ids": [],
+    "pending_shared": [],
+    "previous_names": [],
+    "properties": {
+      "is_dormant": true
+    },
+    "purpose": {
+      "creator": "",
+      "last_set": 0,
+      "value": "redacted"
+    },
+    "shared_team_ids": [
+      "redacted"
+    ],
+    "topic": {
+      "creator": "",
+      "last_set": 0,
+      "value": "redacted"
+    },
+    "unlinked": 0,
+    "updated": 0
+  },
+  "ok": true
+}
