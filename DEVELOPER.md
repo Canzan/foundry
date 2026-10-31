@@ -116,12 +116,28 @@ can never be older than the server), and points `backup-verify` at that
 container through `FOUNDRY_PG_RESTORE`. See
 [`docs/architecture/atdd-infrastructure-policy.md`](./docs/architecture/atdd-infrastructure-policy.md).
 
+### Testing on macOS: the isolated Lima VM
+
+Run tests and both gates in the `foundry-test` Lima VM, not on Docker on the Mac.
+The VM has no host mounts and runs its own Docker, so other projects' containers
+and ports cannot reach a run.
+
+```sh
+scripts/test-vm-setup.sh    # once
+scripts/test-in-lima.sh cargo test -p foundry-store
+scripts/test-in-lima.sh bash -c 'source scripts/eip-lanes.sh; exec cargo xtask ci'
+```
+
+`test-in-lima.sh` copies what git tracks or would track into the VM, so `.env`
+stays on the Mac, and runs one command at a time. Build output stays in the VM.
+Bound long runs with `timeout` on the Mac side.
+
 ### Docker on macOS (Colima / OrbStack / Lima)
 
-The acceptance harness (testcontainers-rs + the `@docker-compose` group) drives
-a real Docker daemon. Docker Desktop works out of the box. On Colima / OrbStack
-/ Lima, export the daemon socket once so both the `docker` CLI and
-testcontainers find it:
+For anything other than tests, the acceptance harness (testcontainers-rs + the
+`@docker-compose` group) drives a real Docker daemon. Docker Desktop works out of
+the box. On Colima / OrbStack / Lima, export the daemon socket once so both the
+`docker` CLI and testcontainers find it:
 
 ```sh
 # Colima

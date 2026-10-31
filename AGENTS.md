@@ -26,6 +26,8 @@ when the user asks.
 
 - Commit only after `cargo xtask smoke` prints `xtask smoke :: all gates green`.
 - Push only after `cargo xtask ci` prints `xtask ci :: all gates green`.
+- Run tests and both gates in the isolated Lima VM through `scripts/test-in-lima.sh`,
+  never on Docker on the Mac. `scripts/test-vm-setup.sh` creates the VM once.
 
 Writing or changing code or tests → [`CODING_STANDARDS.md`](./CODING_STANDARDS.md).
 
