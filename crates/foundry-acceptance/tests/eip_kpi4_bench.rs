@@ -11,9 +11,10 @@
 //! 50 warm-up calls per arm, discarded, then 500 issue creates and 500 lane moves
 //! per arm, arms interleaved in blocks of 50 (ABAB…). Statistic: a 2,000-resample
 //! bootstrap 95% interval on p95(B)/p95(A), fixed seed. Verdict PASS (upper bound
-//! <= 1.10), FAIL (lower bound > 1.10) or INCONCLUSIVE; an INCONCLUSIVE run is
-//! repeated three more times and the verdict taken from the pooled samples of
-//! every run on the same commit. Output `target/eip-kpi4/<sha>.json` (`verdict`
+//! <= 1.10), FAIL (lower bound > 1.10) or INCONCLUSIVE. A commit's first run
+//! decides; if it is INCONCLUSIVE it is repeated three more times and the
+//! verdict taken from the pooled samples of those four runs, never from a
+//! later run alone. Output `target/eip-kpi4/<sha>.json` (`verdict`
 //! field, read by G3) plus each run's raw samples under `target/eip-kpi4/<sha>/`.
 //!
 //! Modes (`EIP_KPI4_MODE`):
@@ -1291,26 +1292,31 @@ impl ResultStore {
         Report { path, summary }
     }
 
-    /// One run decides unless INCONCLUSIVE; then the pooled samples of every
-    /// guardrail run on this commit decide once there are four (one plus three).
+    /// The commit's first guardrail run decides unless INCONCLUSIVE; then the
+    /// pooled samples of its first four runs (one plus three) decide, and until
+    /// there are four the verdict stays INCONCLUSIVE. A later run alone never
+    /// overrides that, so rerunning until one run passes cannot satisfy G3.
     fn guardrail_verdict(&self, latest: &Samples) -> (Verdict, usize, Value) {
-        let (verdict, cells) = guardrail(latest);
-        if verdict != Verdict::Inconclusive {
-            return (verdict, 1, cells);
+        // `record` has already written this run, so `runs` includes it.
+        let mut runs = self.guardrail_runs();
+        let (first, first_cells) = guardrail(runs.first().unwrap_or(latest));
+        if first != Verdict::Inconclusive {
+            return (first, 1, first_cells);
         }
-        let runs = self.guardrail_runs();
         if runs.len() < POOLED_RUNS {
-            return (verdict, runs.len(), cells);
+            return (Verdict::Inconclusive, runs.len(), guardrail(latest).1);
         }
+        runs.truncate(POOLED_RUNS);
         let (pooled, pooled_cells) = guardrail(&Samples::pooled(&runs));
-        (pooled, runs.len(), pooled_cells)
+        (pooled, POOLED_RUNS, pooled_cells)
     }
 
+    /// This commit's guardrail runs, oldest first.
     fn guardrail_runs(&self) -> Vec<Samples> {
         let Ok(entries) = std::fs::read_dir(self.dir.join(&self.commit)) else {
             return Vec::new();
         };
-        entries
+        let mut records: Vec<Value> = entries
             .filter_map(Result::ok)
             .filter(|entry| {
                 entry
@@ -1320,6 +1326,10 @@ impl ResultStore {
             })
             .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
             .filter_map(|text| serde_json::from_str::<Value>(&text).ok())
+            .collect();
+        records.sort_by_key(|record| record["recorded_at_unix"].as_u64().unwrap_or(u64::MAX));
+        records
+            .iter()
             .map(|record| Samples::from_json(&record["samples_ms"]))
             .collect()
     }
