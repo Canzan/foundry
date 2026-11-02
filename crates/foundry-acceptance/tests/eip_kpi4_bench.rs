@@ -5,7 +5,7 @@
 //! `timeout 90m cargo test -p foundry-acceptance --release --test eip_kpi4_bench -- --ignored --nocapture`
 //!
 //! One release-profile `foundry` subprocess on its own fresh `postgres:16-alpine`
-//! (256 MB /dev/shm, label `foundry-acceptance=eip`); arm A is a project with no
+//! (256 MB /dev/shm, 1 GB WAL files, label `foundry-acceptance=eip`); arm A is a project with no
 //! routes, arm B a project with one Slack, one Matrix and one email route, every
 //! destination black-holed and the worker active. Per concurrency (1, then 4):
 //! 50 warm-up calls per arm, discarded, then 500 issue creates and 500 lane moves
@@ -65,6 +65,10 @@ use tokio::net::{TcpListener, TcpStream};
 
 const POSTGRES_TAG: &str = "16-alpine";
 const SHM_BYTES: u64 = 256 * 1024 * 1024;
+/// 1 GB WAL files, so a run (about 530 MB of WAL) never starts a new one: in a
+/// fresh database each new 16 MB file is zero-filled while commits wait, and
+/// that wait landed in arm A or B by chance (G3, 2026-11-02).
+const WAL_SEGMENT_INITDB_ARG: &str = "--wal-segsize=1024";
 const SCHEMA: &str = "eip_kpi4";
 const WARM_UP_CALLS: usize = 50;
 const CALLS_PER_OPERATION: usize = 500;
@@ -412,6 +416,7 @@ impl BenchDatabase {
         let container = Postgres::default()
             .with_tag(POSTGRES_TAG)
             .with_shm_size(SHM_BYTES)
+            .with_env_var("POSTGRES_INITDB_ARGS", WAL_SEGMENT_INITDB_ARG)
             .with_label("foundry-acceptance", "eip")
             .start()
             .await
@@ -492,19 +497,26 @@ impl BenchDatabase {
             .expect("reload the postgres settings");
     }
 
-    /// The log, headed by the WAL bytes written since initdb.
+    /// The log, headed by the WAL bytes written since initdb and the file size.
     async fn postgres_log(&self) -> String {
         let wal_bytes: String =
             sqlx::query_scalar("SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')::text")
                 .fetch_one(&self.pool)
                 .await
                 .expect("read the WAL position");
+        let segment: String = sqlx::query_scalar("SHOW wal_segment_size")
+            .fetch_one(&self.pool)
+            .await
+            .expect("read the WAL file size");
         let log = self
             .container
             .stderr_to_vec()
             .await
             .expect("read the postgres log");
-        format!("wal_bytes={wal_bytes}\n{}", String::from_utf8_lossy(&log))
+        format!(
+            "wal_bytes={wal_bytes} wal_segment_size={segment}\n{}",
+            String::from_utf8_lossy(&log)
+        )
     }
 
     /// One workspace, team and member, plus one project with its lanes per arm.
