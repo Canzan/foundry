@@ -7,6 +7,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.18.0] - 2026-11-02
+
 ### Added
 
 - **One-click stop links for project emails**: every project email's footer carries a signed
