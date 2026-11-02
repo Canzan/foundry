@@ -30,7 +30,9 @@
 //! `EIP_KPI4_DIAGNOSE=1` (always on for `worker-off`) also records each call's
 //! start time, gaps in a thread that only sleeps (a stall of the whole process
 //! or VM), and Postgres's slow statements, lock waits, checkpoints and autovacuums,
-//! all in unix or UTC time so they line up. Those runs go under
+//! all in unix or UTC time so they line up, and the WAL bytes written.
+//! `EIP_KPI4_PG_SET="name=value;…"` adds Postgres settings to a diagnosed run
+//! (e.g. `log_min_duration_statement=3`). Those runs go under
 //! `target/eip-kpi4-diagnose/`, never into G3's results.
 //!
 //! Latencies are client-side wall-clock per request (send to full body read)
@@ -458,7 +460,27 @@ impl BenchDatabase {
 
     /// FU-24's evidence: what Postgres itself was doing around a slow call.
     async fn log_slow_work(&self) {
-        for (name, value) in POSTGRES_DIAGNOSTIC_SETTINGS {
+        // `EIP_KPI4_PG_SET="name=value;…"` adds or overrides settings, e.g. a
+        // 3 ms slow-statement threshold to see where a slow call's time goes.
+        let extra = std::env::var("EIP_KPI4_PG_SET").unwrap_or_default();
+        let extra: Vec<(&str, &str)> = extra
+            .split(';')
+            .filter(|pair| !pair.trim().is_empty())
+            .map(|pair| {
+                let (name, value) = pair
+                    .split_once('=')
+                    .expect("EIP_KPI4_PG_SET entries are name=value");
+                assert!(
+                    name.trim()
+                        .chars()
+                        .all(|c| c.is_ascii_alphanumeric() || c == '_')
+                        && !value.contains('\''),
+                    "EIP_KPI4_PG_SET entry {pair:?} is not a plain setting"
+                );
+                (name.trim(), value.trim())
+            })
+            .collect();
+        for (name, value) in POSTGRES_DIAGNOSTIC_SETTINGS.into_iter().chain(extra) {
             sqlx::query(&format!("ALTER SYSTEM SET {name} = '{value}'"))
                 .execute(&self.pool)
                 .await
@@ -470,13 +492,19 @@ impl BenchDatabase {
             .expect("reload the postgres settings");
     }
 
+    /// The log, headed by the WAL bytes written since initdb.
     async fn postgres_log(&self) -> String {
+        let wal_bytes: String =
+            sqlx::query_scalar("SELECT pg_wal_lsn_diff(pg_current_wal_lsn(), '0/0')::text")
+                .fetch_one(&self.pool)
+                .await
+                .expect("read the WAL position");
         let log = self
             .container
             .stderr_to_vec()
             .await
             .expect("read the postgres log");
-        String::from_utf8_lossy(&log).into_owned()
+        format!("wal_bytes={wal_bytes}\n{}", String::from_utf8_lossy(&log))
     }
 
     /// One workspace, team and member, plus one project with its lanes per arm.
