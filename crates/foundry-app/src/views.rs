@@ -638,6 +638,10 @@ pub struct BoardPage {
     /// The project key prefix shown in the header (e.g. `AUTH`).
     pub key_prefix: String,
     pub columns: Vec<BoardColumn>,
+    /// external-integration-plugins: the viewer may manage this team (a lead,
+    /// or a workspace admin), so the board links the project's integrations
+    /// page, which answers anyone else with not-found.
+    pub can_manage: bool,
     /// navigation-bar-linear-ui (step 02-01): the shared sidebar carrier,
     /// assembled once per page via `NavContext::home_for`. `app_shell.html`
     /// injects `partials/sidebar.html`, which reads `nav.*`.
@@ -1198,6 +1202,11 @@ pub struct DashboardRoot {
     /// from `Store::is_instance_admin(session user_id)`; fail-closed to `false` on
     /// lookup error so the link is ABSENT (not merely CSS-hidden) unless proven.
     pub is_instance_admin: bool,
+    /// external-integration-plugins: whether the SESSION user is an admin of the
+    /// acting workspace. Gates the "Integrations" quick action, the only link to
+    /// `/workspace/integrations`, which answers anyone else with not-found.
+    /// Fail-closed to `false` on lookup error.
+    pub is_workspace_admin: bool,
     /// US-02 (D2): the double-submit CSRF token, rendered into the sign-out
     /// form's hidden `_csrf` field. Minted via `ensure_csrf_cookie` in the
     /// handler, which also emits the matching `foundry_csrf` Set-Cookie — so the

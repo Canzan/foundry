@@ -3787,12 +3787,66 @@ pub fn page_path(world: &FoundryWorld, page: &str) -> String {
         "the workspace integrations page" => WORKSPACE_INTEGRATIONS.into(),
         "the Slack setup page" => SLACK_SETUP.into(),
         "Identity Platform's integrations page" => integrations_path(world, "Identity Platform"),
+        "the dashboard" => "/".into(),
+        "Identity Platform's board" => project_path(world, "Identity Platform"),
         "a new Slack route on Identity Platform" => format!(
             "{}/routes/new?kind=slack",
             integrations_path(world, "Identity Platform")
         ),
         other => panic!("unknown page {other:?}"),
     }
+}
+
+/// The addresses of the links on `body` whose text is exactly `link`.
+fn link_hrefs(body: &str, link: &str) -> Vec<String> {
+    let doc = parse(body);
+    select_all(&doc, "a")
+        .into_iter()
+        .filter(|a| a.text().collect::<String>().trim() == link)
+        .filter_map(|a| a.value().attr("href").map(str::to_string))
+        .collect()
+}
+
+/// `who` opens `page`, then follows its one `link`, as a click would.
+pub async fn when_follow_link(world: &mut FoundryWorld, who: &str, link: &str, page: &str) {
+    let path = page_path(world, page);
+    let opened = get(world, who, &path).await;
+    let hrefs = link_hrefs(&opened.body, link);
+    assert_eq!(
+        hrefs.len(),
+        1,
+        "{who} finds one {link:?} link on {page}; {}",
+        tm::describe(&opened)
+    );
+    when_open(world, who, &hrefs[0]).await;
+}
+
+/// The page `who` last opened answered, and it is `page`.
+pub fn then_on_page(world: &FoundryWorld, who: &str, page: &str) {
+    let answer = world.eip.when_answer.clone().expect("a page was opened");
+    assert!(
+        answer.status.is_success() && answer.path == page_path(world, page),
+        "{who} is on {page}; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// The page `who` last opened offers a `link` link (exactly one), or none.
+pub fn then_link_offered(world: &FoundryWorld, who: &str, link: &str, offered: bool) {
+    let answer = world.eip.when_answer.clone().expect("a page was opened");
+    assert!(
+        answer.status.is_success(),
+        "precondition: {who}'s page answered; {}",
+        tm::describe(&answer)
+    );
+    let found = link_hrefs(&answer.body, link).len();
+    assert_eq!(
+        found,
+        usize::from(offered),
+        "{who} is offered {} {link:?} link; {}",
+        if offered { "one" } else { "no" },
+        tm::describe(&answer)
+    );
 }
 
 pub fn then_picker(world: &FoundryWorld, channels: &[&str], offered: bool) {

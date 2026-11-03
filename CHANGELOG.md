@@ -7,6 +7,14 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Integrations pages can be reached from the UI**: nothing linked `/workspace/integrations` or a
+  project's integrations page, so they could only be opened by typing the address. The
+  dashboard's Quick actions now offer Integrations to workspace admins, and a project's board
+  offers Integrations beside Change report to its team's leads and to workspace admins. Each link
+  is shown only to the people its page answers.
+
 ## [v0.18.0] - 2026-11-02
 
 ### Added

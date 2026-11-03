@@ -451,6 +451,17 @@ pub async fn dashboard_root(
                     tracing::error!(%err, "dashboard: is_instance_admin failed");
                     false
                 });
+            // external-integration-plugins: the Integrations quick action is
+            // offered only to a workspace admin, the only person the page
+            // answers. Fail-closed like the instance-admin link above.
+            let is_workspace_admin = state
+                .store
+                .is_workspace_admin(u.workspace_id, u.user_id)
+                .await
+                .unwrap_or_else(|err| {
+                    tracing::error!(%err, "dashboard: is_workspace_admin failed");
+                    false
+                });
             // US-02 (D2): the sign-out control POSTs to `/sign-out` with a valid
             // double-submit token, so `/` must mint a CSRF cookie and render the
             // matching hidden `_csrf` — the response becomes `(SET_COOKIE, Html)`,
@@ -482,6 +493,7 @@ pub async fn dashboard_root(
                 projects,
                 section,
                 is_instance_admin,
+                is_workspace_admin,
                 csrf,
                 nav,
             }
@@ -740,6 +752,7 @@ mod tests {
             projects: Vec::new(),
             section,
             is_instance_admin: false,
+            is_workspace_admin: false,
             csrf: "t".to_string(),
             nav: crate::nav::NavContext::for_page(
                 "Homelab".to_string(),

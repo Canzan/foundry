@@ -151,6 +151,30 @@ async fn open_page(world: &mut FoundryWorld, who: String, page: String) {
     eip::when_open(world, &who, &eip::page_path(world, &page)).await;
 }
 
+#[when(
+    regex = r#"^(Priya|Lena) follows "(Integrations)" on (the dashboard|Identity Platform's board)$"#
+)]
+async fn follow_link(world: &mut FoundryWorld, who: String, link: String, page: String) {
+    eip::when_follow_link(world, &who, &link, &page).await;
+}
+
+#[when(regex = r"^(Priya|Lena|Sam|Marco) opens (the dashboard|Identity Platform's board)$")]
+async fn open_named(world: &mut FoundryWorld, who: String, page: String) {
+    eip::when_open(world, &who, &eip::page_path(world, &page)).await;
+}
+
+#[then(
+    regex = r"^(Priya|Lena) is on (the workspace integrations page|Identity Platform's integrations page)$"
+)]
+async fn on_page(world: &mut FoundryWorld, who: String, page: String) {
+    eip::then_on_page(world, &who, &page);
+}
+
+#[then(regex = r#"^(Priya|Lena|Sam|Marco) is (offered|not offered) an "(Integrations)" link$"#)]
+async fn link_offered(world: &mut FoundryWorld, who: String, offered: String, link: String) {
+    eip::then_link_offered(world, &who, &link, offered == "offered");
+}
+
 #[then(regex = r#"^Priya is back on the workspace integrations page and reads "([^"]+)"$"#)]
 async fn back_on_page(world: &mut FoundryWorld, wanted: String) {
     eip::then_back_on_integrations(world, "Priya", &wanted).await;

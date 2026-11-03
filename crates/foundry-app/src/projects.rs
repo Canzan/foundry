@@ -325,12 +325,27 @@ pub async fn show_board(
         csrf,
     )
     .await;
+    // external-integration-plugins: link the project's integrations page only
+    // for those it answers (a team lead or a workspace admin). Fail-closed.
+    let can_manage = match state
+        .store
+        .team_access_facts(acting.workspace_id(), &team_slug, user.user_id)
+        .await
+    {
+        Ok(facts) => facts.is_some_and(|f| {
+            foundry_core::TeamAccess::of(f.is_workspace_admin, f.role).can_manage()
+        }),
+        Err(err) => {
+            tracing::error!(%err, "board: team_access_facts failed");
+            false
+        }
+    };
     let location = BoardLocation {
         team_name: &team.name,
         team_slug: &team_slug,
         project_slug: &project_slug,
     };
-    match render_board(&state, &location, &project, &board, nav) {
+    match render_board(&state, &location, &project, &board, nav, can_manage) {
         Ok(html) => {
             response_with_optional_cookie(StatusCode::OK, Html(html).into_response(), set_cookie)
         }
@@ -818,6 +833,7 @@ fn render_board(
     project: &foundry_store::ProjectRow,
     board: &foundry_services::BoardView,
     nav: crate::nav::NavContext,
+    can_manage: bool,
 ) -> Result<String, askama::Error> {
     // Test-only render-injection: when the harness has flipped the
     // `force_board_render_failure` flag, short-circuit to the same `Err`
@@ -835,7 +851,7 @@ fn render_board(
         }
     }
     let _ = state;
-    build_board_page(location, project, board, nav).render()
+    build_board_page(location, project, board, nav, can_manage).render()
 }
 
 /// Map a template render failure to a CLEAN server error (US-B01 @error,
@@ -867,6 +883,7 @@ fn build_board_page(
     project: &foundry_store::ProjectRow,
     board: &foundry_services::BoardView,
     nav: crate::nav::NavContext,
+    can_manage: bool,
 ) -> crate::views::BoardPage {
     // The columns are the project's own lane rows in board order
     // (board-lane-management D8), materialized by the SHARED
@@ -881,6 +898,7 @@ fn build_board_page(
         project_slug: location.project_slug.to_string(),
         key_prefix: project.key_prefix.clone(),
         columns,
+        can_manage,
         nav,
     }
 }
@@ -983,7 +1001,7 @@ mod board_render_tests {
             lanes: grandfather_lanes(),
             issues: issues.to_vec(),
         };
-        build_board_page(&location, project, &board, nav)
+        build_board_page(&location, project, &board, nav, false)
             .render()
             .expect("board template renders")
     }
