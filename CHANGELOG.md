@@ -7,6 +7,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.18.1] - 2026-11-02
+
 ### Fixed
 
 - **Integrations pages can be reached from the UI**: nothing linked `/workspace/integrations` or a

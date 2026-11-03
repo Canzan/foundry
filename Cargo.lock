@@ -1208,7 +1208,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-acceptance"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1253,7 +1253,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-api"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1273,7 +1273,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-app"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "anyhow",
  "askama",
@@ -1326,7 +1326,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-auth"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -1350,7 +1350,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-core"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "ammonia",
  "proptest",
@@ -1364,7 +1364,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-integrations"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "async-trait",
  "ipnet",
@@ -1376,7 +1376,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-oidc"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "base64 0.22.1",
  "jsonwebtoken",
@@ -1394,7 +1394,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-realtime"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "foundry-core",
  "metrics",
@@ -1411,7 +1411,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-services"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "foundry-auth",
  "foundry-core",
@@ -1430,7 +1430,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-store"
-version = "0.18.0"
+version = "0.18.1"
 dependencies = [
  "async-trait",
  "foundry-core",
