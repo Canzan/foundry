@@ -93,7 +93,8 @@ journeys:
           The picker lists only channels the workspace's connection can post
           to; the destination is kept by Slack's channel id.
         failure_modes:
-          - The workspace has no chat connection (K-4).
+          - The workspace has no chat connection (K-4 for a lead; for an admin W-4 with a link to workspace integrations; integrations-wayfinding).
+          - This Foundry is not set up for the kind, or has no secrets key (W-2, W-3; integrations-wayfinding).
           - A shared channel is saved without the K-6 tick.
           - A plain member or outsider reaches the page (uniform 404).
         gherkin: |
@@ -315,6 +316,13 @@ journeys:
       - date: "2026-10-21"
         feature: external-integration-plugins
         change: Journey created (DISCUSS).
+      - date: "2026-11-03"
+        feature: integrations-wayfinding
+        change: >
+          Step 1 gains a sidebar entry for workspace admins (W-1). Step 2's
+          "no connection" failure mode is split by cause and audience (W-2 to
+          W-5). The project page names the workspace connection its routes reuse
+          (W-6 to W-8). See docs/feature/integrations-wayfinding/discuss/.
 
   - id: journey-choose-my-project-emails
     title: Choose the project events Foundry emails me, get exactly those, and stop any of them in one click

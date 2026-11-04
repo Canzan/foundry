@@ -988,6 +988,7 @@ mod board_render_tests {
             team_name.to_string(),
             "Tester".to_string(),
             false,
+            false,
             String::new(),
             crate::nav::NavSection::Home,
             "/".to_string(),

@@ -33,6 +33,10 @@ pub struct NavContext {
     pub display_name: String,
     /// Gates the Instance-admin menu item (FR-6) — from the authorization layer.
     pub is_instance_admin: bool,
+    /// Gates the user-section Integrations item (integrations-wayfinding W-1):
+    /// the same workspace-admin fact `/workspace/integrations` checks, read live
+    /// with the identity on each render (ADR-IW-002).
+    pub is_workspace_admin: bool,
     /// Hidden `_csrf` for the footer sign-out form (BR-3) — per-request token.
     pub csrf: String,
     /// Drives the active class + `aria-current` on exactly one primary item.
@@ -54,6 +58,7 @@ impl NavContext {
         workspace_name: String,
         display_name: String,
         is_instance_admin: bool,
+        is_workspace_admin: bool,
         csrf: String,
         active: NavSection,
         board_href: String,
@@ -62,17 +67,19 @@ impl NavContext {
             workspace_name,
             display_name,
             is_instance_admin,
+            is_workspace_admin,
             csrf,
             active,
             board_href,
         }
     }
 
-    /// Assemble the `Home`-section rail for an authenticated page by resolving the
-    /// acting identity through the SHIPPED `dashboard_greeting` seam — the SAME
-    /// presentation projection the dashboard uses (`signin::dashboard_root`) —
-    /// falling back to the neutral greeting on lookup failure so the page still
-    /// renders 200 (never 500s), mirroring the dashboard's graceful degradation.
+    /// Assemble the `Home`-section rail for an authenticated page. The acting
+    /// identity comes from ONE `nav_identity` read (ADR-IW-002), which carries the
+    /// workspace-admin fact with the names, so the Integrations item costs no extra
+    /// round trip. On lookup failure the rail falls back to a neutral identity and
+    /// hides the Integrations item (fail closed, as [`resolve_is_instance_admin`]),
+    /// so the page still renders 200.
     ///
     /// The footer user-menu fields (`is_instance_admin`, `csrf`) are supplied by the
     /// caller: the handler resolves the acting user's REAL instance-admin authority
@@ -87,40 +94,23 @@ impl NavContext {
         is_instance_admin: bool,
         csrf: String,
     ) -> Self {
-        let (display_name, workspace_name) = state
-            .store
-            .dashboard_greeting(user_id, workspace_id)
-            .await
-            .unwrap_or_else(|err| {
-                tracing::error!(%err, "nav: dashboard_greeting failed; neutral rail identity");
-                None
-            })
-            .unwrap_or_else(|| ("there".to_string(), "your workspace".to_string()));
-        let board_href = resolve_board_href(state, workspace_id, user_id).await;
-        Self::for_page(
-            workspace_name,
-            display_name,
+        Self::resolved(
+            state,
+            user_id,
+            workspace_id,
             is_instance_admin,
             csrf,
             NavSection::Home,
-            board_href,
         )
+        .await
     }
 
     /// Assemble the `Board`-section rail for a board-family authenticated page
-    /// (navigation-bar-linear-ui step 02-02 — the `/team/{slug}/project/{slug}`
-    /// route family: board, change report, issue detail). Identical identity
-    /// resolution to [`Self::home_for`] — the SAME `dashboard_greeting` seam and
-    /// the SAME neutral fallback so a lookup failure still renders 200 — differing
-    /// only in the handler-chosen active section (`Board`). This is the
-    /// deterministic active rule (DESIGN data-models.md): the board family is the
-    /// SOLE surface that marks `Board` current; every other authed page uses
-    /// `home_for`, so exactly one primary item is ever current (FR-4: never zero,
-    /// never two). The footer fields (`is_instance_admin`, `csrf`) are caller-
-    /// supplied exactly as in [`Self::home_for`] (04-03) — the real instance-admin
-    /// authority + the per-request CSRF double-submit token — so the board-family
-    /// footer sign-out form is cookie-matched and its Instance-admin item follows
-    /// the user's actual authority.
+    /// (the `/team/{slug}/project/{slug}` route family: board, change report,
+    /// issue detail). Identical identity resolution to [`Self::home_for`],
+    /// differing only in the active section. The board family is the SOLE surface
+    /// that marks `Board` current; every other authed page uses `home_for`, so
+    /// exactly one primary item is ever current (FR-4: never zero, never two).
     pub(crate) async fn board_for(
         state: &crate::AppState,
         user_id: uuid::Uuid,
@@ -128,22 +118,48 @@ impl NavContext {
         is_instance_admin: bool,
         csrf: String,
     ) -> Self {
-        let (display_name, workspace_name) = state
-            .store
-            .dashboard_greeting(user_id, workspace_id)
-            .await
-            .unwrap_or_else(|err| {
-                tracing::error!(%err, "nav: dashboard_greeting failed; neutral rail identity");
-                None
-            })
-            .unwrap_or_else(|| ("there".to_string(), "your workspace".to_string()));
-        let board_href = resolve_board_href(state, workspace_id, user_id).await;
-        Self::for_page(
-            workspace_name,
-            display_name,
+        Self::resolved(
+            state,
+            user_id,
+            workspace_id,
             is_instance_admin,
             csrf,
             NavSection::Board,
+        )
+        .await
+    }
+
+    /// The rail with `active` current, for the identity [`Self::home_for`]
+    /// describes: one place decides the neutral fallback for every section.
+    async fn resolved(
+        state: &crate::AppState,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        is_instance_admin: bool,
+        csrf: String,
+        active: NavSection,
+    ) -> Self {
+        let identity = state
+            .store
+            .nav_identity(user_id, workspace_id)
+            .await
+            .unwrap_or_else(|err| {
+                tracing::error!(%err, "nav: nav_identity failed; neutral rail identity");
+                None
+            })
+            .unwrap_or_else(|| foundry_store::NavIdentity {
+                display_name: "there".to_string(),
+                workspace_name: "your workspace".to_string(),
+                is_workspace_admin: false,
+            });
+        let board_href = resolve_board_href(state, workspace_id, user_id).await;
+        Self::for_page(
+            identity.workspace_name,
+            identity.display_name,
+            is_instance_admin,
+            identity.is_workspace_admin,
+            csrf,
+            active,
             board_href,
         )
     }
@@ -239,6 +255,7 @@ mod tests {
         NavContext::for_page(
             workspace_name.to_string(),
             "Ada Lovelace".to_string(),
+            false,
             false,
             "csrf-token".to_string(),
             active,

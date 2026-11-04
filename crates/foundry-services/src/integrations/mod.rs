@@ -280,6 +280,17 @@ pub struct SlackInstall {
 pub struct ProjectIntegrations {
     pub project_name: String,
     pub routes: Vec<ProjectRoute>,
+    /// The workspace's chat connections, disconnected ones left out: what
+    /// the page's connection line names (W-6) or calls lost (K-10).
+    pub connections: Vec<ConnectionRow>,
+    /// The workspace's Slack connection, sealed: whether this Foundry can
+    /// read it is the app's to judge (DD-2, K-19).
+    pub slack_connection: Option<SealedConnection>,
+    /// The workspace's Matrix connection, sealed.
+    pub matrix_connection: Option<SealedConnection>,
+    /// Whether the caller is a workspace admin, not only a lead of the
+    /// project's team: who is offered the workspace page (ADR-IW-002).
+    pub viewer_is_workspace_admin: bool,
 }
 
 /// What a route door acts on: a project the caller manages and the
@@ -296,6 +307,9 @@ pub struct RouteTarget {
     pub matrix_connection: Option<SealedConnection>,
     /// The project's lanes, board order: what Issue moved can be limited to.
     pub lanes: Vec<TargetLane>,
+    /// Whether the caller is a workspace admin, not only a lead of the
+    /// project's team: what a refusal may offer them (ADR-IW-002).
+    pub viewer_is_workspace_admin: bool,
 }
 
 /// What the route form's preview renders (DDR-25): the route door's target
@@ -507,14 +521,15 @@ pub(crate) async fn connect_slack(
     Ok(records.upsert_connection(&connection).await?)
 }
 
-/// The live project `team_slug`/`project_slug` when the caller may Manage it
-/// (a workspace admin or a lead of the project's team), else not found.
+/// The live project `team_slug`/`project_slug` and the caller's access to its
+/// team, when the caller may Manage it (a workspace admin or a lead of the
+/// project's team), else not found.
 async fn managed_project(
     records: &impl IntegrationRecords,
     principal: &Principal,
     team_slug: &str,
     project_slug: &str,
-) -> Result<ProjectRow, IntegrationError> {
+) -> Result<(ProjectRow, TeamAccessFacts), IntegrationError> {
     let facts = records
         .team_access(principal.workspace_id(), team_slug, principal.user_id())
         .await?
@@ -522,24 +537,35 @@ async fn managed_project(
     if !TeamAccess::of(facts.is_workspace_admin, facts.role).can_manage() {
         return Err(IntegrationError::NotFound);
     }
-    records
+    let project = records
         .live_project(facts.team_id, project_slug)
         .await?
-        .ok_or(IntegrationError::NotFound)
+        .ok_or(IntegrationError::NotFound)?;
+    Ok((project, facts))
 }
 
-/// Manage only.
+/// Manage only: the project's routes and the workspace's chat connections.
 pub(crate) async fn project_view(
     records: &impl IntegrationRecords,
     principal: &Principal,
     team_slug: &str,
     project_slug: &str,
 ) -> Result<ProjectIntegrations, IntegrationError> {
-    let project = managed_project(records, principal, team_slug, project_slug).await?;
+    let (project, access) = managed_project(records, principal, team_slug, project_slug).await?;
     let routes = records.project_routes(project.id).await?;
+    let connections = records
+        .connections(principal.workspace_id())
+        .await?
+        .into_iter()
+        .filter(|c| c.state != DISCONNECTED)
+        .collect();
     Ok(ProjectIntegrations {
         project_name: project.name,
         routes,
+        connections,
+        slack_connection: usable_connection(records, principal, SLACK).await?,
+        matrix_connection: usable_connection(records, principal, MATRIX).await?,
+        viewer_is_workspace_admin: access.is_workspace_admin,
     })
 }
 
@@ -552,7 +578,7 @@ pub(crate) async fn route_history(
     project_slug: &str,
     route_id: Uuid,
 ) -> Result<RouteHistory, IntegrationError> {
-    let project = managed_project(records, principal, team_slug, project_slug).await?;
+    let (project, _) = managed_project(records, principal, team_slug, project_slug).await?;
     let route = records
         .project_routes(project.id)
         .await?
@@ -575,7 +601,7 @@ pub(crate) async fn route_target(
     team_slug: &str,
     project_slug: &str,
 ) -> Result<RouteTarget, IntegrationError> {
-    let project = managed_project(records, principal, team_slug, project_slug).await?;
+    let (project, access) = managed_project(records, principal, team_slug, project_slug).await?;
     let connection = usable_connection(records, principal, SLACK).await?;
     let matrix_connection = usable_connection(records, principal, MATRIX).await?;
     let lanes = records
@@ -596,6 +622,7 @@ pub(crate) async fn route_target(
         connection,
         matrix_connection,
         lanes,
+        viewer_is_workspace_admin: access.is_workspace_admin,
     })
 }
 

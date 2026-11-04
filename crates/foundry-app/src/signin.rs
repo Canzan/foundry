@@ -483,6 +483,7 @@ pub async fn dashboard_root(
                 workspace_name.clone(),
                 display_name.clone(),
                 is_instance_admin,
+                is_workspace_admin,
                 csrf.clone(),
                 crate::nav::NavSection::Home,
                 board_href,
@@ -757,6 +758,7 @@ mod tests {
             nav: crate::nav::NavContext::for_page(
                 "Homelab".to_string(),
                 "Priya".to_string(),
+                false,
                 false,
                 "t".to_string(),
                 crate::nav::NavSection::Home,

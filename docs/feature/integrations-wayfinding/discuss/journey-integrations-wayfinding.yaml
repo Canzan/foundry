@@ -1,0 +1,80 @@
+# Feature journey — integrations-wayfinding. Extends SSOT
+# journey-route-project-events-to-chat (steps 1 and 2); copy ids W-n are in
+# user-stories.md.
+schema_version: "0.1"
+
+journey:
+  id: journey-integrations-wayfinding
+  extends: journey-route-project-events-to-chat
+  job: job-route-project-events-to-chat
+  persona: persona-instance-operator   # Priya; Lena (lead, not admin) secondary
+  emotional_arc:
+    pattern: Confidence Building
+    start: Confused. "Something is wrong with my account."
+    middle: Oriented. The project page says the workspace connection is reused.
+    end: Confident. The refusal names the real cause and links to the fix.
+
+  steps:
+    - id: 1
+      name: Reach workspace integrations from anywhere
+      story: US-IW-01
+      action: Priya chooses Integrations in the sidebar on any app page.
+      emotional_state: {entry: Searching, exit: Oriented}
+      shared_artifacts: [viewer_is_workspace_admin]
+      gherkin: |
+        Scenario: A workspace admin reaches the workspace integrations from the sidebar
+          When Priya follows "Integrations" in the sidebar on Identity Platform's new-route form
+          Then Priya is on the workspace integrations page
+
+    - id: 2
+      name: See which connection a project's routes use
+      story: US-IW-03
+      action: Lena or Priya opens /team/{t}/project/{p}/integrations.
+      emotional_state: {entry: Unsure whether to configure per project, exit: Knows only a channel is chosen here}
+      shared_artifacts: [connection_status, connection_label, viewer_is_workspace_admin]
+      gherkin: |
+        Scenario: The project page names the shared Slack connection
+          Given Canzan Labs is connected to the Slack workspace "Canzan Labs"
+          When Lena opens Identity Platform's integrations page
+          Then Lena reads "Routes here use the workspace's Slack connection to Canzan Labs."
+
+    - id: 3
+      name: Learn what's missing on the route form
+      story: US-IW-02
+      action: Priya opens a new Slack route without a usable connection.
+      emotional_state: {entry: Blocked, exit: Knows the cause and the next step}
+      shared_artifacts: [instance_kind_state, connection_status, viewer_is_workspace_admin]
+      failure_modes:
+        - Instance has no Slack app (W-2); Matrix with no secrets key (W-2)
+        - Slack app present, no secrets key (W-3)
+        - Workspace not connected (W-4 admin, K-4 lead)
+        - Saved connection unreadable (K-19, unchanged)
+      gherkin: |
+        Scenario: The admin is told the Slack app is missing, and where to set it up
+          Given this Foundry has no Slack app
+          When Priya opens a new Slack route for Identity Platform
+          Then Priya reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once."
+          And Priya is offered a "How to set up Slack" link
+
+  shared_artifacts:
+    viewer_is_workspace_admin:
+      source_of_truth: Store::is_workspace_admin / team_access_facts (workspace role)
+      consumers: [sidebar W-1, route form W-2 link and W-4, project page W-6 link and W-7]
+      integration_risk: HIGH - a link shown to a non-admin leads to the uniform 404 (KPI-IW-G1)
+    instance_kind_state:
+      source_of_truth: IntegrationSettings at boot (Slack app configured; secrets key present) and MatrixOffer (NoSecretsKey reads as Matrix not set up)
+      consumers: [workspace page "not set up" lines, route form W-2 and W-3]
+      integration_risk: MEDIUM - the two pages must agree on the state
+    connection_status:
+      source_of_truth: integration_connections (per workspace, per kind)
+      consumers: [workspace page, project page W-6 to W-8, route form W-4 and W-5]
+      integration_risk: MEDIUM
+    connection_label:
+      source_of_truth: integration_connections.label (Slack workspace name; Matrix homeserver)
+      consumers: [workspace page connection line, project page W-6]
+      integration_risk: LOW
+
+  changelog:
+    - date: "2026-11-03"
+      feature: integrations-wayfinding
+      change: Journey created (DISCUSS).

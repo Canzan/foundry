@@ -30,6 +30,7 @@ pub mod steps {
     pub mod feature_instance_admin_project_rename;
     pub mod feature_instance_admin_workspace_rename;
     pub mod feature_instance_workspace_name_rule;
+    pub mod feature_integrations_wayfinding;
     pub mod feature_invite_accept;
     pub mod feature_issue_card_delete;
     pub mod feature_issue_change_history;

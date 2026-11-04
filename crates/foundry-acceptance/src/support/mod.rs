@@ -20,6 +20,7 @@ pub mod file_upload_env;
 pub mod harness;
 pub mod heartbeat_env;
 pub mod html_assertions;
+pub mod integrations_wayfinding;
 pub mod matrix_homeserver;
 pub mod metrics_scrape;
 pub mod multi_replica_harness;

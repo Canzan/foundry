@@ -170,6 +170,14 @@ impl WorkspaceExport {
     }
 }
 
+/// The acting identity the shared sidebar renders, read by [`Store::nav_identity`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NavIdentity {
+    pub display_name: String,
+    pub workspace_name: String,
+    pub is_workspace_admin: bool,
+}
+
 /// Postgres-backed store. Wraps a [`sqlx::PgPool`].
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -1094,6 +1102,38 @@ impl Store {
         .fetch_optional(&self.pool)
         .await?;
         Ok(row)
+    }
+
+    /// integrations-wayfinding (ADR-IW-002) — the shared sidebar's identity read:
+    /// [`Self::dashboard_greeting`]'s `(display_name, workspace_name)` plus whether
+    /// the SESSION user is a workspace admin, in ONE query so the admin fact adds
+    /// no round trip per page. Read live each render, never cached in the
+    /// session, so a demotion hides the entry on the next page. `None` when
+    /// either id has no row.
+    pub async fn nav_identity(
+        &self,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+    ) -> Result<Option<NavIdentity>, StoreError> {
+        let row: Option<(String, String, bool)> = sqlx::query_as(
+            "SELECT u.display_name, w.name, \
+                    EXISTS (SELECT 1 FROM workspace_memberships \
+                             WHERE workspace_id = $2 AND user_id = $1 AND role = $3) \
+             FROM users u, workspaces w \
+             WHERE u.id = $1 AND w.id = $2",
+        )
+        .bind(user_id)
+        .bind(workspace_id)
+        .bind(ROLE_ADMIN)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(row.map(
+            |(display_name, workspace_name, is_workspace_admin)| NavIdentity {
+                display_name,
+                workspace_name,
+                is_workspace_admin,
+            },
+        ))
     }
 
     /// per-workspace-backup (ADR-003 / the isolation crux) — export ONE

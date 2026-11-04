@@ -4,6 +4,7 @@
 
 use super::matrix_setup::{create_matrix_route, leave_unrouted_room, send_matrix_test};
 use super::route_form::{FormAnswer, RouteDoor, RouteForm};
+use super::slack::SlackBot;
 use super::{
     refusal, render, render_with, sign_in, unavailable_words, Caller, DELETE_QUESTION, TEST_SENT,
     TOO_MANY_TESTS,
@@ -11,6 +12,7 @@ use super::{
 use crate::bootstrap::resource_not_found_page;
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::chat_kind;
+use crate::integrations::no_connection::{project_lines, ConnectionWords, SharedConnection};
 use crate::AppState;
 use askama::Template;
 use axum::extract::{Path, Query, State};
@@ -37,6 +39,8 @@ struct ProjectPage {
     csrf: String,
     notice: Option<String>,
     project_name: String,
+    /// One line per connected kind, or what to do when none is (W-6, W-7).
+    connection_lines: Vec<ConnectionWords>,
     new_route_path: String,
     /// Send test for a saved Matrix route.
     test_path: String,
@@ -54,8 +58,9 @@ struct RouteLine {
     /// Pause, or Resume for a route paused or stopped by a refusal.
     toggle_path: String,
     toggle_label: &'static str,
-    /// A Matrix route offers Send test once saved (ADR-EIP-006 decision 2).
-    matrix: bool,
+    /// A Matrix route offers Send test once saved (ADR-EIP-006 decision 2),
+    /// while the workspace's Matrix connection is connected.
+    send_test: bool,
 }
 
 #[derive(Template)]
@@ -203,7 +208,8 @@ pub async fn preview_route(
         };
         compose(&view, level)
     });
-    let door = RouteDoor::at(&state, target, &team_slug, &project_slug);
+    let door =
+        RouteDoor::at(&state, target, &team_slug, &project_slug).of_kind(chat_kind(&form.kind));
     door.form(&state, &caller, &headers, &form, FormAnswer::preview(lines))
         .await
 }
@@ -223,6 +229,8 @@ pub async fn send_test(
         Err(response) => return response,
     };
     let form = RouteForm::read(&fields);
+    let kind = chat_kind(&form.kind);
+    let door = door.of_kind(kind);
     let allowed = state
         .integrations
         .test_messages()
@@ -240,16 +248,15 @@ pub async fn send_test(
             .await;
     }
     if let Some((_, route_id)) = fields.iter().find(|(name, _)| name == "route_id") {
+        // Only a saved Matrix route posts its id: its door is Matrix's.
+        let door = door.of_kind(ChannelKind::Matrix);
         return send_matrix_test(&state, &caller, &headers, &door, route_id).await;
     }
-    if door.unavailable() {
+    // Without a usable connection of the route's kind the form names why in
+    // its place, and nothing is sent (ADR-IW-001).
+    let (None, ChannelKind::Slack, Some(bot)) = (door.cause(), kind, door.bot.as_ref()) else {
         return door
-            .form(&state, &caller, &headers, &form, FormAnswer::unavailable())
-            .await;
-    }
-    let Some(bot) = door.bot.as_ref() else {
-        return door
-            .form(&state, &caller, &headers, &form, FormAnswer::plain())
+            .form(&state, &caller, &headers, &form, FormAnswer::refused())
             .await;
     };
     // The destination check Save makes, with Save's answer: Send test posts
@@ -303,30 +310,44 @@ pub async fn create_route(
     let form = RouteForm::read(&fields);
     let kind = chat_kind(&form.kind);
     let door = door.of_kind(kind);
-    if door.unavailable() {
-        return door
-            .form(&state, &caller, &headers, &form, FormAnswer::unavailable())
-            .await;
+    match (door.cause(), kind, door.bot.as_ref(), door.matrix.as_ref()) {
+        (None, ChannelKind::Matrix, _, Some(bot)) => {
+            create_matrix_route(&state, &caller, &headers, &door, bot, &form).await
+        }
+        (None, ChannelKind::Slack, Some(bot), _) => {
+            create_slack_route(&state, &caller, &headers, &door, bot, form).await
+        }
+        // Without a usable connection of the route's kind the form names why
+        // in its place, and nothing is saved (ADR-IW-001).
+        _ => {
+            door.form(&state, &caller, &headers, &form, FormAnswer::refused())
+                .await
+        }
     }
-    if kind == ChannelKind::Matrix {
-        return create_matrix_route(&state, &caller, &headers, &door, &form).await;
-    }
-    let checked = match door.bot.as_ref() {
-        Some(bot) => postable_destination(bot, &form.destination).await,
-        None => None,
-    };
-    let Some(destination) = checked else {
+}
+
+/// Save a Slack route to a channel the bot can post to; K-6 first for a
+/// channel shared with another organisation.
+async fn create_slack_route(
+    state: &AppState,
+    caller: &Caller,
+    headers: &HeaderMap,
+    door: &RouteDoor,
+    bot: &SlackBot,
+    form: RouteForm,
+) -> Response {
+    let Some(destination) = postable_destination(bot, &form.destination).await else {
         return door
-            .form(&state, &caller, &headers, &form, FormAnswer::cannot_post())
+            .form(state, caller, headers, &form, FormAnswer::cannot_post())
             .await;
     };
     if destination.shared_with_another_organisation && !form.shared_confirmed {
         // K-6 shows on the form for the chosen channel; nothing is saved.
         return door
             .form(
-                &state,
-                &caller,
-                &headers,
+                state,
+                caller,
+                headers,
                 &form,
                 FormAnswer::with(None, StatusCode::UNPROCESSABLE_ENTITY),
             )
@@ -345,14 +366,14 @@ pub async fn create_route(
         .services
         .create_route(
             &caller.principal(),
-            &team_slug,
-            &project_slug,
+            &door.team_slug,
+            &door.project_slug,
             draft,
             state.clock.now(),
         )
         .await
     {
-        Ok(_) => Redirect::to(&base_path(&team_slug, &project_slug)).into_response(),
+        Ok(_) => Redirect::to(&base_path(&door.team_slug, &door.project_slug)).into_response(),
         Err(err) => refusal(err),
     }
 }
@@ -505,26 +526,27 @@ async fn change_refused(
     let IntegrationError::Unavailable(kind) = err else {
         return refusal(err);
     };
-    unavailable_page(
+    refused_page(
         state,
         caller,
         headers,
         team_slug,
         project_slug,
-        chat_kind(&kind),
+        unavailable_words(chat_kind(&kind)),
     )
     .await
 }
 
-/// The project's integrations page with K-19 for `kind` above its routes,
-/// answering a refused write (DD-2).
-pub(super) async fn unavailable_page(
+/// The project's integrations page with `words` above its routes, answering
+/// a refused write or test: K-19 (DD-2), or why there is no connection
+/// (ADR-IW-001).
+pub(super) async fn refused_page(
     state: &AppState,
     caller: &Caller,
     headers: &HeaderMap,
     team_slug: &str,
     project_slug: &str,
-    kind: ChannelKind,
+    words: String,
 ) -> Response {
     project_answer(
         state,
@@ -532,7 +554,7 @@ pub(super) async fn unavailable_page(
         headers,
         team_slug,
         project_slug,
-        Some(unavailable_words(kind)),
+        Some(words),
         StatusCode::UNPROCESSABLE_ENTITY,
     )
     .await
@@ -567,21 +589,14 @@ pub async fn show_edit_route(
             Ok(managed) => managed,
             Err(response) => return response,
         };
+    let door = RouteDoor::at(&state, target, &team_slug, &project_slug).editing(&route);
     let form = RouteForm {
-        destination: route.destination_ref.clone(),
+        destination: route.destination_ref,
         events: route.events,
         content_level: route.content_level,
         lanes: route.lanes,
         ..RouteForm::default()
     };
-    let door = RouteDoor::at(&state, target, &team_slug, &project_slug).editing(
-        route.id,
-        Destination {
-            reference: DestinationRef(route.destination_ref),
-            label: route.destination_label,
-            shared_with_another_organisation: false,
-        },
-    );
     door.form(&state, &caller, &headers, &form, FormAnswer::plain())
         .await
 }
@@ -682,10 +697,32 @@ async fn project_answer(
     let ProjectIntegrations {
         project_name,
         routes,
+        connections,
+        slack_connection,
+        matrix_connection,
+        viewer_is_workspace_admin,
     } = match view {
         Ok(view) => view,
         Err(err) => return refusal(err),
     };
+    let integrations = state.integrations.current();
+    let shared: Vec<_> = connections
+        .iter()
+        .filter_map(|row| {
+            let kind = chat_kind(&row.kind);
+            let sealed = match kind {
+                ChannelKind::Matrix => matrix_connection.as_ref(),
+                _ => slack_connection.as_ref(),
+            };
+            let opens = sealed.map(|sealed| integrations.opens(sealed));
+            Some((kind, SharedConnection::of(row, opens)?))
+        })
+        .collect();
+    // A Matrix route's Send test needs the connection the page calls
+    // connected; without it the test would only be refused.
+    let matrix_testable = shared.iter().any(|(kind, connection)| {
+        *kind == ChannelKind::Matrix && matches!(connection, SharedConnection::Connected { .. })
+    });
     let base = base_path(team_slug, project_slug);
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let page = ProjectPage {
@@ -693,11 +730,12 @@ async fn project_answer(
         csrf,
         notice,
         project_name,
+        connection_lines: project_lines(&shared, viewer_is_workspace_admin),
         new_route_path: format!("{base}/routes/new?kind=slack"),
         test_path: format!("{base}/routes/test"),
         routes: routes
             .iter()
-            .map(|route| route_line(route, &base))
+            .map(|route| route_line(route, &base, matrix_testable))
             .collect(),
     };
     render_with(status, page.render(), set_cookie)
@@ -709,8 +747,9 @@ pub(super) fn base_path(team_slug: &str, project_slug: &str) -> String {
 }
 
 /// A stored route, its K-9 status (derived, DDR-19) and its history page
-/// under the project's integrations path `base`.
-fn route_line(route: &ProjectRoute, base: &str) -> RouteLine {
+/// under the project's integrations path `base`; Send test on a Matrix route
+/// when the workspace's Matrix connection is `matrix_testable`.
+fn route_line(route: &ProjectRoute, base: &str, matrix_testable: bool) -> RouteLine {
     let stopped = route.paused || route.problem_reason.is_some();
     let (toggle, toggle_label) = if stopped {
         ("resume", "Resume")
@@ -728,7 +767,7 @@ fn route_line(route: &ProjectRoute, base: &str) -> RouteLine {
         delete_path: format!("{route_path}/delete"),
         toggle_path: format!("{route_path}/{toggle}"),
         toggle_label,
-        matrix: route.kind == foundry_services::integrations::MATRIX,
+        send_test: matrix_testable && route.kind == foundry_services::integrations::MATRIX,
     }
 }
 
@@ -762,7 +801,7 @@ fn route_facts(route: &ProjectRoute) -> RouteFacts {
 }
 
 /// A stored route's kind; one this Foundry does not know reads as Slack.
-fn stored_kind(wire: &str) -> ChannelKind {
+pub(super) fn stored_kind(wire: &str) -> ChannelKind {
     ChannelKind::from_wire_name(wire).unwrap_or(ChannelKind::Slack)
 }
 

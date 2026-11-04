@@ -1,0 +1,252 @@
+{
+  "roadmap": {
+    "project_id": "integrations-wayfinding",
+    "created_at": "2026-11-03T00:00:00Z",
+    "total_steps": 4,
+    "goal": "The integrations pages are findable from the sidebar and the project page, and every \"no connection\" refusal on the route form names its real cause per kind and role, with a link for someone who can fix it (US-IW-01..03).",
+    "sources": [
+      "docs/feature/integrations-wayfinding/design/wave-decisions.md",
+      "docs/product/architecture/adr-iw-001-refusal-cause-from-instance-offers.md",
+      "docs/product/architecture/adr-iw-002-workspace-admin-fact-rides-the-nav-identity-read.md",
+      "docs/feature/integrations-wayfinding/distill/wave-decisions.md",
+      "docs/feature/integrations-wayfinding/distill/red-classification.md",
+      "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature"
+    ],
+    "scenario_ownership_invariant": "16 scenario declarations (54 examples). The 13 non-@control scenarios (45 examples) are each owned by exactly one step: 01-01 owns 3 (14 examples), 01-02 owns 1 (14), 02-01 owns 6 (6), 03-01 owns 3 (11). The 3 @control scenarios (9 examples) are owned by no step and listed in regression_guards.",
+    "regression_guards": [
+      "A team lead who is not an admin still reads K-4 when the workspace is not connected",
+      "A saved Slack connection this Foundry cannot read is named before anything else it lacks",
+      "Someone who cannot manage the team is not shown the integrations pages, in any state"
+    ],
+    "deviations_from_distill": "None. Order is US-IW-02, US-IW-03, US-IW-01 because 02-01 reuses 01-01's no_connection words (K-19, W-7/K-4) and managed_project's access facts.",
+    "prerequisites": [
+      "Lima VM foundry-test exists (scripts/test-vm-setup.sh). Steps are sequential: one test VM."
+    ],
+    "release_gates": "No push or tag without the user's go. Commit after cargo xtask smoke is green; push only after cargo xtask ci is green.",
+    "standing_rules": "Un-pend (remove @pending) only the owning step's scenarios; never re-author scenarios. Keep the vacuous sidebar not-offered rows in the same outline as the Priya rows. The @control scenarios stay green after every step. Runtime sqlx::query only. No new query on board or route-form renders; the nav adds no round trip; the project integrations page adds exactly three reads (DESIGN D4). Mutation >= 80% kill rate on each step's mutation_targets. One local commit per step.",
+    "lane_preamble": "Run every lane under timeout. Rebuild the foundry binary before the lane (acceptance uses the prebuilt binary). CARGO_BUILD_JOBS=4 in the VM.",
+    "lane_env": "scripts/test-in-lima.sh"
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "US-IW-02: the route form names the real cause",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Refusal cause and the route form when opened",
+          "type": "feature",
+          "description": "New pure no_connection.rs: NoConnectionCause (NotSetUp, NoSecretsKey, Unreadable, NotConnected per kind) derived from slack_offer/matrix_offer plus has-a-connection, and a second pure function mapping (cause, viewer_is_workspace_admin) to words plus an optional (label, href). RouteDoor holds Option<NoConnectionCause> instead of the no_connection bool; route_form.html renders the words and the optional link. managed_project returns the team access facts and RouteTarget gains viewer_is_workspace_admin (no added query).",
+          "criteria": [
+            "An admin opening a new route reads W-2, W-3 or W-4 for the form's kind and is offered the fix link where one exists; the link answers 200",
+            "A lead reads W-2/W-3 for instance-level causes and K-4 when only the workspace is not connected, with no link",
+            "An admin never reads \"Ask a workspace admin\" or \"Slack or Matrix\"",
+            "With no Foundry Slack app, W-2 is shown even over an unreadable saved Slack connection; K-19 still precedes W-3 and W-4 (@control stays green)",
+            "A lost connection counts as a connection: the form behaves as today (routes save paused)",
+            "The cause table is unit-tested in full: 5 cells x 2 roles plus Unreadable, Matrix rows included"
+          ],
+          "estimate": "1 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/no_connection.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/handlers/route_form.rs",
+            "crates/foundry-app/templates/integrations/route_form.html",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature",
+          "scenario_name": [
+            "The new-route form names what is missing, and offers an admin the fix",
+            "A workspace admin is never told to ask a workspace admin, and is told only about the form's kind",
+            "With no Foundry Slack app, the form says so even over an unreadable saved connection"
+          ],
+          "implementation_notes": "ADR-IW-001, DESIGN D1/D3. Precedence is each offer's own order: Slack NotSetUp > Unavailable (K-19) > NoSecretsKey > NotConnected; Matrix Unavailable > NoSecretsKey (W-2 wording, as matrix_not_set_up) > NotConnected. \"Has a connection\" = usable_connection returned a row and bot.is_some() (lost included). No template computes a cause. managed_project keeps its NotFound refusal unchanged. Unit tests (DISTILL D5) live in no_connection.rs's test module. TEST PARADIGM: the cause and words functions are pure over a closed, finite domain; test them as an exhaustive table over every (kind, offer, has_connection, role) combination (proptest unnecessary: the table enumerates the whole domain). EXEMPT FROM PARADIGM for the template wiring: it is a single-shot HTTP render, covered by the acceptance outline.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=integrations-wayfinding",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins (eip 01-06 regression: route form, no-connection path, project page, sidebar link counts)"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/no_connection.rs",
+            "crates/foundry-app/src/integrations/handlers/route_form.rs",
+            "crates/foundry-services/src/integrations/mod.rs"
+          ]
+        },
+        {
+          "id": "01-02",
+          "name": "Every route-form door agrees",
+          "type": "feature",
+          "description": "Preview, save, Send test and edit all apply the route's kind before rendering the form (preview and Send test: of_kind(chat_kind(&form.kind)); edit: of_kind(route.kind)). Save guards on door.cause() right after of_kind and re-renders the form with no notice. The now-unreachable no-bot cannot_post arm in create_route and the K-4 refusal at matrix_setup.rs:162 are removed.",
+          "criteria": [
+            "Previewing, saving or sending a test from a new route reads the same words as the opened form, for each cause, kind and role",
+            "A refused preview, save or test leaves the project with no route",
+            "A Matrix preview or test renders the Matrix form, never the Slack form",
+            "The edit door names the cause of the saved route's own kind (handler unit test, since a saved Matrix route needs Synapse)"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers/routes.rs",
+            "crates/foundry-app/src/integrations/handlers/matrix_setup.rs",
+            "crates/foundry-app/src/integrations/handlers/route_form.rs",
+            "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature",
+          "scenario_name": [
+            "Preview, save and Send test refuse with the same words as the form"
+          ],
+          "implementation_notes": "DESIGN D2 (incl. \"Changed at the final review gate\"). Doors: preview_route (routes.rs ~206), send_test (~211), create_route (~289-321), show_edit_route (~577). Keep the cannot_post FormAnswer for genuine channel refusals (routes.rs ~259) if still reachable; remove only the no-bot arm. The row \"Lena saves, Slack app set up\" is already green (422 page contains K-4) and must stay green. Edit-door unit test (DISTILL D5): a handler test in routes.rs or route_form.rs that the edit door applies the route's kind. EXEMPT FROM PARADIGM: door wiring is single-shot request handling; the property (form == preview == save == test words) is enumerated by the 14-row outline, and the cause table itself is covered in 01-01.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=integrations-wayfinding",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins (eip 01-06 regression: route form, no-connection path, project page, sidebar link counts)"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers/routes.rs",
+            "crates/foundry-app/src/integrations/handlers/matrix_setup.rs",
+            "crates/foundry-app/src/integrations/handlers/route_form.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "US-IW-03: the project page names the shared connection",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Project page connection line",
+          "type": "feature",
+          "description": "project_view returns the workspace's connection rows (IntegrationRecords::connections: kind, state, label), the Slack and Matrix sealed connections (same usable_connection read route_target uses), and viewer_is_workspace_admin from managed_project's access facts. The app formats one line: connected W-6 (with the Slack workspace label), lost via the workspace page's lost_words, unreadable K-19 (judged by Integrations::opens over the sealed connection, not Caller::unreadable_connections), nothing connected W-7 with link for an admin and K-4 for a lead. \"New route\" always stays.",
+          "criteria": [
+            "Admin and lead read \"Routes here use the workspace's Slack connection to <Slack workspace name>.\"; only the admin is offered \"Manage workspace integrations\", which lands on the workspace integrations page",
+            "With nothing connected, an admin reads W-7 with a working link and a lead reads K-4 with no link; both keep \"New route\"",
+            "A lost Slack connection reads as lost and an unreadable one reads K-19; neither reads as one routes use",
+            "A lead is never 404'd by the readability check",
+            "The line's formatting is unit-tested for Matrix (connected, unreadable) as well as Slack",
+            "project_view adds at most three store reads (workspace_connections plus one sealed_connection per kind) and no admin read; verified in Phase 4 review by reading project_view, since services has no counting IntegrationRecords fake",
+            "The workspace page renders its Slack and Matrix \"not set up\" and \"cannot be connected\" sentences from the same constants in no_connection.rs that the route form uses (one source per string; found after 01-01)"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/integrations/handlers/routes.rs",
+            "crates/foundry-app/src/integrations/handlers/workspace.rs",
+            "crates/foundry-app/src/integrations/no_connection.rs",
+            "crates/foundry-app/templates/integrations/project.html",
+            "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature",
+            "crates/foundry-app/templates/integrations/workspace.html"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature",
+          "scenario_name": [
+            "The project page names the shared Slack connection, and an admin can manage it",
+            "A team lead sees the shared Slack connection but is offered no workspace link",
+            "An admin sees nothing is connected, and where to connect",
+            "A team lead sees nothing is connected and still asks an admin",
+            "A lost Slack connection reads as lost, not as one routes use",
+            "An unreadable Slack connection reads as unavailable, not as one routes use"
+          ],
+          "implementation_notes": "DESIGN D4. Cost ceiling: exactly three added reads per project integrations render (workspace_connections + two sealed_connection); no admin read. lost_words in workspace.rs is shared (visibility change only), not copied. Reuse no_connection.rs words for K-19 and K-4/W-7 where they coincide so the pages cannot drift. Matrix formatting unit tests (DISTILL D5) sit with the pure formatter. TEST PARADIGM: the formatter is pure over (kind, state, readable, role); test it as an exhaustive table over that finite domain. EXEMPT FROM PARADIGM for the services read and template: single-shot wiring, covered by the six acceptance scenarios. The project-page line formatter lives in crates/foundry-app/src/integrations/no_connection.rs beside the cause words, with its Matrix and Slack rows in that file's #[cfg(test)] module (DISTILL D5).",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=integrations-wayfinding",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins (eip 01-06 regression: route form, no-connection path, project page, sidebar link counts)"
+          ],
+          "mutation_targets": [
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-services/src/lib.rs",
+            "crates/foundry-app/src/integrations/handlers/routes.rs",
+            "crates/foundry-app/src/integrations/handlers/workspace.rs",
+            "crates/foundry-app/src/integrations/no_connection.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "US-IW-01: the sidebar entry",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Sidebar Integrations entry for workspace admins",
+          "type": "feature",
+          "description": "Store::nav_identity(user_id, workspace_id) -> Option<NavIdentity { display_name, workspace_name, is_workspace_admin }> in one query (dashboard_greeting's plus an EXISTS on workspace_memberships role = 'admin'). home_for and board_for use it instead of dashboard_greeting and fail closed (is_workspace_admin = false) on error. NavContext gains is_workspace_admin; for_page takes it; the two signin.rs callers pass the value they hold; test helpers in nav.rs and projects.rs:987 updated. sidebar.html shows \"Integrations\" in the user section after Keyboard shortcuts (before Instance admin), never marked current.",
+          "criteria": [
+            "A workspace admin follows \"Integrations\" in the sidebar from the board, the project integrations page and the new-route form and lands on the workspace integrations page",
+            "Only workspace admins are offered the entry on the board and the dashboard; leads, members and team-less users are not",
+            "The user section lists Settings, Keyboard shortcuts, Integrations in that order and Home stays the current page",
+            "The nav makes no extra round trip; a failed identity read hides the entry",
+            "dashboard_greeting is unchanged for its other callers",
+            "home_for and board_for make one identity query (nav_identity) in place of dashboard_greeting, not an extra one; verified in Phase 4 review"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-store/tests/create_member_and_consume_store.rs",
+            "crates/foundry-app/src/nav.rs",
+            "crates/foundry-app/src/signin.rs",
+            "crates/foundry-app/src/projects.rs",
+            "crates/foundry-app/templates/partials/sidebar.html",
+            "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature",
+          "scenario_name": [
+            "A workspace admin reaches the workspace integrations from the sidebar",
+            "Only workspace admins are offered the sidebar entry",
+            "The sidebar entry sits in the user section and is never the current page"
+          ],
+          "implementation_notes": "ADR-IW-002, DESIGN D5/D6. Walking skeleton (@walking_skeleton) is in this step. Un-pend the whole \"Only workspace admins\" outline at once so the vacuous not-offered rows become discriminating with the Priya rows (red-classification). Store test for nav_identity (admin true, member false, unknown user None) sits beside the existing is_workspace_admin store test. eip-06's link-count oracle excludes the sidebar (DISTILL D3); re-run eip-06 to confirm it stays green. TEST PARADIGM: nav_identity is an integration read (single-example by mandate); the sidebar visibility rule is a pure function of is_workspace_admin covered by the 7-row outline. EXEMPT FROM PARADIGM: template rendering and store query are wiring, not invariants. Ordering: no file or symbol overlap with 02-01, so no dependency; it runs last only because one test VM serialises the steps. The walking skeleton (US-IW-01) is green at the end of this step.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=integrations-wayfinding",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins (eip 01-06 regression: route form, no-connection path, project page, sidebar link counts)"
+          ],
+          "mutation_targets": [
+            "crates/foundry-store/src/lib.rs",
+            "crates/foundry-app/src/nav.rs",
+            "crates/foundry-app/src/signin.rs"
+          ]
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "new_files": [
+      "crates/foundry-app/src/integrations/no_connection.rs"
+    ],
+    "modified_files": [
+      "crates/foundry-app/src/integrations/mod.rs",
+      "crates/foundry-app/src/integrations/handlers/route_form.rs",
+      "crates/foundry-app/src/integrations/handlers/routes.rs",
+      "crates/foundry-app/src/integrations/handlers/matrix_setup.rs",
+      "crates/foundry-app/src/integrations/handlers/workspace.rs",
+      "crates/foundry-app/src/nav.rs",
+      "crates/foundry-app/src/signin.rs",
+      "crates/foundry-app/src/projects.rs",
+      "crates/foundry-app/templates/integrations/route_form.html",
+      "crates/foundry-app/templates/integrations/project.html",
+      "crates/foundry-app/templates/partials/sidebar.html",
+      "crates/foundry-services/src/integrations/mod.rs",
+      "crates/foundry-services/src/lib.rs",
+      "crates/foundry-store/src/lib.rs",
+      "crates/foundry-store/tests/create_member_and_consume_store.rs",
+      "crates/foundry-acceptance/tests/features/integrations-wayfinding.feature"
+    ],
+    "no_new_crate_component_or_port": true
+  },
+  "validation": {
+    "status": "approved",
+    "step_to_production_file_ratio": "4 steps / 15 production files = 0.27 (<= 2.5)",
+    "checks": [
+      "Every non-@control scenario owned by exactly one step (13 of 13)",
+      "@control scenarios green after every step",
+      "Mutation kill rate >= 80% on each step's mutation_targets",
+      "cargo xtask smoke green before each commit"
+    ],
+    "reviewed_by": "nw-acceptance-designer-reviewer 2026-11-03: needs_revision (1 high: eip lanes; 2 medium: WS ordering, query ceilings; 1 low: formatter home) -> fixed by orchestrator"
+  }
+}

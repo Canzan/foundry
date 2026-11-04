@@ -758,7 +758,7 @@ async fn sign_in_at(http: &reqwest::Client, base: &str, email: &str, password: &
     set.split(';').next().unwrap_or(&set).to_string()
 }
 
-async fn get(world: &mut FoundryWorld, who: &str, path: &str) -> Answer {
+pub(crate) async fn get(world: &mut FoundryWorld, who: &str, path: &str) -> Answer {
     let email = email_of(world, who);
     let cookie = cookie(world, email.as_deref()).await;
     let url = if path.starts_with("http") {
@@ -777,7 +777,7 @@ async fn get(world: &mut FoundryWorld, who: &str, path: &str) -> Answer {
     answer
 }
 
-async fn post(
+pub(crate) async fn post(
     world: &mut FoundryWorld,
     who: &str,
     path: &str,
@@ -830,7 +830,7 @@ fn went_through(answer: &Answer, what: &str) {
 }
 
 /// Follow a redirect answer within Foundry (one hop), as the browser would.
-async fn follow(world: &mut FoundryWorld, who: &str, answer: Answer) -> Answer {
+pub(crate) async fn follow(world: &mut FoundryWorld, who: &str, answer: Answer) -> Answer {
     match (answer.status.is_redirection(), answer.location.clone()) {
         (true, Some(loc)) if !loc.starts_with("http") || loc.starts_with(&base(world)) => {
             let path = loc.strip_prefix(&base(world)).unwrap_or(&loc).to_string();
@@ -857,11 +857,11 @@ where
     panic!("{what} within {budget:?}; last seen: {last}");
 }
 
-fn text(answer: &Answer) -> String {
+pub(crate) fn text(answer: &Answer) -> String {
     tm::page_text(&answer.body)
 }
 
-fn texts_of(body: &str, selector: &str) -> Vec<String> {
+pub(crate) fn texts_of(body: &str, selector: &str) -> Vec<String> {
     let doc = parse(body);
     select_all(&doc, selector)
         .into_iter()
@@ -1163,6 +1163,8 @@ pub async fn given_instance(world: &mut FoundryWorld, words: &str) {
             world.eip.spec.slack_app = SlackAppSetup::Complete;
             world.eip.spec.secrets_key = None;
         }
+        // integrations-wayfinding: Matrix's only instance-level cause.
+        "no secrets key" => world.eip.spec.secrets_key = None,
         other => panic!("unknown instance setup {other:?}"),
     }
     rewire(world).await;
@@ -1405,19 +1407,22 @@ pub async fn when_cancel_slack(world: &mut FoundryWorld, who: &str) {
 
 /// "Priya has connected Canzan Labs to Slack" — through the product's own flow.
 pub async fn given_slack_connected(world: &mut FoundryWorld) {
+    given_slack_connected_to(world, "Canzan Labs").await;
+}
+
+/// "Priya has connected Canzan Labs to the Slack workspace <team>": as
+/// [`given_slack_connected`], approving Foundry for a Slack workspace named
+/// `team` (integrations-wayfinding: a name distinct from the Foundry
+/// workspace's, so a page naming the wrong one cannot pass).
+pub async fn given_slack_connected_to(world: &mut FoundryWorld, team: &str) {
     if world.eip.spec.slack_app == SlackAppSetup::None {
         given_instance(world, "the Foundry Slack app set up").await;
     }
-    let answer = connect_slack(
-        world,
-        "Priya",
-        Approval::Approve(SlackTeam::named("Canzan Labs")),
-    )
-    .await;
+    let answer = connect_slack(world, "Priya", Approval::Approve(SlackTeam::named(team))).await;
     went_through(&answer, "Priya's Add to Slack");
     assert!(
-        text(&answer).contains("Connected to Canzan Labs"),
-        "precondition: Priya reads that Canzan Labs is connected; {}",
+        text(&answer).contains(&format!("Connected to {team}")),
+        "precondition: Priya reads that {team} is connected; {}",
         tm::describe(&answer)
     );
 }
@@ -3797,14 +3802,34 @@ pub fn page_path(world: &FoundryWorld, page: &str) -> String {
     }
 }
 
-/// The addresses of the links on `body` whose text is exactly `link`.
-fn link_hrefs(body: &str, link: &str) -> Vec<String> {
+/// The addresses of the page's own links (the sidebar's excluded: it has its
+/// own steps, integrations-wayfinding US-IW-01) whose text is exactly `link`.
+pub(crate) fn link_hrefs(body: &str, link: &str) -> Vec<String> {
+    let doc = parse(body);
+    select_all(&doc, "a")
+        .into_iter()
+        .filter(|a| !in_sidebar(a))
+        .filter(|a| a.text().collect::<String>().trim() == link)
+        .filter_map(|a| a.value().attr("href").map(str::to_string))
+        .collect()
+}
+
+/// The addresses of every link on `body`, the sidebar's included, whose text
+/// is exactly `link`.
+fn all_link_hrefs(body: &str, link: &str) -> Vec<String> {
     let doc = parse(body);
     select_all(&doc, "a")
         .into_iter()
         .filter(|a| a.text().collect::<String>().trim() == link)
         .filter_map(|a| a.value().attr("href").map(str::to_string))
         .collect()
+}
+
+/// Whether `a` sits in the app shell's sidebar (`<aside class="sidebar">`).
+pub(crate) fn in_sidebar(a: &scraper::ElementRef<'_>) -> bool {
+    a.ancestors()
+        .filter_map(scraper::ElementRef::wrap)
+        .any(|e| e.value().name() == "aside")
 }
 
 /// `who` opens `page`, then follows its one `link`, as a click would.
@@ -3839,7 +3864,14 @@ pub fn then_link_offered(world: &FoundryWorld, who: &str, link: &str, offered: b
         "precondition: {who}'s page answered; {}",
         tm::describe(&answer)
     );
-    let found = link_hrefs(&answer.body, link).len();
+    // Offered: the page's own link, exactly one (the sidebar has its own
+    // steps). Not offered: no such link anywhere, the sidebar included, so a
+    // leaked sidebar entry still fails here.
+    let found = if offered {
+        link_hrefs(&answer.body, link).len()
+    } else {
+        all_link_hrefs(&answer.body, link).len()
+    };
     assert_eq!(
         found,
         usize::from(offered),

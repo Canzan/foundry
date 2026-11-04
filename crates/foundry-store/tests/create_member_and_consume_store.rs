@@ -405,3 +405,61 @@ async fn is_workspace_admin_is_true_for_admin_and_false_for_a_member() {
         "a member-role user must NOT be reported as a workspace admin (kills the always-true mutant)"
     );
 }
+
+/// `nav_identity` (integrations-wayfinding ADR-IW-002): the sidebar's identity read
+/// carries the workspace-admin fact in the SAME row as the display and workspace
+/// names — true for the admin, false for a member, and no row for an unknown user.
+#[tokio::test]
+async fn nav_identity_carries_the_workspace_admin_fact_with_the_names() {
+    let (base, _guard) = fresh_postgres().await;
+    let store = migrated_store(&base).await;
+    let now = time::OffsetDateTime::now_utc();
+    let (workspace_id, admin_id, invite_id) = seed_workspace_with_member_invite(
+        &store,
+        "Northwind",
+        "sam.okafor@northwind.example",
+        now + time::Duration::days(7),
+    )
+    .await;
+    let MemberConsumeOutcome::Consumed {
+        user_id: member_id, ..
+    } = store
+        .create_member_and_consume(invite_id, "phc$member-hash", now)
+        .await
+        .expect("consume the live member invite")
+    else {
+        panic!("a live member invite must yield Consumed");
+    };
+
+    let admin = store
+        .nav_identity(admin_id, workspace_id)
+        .await
+        .expect("nav_identity must not error for the admin")
+        .expect("the admin has an identity row");
+    assert_eq!(admin.workspace_name, "Northwind");
+    assert!(
+        !admin.display_name.is_empty(),
+        "the admin's display name is read"
+    );
+    assert!(
+        admin.is_workspace_admin,
+        "the admin-role user is a workspace admin"
+    );
+
+    let member = store
+        .nav_identity(member_id, workspace_id)
+        .await
+        .expect("nav_identity must not error for the member")
+        .expect("the member has an identity row");
+    assert_eq!(member.workspace_name, "Northwind");
+    assert!(
+        !member.is_workspace_admin,
+        "a member-role user must NOT be reported as a workspace admin"
+    );
+
+    let unknown = store
+        .nav_identity(uuid::Uuid::now_v7(), workspace_id)
+        .await
+        .expect("nav_identity must not error for an unknown user");
+    assert!(unknown.is_none(), "an unknown user has no identity row");
+}

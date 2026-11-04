@@ -1130,3 +1130,48 @@ outcomes:
   related:
   - OUT-33
   superseded_by: null
+- id: OUT-36
+  kind: specification
+  summary: A new-route form, preview or save with no usable connection names its real
+    cause per kind and role
+  feature: integrations-wayfinding
+  inputs:
+  - shape: '(kind: Slack|Matrix, the instance''s Slack app and secrets key, the workspace''s
+      saved connection and whether this Foundry can read it, viewer: workspace admin
+      | team lead)'
+  output:
+    shape: 'Slack: no app W-2 (+ How to set up Slack for an admin), unreadable K-19,
+      no key W-3, not connected W-4 + link (admin) or K-4 (lead); Matrix: unreadable
+      K-19, no key W-2, not connected W-4 + link or K-4; the same words on form, preview
+      and save'
+  keywords:
+  - integrations
+  - refusal
+  - route
+  - slack
+  - matrix
+  - wayfinding
+  artifact: crates/foundry-acceptance/tests/features/integrations-wayfinding.feature
+  related: []
+  superseded_by: null
+- id: OUT-37
+  kind: invariant
+  summary: Every link into the integrations pages is offered only to a viewer that
+    page answers
+  feature: integrations-wayfinding
+  inputs:
+  - shape: any app-shell page rendered for a person (sidebar, project integrations
+      page, route form)
+  output:
+    shape: 'Integrations (sidebar), Manage/Connect ... in workspace integrations,
+      How to set up Slack: offered only to workspace admins and each answers them
+      200; no one is offered a link that answers them not-found'
+  keywords:
+  - integrations
+  - links
+  - sidebar
+  - access
+  - wayfinding
+  artifact: crates/foundry-acceptance/tests/features/integrations-wayfinding.feature
+  related: []
+  superseded_by: null

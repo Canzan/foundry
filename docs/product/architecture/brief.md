@@ -1053,6 +1053,33 @@ were added (pending indexes, test seams). Migration paths are under `crates/foun
 The record is `docs/evolution/2026-10-27-external-integration-plugins.md`. Follow-ups and the open
 release gate are in `docs/feature/external-integration-plugins/deliver/upstream-issues.md`.
 
+#### Wayfinding: links follow access, and refusals name their cause (integrations-wayfinding, DESIGN 2026-11-03)
+
+- **Refusal cause.** The route form's "no connection" refusal comes from one pure function:
+  - Inputs: the kind's instance offer (`slack_offer` or `matrix_offer`, the same ones the
+    workspace page reads) and whether a connection exists.
+  - Output: a closed `NoConnectionCause`: `NotSetUp`, `Unreadable`, `NoSecretsKey` or
+    `NotConnected`.
+  - A second pure function maps the cause and the viewer's role to the words (W-2 to W-5, with
+    K-4 kept for leads) and an optional link.
+  - Precedence follows each kind's offer, so the form agrees with the workspace page.
+    Slack: no app (W-2), unreadable (K-19), no secrets key (W-3), not connected (W-4, or K-4
+    for a lead). Matrix: unreadable (K-19), no secrets key (W-2), not connected (W-4 or K-4).
+  - Form, preview, save, Send test and edit render through `RouteDoor::form`, each applying
+    the route's kind. Save guards on the cause. A lost connection is not a refusal.
+    (ADR-IW-001)
+- **Project page line.** Per kind: connected reads W-6 ("Routes here use the workspace's
+  {Kind} connection to {label}"), lost reads the workspace page's lost words, unreadable reads
+  K-19 (judged with `Integrations::opens`). Nothing connected: W-7 for an admin, K-4 for a
+  lead. "New route" always stays.
+- **Viewer's admin fact.** Integration pages take it from the `team_access` facts that
+  `managed_project` already reads. The project page reuses `IntegrationRecords::connections`
+  for its connection line.
+- **Sidebar.** It reads `is_workspace_admin` from one widened identity query,
+  `Store::nav_identity`, which fails closed, so there is no extra round trip. W-1 sits in the
+  user section. It is not marked as the current page (accepted 2026-11-03). (ADR-IW-002)
+- **Rule.** A link is offered only from the same access facts the target page checks.
+
 ### Crate graph
 
 ```mermaid

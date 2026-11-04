@@ -2,10 +2,13 @@
 //! Matrix's (K-1, K-2, K-20, R-4, US-EIP-07).
 
 use super::{
-    refusal, render, sign_in, Caller, CANNOT_REMOVE_ACCESS, DISCONNECT_PATH, LOG_TARGET,
-    MATRIX_CONNECT_PATH, MATRIX_DISCONNECT_PATH, WORKSPACE_PATH,
+    refusal, render, sign_in, unavailable_words, Caller, CANNOT_REMOVE_ACCESS, DISCONNECT_PATH,
+    LOG_TARGET, MATRIX_CONNECT_PATH, MATRIX_DISCONNECT_PATH, WORKSPACE_PATH,
 };
 use crate::csrf::ensure_csrf_cookie;
+use crate::integrations::no_connection::{
+    HOW_TO_SET_UP_SLACK, MATRIX_NOT_SET_UP, SLACK_NOT_SET_UP, SLACK_NO_SECRETS_KEY,
+};
 use crate::integrations::{MatrixOffer, SlackOffer};
 use crate::AppState;
 use askama::Template;
@@ -27,9 +30,17 @@ struct WorkspacePage {
     reconnect: bool,
     not_set_up: bool,
     no_secrets_key: bool,
+    /// W-2 and W-3 as the route form words them (one source per string).
+    slack_not_set_up: &'static str,
+    how_to_set_up_slack: &'static str,
+    slack_no_secrets_key: &'static str,
+    matrix_not_set_up_words: &'static str,
     /// K-19: the saved connection cannot be read by this Foundry (DD-2);
     /// Disconnect is offered beside it, as a repair.
     unavailable: bool,
+    /// K-19 for Slack and for Matrix, as every door words it.
+    slack_unavailable_words: String,
+    matrix_unavailable_words: String,
     /// The Matrix connection line and its token field, when connected.
     matrix: Option<MatrixLine>,
     /// Matrix's connect form (Connect Matrix, or Replace token): the secrets
@@ -251,7 +262,7 @@ pub(super) async fn workspace_page(
     let offer = integrations.slack_offer(unreadable);
     let matrix_offer = integrations.matrix_offer(unreadable);
     let reconnect = slack_lost.is_some();
-    let slack = slack.or_else(|| slack_lost.map(|lost| lost_words(&lost)));
+    let slack = slack.or_else(|| slack_lost.map(|lost| lost_words(ChannelKind::Slack, &lost)));
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let page = WorkspacePage {
         nav: caller.nav(state, csrf.clone()).await,
@@ -265,7 +276,13 @@ pub(super) async fn workspace_page(
         notice: notice.map(str::to_string),
         not_set_up: offer == SlackOffer::NotSetUp,
         no_secrets_key: offer == SlackOffer::NoSecretsKey,
+        slack_not_set_up: SLACK_NOT_SET_UP,
+        how_to_set_up_slack: HOW_TO_SET_UP_SLACK,
+        slack_no_secrets_key: SLACK_NO_SECRETS_KEY,
+        matrix_not_set_up_words: MATRIX_NOT_SET_UP,
         unavailable: offer == SlackOffer::Unavailable,
+        slack_unavailable_words: unavailable_words(ChannelKind::Slack),
+        matrix_unavailable_words: unavailable_words(ChannelKind::Matrix),
         slack_line: slack,
         reconnect,
         activity,
@@ -273,10 +290,11 @@ pub(super) async fn workspace_page(
     render(page.render(), set_cookie)
 }
 
-/// K-10, up to its Reconnect action.
-fn lost_words(lost: &LostSlack) -> String {
+/// K-10 for the workspace's lost connection of `kind`, up to its Reconnect
+/// action: the workspace page's words, and the project page's.
+pub(crate) fn lost_words(kind: ChannelKind, lost: &LostSlack) -> String {
     ConnectionLostNotice {
-        kind: ChannelKind::Slack,
+        kind,
         workspace: lost.workspace_name.clone(),
         reason: lost.reason.as_deref().and_then(ReasonCode::from_wire_name),
     }

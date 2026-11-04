@@ -7,16 +7,19 @@ use askama::Template;
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::Response;
 
-use super::routes::{base_path, project_page};
+use super::routes::{base_path, project_page, stored_kind};
 use super::{
-    refusal, render_with, unavailable_words, Caller, AUDIENCE, CANNOT_POST, INVITE_THE_BOT,
-    MATRIX_UNREACHABLE, NO_CHAT_CONNECTION, PRIVATE_CHANNELS, ROOM_ENCRYPTED, SHARED_CHANNEL,
+    refusal, render_with, Caller, AUDIENCE, CANNOT_POST, INVITE_THE_BOT, MATRIX_UNREACHABLE,
+    PRIVATE_CHANNELS, ROOM_ENCRYPTED, SHARED_CHANNEL,
 };
 use crate::integrations::matrix::{MatrixBot, RoomRefusal};
+use crate::integrations::no_connection::{ConnectionWords, NoConnectionCause};
+use crate::integrations::{MatrixOffer, SlackOffer};
 use foundry_integrations::{
     ChannelKind, Destination, DestinationCatalog, DestinationRef, MessageLines,
 };
 use foundry_services::integrations::{RouteTarget, UnreadableConnections};
+use foundry_store::integrations::RouteSettings;
 
 #[derive(Template)]
 #[template(path = "integrations/route_form.html")]
@@ -38,17 +41,23 @@ struct RouteFormPage {
     /// The preview, once asked for; `Some(None)` when there is no issue yet.
     preview: Option<Option<MessageLines>>,
     no_issue_yet: String,
-    no_connection: bool,
+    /// What shows in the form's place without a usable connection of the
+    /// form's kind, and the fix a workspace admin is offered (ADR-IW-001).
+    no_connection: Option<ConnectionWords>,
     channels: Vec<Choice>,
     events: Vec<Choice>,
     lanes: Vec<Choice>,
     levels: Vec<Choice>,
-    private_channels: &'static str,
-    /// What shows in the form's place without a usable connection: K-19 for
-    /// a saved connection this Foundry cannot read, else K-4.
-    no_chat_connection: String,
-    /// A Matrix route: its room is typed, not picked.
-    matrix: bool,
+    /// The Slack picker's note on private channels; none for a Matrix room.
+    private_channels: Option<&'static str>,
+    /// The kind the form posts: the door's, so every door it reaches applies
+    /// the route's kind (ADR-IW-001).
+    kind: &'static str,
+    /// A new Matrix route: its room is typed, not picked.
+    typed_room: bool,
+    /// Send test on the form: Slack's only. A saved Matrix route's test is
+    /// on the project page (ADR-EIP-006 decision 2).
+    send_test: bool,
 }
 
 /// One option of the form: its value, its label, and whether it is chosen.
@@ -158,9 +167,9 @@ impl FormAnswer {
         Self::with(Some(CANNOT_POST), StatusCode::UNPROCESSABLE_ENTITY)
     }
 
-    /// Refused on a connection this Foundry cannot read: K-19 shows in the
-    /// form's place (DD-2).
-    pub(super) fn unavailable() -> Self {
+    /// Refused without a usable connection of the form's kind: its cause
+    /// shows in the form's place, K-19 included (ADR-IW-001, DD-2).
+    pub(super) fn refused() -> Self {
         Self::with(None, StatusCode::UNPROCESSABLE_ENTITY)
     }
 
@@ -184,8 +193,10 @@ pub(super) struct RouteDoor {
     pub(super) bot: Option<super::slack::SlackBot>,
     /// The workspace's Matrix bot, when it is connected and opens here.
     pub(super) matrix: Option<MatrixBot>,
-    /// The workspace's saved connections this Foundry cannot read (K-19).
-    unreadable: UnreadableConnections,
+    /// What the instance offers for Slack and for Matrix, this workspace's
+    /// connections judged.
+    slack_offer: SlackOffer,
+    matrix_offer: MatrixOffer,
     /// The kind of route the form makes.
     kind: ChannelKind,
     pub(super) team_slug: String,
@@ -242,7 +253,8 @@ impl RouteDoor {
             target,
             bot,
             matrix,
-            unreadable,
+            slack_offer: integrations.slack_offer(unreadable),
+            matrix_offer: integrations.matrix_offer(unreadable),
             kind: ChannelKind::Slack,
             team_slug: team_slug.to_string(),
             project_slug: project_slug.to_string(),
@@ -311,35 +323,14 @@ impl RouteDoor {
         }
     }
 
-    /// K-4: no connection of the form's kind that this Foundry can open.
-    fn no_connection(&self) -> bool {
+    /// Why there is no connection of the form's kind this Foundry can use,
+    /// if there is none (a lost connection still counts as one).
+    pub(super) fn cause(&self) -> Option<NoConnectionCause> {
         match self.kind {
-            ChannelKind::Matrix => self.matrix.is_none(),
-            _ => self.bot.is_none(),
-        }
-    }
-
-    /// K-19: the workspace's connection of `kind` is saved, but this Foundry
-    /// cannot read it (DD-2), so no route write goes through on it.
-    pub(super) fn unreadable(&self, kind: ChannelKind) -> bool {
-        match kind {
-            ChannelKind::Matrix => self.unreadable.matrix,
-            _ => self.unreadable.slack,
-        }
-    }
-
-    /// [`Self::unreadable`] for the form's kind.
-    pub(super) fn unavailable(&self) -> bool {
-        self.unreadable(self.kind)
-    }
-
-    /// What shows in the form's place without a usable connection: K-19 or
-    /// K-4.
-    fn no_connection_words(&self) -> String {
-        if self.unavailable() {
-            unavailable_words(self.kind)
-        } else {
-            NO_CHAT_CONNECTION.to_string()
+            ChannelKind::Matrix => {
+                NoConnectionCause::of_matrix(self.matrix_offer, self.matrix.is_some())
+            }
+            _ => NoConnectionCause::of_slack(self.slack_offer, self.bot.is_some()),
         }
     }
 
@@ -348,11 +339,16 @@ impl RouteDoor {
         Self { kind, ..self }
     }
 
-    /// The door for editing the route `route_id` to `destination`.
-    pub(super) fn editing(self, route_id: uuid::Uuid, destination: Destination) -> Self {
+    /// The door for editing the saved `route`, of the route's own kind.
+    pub(super) fn editing(self, route: &RouteSettings) -> Self {
         Self {
-            action_path: format!("{}/{route_id}/edit", self.routes_path),
-            editing: Some(destination),
+            kind: stored_kind(&route.kind),
+            action_path: format!("{}/{}/edit", self.routes_path, route.id),
+            editing: Some(Destination {
+                reference: DestinationRef(route.destination_ref.clone()),
+                label: route.destination_label.clone(),
+                shared_with_another_organisation: false,
+            }),
             ..self
         }
     }
@@ -385,7 +381,7 @@ impl RouteDoor {
         }
     }
 
-    /// The route form for `form` with `answer`; K-4 without a usable
+    /// The route form for `form` with `answer`; why not, without a usable
     /// connection, K-5 for the chosen channel and K-6 when it is shared.
     pub(super) async fn form(
         &self,
@@ -396,14 +392,30 @@ impl RouteDoor {
         answer: FormAnswer,
     ) -> Response {
         let channels = self.channels(form, &answer).await;
+        let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+        let nav = caller.nav(state, csrf.clone()).await;
+        let status = answer.status;
+        let page = self.page(nav, csrf, form, answer, channels);
+        render_with(status, page.render(), set_cookie)
+    }
+
+    /// The form page for `form` with `answer`, offering `channels`.
+    fn page(
+        &self,
+        nav: crate::nav::NavContext,
+        csrf: String,
+        form: &RouteForm,
+        answer: FormAnswer,
+        channels: Vec<Destination>,
+    ) -> RouteFormPage {
         let chosen = channels.iter().find(|c| c.reference.0 == form.destination);
         let audience = chosen.map(|c| AUDIENCE.replace("{destination}", &c.label));
         let shared_channel = chosen
             .filter(|c| c.shared_with_another_organisation)
             .map(|c| SHARED_CHANNEL.replace("{destination}", &c.label));
-        let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
-        let page = RouteFormPage {
-            nav: caller.nav(state, csrf.clone()).await,
+        let slack = self.kind != ChannelKind::Matrix;
+        RouteFormPage {
+            nav,
             csrf,
             heading: self.heading(),
             action_path: self.action_path.clone(),
@@ -416,8 +428,12 @@ impl RouteDoor {
             shared_confirmed: form.shared_confirmed,
             preview: answer.preview,
             no_issue_yet: format!("{} has no issue to preview yet.", self.target.project_name),
-            no_connection: self.no_connection(),
-            matrix: self.kind == ChannelKind::Matrix && self.editing.is_none(),
+            no_connection: self
+                .cause()
+                .map(|cause| cause.words(self.target.viewer_is_workspace_admin)),
+            kind: self.kind.wire_name(),
+            typed_room: !slack && self.editing.is_none(),
+            send_test: slack,
             channels: channels
                 .into_iter()
                 .map(|c| Choice {
@@ -440,10 +456,8 @@ impl RouteDoor {
                 })
                 .collect(),
             levels: choices(&LEVEL_CHOICES, |value| form.content_level == value),
-            private_channels: PRIVATE_CHANNELS,
-            no_chat_connection: self.no_connection_words(),
-        };
-        render_with(answer.status, page.render(), set_cookie)
+            private_channels: slack.then_some(PRIVATE_CHANNELS),
+        }
     }
 }
 
@@ -456,4 +470,114 @@ fn choices(table: &[(&str, &str)], chosen: impl Fn(&str) -> bool) -> Vec<Choice>
             chosen: chosen(value),
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn door(viewer_is_workspace_admin: bool) -> RouteDoor {
+        let routes_path = "/team/t/project/p/integrations/routes".to_string();
+        RouteDoor {
+            target: RouteTarget {
+                workspace_id: uuid::Uuid::nil(),
+                project_id: uuid::Uuid::nil(),
+                project_name: "Identity Platform".to_string(),
+                key_prefix: "IDP".to_string(),
+                connection: None,
+                matrix_connection: None,
+                lanes: Vec::new(),
+                viewer_is_workspace_admin,
+            },
+            bot: None,
+            matrix: None,
+            slack_offer: SlackOffer::NotSetUp,
+            matrix_offer: MatrixOffer::Ready,
+            kind: ChannelKind::Slack,
+            team_slug: "t".to_string(),
+            project_slug: "p".to_string(),
+            action_path: routes_path.clone(),
+            routes_path,
+            editing: None,
+        }
+    }
+
+    fn saved_route(kind: &str) -> RouteSettings {
+        RouteSettings {
+            id: uuid::Uuid::nil(),
+            kind: kind.to_string(),
+            destination_ref: "!room:example.org".to_string(),
+            destination_label: "#identity".to_string(),
+            events: vec!["issue.created".to_string()],
+            content_level: "summary".to_string(),
+            lanes: Vec::new(),
+            problem_reason: None,
+        }
+    }
+
+    #[test]
+    fn the_edit_door_names_the_cause_of_the_saved_routes_own_kind() {
+        for (kind, cause) in [
+            (
+                "matrix",
+                NoConnectionCause::NotConnected(ChannelKind::Matrix),
+            ),
+            ("slack", NoConnectionCause::NotSetUp(ChannelKind::Slack)),
+        ] {
+            for admin in [true, false] {
+                let edit = door(admin).editing(&saved_route(kind));
+                assert_eq!(edit.cause(), Some(cause), "a saved {kind} route");
+            }
+        }
+    }
+
+    /// The edit form of a saved route as rendered for the workspace admin.
+    fn rendered_edit_form(kind: &str) -> String {
+        let route = saved_route(kind);
+        let edit = door(true).editing(&route);
+        let nav = crate::nav::NavContext::for_page(
+            "Canzan Labs".to_string(),
+            "Ada Lovelace".to_string(),
+            false,
+            true,
+            "csrf".to_string(),
+            crate::nav::NavSection::Home,
+            "/".to_string(),
+        );
+        let form = RouteForm {
+            destination: route.destination_ref.clone(),
+            ..RouteForm::new(None)
+        };
+        let channels = edit.editing.clone().into_iter().collect();
+        let page = edit.page(
+            nav,
+            "csrf".to_string(),
+            &form,
+            FormAnswer::plain(),
+            channels,
+        );
+        // The form as a usable connection shows it: no cause in its place.
+        RouteFormPage {
+            no_connection: None,
+            ..page
+        }
+        .render()
+        .expect("the route form renders")
+    }
+
+    #[test]
+    fn a_saved_routes_edit_form_posts_its_own_kind_and_offers_send_test_for_slack_only() {
+        for (kind, send_test) in [("matrix", false), ("slack", true)] {
+            let html = rendered_edit_form(kind);
+            assert!(
+                html.contains(&format!(r#"name="kind" value="{kind}""#)),
+                "a saved {kind} route's edit form posts kind={kind}"
+            );
+            assert_eq!(
+                html.contains("Send test"),
+                send_test,
+                "a saved {kind} route's edit form offers Send test: {send_test}"
+            );
+        }
+    }
 }

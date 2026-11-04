@@ -3,14 +3,15 @@
 //! and 2).
 
 use super::route_form::{FormAnswer, RouteDoor, RouteForm};
-use super::routes::{managed_route, test_notice, unavailable_page};
+use super::routes::{managed_route, refused_page, test_notice};
 use super::workspace::workspace_page;
 use super::{
     refusal, Caller, ADDRESS_REFUSED, BOT_IN_ROOM, LOG_TARGET, MATRIX_NOT_CONNECTED,
-    MATRIX_TOKEN_REFUSED, MATRIX_UNREACHABLE, NO_CHAT_CONNECTION, WORKSPACE_PATH,
+    MATRIX_TOKEN_REFUSED, MATRIX_UNREACHABLE, WORKSPACE_PATH,
 };
 use crate::bootstrap::resource_not_found_page;
 use crate::integrations::matrix::{ConnectRefusal, MatrixBot, RoomFacts, RoomRefusal};
+use crate::integrations::no_connection::NoConnectionCause;
 use crate::integrations::{credential_slot, matrix};
 use crate::AppState;
 use axum::extract::State;
@@ -146,6 +147,7 @@ pub(super) async fn create_matrix_route(
     caller: &Caller,
     headers: &HeaderMap,
     door: &RouteDoor,
+    bot: &MatrixBot,
     form: &RouteForm,
 ) -> Response {
     let refused = |notice: String| async move {
@@ -157,9 +159,6 @@ pub(super) async fn create_matrix_route(
             FormAnswer::with(Some(&notice), StatusCode::UNPROCESSABLE_ENTITY),
         )
         .await
-    };
-    let Some(bot) = door.matrix.as_ref() else {
-        return refused(NO_CHAT_CONNECTION.to_string()).await;
     };
     let room = form.destination.trim().to_string();
     let (room_id, facts) = match enrol_in_room(caller, bot, &room).await {
@@ -239,8 +238,9 @@ async fn withdraw_unless_routed(caller: &Caller, bot: &MatrixBot, room_id: &Dest
     }
 }
 
-/// Send test on a saved Matrix route: K-7 once to its room, as a fresh
-/// transaction recorded nowhere; then back to the project's page.
+/// Send test on a saved Matrix route, through `door` (Matrix's): K-7 once to
+/// its room, as a fresh transaction recorded nowhere; then back to the
+/// project's page. An unknown or foreign route is not found.
 pub(super) async fn send_matrix_test(
     state: &AppState,
     caller: &Caller,
@@ -256,19 +256,23 @@ pub(super) async fn send_matrix_test(
     if ChannelKind::from_wire_name(&route.kind) != Some(ChannelKind::Matrix) {
         return resource_not_found_page();
     }
-    if door.unreadable(ChannelKind::Matrix) {
-        return unavailable_page(
-            state,
-            caller,
-            headers,
-            &door.team_slug,
-            &door.project_slug,
-            ChannelKind::Matrix,
-        )
-        .await;
-    }
-    let Some(bot) = door.matrix.as_ref() else {
-        return resource_not_found_page();
+    // Without a usable Matrix connection nothing is sent: the page says why,
+    // in the viewer's words (K-19 for one this Foundry cannot read).
+    let bot = match (door.cause(), door.matrix.as_ref()) {
+        (None, Some(bot)) => bot,
+        (cause, _) => {
+            let cause = cause.unwrap_or(NoConnectionCause::NotConnected(ChannelKind::Matrix));
+            let words = cause.words(door.target.viewer_is_workspace_admin).words;
+            return refused_page(
+                state,
+                caller,
+                headers,
+                &door.team_slug,
+                &door.project_slug,
+                words,
+            )
+            .await;
+        }
     };
     let message = encode_matrix(&test_message(
         &door.target.project_name,

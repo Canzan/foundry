@@ -31,6 +31,11 @@
 #               read-only SQL query on the instance database, run by the operator), `bench` (an
 #               #[ignore]d measurement harness with a stated statistical verdict) and first use of
 #               `runtime` (a Prometheus series) with `alert` (a PrometheusRule in the homelab repo).
+#   2026-11-03  integrations-wayfinding appended by its DEVOPS wave (KPI-IW-1..3, G1, G2, M;
+#               status: designed). No new instrument kinds and no runtime telemetry.
+#   2026-11-03  integrations-wayfinding DISTILL: each acceptance KPI names its scenario tag
+#               (@kpi-iw-<n>); status: distilled.
+#   2026-11-03  integrations-wayfinding DELIVER: acceptance KPIs delivered (54/54); KPI-IW-M owed after v0.18.2.
 
 schema_version: 1
 
@@ -1006,3 +1011,76 @@ features:
         status: deferred
         deferred_by: "user decision OD-1 (2026-10-21), as EIP-KPI-8"
         measurement: "owned by integration-webhooks-and-oauth-apps"
+  integrations-wayfinding:
+    jobs: [job-route-project-events-to-chat]
+    source: docs/feature/integrations-wayfinding/discuss/outcome-kpis.md
+    devops: docs/feature/integrations-wayfinding/devops/wave-decisions.md
+    scope: "links to /workspace/integrations by access (sidebar, project page, route form) and per-cause refusal wording; no new capability"
+    runtime_telemetry: "none added (D3)"
+    lane: "ci-local default acceptance lane (InProcHarness, @real-io); no Docker image"
+    # DEVOPS (2026-11-03). Nothing built, deployed or pushed.
+    # DISTILL (2026-11-03): crates/foundry-acceptance/tests/features/integrations-wayfinding.feature,
+    # 16 scenario declarations (54 examples); select one KPI with FOUNDRY_ACCEPTANCE_TAGS=kpi-iw-<n>.
+    # 45 examples @pending (39 RED for the stated reason, 6 green before DELIVER; distill/red-classification.md); 9 @control green.
+    status: delivered
+    # DELIVER (2026-11-03): 54/54 examples green; eip 181/181, needs-matrix 38/38 (Lima VM).
+    kpis:
+      - id: KPI-IW-1
+        name: An admin who meets a no-connection refusal reaches the fix in one click
+        type: leading
+        target: "<= 1 click in each cell with a fix page (Slack no app -> setup; Slack, Matrix not connected -> workspace integrations)"
+        baseline: "no link in any cell (v0.18.1)"
+        instruments_planned:
+          - {kind: acceptance, ref: "route form and project page outline over cause cells x roles; follow the offered link, expect 200 on the fix page"}
+        scenarios: "@integrations-wayfinding @kpi-iw-1"
+        gate: hard
+        status: delivered
+      - id: KPI-IW-2
+        name: Every refusal names its real cause
+        type: leading
+        target: "100% of 5 cells (Slack x 3, Matrix x 2); no 'Ask a workspace admin' to a workspace admin"
+        baseline: "1 wording (K-4) for every cell and role"
+        instruments_planned:
+          - {kind: acceptance, ref: "route form outline: exact W-2/W-3/W-4/K-4 text per cell and role, also via preview and save"}
+        scenarios: "@integrations-wayfinding @kpi-iw-2"
+        gate: hard
+        status: delivered
+      - id: KPI-IW-3
+        name: A workspace admin reaches workspace integrations from any app page
+        type: leading
+        target: "W-1 offered to an admin on every app-shell page; checked on the dashboard, board, project integrations, route form and workspace integrations"
+        baseline: "dashboard Quick actions only (v0.18.1)"
+        instruments_planned:
+          - {kind: acceptance, ref: "sidebar offers Integrations on board, project integrations and route form for Priya"}
+        scenarios: "@integrations-wayfinding @kpi-iw-3"
+        gate: hard
+        status: delivered
+      - id: KPI-IW-G1
+        name: No one is offered a link they cannot open
+        type: guardrail
+        target: "0 offered links answering the viewer 404"
+        baseline: "0 (eip-06 rule, v0.18.1)"
+        instruments_planned:
+          - {kind: acceptance, ref: "Priya, Lena, Sam, Marco follow every offered W-1/W-4/W-6/W-7/setup link and expect 200; non-admins are offered none of the admin links"}
+        scenarios: "@integrations-wayfinding @kpi-iw-g1"
+        gate: hard
+        status: delivered
+      - id: KPI-IW-G2
+        name: Existing integration scenarios keep passing
+        type: guardrail
+        target: "100% of external-integration-plugins features 01-06"
+        baseline: "2018/2018 scenarios at v0.18.1 (e4f7e3f)"
+        instruments_planned:
+          - {kind: acceptance, ref: "cargo xtask ci, all gates green"}
+        scenarios: "@external-integration-plugins (eip 01-06 in cargo xtask ci) and @integrations-wayfinding @kpi-iw-g2 (K-4 controls)"
+        gate: hard
+        status: delivered
+      - id: KPI-IW-M
+        name: The reported dead end is gone on dev
+        type: outcome
+        target: "On dev (Default, ABC, no Slack app) a new Slack route shows W-2 and 'How to set up Slack' opens the setup page"
+        baseline: "K-4 with no link (reported 2026-11-02)"
+        instruments_planned:
+          - {kind: dogfood, ref: "walk on https://foundry.unintelligent-design.us after v0.18.2 deploys"}
+        gate: soft
+        status: designed

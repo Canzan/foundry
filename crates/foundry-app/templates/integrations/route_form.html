@@ -16,19 +16,18 @@
   {% endif %}
 </section>
 {% endif %}
-{% if no_connection %}
-<p data-no-connection>{{ no_chat_connection }}</p>
+{% if let Some(refusal) = no_connection %}
+<p data-no-connection>{{ refusal.words }}{% if let Some(fix) = refusal.fix %} <a href="{{ fix.href }}">{{ fix.label }}</a>{% endif %}</p>
 {% else %}
 <form method="post" action="{{ action_path }}">
   <input type="hidden" name="_csrf" value="{{ csrf }}">
-  {% if matrix %}
-  <input type="hidden" name="kind" value="matrix">
+  <input type="hidden" name="kind" value="{{ kind }}">
+  {% if typed_room %}
   <p>
     <label for="route-destination">Room</label>
     <input id="route-destination" type="text" name="destination" placeholder="#room:example.org" value="{% for channel in channels %}{% if channel.chosen %}{{ channel.value }}{% endif %}{% endfor %}" required>
   </p>
   {% else %}
-  <input type="hidden" name="kind" value="slack">
   <p>
     <label for="route-destination">Channel</label>
     <select id="route-destination" name="destination">
@@ -36,7 +35,7 @@
     </select>
     {% for channel in channels %}<input type="hidden" name="channel_label.{{ channel.value }}" value="{{ channel.label }}">{% endfor %}
   </p>
-  <p>{{ private_channels }}</p>
+  {% if let Some(private_channels) = private_channels %}<p>{{ private_channels }}</p>{% endif %}
   {% endif %}
   {% if let Some(audience) = audience %}<p data-audience-notice>{{ audience }}</p>{% endif %}
   {% if let Some(shared) = shared_channel %}<p class="notice" role="alert" data-shared-notice>{{ shared }}</p>{% endif %}
@@ -58,7 +57,7 @@
   </fieldset>
   <p>
     <button type="submit" formaction="{{ preview_path }}">Preview</button>
-    {% if !matrix %}<button type="submit" formaction="{{ test_path }}">Send test</button>{% endif %}
+    {% if send_test %}<button type="submit" formaction="{{ test_path }}">Send test</button>{% endif %}
     <button type="submit">Save route</button>
   </p>
 </form>

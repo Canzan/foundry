@@ -6,14 +6,14 @@
 <section data-integration="slack">
   <h2>Slack</h2>
   {% if unavailable %}
-  <p data-connection="slack">Slack is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key. <a href="/workspace/integrations/slack/disconnect">Disconnect Slack</a></p>
+  <p data-connection="slack">{{ slack_unavailable_words }} <a href="/workspace/integrations/slack/disconnect">Disconnect Slack</a></p>
   {% else %}
   <p data-connection="slack">{% if let Some(line) = slack_line %}{{ line }}{% endif %}{% if reconnect %} <a class="button" href="/workspace/integrations/slack/install">Reconnect</a>{% endif %}{% if slack_line.is_some() %} <a href="/workspace/integrations/slack/disconnect">Disconnect Slack</a>{% endif %}</p>
   {% endif %}
   {% if not_set_up %}
-  <p>Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once. <a href="/workspace/integrations/slack/setup">How to set up Slack</a></p>
+  <p>{{ slack_not_set_up }} <a href="/workspace/integrations/slack/setup">{{ how_to_set_up_slack }}</a></p>
   {% else if no_secrets_key %}
-  <p>Slack cannot be connected on this Foundry yet: an instance operator needs to set the secrets key.</p>
+  <p>{{ slack_no_secrets_key }}</p>
   {% else if slack_line.is_none() %}
   <p><a class="button" href="/workspace/integrations/slack/install">Add to Slack</a></p>
   {% endif %}
@@ -21,7 +21,7 @@
 <section data-integration="matrix">
   <h2>Matrix</h2>
   {% if matrix_unavailable %}
-  <p data-connection="matrix">Matrix is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key. <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>
+  <p data-connection="matrix">{{ matrix_unavailable_words }} <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>
   {% else %}
   {% if let Some(line) = matrix %}<p data-connection="matrix">{{ line.connected }} <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>{% endif %}
   {% endif %}
@@ -33,7 +33,7 @@
     <p><button type="submit">{% if matrix.is_some() %}Replace token{% else %}Connect Matrix{% endif %}</button></p>
   </form>
   {% else if matrix_not_set_up %}
-  <p>Matrix is not set up on this Foundry yet. An instance operator sets it up once.</p>
+  <p>{{ matrix_not_set_up_words }}</p>
   {% endif %}
 </section>
 <section>

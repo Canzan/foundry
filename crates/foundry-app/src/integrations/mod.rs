@@ -1,8 +1,9 @@
 //! external-integration-plugins — foundry-app's integrations module (DESIGN
 //! [REF] Component Decomposition slices 01 and 04): settings ([`config`]), the
 //! Slack adapter ([`slack`]), the Matrix adapter ([`matrix`]), the client for
-//! user-supplied addresses ([`outbound`]), the doors ([`handlers`]) and
-//! members' project emails ([`project_emails`]).
+//! user-supplied addresses ([`outbound`]), the doors ([`handlers`]), why a
+//! route door has no connection ([`no_connection`]) and members' project
+//! emails ([`project_emails`]).
 //!
 //! [`Integrations`] is what the settings built; [`IntegrationsHandle`] is how
 //! [`crate::AppState`] holds it. Production installs it once at boot; the
@@ -12,6 +13,7 @@
 pub mod config;
 pub mod handlers;
 pub mod matrix;
+pub mod no_connection;
 pub mod outbound;
 pub mod project_emails;
 pub mod slack;
@@ -448,5 +450,65 @@ impl IntegrationsHandle {
 impl Default for IntegrationsHandle {
     fn default() -> Self {
         Self::off("http://localhost")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use config::SlackSettings;
+
+    /// The integrations of an instance with or without the Slack app and the
+    /// secrets key.
+    fn instance(slack_app: bool, secrets_key: bool) -> Integrations {
+        let mut settings = IntegrationSettings::off("https://foundry.example.org");
+        settings.slack = slack_app.then(|| SlackSettings {
+            client_id: "client".to_string(),
+            client_secret: SecretString::from("client-secret"),
+            signing_secret: SecretString::from("signing-secret"),
+            api_base_url: "https://slack.com/api".to_string(),
+            authorize_url: "https://slack.com/oauth/v2/authorize".to_string(),
+        });
+        settings.secrets = secrets_key.then(|| {
+            SecretBox::from_settings(
+                &SecretString::from("ZWlwLXBoYXNlNS1yb3RhdGVkLW5ldy1rZXktMzJieXQ"),
+                None,
+            )
+            .expect("the secrets key parses")
+        });
+        Integrations::new(settings)
+    }
+
+    /// Every (Slack app, secrets key, unreadable Slack, unreadable Matrix):
+    /// the offer for Slack and for Matrix. An unreadable connection outranks
+    /// a missing key; Slack's missing app outranks everything.
+    #[rustfmt::skip]
+    #[test]
+    fn each_kinds_offer_follows_the_instance_then_the_unreadable_connection() {
+        use MatrixOffer as M;
+        use SlackOffer as S;
+        const APP: bool = true;
+        const KEY: bool = true;
+        const UNREADABLE: bool = true;
+        let table = [
+            // app,  key,   slack unreadable, matrix unreadable, Slack offer, Matrix offer
+            (!APP, !KEY, !UNREADABLE, !UNREADABLE, S::NotSetUp, M::NoSecretsKey),
+            (!APP, !KEY, UNREADABLE, UNREADABLE, S::NotSetUp, M::Unavailable),
+            (!APP, KEY, !UNREADABLE, !UNREADABLE, S::NotSetUp, M::Ready),
+            (!APP, KEY, UNREADABLE, UNREADABLE, S::NotSetUp, M::Unavailable),
+            (APP, !KEY, !UNREADABLE, !UNREADABLE, S::NoSecretsKey, M::NoSecretsKey),
+            (APP, !KEY, UNREADABLE, !UNREADABLE, S::Unavailable, M::NoSecretsKey),
+            (APP, !KEY, !UNREADABLE, UNREADABLE, S::NoSecretsKey, M::Unavailable),
+            (APP, KEY, !UNREADABLE, !UNREADABLE, S::Ready, M::Ready),
+            (APP, KEY, UNREADABLE, !UNREADABLE, S::Unavailable, M::Ready),
+            (APP, KEY, !UNREADABLE, UNREADABLE, S::Ready, M::Unavailable),
+        ];
+        for (app, key, slack, matrix, slack_offer, matrix_offer) in table {
+            let integrations = instance(app, key);
+            let unreadable = UnreadableConnections { slack, matrix };
+            let case = format!("app {app}, key {key}, unreadable slack {slack} matrix {matrix}");
+            assert_eq!(integrations.slack_offer(unreadable), slack_offer, "Slack: {case}");
+            assert_eq!(integrations.matrix_offer(unreadable), matrix_offer, "Matrix: {case}");
+        }
     }
 }

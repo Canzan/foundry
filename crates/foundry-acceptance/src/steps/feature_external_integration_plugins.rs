@@ -84,7 +84,7 @@ async fn time_is(world: &mut FoundryWorld, hhmm: String) {
 }
 
 #[given(
-    regex = r"^the instance has (the Foundry Slack app set up|no Foundry Slack app set up|the Foundry Slack app set up but no secrets key)$"
+    regex = r"^the instance has (the Foundry Slack app set up|no Foundry Slack app set up|the Foundry Slack app set up but no secrets key|no secrets key)$"
 )]
 async fn instance_has(world: &mut FoundryWorld, setup: String) {
     eip::given_instance(world, &setup).await;

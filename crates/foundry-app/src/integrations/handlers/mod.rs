@@ -87,6 +87,7 @@ pub use routes::{
 pub use slack_setup::{
     finish_slack_install, show_slack_setup, slack_events, start_slack_install, SlackReturn,
 };
+pub(crate) use workspace::lost_words;
 pub use workspace::{
     disconnect_matrix, disconnect_slack, show_matrix_disconnect, show_slack_disconnect,
     show_workspace,
