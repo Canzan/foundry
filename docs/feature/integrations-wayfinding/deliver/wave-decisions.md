@@ -71,7 +71,7 @@ above, which open the pages as Priya and Lena and follow every offered link
 - [x] US-IW-01 AC 1-4 (sidebar outline, order, current page, follow from 3 pages)
 - [x] US-IW-02 AC 1-7 (form outline, never-ask, precedence controls, every door)
 - [x] US-IW-03 AC 1-4 (Slack via acceptance; Matrix line by unit table)
-- [ ] KPI-IW-M dogfood on dev — after release
+- [x] KPI-IW-M dogfood on dev — confirmed by the user on v0.18.2, 2026-11-05
 
 ## Follow-ups (not in scope)
 

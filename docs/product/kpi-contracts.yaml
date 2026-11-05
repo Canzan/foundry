@@ -36,6 +36,7 @@
 #   2026-11-03  integrations-wayfinding DISTILL: each acceptance KPI names its scenario tag
 #               (@kpi-iw-<n>); status: distilled.
 #   2026-11-03  integrations-wayfinding DELIVER: acceptance KPIs delivered (54/54); KPI-IW-M owed after v0.18.2.
+#   2026-11-05  integrations-wayfinding: KPI-IW-M confirmed by the user on dev (v0.18.2); status: delivered.
 
 schema_version: 1
 
@@ -1083,4 +1084,4 @@ features:
         instruments_planned:
           - {kind: dogfood, ref: "walk on https://foundry.unintelligent-design.us after v0.18.2 deploys"}
         gate: soft
-        status: designed
+        status: delivered   # 2026-11-05: user confirmed W-2 and "How to set up Slack" on dev, v0.18.2

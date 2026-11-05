@@ -77,8 +77,8 @@ Acceptance: integrations-wayfinding 54/54, external-integration-plugins 181/181,
 
 ## Open
 
-- KPI-IW-M: the user's walk on dev (a new Slack route on ABC reads "Slack is not set up on this
-  Foundry yet…" with "How to set up Slack"). Owed.
+- KPI-IW-M is met: on 2026-11-05 the user confirmed on dev (v0.18.2) that a new Slack route on
+  ABC reads "Slack is not set up on this Foundry yet…" with "How to set up Slack".
 - On the project page, a lost or unreadable connection offers an admin no link (W-6 puts the link
   on the connected line only).
 - Send test with no usable connection answers 422 (was 200), matching save.
