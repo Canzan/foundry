@@ -7,6 +7,27 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.18.2] - 2026-11-04
+
+### Added
+
+- **Integrations in the sidebar**: workspace admins see Integrations in the sidebar on every
+  app page, linking to `/workspace/integrations`. Team leads and members do not see it.
+- **Project integrations page names the shared connection**: the page says which workspace Slack
+  or Matrix connection its routes use, so each project only picks its channel or room. When none
+  is connected, a workspace admin is offered a link to connect one.
+
+### Fixed
+
+- **Route form says what is actually missing**: instead of always "Ask a workspace admin to
+  connect Slack or Matrix", the new-route form names the cause (the instance has no Slack app,
+  no secrets key, or the workspace has no connection) and gives a workspace admin the link that
+  fixes it. Preview, save, Send test and edit all give the same answer.
+- Previewing, sending a test from, or editing a Matrix route no longer shows the Slack form.
+- Saving a Slack route with no connection no longer says "cannot post to that channel".
+- After Matrix is disconnected, a Matrix route's Send test explains why instead of answering
+  not found. Send test with no usable connection now answers 422, like save.
+
 ## [v0.18.1] - 2026-11-02
 
 ### Fixed
