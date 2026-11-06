@@ -37,6 +37,8 @@
 #               (@kpi-iw-<n>); status: distilled.
 #   2026-11-03  integrations-wayfinding DELIVER: acceptance KPIs delivered (54/54); KPI-IW-M owed after v0.18.2.
 #   2026-11-05  integrations-wayfinding: KPI-IW-M confirmed by the user on dev (v0.18.2); status: delivered.
+#   2026-11-05  instance-integration-setup appended by its DEVOPS wave (KPI-IIS-1..6, G1..G3, M;
+#               status: designed). No new instrument kinds and no runtime telemetry.
 
 schema_version: 1
 
@@ -1085,3 +1087,116 @@ features:
           - {kind: dogfood, ref: "walk on https://foundry.unintelligent-design.us after v0.18.2 deploys"}
         gate: soft
         status: delivered   # 2026-11-05: user confirmed W-2 and "How to set up Slack" on dev, v0.18.2
+  instance-integration-setup:
+    jobs: [job-route-project-events-to-chat]
+    source: docs/feature/instance-integration-setup/discuss/outcome-kpis.md
+    devops: docs/feature/instance-integration-setup/devops/wave-decisions.md
+    scope: "deliverable A (US-IIS-01, 02, 03, 06, 08): instance page, generated secrets key under an instance key, Slack app saved in the UI, live reload on every replica. Deliverable B (US-IIS-04, 05, 07) adds to these KPIs when it ships"
+    runtime_telemetry: "no new series (D5); existing foundry_integration_secrets_degraded and probe_failures_total{probe_name=secrets}, today boot-only, also updated on reload (DELIVER task 8)"
+    alerts: "operator configuration, recommended in RELEASING R-8 (D5); no rule ships in this repo"
+    lane: "FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci (acceptance runs only with it set): InProcHarness; MultiReplicaHarness @iis-replica; subprocess @iis-subprocess on the ci release build with CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false; one @docker-compose image-shape scenario"
+    # DEVOPS (2026-11-05). Nothing built, deployed or pushed. DISTILL links each
+    # acceptance instrument to its scenarios; DELIVER records `measured:`.
+    status: designed
+    kpis:
+      - id: KPI-IIS-1
+        name: An instance admin turns on Matrix and Slack with no restart and no environment edit
+        type: north-star
+        target: "0 restarts, 0 environment edits; every replica shows Connect Matrix and Add to Slack within 60 s of the save"
+        baseline: "2 environment edits and 1 restart or roll per change"
+        instruments_planned:
+          - {kind: acceptance, ref: "@iis-replica: two replicas on one database; save on one, poll /workspace/integrations on the other", oracle: "offers present on both within 60 s of shared-clock time"}
+          - {kind: store-query, ref: "integration_replica_states.applied_version vs integration_config_version", oracle: "context: every live replica applied the version"}
+        scenarios: "@instance-integration-setup @kpi-iis-1"
+        gate: hard
+        status: designed
+      - id: KPI-IIS-2
+        name: The instance page explains every integration state and its next step
+        type: leading
+        target: "100% of the 17 instance states show their I-n; 0 unexplained"
+        baseline: "0%: only W-2's 'not set up'"
+        instruments_planned:
+          - {kind: acceptance, ref: "outline over the 17 states on /admin/instance/integrations"}
+        scenarios: "@instance-integration-setup @kpi-iis-2"
+        gate: hard
+        status: designed
+      - id: KPI-IIS-3
+        name: An instance admin who meets W-2 or W-3 reaches the fix
+        type: leading
+        target: "<= 1 click from the workspace page and the route form; KPI-IW-3 unchanged"
+        baseline: "no path; the guide says to restart"
+        instruments_planned:
+          - {kind: acceptance, ref: "I-19 offered to an instance admin; following it answers 200"}
+        scenarios: "@instance-integration-setup @kpi-iis-3"
+        gate: hard
+        status: designed
+      - id: KPI-IIS-4
+        name: Instance-level changes never break a connection unannounced
+        type: guardrail
+        target: "100% of such changes show the affected count first; 0 connections marked lost and 0 admin emails from a key or app change"
+        baseline: "blind environment edits"
+        instruments_planned:
+          - {kind: acceptance, ref: "confirm pages, connection state, mail double"}
+        scenarios: "@instance-integration-setup @kpi-iis-4"
+        gate: hard
+        status: designed
+      - id: KPI-IIS-5
+        name: An instance configured before this feature keeps delivering through the upgrade and the move
+        type: leading
+        target: "100% of pre-existing credentials open after upgrade and Move; 0 refused deliveries or events attributable to either"
+        baseline: "n/a (new path)"
+        instruments_planned:
+          - {kind: acceptance, ref: "seal under FOUNDRY_SECRETS_KEY, boot the new release, Move, deliver"}
+        scenarios: "@instance-integration-setup @kpi-iis-5"
+        gate: hard
+        status: designed
+      - id: KPI-IIS-6
+        name: A standalone deploy reaches Matrix ready with zero key settings
+        type: leading
+        target: "1 click (Generate) after first start on compose or the single binary; the page names the key file to back up. Plain k8s example: I-27 until FOUNDRY_INSTANCE_KEY is set (by design, D3)"
+        baseline: "integrations off until an operator reads RELEASING"
+        instruments_planned:
+          - {kind: acceptance, ref: "@iis-subprocess: prebuilt release binary, temp FOUNDRY_DATA_DIR; also two processes on one directory make one file"}
+        scenarios: "@instance-integration-setup @kpi-iis-6"
+        gate: hard
+        status: designed
+      - id: KPI-IIS-G1
+        name: No one sees or recovers a key or secret
+        type: guardrail
+        target: "0 occurrences of the planted secrets key, instance key, client secret or signing secret in pages, page source, logs, activity or API answers; a database dump alone opens 0 credentials"
+        baseline: "EIP-KPI-5 (credentials)"
+        instruments_planned:
+          - {kind: acceptance, ref: "planted-string grep (generated key via the integrations-test-seam reader; file key from the scenario's temp directory) and an open attempt on the tables without the instance key"}
+          - {kind: check-arch, ref: "existing: integrations-test-seam, integrations-secret-seam (extended); planned (DELIVER, with gold tests): integrations-key-file-seam, integrations-instance-tables, integrations-seal-fence"}
+        scenarios: "@instance-integration-setup @kpi-iis-g1"
+        gate: hard
+        status: designed
+      - id: KPI-IIS-G2
+        name: Non-instance-admins are never offered a link they cannot open
+        type: guardrail
+        target: "0 offered links answering 404 (I-1, I-19); /admin/instance/integrations gives the uniform 404 to all others"
+        baseline: "KPI-IW-G1"
+        instruments_planned:
+          - {kind: acceptance, ref: "outline over Priya, Tomas, Lena, Sam, Marco and signed out"}
+        scenarios: "@instance-integration-setup @kpi-iis-g2"
+        gate: hard
+        status: designed
+      - id: KPI-IIS-G3
+        name: Environment-configured Slack and key keep working
+        type: guardrail
+        target: "100% of external-integration-plugins and integrations-wayfinding scenarios"
+        baseline: "100% at v0.18.2"
+        instruments_planned:
+          - {kind: acceptance, ref: "FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci, all gates green, acceptance step present in the log"}
+        scenarios: "@external-integration-plugins and @integrations-wayfinding (unchanged)"
+        gate: hard
+        status: designed
+      - id: KPI-IIS-M
+        name: The user turns on Matrix and Slack from the browser on a deployed instance
+        type: outcome
+        target: "On a deployed instance with an operator instance key and no SLACK_*, reads I-21 and I-10; Connect Matrix and Add to Slack appear with no restart"
+        baseline: "W-2 for both"
+        instruments_planned:
+          - {kind: dogfood, ref: "the user's walk after the Deliverable A release deploys"}
+        gate: soft
+        status: designed
