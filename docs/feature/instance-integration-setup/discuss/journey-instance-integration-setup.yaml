@@ -47,8 +47,8 @@ journey:
       action: Priya opens /admin/instance/integrations.
       mockup: |
         Integrations for this Foundry
-        Instance key ${instance_key_source}      (I-25 / I-27 / I-30)
-        Secrets key  ${stored_secrets_key} ${legacy_direct_seals} ${secrets_probe}   (I-2 / I-2e / I-3 / I-4 / I-26)
+        Instance key ${instance_key_source}      (I-25 / I-27 / I-30 / I-31)
+        Secrets key  ${stored_secrets_key} ${legacy_direct_seals} ${secrets_probe}   (I-2 / I-2e / I-2e0 / I-3 / I-4 / I-26)
         Slack        ${instance_slack_state}     (I-5 / I-6 / I-7 / I-13)
           ${public_url} (I-29 when unset)
           Redirect URL ${slack_return_url}  Events URL ${slack_events_url}  Manifest ${manifest}
@@ -175,10 +175,11 @@ journey:
       integration_risk: HIGH - a link to a non-instance-admin leads to the uniform 404
     instance_key_source:
       source_of_truth: >
-        The instance key in effect, never in the database: the operator setting when present
-        (DESIGN names it; FOUNDRY_SECRETS_KEY is read as it), else the file Foundry makes in its
-        data directory, else none. Previous keys (operator setting, superseded file) open only.
-      consumers: [I-25, I-27, I-30, whether Generate is offered]
+        The instance key in effect, never in the database: FOUNDRY_INSTANCE_KEY when present
+        (legacy alias FOUNDRY_SECRETS_KEY; both names set to different values refuses start),
+        else {FOUNDRY_DATA_DIR}/instance.key made by Foundry (ADR-IIS-002), else none.
+        Previous keys (FOUNDRY_INSTANCE_KEY_PREVIOUS / alias, superseded file) open only.
+      consumers: [I-25, I-27, I-30, I-31, whether Generate is offered]
       integration_risk: HIGH - every replica must hold the same one, or the secrets key does not open (I-26)
     stored_secrets_key:
       source_of_truth: The secrets key row, encrypted under the instance key (new; DESIGN decides storage). Present / absent / does not open.
@@ -186,7 +187,7 @@ journey:
       integration_risk: HIGH - every replica must agree within 60 s
     legacy_direct_seals:
       source_of_truth: Stored credentials whose key id is the instance key's own (sealed before this feature, ADR-EIP-004 format)
-      consumers: [I-2e, I-22 count, Move offered]
+      consumers: [I-2e / I-2e0 (direct mode, ADR-IIS-001 key mode), I-22 count, Move offered (withheld under I-4)]
       integration_risk: HIGH - must keep opening after the upgrade (US-IIS-06 AC 1)
     secrets_probe:
       source_of_truth: The boot SecretsCheck (missing key ids over stored credentials; mod.rs check_secrets)

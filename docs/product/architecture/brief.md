@@ -1080,6 +1080,207 @@ release gate are in `docs/feature/external-integration-plugins/deliver/upstream-
   user section. It is not marked as the current page (accepted 2026-11-03). (ADR-IW-002)
 - **Rule.** A link is offered only from the same access facts the target page checks.
 
+#### Instance integration setup: keys and the Slack app in the browser, live on every replica (instance-integration-setup, DESIGN 2026-11-05)
+
+**What changes.**
+- An instance admin opens `/admin/instance/integrations`. There they:
+  - generate the secrets key;
+  - move legacy direct seals under it;
+  - save the Foundry Slack app;
+  - in Deliverable B, also replace the key, start over, and replace or remove the app.
+- Every change applies with no restart: on the serving replica at once, and on the others within
+  60 s (bound). The design polls every 5 s.
+- Review fixes (2026-11-05):
+  - `Direct` mode also follows direct seals.
+  - Generate and Move are withheld under I-4.
+  - Start over is gated on no live replica opening the key (`integration_replica_states`).
+  - The pending I-14 app lives in `instance_slack_app_pending`, inside the fence and the re-seal.
+  - Reload reads version and state in one `REPEATABLE READ` snapshot.
+  - The key file is never minted when any secrets key or direct seal exists, and is read at boot
+    only.
+  - New check-arch rule: `integrations-seal-fence`.
+- Second review fixes (2026-11-05):
+  - Start over needs a typed I-28a confirmation and re-checks its gate inside the locked POST.
+  - The key file's temp is created `O_EXCL` 0600; leftovers are cleaned; the mode is asserted; a
+    failed `link` gives I-27.
+  - The pending-app write is fenced.
+  - Remove is a no-op while the environment's app is in effect.
+  - The advisory lock is always taken before any row lock.
+  - Every time comparison uses the injected `Clock`.
+- Style: the existing modular monolith with ports and adapters. No new crate, no new dependency.
+- ADRs: ADR-IIS-001 to -005. The rejected options are in
+  `docs/feature/instance-integration-setup/design/options.md`.
+
+**Keys (ADR-IIS-001, -002).**
+- The **instance key** never lives in the database. It comes from `FOUNDRY_INSTANCE_KEY`, with
+  `FOUNDRY_SECRETS_KEY` read as an alias, or from a Foundry-made `{FOUNDRY_DATA_DIR}/instance.key`
+  (default `/var/lib/foundry`).
+- The key file is created once with link-based create-if-absent, and never overwritten.
+- The instance key wraps the **secrets key** (single-row `integration_secrets_key`). The secrets
+  key seals credentials with the shipped `SecretBox` format.
+- The credential box opens with the secrets key and with every held instance key, so legacy direct
+  seals keep opening.
+- A closed `KeyMode` drives the page and the offers:
+
+  | Mode | Page |
+  |---|---|
+  | `NoInstanceKey(Unwritable \| Unreadable)` | I-27 / I-31 |
+  | `Direct` (legacy name, no stored key: today's behaviour) | I-2e |
+  | `AwaitingSecretsKey` | I-3 |
+  | `Sealed` | I-2 |
+  | `Unopenable` | I-26 |
+
+- An operator key replacing a key file re-wraps at boot by compare-and-set (I-30).
+- A malformed operator key, or the two names set to different values, refuses start.
+
+**Slack app (ADR-IIS-003).**
+- The app is saved in the single-row `instance_slack_app`: client ID in plain text, secrets sealed.
+- The environment's trio wins when all three are set.
+- A saved app that does not open is not in effect: I-13 on the instance page, W-2 on workspace
+  pages.
+- A switch to a different client ID (B) is held sealed in the session until confirmed (I-14).
+
+**Live effect (ADR-IIS-004).**
+- One advisory lock (`foundry.instance-integrations`) serialises instance key and app writes.
+- Credential-sealing writes take it shared, and fence on the sealing key id.
+- `integration_config_version` is bumped in the same transaction.
+- Each replica's reload task polls it (`FOUNDRY_INTEGRATIONS_RELOAD_MS`, default 5000). On a change
+  it rebuilds `Integrations` through the one shared boot function and `install`s it.
+- An unknown key id triggers an immediate reload.
+
+**Activity (ADR-IIS-005).** Kept in `instance_integration_audit_events`: actor or Foundry, a
+closed action list, client ID and count, never a value.
+
+```mermaid
+C4Context
+  title System Context — instance integration setup
+  Person(admin, "Instance admin", "Turns on Slack and Matrix in the browser")
+  Person(wsadmin, "Workspace admin", "Connects Slack or Matrix for a workspace")
+  Person(op, "Instance operator", "Optionally sets FOUNDRY_INSTANCE_KEY; backs up the key file")
+  System(foundry, "Foundry", "Board, integrations, instance admin")
+  System_Ext(slack, "Slack", "OAuth, Web API, signed events")
+  System_Ext(matrix, "Matrix homeserver", "Client-server API")
+  Rel(admin, foundry, "Generates keys and saves the Slack app through")
+  Rel(wsadmin, foundry, "Connects workspaces through")
+  Rel(op, foundry, "Configures the instance key of")
+  Rel(foundry, slack, "Exchanges codes and posts messages to")
+  Rel(slack, foundry, "Sends signed events to")
+  Rel(foundry, matrix, "Posts notices to")
+```
+
+```mermaid
+C4Container
+  title Container Diagram — instance integration setup
+  Person(admin, "Instance admin")
+  Container(app, "foundry (N replicas)", "Rust, axum, askama", "Instance page, key modes, reload task, delivery worker")
+  ContainerDb(db, "PostgreSQL", "sqlx", "Wrapped secrets key, key-check canaries, saved and pending Slack app, sealed credentials, config version, replica states, activity")
+  Container(vol, "Data directory", "Filesystem volume", "instance.key when no operator key is set")
+  System_Ext(env, "Process settings", "FOUNDRY_INSTANCE_KEY, SLACK_*, FOUNDRY_DATA_DIR")
+  System_Ext(slack, "Slack")
+  System_Ext(matrix, "Matrix homeserver")
+  Rel(admin, app, "Uses /admin/instance/integrations on")
+  Rel(app, env, "Reads the instance key and Slack trio from")
+  Rel(app, vol, "Creates once and reads the instance key file in")
+  Rel(app, db, "Stores wrapped keys and sealed values in, polls the config version from")
+  Rel(app, slack, "Calls the Web API of")
+  Rel(app, matrix, "Calls the client API of")
+```
+
+Component placement (no new crate):
+- `foundry-app/src/integrations/`:
+  - `key_file.rs`: the only filesystem key adapter, with a probe.
+  - `keys.rs` (or a submodule): key mode, unwrap and the credential box.
+  - `reload.rs`: the reload task.
+  - `handlers/instance.rs`: the page and its posts, behind `require_instance_admin`.
+  - The shared boot function lives in `mod.rs`.
+- `foundry-store/src/integrations/instance.rs`: the only SQL for the four new tables, the lock and
+  the version bump. The re-seal is widened to every sealed slot.
+- `foundry-auth/src/secret_box.rs`: new setting names, aliases and key generation.
+- Migration `0033_instance_integrations.sql`: new tables only.
+
+##### For Acceptance Designer (instance-integration-setup)
+
+- **Driving ports (HTTP through `InProcHarness`).**
+  - Deliverable A:
+    - `GET /admin/instance/integrations`;
+    - `POST /admin/instance/integrations/secrets-key`;
+    - `POST /admin/instance/integrations/secrets-key/move`;
+    - `POST /admin/instance/integrations/slack`.
+  - Deliverable B adds `GET`/`POST` on each of:
+    - `…/secrets-key/replace`;
+    - `…/secrets-key/start-over`;
+    - `…/slack/remove`;
+    - `…/slack/confirm` (the I-14 confirm).
+  - Every POST carries `_csrf`. Every caller other than an instance admin gets the uniform 404.
+  - Observed through the shipped `/workspace/integrations`, the route form, the route history,
+    `/integrations/slack/events`, `/workspace/integrations/slack/install` and `/return`, and
+    `/api/v1/integrations`.
+- **Settings in scenarios** go through the scenario lookup, as today:
+  - `FOUNDRY_INSTANCE_KEY` or the legacy `FOUNDRY_SECRETS_KEY`;
+  - `FOUNDRY_DATA_DIR`, a temp directory per scenario;
+  - `FOUNDRY_INTEGRATIONS_RELOAD_MS`, short (for example 200);
+  - `FOUNDRY_PUBLIC_URL`, set or unset.
+- **Boot and restart** use the one shared boot function. It replaces the hand-written probe in
+  `restart_in_process_with_key`.
+- **Two replicas** for every "within 60 s on every replica" AC. The walking skeleton (US-IIS-02
+  scenario 1) runs on two replicas.
+  - Use `MultiReplicaHarness`: one schema, a shared `MockClock`.
+  - Each replica's `AppState` runs its own reload loop, started by `spawn_app` as `main.rs` starts
+    it. Do not drive it from the harness's `install_integrations`, which bypasses the reload.
+  - "Applied on every replica" is observable as each replica's `integration_replica_states` row
+    reaching the new version, and on each replica's `/workspace/integrations`.
+- **Restart in process.** `restart_in_process_with_key` (`support/external_integration_plugins.rs`)
+  routes through the shared boot function instead of its own copy of the probe, so harness and
+  binary cannot drift.
+- **Time.** Freshness, expiry and rate limits read the injected `Clock`. Advance the shared
+  `MockClock` instead of sleeping.
+- **Concurrency:** fire two Generate posts at once, one per replica, and assert one row and both
+  answers in the resulting state.
+- **Key file:** a subprocess lane for KPI-IIS-6 and the shared-volume race (two processes, one temp
+  directory). The read-only directory and the corrupt file use the in-process lookup.
+- **Test seams:** the generated secrets key is read only through the `test-support` reader under
+  check-arch `integrations-test-seam`. The file key is read from the scenario's own temp directory.
+- **Dump attack (US-IIS-02 AC 3):** read the tables directly and attempt to open them without the
+  instance key.
+- **Planted-string grep:** pages, logs, both activity tables and API answers.
+
+##### For Software Crafter (instance-integration-setup)
+
+- **Effect boundaries.** Deciding the key mode, the Slack app in effect, the offers, shape
+  validation and the page state are pure functions over (settings, stored rows). The shell is:
+  - the key file adapter;
+  - store transactions;
+  - the reload task;
+  - handlers.
+
+  Generate, Move and Replace build a plan (the values to re-seal, the new wrapped key, the canary,
+  the activity line), and the store applies it in one transaction, with the closure shape of
+  `reseal_credentials`.
+- **Driving ports split by effect.** `GET` page handlers read only. Each `POST` calls exactly one
+  write use-case.
+- **Contract shapes.**
+
+  | Component | Shape | Assertion |
+  |---|---|---|
+  | Key mode and page state | pure function | table tests |
+  | Generate, Move | bounded change: `integration_secrets_key`, sealed columns of `integration_connections`, `integration_key_checks`, the version, one activity row | store test diffs only those tables |
+  | Slack save | bounded change: `instance_slack_app`, version, activity | same |
+  | Reload | unbounded preservation: installs a new snapshot, writes nothing | store test asserts no writes |
+
+- **Probes (wire, probe, use).**
+  - The key file adapter's `probe()` covers the race, read-only, short read and corrupt cases.
+  - The keyring probe is unwrap plus the canary.
+  - The reload's first read is part of boot.
+  - Only a malformed operator key or conflicting names refuse start. Everything else degrades
+    with `health.degraded probe=secrets`.
+- **Never** log, render, audit or `Debug` a key, a secret or its length. `SecretsKey` and the
+  wrapped bytes keep no `Debug`.
+- **Enforcement** (`cargo xtask check-arch`, each rule with an injected-violation gold test):
+  - extended `integrations-secret-seam`;
+  - new `integrations-instance-tables`;
+  - new `integrations-key-file-seam` (only `key_file.rs` reads `FOUNDRY_DATA_DIR` or the file);
+  - the test-seam reader is listed in `integrations-test-seam`.
+
 ### Crate graph
 
 ```mermaid

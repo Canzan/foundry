@@ -10,6 +10,16 @@ Proposed (2026-10-21, external-integration-plugins DESIGN). Builds on OD-3 (acce
 creates the app from a Foundry manifest; client id, client secret and signing secret are
 environment settings validated at boot).
 
+Partly superseded (2026-11-05, instance-integration-setup DESIGN): decision 1 / OD-3 is
+superseded in part by `adr-iis-003-slack-app-saved-by-instance-admin.md`.
+- An instance admin may also save the app on `/admin/instance/integrations`, applied live.
+- The environment trio still wins when all three are set, and a partial trio still refuses start.
+- "Slack is offered only when … `FOUNDRY_SECRETS_KEY` is set" now reads "when Foundry can seal"
+  (ADR-IIS-001 key modes `Direct` or `Sealed`).
+- The manifest's events URL comes from `Integrations::slack_events_url`.
+
+The other decisions are unchanged. The text below is kept as the historical record.
+
 ## Context
 
 - Slack's approval returns to one fixed redirect address per app, so every self-hosted instance

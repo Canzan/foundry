@@ -48,6 +48,10 @@ Approved by the user 2026-11-05 ("Accept all, review, then DESIGN"):
     - Replace is withheld while I-26 holds (the secrets key does not open).
     - In Deliverable A, I-26 is restore-only. Start over ships with US-IIS-07
       in Deliverable B.
+  - Refined (approved by the user 2026-11-05, DESIGN upstream item 8a):
+    - Start over is offered only when no live replica opens the secrets key,
+      re-checked in the confirming POST.
+    - The I-28 confirm also requires typing `START OVER` (I-28a).
 - [D5] **Approved by the user 2026-11-05.** Existing instances: an existing
   `FOUNDRY_SECRETS_KEY` becomes the instance key (DESIGN names the setting).
   - Credentials sealed directly with it, or with `_PREVIOUS`, keep opening

@@ -10,6 +10,18 @@ Proposed (2026-10-21, external-integration-plugins DESIGN). Resolves the mechani
 (accepted: "a database dump or backup alone must not yield a usable credential; new operator-held
 key setting").
 
+Partly superseded (2026-11-05, instance-integration-setup DESIGN):
+- Decision 1 and the boot part of decision 4 are superseded by
+  `adr-iis-001-two-tier-keys.md`. An instance key (`FOUNDRY_INSTANCE_KEY`, with
+  `FOUNDRY_SECRETS_KEY` read as an alias, or a Foundry-made file per
+  `adr-iis-002-instance-key-file.md`) wraps a stored secrets key.
+- Decisions 3, 5 and 6 are amended there:
+  - new seal callers: the instance page;
+  - new slots: the saved Slack app and the wrapped key;
+  - UI Replace for the secrets key, and `doctor rotate-secrets` re-wraps;
+  - a confirmed Start over.
+- Decision 2 is unchanged. The text below is kept as the historical record.
+
 ## Context
 
 - CA-4: for the first time Foundry stores outside credentials in its database: the Slack bot token

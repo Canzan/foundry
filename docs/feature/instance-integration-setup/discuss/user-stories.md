@@ -30,14 +30,20 @@ Delivery split (D17):
     stores it in the database, encrypted under the instance key.
   - The **instance key** encrypts the secrets key. It never lives in the
     database.
-    - It comes from an operator setting when one is present. DESIGN names the
-      setting; the existing `FOUNDRY_SECRETS_KEY` is read as it under whatever
-      name DESIGN picks.
-    - Otherwise it comes from a file Foundry makes in its data directory
-      (US-IIS-08, D6).
-  - A **previous instance key** (operator setting, today
+    - It comes from the operator setting `FOUNDRY_INSTANCE_KEY` when present
+      (ADR-IIS-001). The legacy `FOUNDRY_SECRETS_KEY` is read as an alias.
+      An instance on the legacy name, or with credentials sealed directly
+      under a held instance key, stays in direct mode: I-2e / I-2e0 with Move,
+      as today.
+    - Otherwise it comes from `{FOUNDRY_DATA_DIR}/instance.key`, a file Foundry
+      makes. `FOUNDRY_DATA_DIR` defaults to `/var/lib/foundry` (US-IIS-08, D6,
+      ADR-IIS-002). Foundry never overwrites the file. An unreadable file
+      shows I-31.
+  - A **previous instance key** (`FOUNDRY_INSTANCE_KEY_PREVIOUS`, alias
     `FOUNDRY_SECRETS_KEY_PREVIOUS`, or a superseded Foundry-made file) is
     accepted for opening only.
+  - Both the new and the legacy name set to different values refuses start,
+    naming both settings. The same value under both counts as the legacy name.
   - Keys are never stored in plaintext. Integrations stay off until an instance
     key exists.
   - Every replica must use the same instance key. A replica whose instance key
@@ -94,8 +100,9 @@ Delivery split (D17):
   `http://localhost:{port}` (`main.rs`), which Slack cannot reach. The page
   says so (I-29).
 - **The board never goes down for an integration key** (ADR-EIP-004 decision
-  4). A key that cannot open degrades Slack or Matrix (I-4, I-13, I-26). It
-  never refuses start, except for a malformed operator setting.
+  4). A key that cannot open degrades Slack or Matrix (I-4, I-13, I-26, I-31).
+  It never refuses start, except for a malformed operator setting, or the new
+  and legacy names set to different values.
 - **Rotation covers everything sealed.**
   - Replacing the secrets key in the UI (US-IIS-07) re-seals every stored
     credential, the saved Slack app included. Nobody reconnects.
@@ -138,7 +145,8 @@ Delivery split (D17):
 | I-1 | instance dashboard `/admin/instance/workspaces` | `Integrations` (link to `/admin/instance/integrations`) |
 | — | page title | `Integrations for this Foundry` |
 | I-2 | secrets key stored | `Secrets key: set. Credentials entered here are sealed with it.` (Deliverable B adds `Replace secrets key`) |
-| I-2e | credentials sealed directly with the instance key (configured before this feature) | `Saved credentials are sealed directly with the instance key. Move them under a secrets key to manage it here.` then `Move to a secrets key` |
+| I-2e | direct mode, with saved credentials | `Saved credentials are sealed directly with the instance key. Move them under a secrets key to manage it here.` then `Move to a secrets key` |
+| I-2e0 | direct mode, nothing saved yet | `Credentials saved here are sealed directly with the instance key. Move to a secrets key to manage it here.` then `Move to a secrets key`. Move with n = 0 answers I-21, and the activity reads "generated the secrets key". |
 | I-3 | no secrets key | `This Foundry has no secrets key yet. Foundry needs one to store Slack and Matrix credentials.` then `Generate secrets key` |
 | I-4 | some saved credentials do not open | `This Foundry cannot read some saved credentials: neither its instance key nor its previous instance key opens them. An instance operator sets the instance key they were sealed with as the previous instance key, and restarts Foundry.` |
 | I-5 | no Slack app | `Slack: not set up. Create the Foundry Slack app in Slack from the manifest below, then enter its credentials.` Followed by the manifest, `Redirect URL {slack_return_url}` and `Events URL {slack_events_url}` |
@@ -150,7 +158,7 @@ Delivery split (D17):
 | I-11 | Slack save, blank field | `Enter the {field} from the Slack app's Basic Information.` |
 | I-12 | Slack save, malformed field | `That is not a Slack {field}. Copy it again from the Slack app's Basic Information.` |
 | I-13 | saved Slack app does not open | `Slack: saved, but this Foundry cannot read it (see the secrets key above).` |
-| I-14 | Slack save with another client ID while connected (Deliverable B) | `{n} workspaces are connected through the current Slack app ({old_client_id}). They keep posting through it until a workspace admin reconnects Slack. Save the new app?` then `Save the new app` |
+| I-14 | Slack save with another client ID while connected (Deliverable B), on `GET /admin/instance/integrations/slack/confirm` | n ≥ 2: `{n} workspaces are connected through the current Slack app ({old_client_id}). They keep posting through it until a workspace admin reconnects Slack. Save the new app?` n = 1: `1 workspace is connected through the current Slack app ({old_client_id}). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?` Then `Save the new app` |
 | I-15 | Slack remove confirm (B) | `Remove the Slack app from this Foundry? {n} workspaces' Slack routes stop posting until it is set up again, and no workspace can connect Slack.` When n = 0: `Remove the Slack app from this Foundry? No workspace is connected to Slack.` |
 | I-16 | after Slack remove (B) | `Removed. Slack is not set up on this Foundry.` |
 | I-17 | Slack save while the environment sets the app | `Saved. The app in Foundry's environment stays in effect until SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from it and Foundry restarts; then this one is used.` |
@@ -163,8 +171,10 @@ Delivery split (D17):
 | I-24 | after replacing the key (B) | `Replaced. {n} saved credentials are sealed under the new key.` |
 | I-25 | instance key line | Operator-set: `Instance key: set by the operator.` Made by Foundry: `Instance key: made by Foundry in {path}. Back up this file apart from the database. Every Foundry server must use the same file. Without it, saved connections must be reconnected.` |
 | I-26 | the instance key cannot open the stored secrets key | `This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry.` Deliverable B appends `Start over`. |
-| I-27 | no instance key, and Foundry cannot make one | `Foundry has no instance key and cannot make one ({path} cannot be written). An instance operator sets the instance key, or gives Foundry a writable data directory, and restarts Foundry.` |
+| I-27 | no instance key, and Foundry cannot make one (also when the filesystem cannot hold a new key, e.g. no hard links) | `Foundry has no instance key and cannot make one ({path} cannot be written). An instance operator sets the instance key, or gives Foundry a writable data directory, and restarts Foundry.` |
+| I-31 | the key file exists but cannot be read or parsed, and no operator key is set; replaces the instance key line | `This Foundry cannot read its instance key file ({path}). Slack and Matrix are paused until it can. An instance operator restores the file from backup, or sets FOUNDRY_INSTANCE_KEY, and restarts Foundry.` Restore-only in both deliverables. Generate and every credential form are withheld. |
 | I-28 | start-over confirm (B) | `Start over with a new secrets key? The {n} saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.` then `Start over` |
+| I-28a | on the I-28 confirm, required before `Start over` (B) | `Type START OVER to confirm that no Foundry server of an earlier release is still running.` Field label: `Confirmation`. A wrong or empty value answers I-28 again and changes nothing. |
 | I-29 | `FOUNDRY_PUBLIC_URL` unset, shown above I-5 | `FOUNDRY_PUBLIC_URL is not set, so the addresses below use {fallback_url}, which Slack cannot reach. An instance operator sets FOUNDRY_PUBLIC_URL to this Foundry's public address and restarts Foundry.` |
 | I-30 | after the operator's instance key replaces Foundry's file | `Instance key: set by the operator. The secrets key, first sealed with {path}, is now sealed with the operator's key. Keep a backup of {path} until you are sure, then remove it.` |
 
@@ -253,7 +263,7 @@ else.
 
 ```gherkin
 Scenario: Without a secrets key the page says integrations need one
-  Given this Foundry has an instance key set by the operator, no secrets key and no Slack app
+  Given the operator set FOUNDRY_INSTANCE_KEY, and this Foundry has no secrets key and no Slack app
   When Priya opens the instance integrations page
   Then Priya reads "Instance key: set by the operator."
   And Priya reads "This Foundry has no secrets key yet. Foundry needs one to store Slack and Matrix credentials."
@@ -318,7 +328,11 @@ Scenario Outline: Only instance admins reach the page
 5. `GET /admin/instance/integrations`: an instance key that cannot open the
    stored secrets key shows I-26, restore-only in Deliverable A. Generate and
    every credential form are withheld. A degraded probe over saved credentials
-   shows I-4, and a saved app that does not open shows I-13.
+   shows I-4, and a saved app that does not open shows I-13. Under I-13,
+   `GET /workspace/integrations` and the route form read W-2, because an
+   unreadable app is not in effect. A key file that cannot be read shows I-31
+   in place of the instance key line, restore-only, with Generate and every
+   credential form withheld.
 6. `GET /admin/instance/workspaces` (shipped) shows I-1.
 7. `GET /admin/instance/integrations`: a caller without an `instance_admins`
    row, signed out included, gets the uniform not-found page. The states shown
@@ -446,9 +460,15 @@ Scenario: Generating is recorded
    `/workspace/integrations`, the route form and `/api/v1/integrations`
    (shipped), plus the captured log stream and activity: the generated key,
    read through the feature-gated test seam, never appears.
-5. `POST /admin/instance/integrations/secrets-key` when a secrets key exists, or
-   when there is no instance key, changes nothing and answers the page's
-   current state.
+5. `POST /admin/instance/integrations/secrets-key` changes nothing and answers
+   the page's current state in each of these cases:
+   - a secrets key exists;
+   - there is no instance key (I-27 / I-31);
+   - the instance is in direct mode (Move applies instead);
+   - I-4 holds, meaning some saved credential opens under no key this server
+     holds.
+
+   `GET /admin/instance/integrations` offers Generate in none of those cases.
 6. `GET /admin/instance/integrations` shows I-18 "generated the secrets key".
    After a process restart, the stored key is in effect and the boot key-check
    passes (`probe_failures_total{probe_name="secrets"} == 0`).
@@ -765,13 +785,20 @@ Scenario: Replace and remove are recorded
 
 ### Acceptance Criteria
 
-1. `POST /admin/instance/integrations/slack` (replace): a blank secret field
-   keeps the saved value, and the client ID is pre-filled. With the same client
-   ID there is no confirm, and the change applies as in US-IIS-03 AC 1.
+1. `POST /admin/instance/integrations/slack` (replace): the client ID is
+   pre-filled.
+   - With the same client ID, a blank secret field keeps the saved value. There
+     is no confirm, and the change applies as in US-IIS-03 AC 1.
+   - With a different client ID, both secrets are required, and a blank one
+     answers I-11 (D7 narrowed, approved by the user 2026-11-05).
 2. The same POST with a different client ID while Slack connections exist
-   answers I-14 with the count, and saves only on the confirming post. This
-   applies equally when the current app is the environment's (US-IIS-06's
-   deferred AC).
+   redirects to `GET /admin/instance/integrations/slack/confirm`, which shows
+   I-14 with the count (the n = 1 form for one workspace).
+   - The submitted app is held sealed for 10 minutes, so the confirm page holds
+     no secret.
+   - Only the same instance admin's `POST .../slack/confirm` saves it.
+   - This applies equally when the current app is the environment's (US-IIS-06's
+     deferred AC).
 3. `GET /admin/instance/integrations/slack/remove` shows I-15 and changes
    nothing. `POST` of the same path removes the app and answers I-16.
 4. After removal: `GET /workspace/integrations` (shipped) reads W-2, and
@@ -874,20 +901,27 @@ Scenario: The saved app takes over when the environment's is removed
 
 ### Acceptance Criteria
 
-1. Process start after the upgrade with FOUNDRY_SECRETS_KEY set (read as the
-   instance key under whatever name DESIGN picks) and no secrets key stored:
+1. Process start after the upgrade with FOUNDRY_SECRETS_KEY set (read as an
+   alias of `FOUNDRY_INSTANCE_KEY`) and no secrets key stored:
    - every credential sealed with it, or with `FOUNDRY_SECRETS_KEY_PREVIOUS`,
      opens;
    - the route history
      (`GET /team/{team}/project/{project}/integrations/routes/{route_id}/history`)
      shows deliveries continuing;
-   - `GET /admin/instance/integrations` shows I-2e.
+   - `GET /admin/instance/integrations` shows I-2e, or I-2e0 when nothing is
+     saved yet.
+   - Renaming the setting to `FOUNDRY_INSTANCE_KEY` with the same value keeps
+     I-2e and working deliveries.
 2. `POST /admin/instance/integrations/secrets-key/move`:
    - generates a secrets key (create-if-absent, as US-IIS-02 AC 1) and stores
      it encrypted under the instance key;
    - re-seals every directly-sealed credential, all-or-nothing, and answers
      I-22. A failure changes nothing.
    - Activity I-18 reads "moved n credentials".
+   - With n = 0, it answers I-21, and the activity reads "generated the
+     secrets key".
+   - Move is withheld while I-4 holds: not offered, and a post changes
+     nothing.
 3. During and after the move, connection states on `GET /workspace/integrations`
    are never lost, and the mail double receives no email. Every new-release
    replica's route history shows deliveries within 60 seconds.
@@ -911,7 +945,9 @@ KPI-IIS-5.
 - The move is explicit, not automatic at first start (D5, approved by the user
   2026-11-05). This avoids re-sealing while previous-release replicas, which
   know only the environment key, are still serving.
-- Copy refinement for DESIGN: I-14 with n = 1 should say "1 workspace is".
+- I-14 has an n = 1 form ("1 workspace is …"; see the Copy table).
+- DISTILL sets `FOUNDRY_INSTANCE_KEY` in US-IIS-01 and 02 scenarios, and the
+  legacy name only in this story's scenarios.
 
 Estimate: 2 days. Dependencies: US-IIS-02, US-IIS-03. The I-14 part comes with
 US-IIS-05 (Deliverable B).
@@ -1005,7 +1041,14 @@ Scenario: Starting over states its cost first, then leaves workspaces told to re
    seconds every replica opens every credential. In between, no connection
    reads lost, and the mail double receives no email.
 4. `GET /admin/instance/integrations` under I-26 offers Start over and not
-   Replace. `GET`/`POST /admin/instance/integrations/secrets-key/replace` under
+   Replace.
+   - Start over is offered only when no running replica opens the secrets key.
+     While another live server holds the right instance key, I-26 stays
+     restore-only. The gate is checked again inside the confirming POST.
+   - Under I-31, Start over is never offered.
+   - The I-28 confirm also requires typing `START OVER` (I-28a, approved by the
+     user 2026-11-05). A wrong or empty value answers I-28 again and changes
+     nothing. `GET`/`POST /admin/instance/integrations/secrets-key/replace` under
    I-26 changes nothing and answers the page.
 5. `GET /admin/instance/integrations/secrets-key/start-over` is answered only
    under I-26, shows I-28, and changes nothing. The `POST` generates a new key,
@@ -1129,7 +1172,9 @@ Scenario: A malformed operator instance key stops start and names the setting
    US-IIS-02 AC 3).
 3. Process start with no writable data directory: the process starts,
    `GET /readyz` answers 200, `GET /admin/instance/integrations` shows I-27,
-   and `GET /workspace/integrations` offers no integration.
+   and `GET /workspace/integrations` offers no integration. If the file exists
+   but cannot be read or parsed, the page shows I-31 instead, and Foundry never
+   overwrites the file.
 4. `GET /admin/instance/integrations` on a server whose instance key cannot open
    the stored secrets key shows I-26. `GET /readyz` answers 200. Connection
    states on `GET /workspace/integrations` do not read lost.
@@ -1140,12 +1185,14 @@ Scenario: A malformed operator instance key stops start and names the setting
    - the secrets key is re-sealed under the operator's key;
    - `GET /admin/instance/integrations` shows I-30 and I-18 "Foundry re-sealed
      the secrets key under the operator's instance key".
-6. Process start with an operator instance key, and no file in use: the
+6. Process start with `FOUNDRY_INSTANCE_KEY` set, and no file in use: the
    operator key is used, and `GET /admin/instance/integrations` shows I-25
    "set by the operator".
-7. Process start with a malformed operator instance key (not 32 bytes after
-   base64url decoding): the process refuses start with `health.startup.refused`
-   naming the setting, never its value.
+7. Process start refuses with `health.startup.refused` in two cases:
+   - a malformed operator instance key (not 32 bytes after base64url
+     decoding), naming the setting actually used and never its value;
+   - `FOUNDRY_INSTANCE_KEY` and `FOUNDRY_SECRETS_KEY` set to different values,
+     naming both settings.
 
 ### Outcome KPIs
 
@@ -1153,8 +1200,11 @@ KPI-IIS-6, KPI-IIS-G1.
 
 ### Technical Notes
 
-- The data directory setting, the file's name and permissions, and any
-  container volume default are DESIGN and DEVOPS choices.
+- ADR-IIS-002 settles the setting: `FOUNDRY_DATA_DIR` (default
+  `/var/lib/foundry`), file `instance.key`, mode 0600. Container volume
+  defaults are DEVOPS's choice.
+- Replicas pick up changes on a 5 s poll (`FOUNDRY_INTEGRATIONS_RELOAD_MS`,
+  ADR-IIS-004). Acceptance shortens it, and the 60 s bound stays as written.
 - When the re-seal under the operator's key happens (at boot, or on first
   page view) is DESIGN's choice. Re-sealing one stored key is cheap, and every
   replica holds both keys.

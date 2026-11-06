@@ -70,3 +70,16 @@ Form, preview and save then show the same words (US-IW-02 AC 7).
 - With no Slack app, a saved but unreadable Slack connection shows W-2, not
   K-19, matching the workspace page (US-IW-02 AC 6, refined in
   upstream-changes.md).
+
+## Amendment (2026-11-05, instance-integration-setup DESIGN)
+
+- The cause set and its precedence are unchanged.
+- The words function's input widens from `viewer_is_workspace_admin` to the
+  viewer's two facts: workspace admin, and instance admin
+  (`NavContext.is_instance_admin`, already read on every page).
+- For an instance admin, W-2 (Slack or Matrix) and W-3 are followed by any
+  existing link, then I-19, "Set up integrations for this Foundry"
+  (`/admin/instance/integrations`). This ships in Deliverable B, US-IIS-04.
+- US-IW-02 AC 1 and KPI-IW-3 stay valid.
+- A saved Slack app that does not open is not in effect, so it maps to
+  `NotSetUp` (W-2), per ADR-IIS-003.
