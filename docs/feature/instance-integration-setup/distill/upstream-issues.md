@@ -39,8 +39,8 @@ Each item names the document it refers to.
 7. **The alert-input scenario runs on two operator processes, not `MultiReplicaHarness`** (tagged `@iis-subprocess` only, with a comment). DEVOPS
    D8 places the reload-alerting scenario on `@iis-replica`. Metrics live in one process-wide
    registry, so in-process replicas cannot show a per-replica `/metrics`. The scenario starts two
-   `foundry` processes on one database, one with a different operator key, and carries both
-   `@iis-replica` and `@iis-subprocess`.
+   `foundry` processes on one database, one with a different operator key, and carries
+   `@iis-subprocess` only.
 
 ## Product owner resolution (2026-11-06)
 

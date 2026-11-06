@@ -149,7 +149,8 @@ Decisions fixed by the existing platform, not asked again:
     `docker create`, then `docker cp -a` of `/var/lib/foundry` and `docker image inspect`, and
     asserts owner `65532:65532`, mode `0700` and `/var/lib/foundry` under `Config.Volumes`. It
     tests the built image, not the Dockerfile's text.
-  - Reload alerting (D5): an `@iis-replica` scenario reaches I-26 on one replica through reload
+  - Reload alerting (D5): an `@iis-subprocess` scenario (two processes on one database, since
+    metrics are per process; DISTILL upstream item 7) reaches I-26 on one replica through reload
     and asserts that replica's `/metrics` shows `foundry_integration_secrets_degraded 1` and a
     raised `probe_failures_total{probe_name="secrets"}`.
   - Gates: `xtask smoke` before commit; `FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci` in the
@@ -182,7 +183,7 @@ Decisions fixed by the existing platform, not asked again:
 6. `.env.example`: commented `FOUNDRY_INSTANCE_KEY` and `FOUNDRY_DATA_DIR`.
 7. CHANGELOG `### Migration notes` for 0033 at release (D6).
 8. Reload path updates `foundry_integration_secrets_degraded` and
-   `probe_failures_total{probe_name="secrets"}` (D5), with the `@iis-replica` scenario (D8).
+   `probe_failures_total{probe_name="secrets"}` (D5), with the `@iis-subprocess` alarm scenario (D8).
 9. xtask ci's release build step sets `CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false` (D8).
 
 ## Infrastructure Summary

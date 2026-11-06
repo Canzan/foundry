@@ -1,0 +1,829 @@
+{
+  "roadmap": {
+    "project_id": "instance-integration-setup",
+    "created_at": "2026-11-06T20:46:51Z",
+    "total_steps": 18,
+    "goal": "Deliverable A (v0.19.0): an instance admin turns on Matrix and Slack at /admin/instance/integrations (Generate the secrets key wrapped by the instance key from FOUNDRY_INSTANCE_KEY, the legacy FOUNDRY_SECRETS_KEY, or a Foundry-made key file; Move legacy direct seals under it; save the Foundry Slack app), live on every replica without a restart (US-IIS-01, 02, 03, 06, 08).",
+    "sources": [
+      "docs/feature/instance-integration-setup/discuss/user-stories.md",
+      "docs/feature/instance-integration-setup/discuss/story-map.md",
+      "docs/feature/instance-integration-setup/design/wave-decisions.md",
+      "docs/feature/instance-integration-setup/design/options.md",
+      "docs/feature/instance-integration-setup/design/upstream-changes.md",
+      "docs/product/architecture/brief.md (Instance integration setup, lines 1083-1283)",
+      "docs/product/architecture/adr-iis-001-two-tier-keys.md",
+      "docs/product/architecture/adr-iis-002-instance-key-file.md",
+      "docs/product/architecture/adr-iis-003-slack-app-saved-by-instance-admin.md",
+      "docs/product/architecture/adr-iis-004-live-reconfiguration-across-replicas.md",
+      "docs/product/architecture/adr-iis-005-instance-integration-activity.md",
+      "docs/feature/instance-integration-setup/devops/wave-decisions.md",
+      "docs/feature/instance-integration-setup/distill/wave-decisions.md",
+      "docs/feature/instance-integration-setup/distill/red-classification.md",
+      "docs/feature/instance-integration-setup/distill/upstream-issues.md",
+      "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+    ],
+    "scenario_ownership_invariant": "41 scenario declarations (59 examples) in instance-integration-setup.feature, each owned by exactly one step, no orphans: 01-01 1 (2), 02-01 3 (3), 02-02 4 (4), 02-03 3 (11), 02-04 2 (2), 03-01 3 (3), 03-02 1 (6), 03-03 6 (6), 03-04 2 (2), 04-01 4 (5), 05-01 4 (7), 05-02 4 (4), 05-03 1 (1), 06-01 3 (3). Totals 41 declarations, 59 examples. Steps 01-02, 01-03 and 06-03 own none (infrastructure). 06-02 owns the one new DEVOPS-assigned scenario outside this file, 'The image gives Foundry a private data directory it keeps as a volume' (@docker-compose, us-01-install.feature), and the amended shipped scenario us-01 @nfr-port-01. Grand total owned: 41 IIS declarations + 1 new image-shape scenario = 42 declarations (60 examples), plus 1 changed shipped scenario.",
+    "regression_guards": [
+      "@external-integration-plugins suite, unchanged (KPI-IIS-G3): legacy FOUNDRY_SECRETS_KEY seals keep opening, partial SLACK_* trio and FOUNDRY_SECRETS_KEY_PREVIOUS behave as shipped",
+      "@integrations-wayfinding suite, unchanged (KPI-IIS-G3): W-2/W-3/K-19 causes and links",
+      "us-02-multi-replica.feature (replicas boot and serve on one schema)",
+      "us-01-install.feature @nfr-port-01, green after every step (amended only in 06-02)"
+    ],
+    "deviations_from_distill": "DISTILL says un-pend story by story, walking skeleton first. The skeleton needs a page, Generate, Slack save and the reload, so it turns green at 02-04, the earliest step where all four exist. The no-access outline belongs to 02-03, the step that adds its last door, so every row tests something real. The 'generate does not apply' outline belongs to 05-01, because two of its rows need the key file. The key-file reuse scenario belongs to 05-02 because it first needs Generate and the Slack save. 06-02 adds the image-shape @docker-compose scenario and amends @nfr-port-01 (DEVOPS tasks 2 and 3).",
+    "prerequisites": [
+      "Lima VM foundry-test exists (scripts/test-vm-setup.sh). Steps run in order: there is one test VM.",
+      "Subprocess (@iis-subprocess) lanes need the debug foundry binary rebuilt and warmed first (cargo build -p foundry-app --bin foundry, then exec it a few times)."
+    ],
+    "release_gates": "Ships as v0.19.0. No push and no tag without the user's go. Commit after cargo xtask smoke is green; push only after FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci is green in the Lima VM, under timeout. DEVOPS task 7 (CHANGELOG '### Migration notes': 0033 adds tables only, takes seconds, safe for rolling deploys) is done at release time, not as a step.",
+    "standing_rules": "Un-pend (remove @pending) only the owning step's scenarios, and un-pend an outline whole; never re-author DISTILL scenarios (06-02's DEVOPS-assigned scenario is the one exception). Use runtime sqlx::query only. No key, secret, key length or wrapped bytes is ever logged, rendered, audited or Debug-printed. Every time comparison uses the injected Clock. Every instance write takes foundry.instance-integrations, bumps the version and writes its activity row in one transaction. Nothing may depend on a particular hosting environment (AGENTS.md). Mutation kill rate >= 80% on each step's mutation_targets. One local commit per step.",
+    "tdd_phases": [
+      "RED",
+      "GREEN",
+      "COMMIT"
+    ],
+    "lane_preamble": "Run every lane under timeout. Rebuild the foundry binary before any @iis-subprocess lane (acceptance uses the prebuilt binary). CARGO_BUILD_JOBS=4 in the VM.",
+    "lane_env": "scripts/test-in-lima.sh"
+  },
+  "phases": [
+    {
+      "id": "01",
+      "name": "Foundation: settings, the instance store, one boot",
+      "steps": [
+        {
+          "id": "01-01",
+          "name": "Instance key settings, legacy aliases and refused starts",
+          "type": "feature",
+          "description": "Read FOUNDRY_INSTANCE_KEY and _PREVIOUS, honouring FOUNDRY_SECRETS_KEY and _PREVIOUS as aliases. An empty value is unset, and the same value under both names counts as the legacy name. Refuse start on a malformed key or on two different values. Add key generation. Read FOUNDRY_DATA_DIR, FOUNDRY_INTEGRATIONS_RELOAD_MS and the public-URL fallback fact. Covers DEVOPS task 9.",
+          "criteria": [
+            "A malformed key, or the two names set to different non-empty values, refuses start with health.startup.refused naming only the setting or settings, never a value",
+            "An empty value under either name is unset; the same value under both counts as the legacy name; a legacy-only instance boots exactly as today",
+            "A generated key is 32 random bytes as base64url text that parses back to the same key id",
+            "IntegrationSettings::from_lookup over a scenario lookup reports FOUNDRY_DATA_DIR (default /var/lib/foundry), the reload period (default 5000 ms) and whether FOUNDRY_PUBLIC_URL fell back (config.rs table test)",
+            "xtask ci's release-build step runs with CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false in its environment, asserted by an xtask unit test on that step's command env (DEVOPS task 9)"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-auth/src/secret_box.rs",
+            "crates/foundry-app/src/integrations/config.rs",
+            "crates/foundry-app/src/main.rs",
+            "xtask/src/main.rs",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "Foundry refuses to start on a malformed or conflicting instance key, naming only the setting"
+          ],
+          "implementation_notes": "ADR-IIS-001 decision 1; DESIGN D1. A malformed legacy key must still name FOUNDRY_SECRETS_KEY (eip refusal scenarios stay green). TEST PARADIGM: name resolution is pure over a finite domain: (new, legacy) each unset, empty, valid or malformed, plus equal or different. Test the whole domain as an exhaustive table. proptest property: for any 32 bytes, base64url text padded or unpadded parses to the same key id, and generate then parse always succeeds. Subprocess lane: rebuild the binary first.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup (rebuild + warm binary)",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins"
+          ],
+          "mutation_targets": [
+            "crates/foundry-auth/src/secret_box.rs",
+            "crates/foundry-app/src/integrations/config.rs"
+          ]
+        },
+        {
+          "id": "01-02",
+          "name": "Migration 0033 and the instance integrations store",
+          "type": "infrastructure",
+          "description": "Migration 0033 adds tables only (columns in migration_0033_tables). It is the only migration Deliverable A needs: rewrapped_from_path for 05-03 is included. One store module holds every query on these tables, plus the advisory lock, the version bump, the plan-applying writes for Generate, Move and the Slack save, the reload snapshot, and the replica-state upsert and prune.",
+          "migration_0033_tables": {
+            "integration_secrets_key": "id (=1, CHECK, single row), key_id, wrapped_key bytea, wrapped_by_key_id, wrapped_by_source (CHECK operator|file), rewrapped_from_path (nullable), created_by (nullable user ref), created_at (ADR-IIS-001 r2, ADR-IIS-002 r5)",
+            "instance_slack_app": "id (=1, CHECK), client_id, sealed_client_secret bytea, sealed_signing_secret bytea, saved_by, saved_at (ADR-IIS-003 r1)",
+            "integration_config_version": "id (=1, CHECK), version bigint, seeded with one row (ADR-IIS-004 r3)",
+            "integration_replica_states": "replica (PK), applied_version bigint, key_mode, opens_secrets_key boolean, beat_at; no key or key id (ADR-IIS-004 r8)",
+            "instance_integration_audit_events": "id, actor_id (nullable, ON DELETE SET NULL; NULL = Foundry), action (closed CHECK: secrets_key_generated, credentials_moved, secrets_key_rewrapped, slack_app_saved, secrets_key_replaced, started_over, slack_app_replaced, slack_app_removed), client_id (nullable), count (nullable), created_at (ADR-IIS-005 r1)"
+          },
+          "criteria": [
+            "Generate/Move applies a caller-built plan in one transaction under the exclusive lock: create-if-absent key row, every sealed value re-sealed, canary, one activity row, version bump; a store test diffs only those tables",
+            "A Move whose re-seal refuses partway (injected failure) leaves integration_secrets_key, every sealed column, key checks, version and activity unchanged (distill upstream-issues item 11)",
+            "A second current secrets key cannot be stored; two concurrent Generates store exactly one row",
+            "Store test in iis_instance_store.rs: a write committed after the snapshot's version read is absent from that snapshot and its version, so the next snapshot carries it; replica-state upsert and prune use the caller's time",
+            "check-arch integrations-instance-tables limits SQL naming the new tables to the store module, with an injected-violation gold test"
+          ],
+          "estimate": "1 day",
+          "dependencies": [],
+          "files_to_modify": [
+            "crates/foundry-store/migrations/0033_instance_integrations.sql",
+            "crates/foundry-store/src/integrations/instance.rs",
+            "crates/foundry-store/src/integrations/mod.rs",
+            "crates/foundry-store/src/lib.rs",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-store/tests/iis_instance_store.rs"
+          ],
+          "test_file": "",
+          "scenario_name": [],
+          "implementation_notes": "ADR-IIS-001 r2 and r5, ADR-IIS-003 r1, ADR-IIS-004 r1, r3, r4 and r8, ADR-IIS-005. The plaintext never reaches the store; keep reseal_credentials' closure shape. instance_slack_app_pending is Deliverable B and goes in B's own migration; this rule still names all six tables. Extend the store's schema probe (PROBE_SQL) to the 0033 tables. Scope the instance-tables rule to production src: the acceptance driver's race count and dump read are DISTILL D5 waivers. TEST PARADIGM: bounded-change store tests, example-based against real Postgres; no proptest.",
+          "lanes": [
+            "cargo test -p foundry-store via scripts/test-in-lima.sh",
+            "cargo xtask check-arch via scripts/test-in-lima.sh"
+          ],
+          "mutation_targets": [
+            "crates/foundry-store/src/integrations/instance.rs"
+          ]
+        },
+        {
+          "id": "01-03",
+          "name": "Key mode, credential box and the one shared boot function",
+          "type": "infrastructure",
+          "description": "Add a pure, closed KeyMode decision over settings, held keys and stored rows. Build the credential box: the secrets key is current when Sealed, otherwise the instance key, and every held instance key is a previous key. One shared boot function builds Integrations with mode and probe. main.rs and the acceptance boot, rewire and restart all go through it.",
+          "criteria": [
+            "Mode precedence is NoInstanceKey, then a stored key (Sealed or Unopenable), then Direct or AwaitingSecretsKey; Direct also holds when a stored value is sealed under a held instance key",
+            "Legacy direct seals open with no action; external-integration-plugins and integrations-wayfinding stay green",
+            "Matrix and Slack offers seal only in Direct or Sealed; the worker runs whenever a held key opens a stored credential",
+            "The boot probe proves the canaries of every held key, the stored secrets key's included, and compares key ids of every stored sealed value (connections and saved Slack app)",
+            "An in-process restart and a binary restart with the same settings and stored rows report the same secrets verdict, observed through the eip restart scenarios and /metrics probe_failures_total{probe_name=\"secrets\"}"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-01",
+            "01-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/store_capabilities.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-acceptance/src/support/external_integration_plugins.rs",
+            "crates/foundry-acceptance/src/support/instance_integration_setup.rs"
+          ],
+          "test_file": "",
+          "scenario_name": [],
+          "implementation_notes": "ADR-IIS-001 r3, r4 and r9; DESIGN D8; brief.md 'Boot and restart'. main.rs and the acceptance boot, rewire and restart_in_process_with_key call the one function; the harness keeps no probe copy. The key source is an injected capability. Until 05-01 there is no file adapter, so with no operator key the mode is NoInstanceKey and the offers read as today's K-18/K-20. SecretsKey and wrapped bytes keep no Debug. TEST PARADIGM: exhaustive table over (operator key, file state, stored key, unwraps, legacy name, direct seals). proptest property over arbitrary sets of stored key ids: sealing is possible iff the mode is Direct or Sealed, and Direct holds whenever no key is stored and some stored id is a held instance key's.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=integrations-wayfinding"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-app/src/integrations/mod.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "02",
+      "name": "Walking skeleton: the page, Generate, the Slack app, every replica",
+      "steps": [
+        {
+          "id": "02-01",
+          "name": "Instance integrations page before a secrets key, and the dashboard link",
+          "type": "feature",
+          "description": "Add GET /admin/instance/integrations behind require_instance_admin (uniform 404 for everyone else). Show the I-25 operator line. Show I-3 with Generate, or I-2e0 with Move, per mode. Show the I-9 or I-8 Matrix line. No Slack form without a sealing mode. The instance dashboard gains the I-1 link.",
+          "criteria": [
+            "With an operator key and no secrets key, Priya reads I-25 (operator), I-3 and I-9, is offered Generate and no Slack form",
+            "On the legacy setting with nothing saved, Priya reads I-2e0 and I-8 and is offered Move, not Generate",
+            "Integrations on /admin/instance/workspaces lands on the instance integrations page",
+            "The GET handler only reads"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "01-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/integrations/handlers/mod.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/instance.html",
+            "crates/foundry-app/templates/instance_dashboard.html",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "Without a secrets key the page says integrations need one",
+            "An instance on the legacy setting with nothing saved yet can move at once, and Matrix is ready",
+            "The instance admin dashboard links to the integrations page"
+          ],
+          "implementation_notes": "brief.md placement (handlers/instance.rs); DISTILL page seams: buttons are submit controls carrying the copy; activity is [data-instance-integration-activity] li. Buttons may post to doors that answer 404 until 02-02 and 04-01. TEST PARADIGM: the page state, offers included, is a pure function of (mode, app in effect, fallback URL, direct-seal count). Table-test it over every mode. EXEMPT: template wiring is a single-shot render, covered by the scenarios.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs"
+          ]
+        },
+        {
+          "id": "02-02",
+          "name": "Generate the secrets key; the sealed page and Slack's addresses",
+          "type": "feature",
+          "description": "POST …/secrets-key builds a pure plan: new key, wrapped under the instance key, canary and activity. The store applies it, and the serving app reloads before it renders I-21. With a key, the page shows I-2, I-5 (manifest, redirect and events URLs from one source) and I-8, plus I-29 when the public URL fell back. Unopenable shows I-26, restore-only.",
+          "criteria": [
+            "Generate answers I-21 and records 'generated the secrets key'; the workspace page offers Connect Matrix and the Matrix route form no longer reads W-2",
+            "With a key the page reads I-2, I-5, both URLs and I-8, with no Generate; its manifest and URLs equal GET /workspace/integrations/slack/setup's",
+            "With FOUNDRY_PUBLIC_URL unset, I-29 names the fallback URL above the addresses; I-26 (key cannot be unwrapped) offers no Generate, Replace, Start over or Slack form",
+            "Tomás (not an instance admin) posting generate gets the uniform not-found page and no secrets key is stored (handler test; the outline un-pends in 02-03)",
+            "A Generate post outside AwaitingSecretsKey changes nothing and answers the current page"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "02-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/slack.rs",
+            "crates/foundry-app/src/integrations/handlers/slack_setup.rs",
+            "crates/foundry-app/src/integrations/no_connection.rs",
+            "crates/foundry-app/src/integrations/store_capabilities.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/instance.html",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "Generating is recorded",
+            "A missing or different instance key is named, never silent",
+            "With a secrets key the page shows what to paste into Slack",
+            "Unreachable Slack addresses are named before Priya copies them"
+          ],
+          "implementation_notes": "ADR-IIS-001 r2 and r5, ADR-IIS-003 r3a, DESIGN D8. The POST is behind require_instance_admin from this step on. Applying a change is synchronous on the serving replica only: after commit it rebuilds through the shared boot and reinstalls locally; the cross-replica poll is 02-04. The Matrix route form's W-2 comes from no_connection.rs following the mode. Manifest equality is also unit-tested on one Integrations. The wrapped value is the key's base64url text. Integrations::slack_events_url is built from EVENTS_PATH, and slack::manifest takes both URLs from Integrations. The POST calls exactly one write use-case and carries _csrf. TEST PARADIGM: proptest property: for any instance key, generate, wrap, unwrap and parse round-trips to the same key id. Table test: the Generate gate over every KeyMode, I-4 included.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins (setup page manifest)"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-app/src/integrations/slack.rs"
+          ]
+        },
+        {
+          "id": "02-03",
+          "name": "Save the Slack app, and one access rule for every door",
+          "type": "feature",
+          "description": "POST …/slack seals both secrets into instance_slack_app, in one locked transaction with the version bump and activity. Owns the save and the offers only: the app in effect (environment, else a saved app that opens, else none) decides whether Add to Slack is offered. 03-03 makes events, install and return use the saved app's credentials. Without a sealing mode the POST answers I-3. Every door 404s for anyone but an instance admin.",
+          "sizing_review": "@sizing-review-needed — accepted: 9 of 11 examples are one outline (uniform 404 on every door) that must un-pend whole in the step adding its last door",
+          "criteria": [
+            "A valid save answers I-10 and I-6 with 'Client secret: set' and 'Signing secret: set', records 'saved the Slack app (<client id>)', and the workspace page offers Add to Slack",
+            "A save with no secrets key answers I-3 and stores nothing",
+            "No page, GET or POST, shows a key, a secret or a secret's length",
+            "Tomás, Lena, Sam, Marco and signed-out visitors get the uniform not-found page on the GET and on every POST, and nothing changes; Priya reaches the page"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "02-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/integrations/slack_app.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/store_capabilities.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/instance.html",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "An instance admin enters the Slack app and Canzan Labs can add Slack at once",
+            "Nothing can be saved without a secrets key",
+            "Only an instance admin reaches the page or changes anything on it"
+          ],
+          "implementation_notes": "See sizing_review (red-classification: the Priya row keeps the others discriminating). ADR-IIS-003 r1, r2 and r7. The save applies on the serving replica synchronously, by a local reinstall after commit; other replicas wait for 02-04's poll. Full shape rules and I-11/I-12 come in 03-02; here a well-formed save succeeds. TEST PARADIGM: the app-in-effect decision over (environment trio set, saved row, both secrets open) is finite. Table-test it exhaustively. EXEMPT: the access guard is shipped require_instance_admin, covered by the outline.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/integrations/slack_app.rs"
+          ]
+        },
+        {
+          "id": "02-04",
+          "name": "Reload on every replica (walking skeleton)",
+          "type": "feature",
+          "description": "Add a reload task per replica, started where main.rs and spawn_app start the app. It polls the config version every FOUNDRY_INTEGRATIONS_RELOAD_MS, rebuilds through the shared boot function and installs the result. It keeps a held key whose id is unchanged, keeps the last good integrations on failure, and upserts its replica-state row at boot, on apply and every 10 s.",
+          "criteria": [
+            "Generate then Slack save on one replica: within 60 s, with no restart, every replica offers Connect Matrix, then Add to Slack (walking skeleton)",
+            "Two simultaneous Generates on two replicas store one key, both answer the resulting state, and a later Slack connection opens on every replica",
+            "Reload gold test through the reload task's store capability: a write committed between the version read and the state read is installed by the next tick, and the replica-state row's applied_version reaches it",
+            "A failed reload keeps serving the last good integrations and logs integrations.reload.failed; reload never touches the key file",
+            "Replica-state rows older than 1 h are pruned by the retention tick, judged by the injected Clock"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "01-01",
+            "01-02",
+            "01-03",
+            "02-01",
+            "02-02",
+            "02-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/reload.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/store_capabilities.rs",
+            "crates/foundry-app/src/integrations/worker.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "An instance admin turns on Matrix and then Slack, and every replica offers them without a restart",
+            "Two generate requests at the same moment store one key that both replicas use"
+          ],
+          "implementation_notes": "@walking_skeleton is green at the end of this step. It depends on 01-01, 01-02, 01-03, 02-01, 02-02 and 02-03. 02-02 and 02-03 already apply on the serving replica synchronously; this step adds the cross-replica poll loop. ADR-IIS-004 r4, r6 and r8. Each replica's AppState runs its own loop; never drive it through MultiReplicaHarness.install_integrations. Besides its own replica-state row, reload writes nothing (store test). TEST PARADIGM: example-based. The reload is an effect shell, and the snapshot gold test is a fixed interleaving. EXEMPT: no pure invariant here beyond 01-03's mode table.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=us-02-multi-replica"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/reload.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "03",
+      "name": "The Slack app and the page on existing instances",
+      "steps": [
+        {
+          "id": "03-01",
+          "name": "Direct mode with saved credentials and the environment's app",
+          "type": "feature",
+          "description": "The page shows I-2e with Move when stored values are sealed directly under a held instance key, counting them by key id with no stored flag. It shows I-7 when the environment's trio is in effect. Upgrading, or renaming the legacy setting to FOUNDRY_INSTANCE_KEY with the same value, keeps Direct mode and keeps delivering.",
+          "criteria": [
+            "A legacy instance with a direct-sealed connection reads I-2e, is offered Move, reads I-7 with the client ID, and the page holds no key or secret",
+            "After a restart with the same settings, a connection sealed with the environment key keeps delivering and the page reads I-2e",
+            "After the setting is renamed to FOUNDRY_INSTANCE_KEY with the same value, deliveries continue and the page still reads I-2e"
+          ],
+          "estimate": "0.25 day",
+          "dependencies": [
+            "02-04"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-app/templates/integrations/instance.html",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "An instance configured before this feature is shown without its secrets",
+            "After the upgrade, a connection sealed with the environment key keeps delivering",
+            "Renaming the setting to FOUNDRY_INSTANCE_KEY with the same value keeps everything working"
+          ],
+          "implementation_notes": "ADR-IIS-001 r3 and r4 (Direct follows direct seals), US-IIS-06 AC 1. The page state table from 02-01 gains the I-2e and I-7 rows. TEST PARADIGM: add those rows to the existing exhaustive table. The direct-seal count is pure over (stored key ids, held instance key ids), so a proptest property checks that it equals the number of stored ids in the held set.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/integrations/keys.rs"
+          ]
+        },
+        {
+          "id": "03-02",
+          "name": "Slack app shape check",
+          "type": "feature",
+          "description": "Validate the save as a pure function with no call to Slack. Trim each field. The client ID is digits, a dot and digits; each secret is 32 lowercase hex. A blank field answers I-11 and a malformed one I-12, naming the first failing field in form order. A refusal writes nothing and never takes the lock.",
+          "criteria": [
+            "Each blank field answers I-11 and each malformed field answers I-12, naming that field",
+            "The re-rendered form keeps the typed client ID and leaves both secret fields empty",
+            "A refused save leaves Slack not set up: no row, no activity, no version bump"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "02-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/slack_app.rs",
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/templates/integrations/instance.html",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "A blank or malformed value is refused and nothing is saved"
+          ],
+          "implementation_notes": "ADR-IIS-003 r3. DELIVER confirms the shapes against recorded Slack values. TEST PARADIGM: a table test over each field's blank, malformed and valid cases, in form order. Three proptest properties: (1) validation of a value is unchanged by surrounding whitespace; (2) any 32 lowercase hex characters are accepted as a secret; (3) any string with a character outside the field's alphabet is refused with I-12.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/slack_app.rs"
+          ]
+        },
+        {
+          "id": "03-03",
+          "name": "The saved Slack app in effect for events, install and return",
+          "type": "feature",
+          "description": "Owns building Integrations' SlackApp from the app in effect (02-03 decided only the offer): the environment trio wins, otherwise the saved app if both secrets open. Events verify with its signing secret, install uses its client ID, and return exchanges with its client secret. A saved app that does not open shows I-13 and reads W-2 on workspace pages. A save while the environment wins answers I-17.",
+          "criteria": [
+            "Events verify with the saved signing secret, install sends Priya to Slack for the saved client ID, and return connects using the saved client secret",
+            "An event signed with any other secret is refused 401",
+            "A saved app this Foundry cannot open reads I-13 on the instance page and W-2 on the workspace page",
+            "While the environment sets the app, a save answers I-17 and install still uses the environment's client ID",
+            "After a restart without the environment's app, the saved app takes over: deliveries continue, the page reads I-6, and events verify"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "03-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/slack_app.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/templates/integrations/instance.html",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "Slack's event check and Add to Slack use the saved app",
+            "Add to Slack through the saved app exchanges Slack's code with the saved client secret",
+            "An event signed with a secret Foundry was never given is refused",
+            "A saved Slack app this Foundry cannot read is not in effect anywhere",
+            "While the environment sets the Slack app, a saved app is kept but not used",
+            "The saved app takes over when the environment's is removed"
+          ],
+          "implementation_notes": "ADR-IIS-003 r2 and r6, DESIGN D4. SLACK_API_BASE_URL and SLACK_AUTHORIZE_URL apply to whichever app is in effect. Under I-13, SlackOffer::NotSetUp keeps ADR-IW-001's cause set unchanged. Handlers read the app per request through current(). TEST PARADIGM: extend 02-03's app-in-effect table with the 'saved secrets do not open' rows; the domain is finite, so no proptest. External integration: no new Slack call; ADR-EIP-005's contract-test recommendation stands.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=integrations-wayfinding (W-2 under I-13)"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/slack_app.rs",
+            "crates/foundry-app/src/integrations/mod.rs"
+          ]
+        },
+        {
+          "id": "03-04",
+          "name": "Seal fence, the generated-key test seam, and the dump",
+          "type": "feature",
+          "description": "Connection writes (Slack return, Matrix connect) take the instance lock shared and check, in the store transaction, that they sealed under the current sealing key; on a stale key they reload and retry once. Implement the secrets_key_seam reader under integrations-test-seam with a marker, add the Dockerfile's refusal of that marker, and extend integrations-secret-seam.",
+          "criteria": [
+            "Read without the instance key, the database dump yields neither the secrets key, the instance key, the Slack app's secrets nor the Slack token",
+            "A second Generate keeps the key: the saved connection still opens and the activity records one generation",
+            "A connection write sealed under a stale key is refused in its transaction and retried once after a reload (store test)",
+            "check-arch integrations-seal-fence and the extended integrations-secret-seam each fail an injected-violation gold test",
+            "The seam is gated on test-support, listed in integrations-test-seam, and its marker is refused by the Dockerfile's grep"
+          ],
+          "estimate": "0.75 day",
+          "dependencies": [
+            "03-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-store/src/integrations/connections.rs",
+            "crates/foundry-services/src/integrations/mod.rs",
+            "crates/foundry-services/src/integrations/store_impls.rs",
+            "crates/foundry-app/src/integrations/handlers/slack_setup.rs",
+            "crates/foundry-app/src/integrations/handlers/matrix_setup.rs",
+            "crates/foundry-app/src/integrations/secrets_key_seam.rs",
+            "crates/foundry-store/src/integrations/instance.rs",
+            "xtask/src/check_arch.rs",
+            "Dockerfile",
+            "crates/foundry-store/tests/iis_instance_store.rs",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "A database dump alone opens nothing",
+            "A later generate does not replace the key"
+          ],
+          "implementation_notes": "ADR-IIS-004 r2 (the advisory lock comes before any row lock), ADR-IIS-001 Enforcement, DISTILL D6. DEVOPS task 1 is split: the marker grep lands here, because check-arch integrations-test-seam demands it as soon as the seam is listed. The data directory and VOLUME land in 06-02. The seam takes a PgPool, but SQL on integration_secrets_key may live only in the store module: read the row through a pool-taking store reader. TEST PARADIGM: example-based store and gold tests. EXEMPT: the fence is a transactional effect.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins (connect paths)",
+            "cargo xtask check-arch via scripts/test-in-lima.sh"
+          ],
+          "mutation_targets": [
+            "crates/foundry-store/src/integrations/connections.rs",
+            "crates/foundry-store/src/integrations/instance.rs",
+            "crates/foundry-app/src/integrations/secrets_key_seam.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "04",
+      "name": "US-IIS-06: Move legacy direct seals under a secrets key",
+      "steps": [
+        {
+          "id": "04-01",
+          "name": "Move to a secrets key, and Generate and Move withheld under I-4",
+          "type": "feature",
+          "description": "POST …/secrets-key/move runs Generate's use-case: create-if-absent the key, re-seal every instance-key-sealed value (connections and saved app), write the canary and the activity, and bump the version, all in one transaction. It answers I-22 (n = 1 or n ≥ 2), or I-21 when n = 0. Under I-4, Generate and Move are withheld. An unknown key id triggers an immediate, rate-limited reload.",
+          "criteria": [
+            "Move answers I-22 with the count (singular for 1), records 'moved n credentials', and deliveries continue; no connection is marked lost and no admin is emailed",
+            "Move with nothing saved answers I-21 and records 'generated the secrets key'",
+            "After a Move on one replica, every replica opens the moved credentials within 60 s and lists the next delivery in its route history",
+            "When saved credentials open under no held key, the page reads I-4 and offers neither Generate nor Move; a posted Generate or Move answers I-4 and changes nothing"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "03-04"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-app/src/integrations/reload.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/store_capabilities.rs",
+            "crates/foundry-app/src/lib.rs",
+            "crates/foundry-app/templates/integrations/instance.html",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "Moving to a secrets key re-seals everything and nobody reconnects",
+            "Moving with nothing saved yet just generates the secrets key",
+            "Saved credentials no held key opens are named, and generate and move change nothing",
+            "After a move on one replica, every replica opens the moved credentials and keeps delivering"
+          ],
+          "implementation_notes": "ADR-IIS-001 r5, ADR-IIS-004 r5 and r7, DESIGN D2, US-IIS-06 AC 2-3. 01-02's injected-failure store test proves that a refused Move changes nothing. In flight, an open failure stays Transient(secret_unavailable). The unknown-id reload is rate-limited to once per second by the injected Clock. TEST PARADIGM: table tests for the answer words over n in {0, 1, 2, many} and for the withholding gate over every mode with and without I-4. The domain is finite, so no proptest.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-app/src/integrations/reload.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "05",
+      "name": "US-IIS-08: a standalone Foundry makes its own instance key",
+      "steps": [
+        {
+          "id": "05-01",
+          "name": "The Foundry-made key file at boot, and its page states",
+          "type": "feature",
+          "description": "key_file.rs is the only code that reads FOUNDRY_DATA_DIR. With no operator key, it reads instance.key or creates it once: temp file O_CREAT|O_EXCL 0600, fsync, link(2), directory fsync, read back. It never overwrites. Wire it, with its probe, into the shared boot. The page shows the I-25 file line, I-27 or I-31.",
+          "criteria": [
+            "Both settings empty: Foundry makes the key file and Priya reads the I-25 file line; both set to one value reads I-2e0",
+            "An unwritable data directory reads I-27; the board serves, /readyz is ready, and the workspace page offers neither Slack nor Matrix",
+            "An unreadable key file reads I-31, is never changed, and nothing credential-related is offered",
+            "Under I-27, I-31 or Direct mode, a posted Generate answers that state and changes nothing",
+            "check-arch integrations-key-file-seam fails an injected read of FOUNDRY_DATA_DIR in a handler (gold test)"
+          ],
+          "estimate": "1 day",
+          "dependencies": [
+            "04-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/key_file.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-app/templates/integrations/instance.html",
+            "xtask/src/check_arch.rs",
+            "crates/foundry-acceptance/src/support/external_integration_plugins.rs",
+            "crates/foundry-acceptance/src/support/integrations_wayfinding.rs",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "Empty or matching key settings are read as the operator meant",
+            "Without a writable data directory the board serves and the page says why",
+            "A key file Foundry cannot read is named, kept, and never replaced",
+            "A generate request changes nothing where generating does not apply"
+          ],
+          "implementation_notes": "ADR-IIS-002 r1, r2, r4 and r6. Earned Trust: wire the adapter, probe it, then use it. Probe faults covered here: read-only directory, short read, corrupt file. Regression guard: eip and wayfinding scenarios with no key setting must never reach the real /var/lib/foundry. Give their in-process and subprocess settings a temp FOUNDRY_DATA_DIR. TEST PARADIGM: example-based fault-injection tests on a temp directory. EXEMPT from proptest: filesystem effects.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins (no-key scenarios, in-process and subprocess)",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=integrations-wayfinding"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/key_file.rs"
+          ]
+        },
+        {
+          "id": "05-02",
+          "name": "Key file across restarts and servers sharing a directory",
+          "type": "feature",
+          "description": "Harden the adapter under ADR-IIS-002 r2 and r3. Remove leftover instance.key.tmp.* files at boot. Treat link EPERM/ENOTSUP as I-27. Assert a regular 0600 file owned by the running user, warning on wider bits without rewriting. Mint no file when the database holds a secrets key or a direct seal. Read the file at boot only.",
+          "criteria": [
+            "A standalone process makes the key file mode 0600, reads the I-25 file line, and Generate turns on Matrix in one click",
+            "Two servers starting together on one directory make exactly one key file; a key generated on the first reads I-2 on the second within 60 s",
+            "On restart the key file is unchanged and the saved app is still in effect (I-6, Add to Slack)",
+            "A server with a different key file reads I-26 and stays ready; no connection is marked lost and no admin is emailed",
+            "Gold tests cover the race, a leftover temp file, link EPERM, the wrong mode, and a stored key with no file"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "05-01"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/key_file.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "A standalone Foundry makes its own instance key, says what to back up, and turns on Matrix in one click",
+            "Servers starting together on one data directory make one key file and share it",
+            "The key file is reused, not remade, on restart",
+            "A server with a different key file says so and still serves"
+          ],
+          "implementation_notes": "ADR-IIS-002 r2, r3 and r5 (the self-applying probe). Substrate lies to exercise: an overlayfs fsync no-op, a filesystem without hard links, and a short read during a concurrent write. @iis-subprocess: rebuild and warm the binary first. TEST PARADIGM: example-based fault injection. EXEMPT from proptest: the race is a fixed two-process interleaving.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup (rebuild + warm binary)"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/key_file.rs"
+          ]
+        },
+        {
+          "id": "05-03",
+          "name": "The operator key takes over Foundry's file (I-30), and doctor rotate-secrets re-wraps",
+          "type": "feature",
+          "description": "When an operator key and a readable key file are both present, hold the file's key as a previous key. At boot, re-wrap a file-wrapped secrets key under the operator key by compare-and-set on wrapped_by_key_id, recording rewrapped_from_path. The winner writes the I-18 system line and bumps the version. The page shows I-30. doctor rotate-secrets re-wraps the stored key in one locked transaction.",
+          "criteria": [
+            "After a restart with an operator key, the page reads I-30 naming the file, the activity reads 'Foundry re-sealed the secrets key under the operator's instance key', and the saved connection still opens",
+            "Replicas racing the re-wrap record exactly one system line (store test)",
+            "doctor rotate-secrets re-wraps the stored secrets key under the current instance key and re-seals remaining direct seals, all-or-nothing (admin_cli test)"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "05-02"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/integrations/handlers/instance.rs",
+            "crates/foundry-app/templates/integrations/instance.html",
+            "crates/foundry-store/src/integrations/instance.rs",
+            "crates/foundry-app/src/admin_cli.rs",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "Moving from Foundry's key file to an operator key loses nothing"
+          ],
+          "implementation_notes": "ADR-IIS-002 r5, ADR-IIS-001 r8, ADR-IIS-004 r6 (a replica still on the file keeps its held key). The rotate-secrets re-wrap has no scenario, but RELEASING R-5 (06-03) describes it. TEST PARADIGM: example-based compare-and-set store tests. EXEMPT from proptest: one row, two outcomes.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup",
+            "cargo test -p foundry-app admin_cli via scripts/test-in-lima.sh"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/keys.rs",
+            "crates/foundry-store/src/integrations/instance.rs",
+            "crates/foundry-app/src/admin_cli.rs"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "06",
+      "name": "Operator signals, image and docs",
+      "steps": [
+        {
+          "id": "06-01",
+          "name": "Alert inputs on reload, the restart probe, and the never-shown sweep",
+          "type": "feature",
+          "description": "Each applied reload sets foundry_integration_secrets_degraded from its outcome. A reload that reaches I-26 increments probe_failures_total{probe_name=\"secrets\"} and logs the health.degraded probe=secrets line (DEVOPS task 8). After a restart, the stored key is in effect with zero probe failures. No key or secret reaches a page, log, activity line, or the database in plaintext.",
+          "criteria": [
+            "A second server with a different operator key reads I-26 within 60 s of a Generate on the first, and its /metrics shows the secrets key degraded, with no restart",
+            "After a standalone restart the page reads I-2 and probe_failures_total{probe_name=\"secrets\"} is 0",
+            "No planted key or Slack secret, in any encoding, appears in a page, page source, log line or activity line, or in plaintext in the database"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "05-03"
+          ],
+          "files_to_modify": [
+            "crates/foundry-app/src/integrations/reload.rs",
+            "crates/foundry-app/src/integrations/mod.rs",
+            "crates/foundry-app/src/main.rs",
+            "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+          "scenario_name": [
+            "After a restart the stored secrets key is in effect and the key check passes",
+            "A server that cannot open the new secrets key says so and raises the alarm, without a restart",
+            "No key or secret appears in any page, log line or activity line, or in plaintext in the database"
+          ],
+          "implementation_notes": "DEVOPS D5 and task 8, DESIGN D8: no new metric. Boot and reload set the alert inputs through one code path, so the metric names leave main.rs's local constants. The alarm scenario is tagged @iis-subprocess only, not @iis-replica: it runs two foundry processes on one database, because metrics live in one process-wide registry (distill upstream item 7). @iis-subprocess: rebuild and warm the binary. TEST PARADIGM: a table test of the reload outcome to (gauge value, counter increment, log line) over every KeyMode, I-4 included; finite, so no proptest.",
+          "lanes": [
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=instance-integration-setup (rebuild + warm binary)",
+            "scripts/test-in-lima.sh with FOUNDRY_ACCEPTANCE_TAGS=external-integration-plugins (boot metrics)"
+          ],
+          "mutation_targets": [
+            "crates/foundry-app/src/integrations/reload.rs"
+          ]
+        },
+        {
+          "id": "06-02",
+          "name": "Image data directory and the compose volume",
+          "type": "infrastructure",
+          "description": "Finish DEVOPS task 1: the builder makes an empty directory, and the distroless runtime stage copies it to /var/lib/foundry owned 65532:65532, mode 0700, then declares VOLUME. Task 2: add a @docker-compose image-shape scenario. Task 3: compose mounts a named foundry-data volume, and us-01 @nfr-port-01 allows exactly two named volumes.",
+          "criteria": [
+            "The built image has /var/lib/foundry owned 65532:65532, mode 0700, listed under Config.Volumes (docker create, docker cp -a, docker image inspect)",
+            "docker-compose.yml mounts the named volume foundry-data at /var/lib/foundry, still with zero host bind mounts",
+            "us-01 @nfr-port-01 reads that the only persistent volumes are two named volumes, postgres data and Foundry data, and passes"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "06-01"
+          ],
+          "files_to_modify": [
+            "Dockerfile",
+            "docker-compose.yml",
+            "crates/foundry-acceptance/tests/features/us-01-install.feature",
+            "crates/foundry-acceptance/src/steps/us_01_install.rs"
+          ],
+          "test_file": "crates/foundry-acceptance/tests/features/us-01-install.feature",
+          "scenario_name": [
+            "The image gives Foundry a private data directory it keeps as a volume"
+          ],
+          "changed_shipped_scenarios": [
+            "us-01-install.feature @nfr-port-01: Then 'the only persistent volume is a named volume backing postgres' becomes two named volumes (postgres data, Foundry data)"
+          ],
+          "implementation_notes": "DEVOPS D1, D2 and D8, tasks 1 to 3; distill upstream item 10. The new scenario is tagged @docker-compose and goes in us-01-install.feature beside the compose scenarios. It is the one new scenario DELIVER adds: it tests the built image, not the Dockerfile's text, and runs in the @docker-compose lane on the shared acceptance image. Name no hosting environment. EXEMPT FROM PARADIGM: image and compose shape, single example.",
+          "lanes": [
+            "scripts/test-in-lima.sh with the @docker-compose lane (FOUNDRY_XTASK_INCLUDE_DOCKER=1)"
+          ],
+          "mutation_targets": []
+        },
+        {
+          "id": "06-03",
+          "name": "Operator docs and examples for the new settings",
+          "type": "infrastructure",
+          "description": "DEVOPS tasks 4 to 6. The k8s secret example carries FOUNDRY_INSTANCE_KEY and an empty _PREVIOUS, and the README gains an Integrations section. RELEASING gets the settings table, reworded R-1, R-2 and R-5, R-8 alerts and runbook, the rollback note and the keep-the-legacy-name advice. .env.example gains commented FOUNDRY_INSTANCE_KEY and FOUNDRY_DATA_DIR.",
+          "criteria": [
+            "deploy/k8s's secret example sets FOUNDRY_INSTANCE_KEY (with an empty _PREVIOUS) in place of FOUNDRY_SECRETS_KEY and mounts no per-pod volume at FOUNDRY_DATA_DIR",
+            "RELEASING documents every new setting, the legacy aliases, backups, both alert rules, the I-27, I-31 and I-30 runbook lines, the rollback cost after Move or Generate, and the compose scale and down -v notes",
+            ".env.example carries commented FOUNDRY_INSTANCE_KEY and FOUNDRY_DATA_DIR entries with their defaults and no value",
+            "No doc or example names a hosting environment, host, cluster or repo"
+          ],
+          "estimate": "0.5 day",
+          "dependencies": [
+            "06-02"
+          ],
+          "files_to_modify": [
+            "deploy/k8s/foundry-secret.example.yaml",
+            "deploy/k8s/README.md",
+            "RELEASING.md",
+            ".env.example"
+          ],
+          "test_file": "",
+          "scenario_name": [],
+          "implementation_notes": "DEVOPS D3, D4, D5, D6 and D7, tasks 4 to 6. Task 7 (the CHANGELOG migration note for 0033) is written at release time, not here. The R-1 generation command is the one in DEVOPS D3. EXEMPT FROM PARADIGM: documentation.",
+          "lanes": [
+            "cargo xtask smoke via scripts/test-in-lima.sh"
+          ],
+          "mutation_targets": []
+        }
+      ]
+    }
+  ],
+  "implementation_scope": {
+    "source_directories": [
+      "crates/foundry-app/src/integrations/",
+      "crates/foundry-app/templates/",
+      "crates/foundry-store/src/integrations/",
+      "crates/foundry-store/migrations/",
+      "crates/foundry-auth/src/",
+      "crates/foundry-services/src/integrations/",
+      "xtask/src/",
+      "deploy/k8s/"
+    ],
+    "test_directories": [
+      "crates/foundry-acceptance/tests/features/",
+      "crates/foundry-acceptance/src/support/",
+      "crates/foundry-acceptance/src/steps/",
+      "crates/foundry-store/tests/"
+    ],
+    "excluded_patterns": [
+      "target/**",
+      "crates/foundry-app/static/vendor/**"
+    ],
+    "new_files": [
+      "crates/foundry-store/migrations/0033_instance_integrations.sql",
+      "crates/foundry-store/src/integrations/instance.rs",
+      "crates/foundry-store/tests/iis_instance_store.rs",
+      "crates/foundry-app/src/integrations/keys.rs",
+      "crates/foundry-app/src/integrations/key_file.rs",
+      "crates/foundry-app/src/integrations/reload.rs",
+      "crates/foundry-app/src/integrations/slack_app.rs",
+      "crates/foundry-app/src/integrations/handlers/instance.rs",
+      "crates/foundry-app/templates/integrations/instance.html"
+    ],
+    "no_new_crate_component_or_port": true
+  },
+  "validation": {
+    "status": "approved",
+    "reviewer": "nw-acceptance-designer-reviewer (2 iterations)",
+    "approved_at": "2026-11-06T21:30:00Z",
+    "step_to_production_file_ratio": "18 steps / 35 production files (incl. migration, templates, Dockerfile, compose, k8s and docs) = 0.51 (<= 2.5)",
+    "checks": [
+      "Every scenario declaration owned by exactly one step: 41 of 41 IIS (59 of 59 examples) plus the new image-shape scenario (06-02) = 42; us-01 @nfr-port-01 amended in 06-02",
+      "DEVOPS DELIVER tasks: 1 in 03-04 (seam marker grep) and 06-02 (data dir, VOLUME), 2 and 3 in 06-02, 4 to 6 in 06-03, 7 at release, 8 in 06-01, 9 in 01-01",
+      "Distill upstream item 11 (a failed Move changes nothing) is a 01-02 criterion",
+      "check-arch rules each with an injected-violation gold test: integrations-instance-tables (01-02), integrations-seal-fence and the extended integrations-secret-seam (03-04), integrations-test-seam listing secrets_key_seam (03-04), integrations-key-file-seam (05-01)",
+      "cargo xtask smoke green before each commit; tests only in the Lima VM via scripts/test-in-lima.sh",
+      "Mutation kill rate >= 80% on each step's mutation_targets"
+    ]
+  }
+}
