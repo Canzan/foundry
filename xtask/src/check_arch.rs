@@ -127,6 +127,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_integrations_pure_core(root));
     violations.extend(check_integrations_store_capability(root));
     violations.extend(check_integrations_secret_seam(root));
+    violations.extend(check_integrations_instance_tables(root));
     violations.extend(check_integrations_test_seam(root));
     violations.extend(check_integrations_outbound_client_seam(root));
     violations.extend(check_project_lifecycle_live_reads(root));
@@ -172,7 +173,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), every naming of the worker's claimant seam is gated on test-support, the seam carries its unique marker and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying that marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no production src outside foundry-store's integrations instance module names an instance integration table in SQL (integrations-instance-tables), every naming of the worker's claimant seam is gated on test-support, the seam carries its unique marker and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying that marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -14743,6 +14744,126 @@ fn cannot_list(root: &Path, dirs: &[PathBuf], id: &str, reference: &str) -> Vec<
         .collect()
 }
 
+const INSTANCE_TABLES_ID: &str = "integrations-instance-tables";
+const INSTANCE_TABLES_REFERENCE: &str = "instance-integration-setup ADR-IIS-001: every query on \
+     the instance integration tables lives in crates/foundry-store/src/integrations/instance.rs";
+/// The one module that may name the tables in SQL.
+const INSTANCE_TABLES_MODULE: &str = "crates/foundry-store/src/integrations/instance.rs";
+/// The acceptance driver's reads are DISTILL D5 waivers (deliver
+/// upstream-issues item 2): the rule covers production `src` only.
+const INSTANCE_TABLES_SKIPPED_CRATE: &str = "foundry-acceptance";
+/// Migration 0033's tables and Deliverable B's pending app.
+const INSTANCE_TABLES: [&str; 6] = [
+    "integration_secrets_key",
+    "instance_slack_app",
+    "instance_slack_app_pending",
+    "integration_config_version",
+    "integration_replica_states",
+    "instance_integration_audit_events",
+];
+
+/// Rule `integrations-instance-tables`: in every crate's `src` but the
+/// acceptance driver's, a string literal (or a `format!` / `concat!`
+/// template) holding SQL — a statement verb or the word `table` — names none
+/// of [`INSTANCE_TABLES`] outside [`INSTANCE_TABLES_MODULE`]. A literal that is
+/// not SQL (a sealing slot's table name) is out of scope. Every violation
+/// starts `integrations-instance-tables: ` and names `file:line` and the
+/// table. A missing `crates/` fails the rule.
+fn check_integrations_instance_tables(root: &Path) -> Vec<String> {
+    let crates_dir = root.join("crates");
+    let Ok(entries) = std::fs::read_dir(&crates_dir) else {
+        return vec![format!(
+            "{INSTANCE_TABLES_ID}: cannot list {} — no crate could be checked \
+             ({INSTANCE_TABLES_REFERENCE}).",
+            crates_dir.display()
+        )];
+    };
+    let mut src_dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| !path.ends_with(INSTANCE_TABLES_SKIPPED_CRATE))
+        .map(|path| path.join("src"))
+        .filter(|src| src.is_dir())
+        .collect();
+    src_dirs.sort();
+    let mut violations = Vec::new();
+    for src in src_dirs {
+        let (sources, unreadable) = files_under(&src, "rs", &|_| false);
+        violations.extend(cannot_list(
+            root,
+            &unreadable,
+            INSTANCE_TABLES_ID,
+            INSTANCE_TABLES_REFERENCE,
+        ));
+        for file in sources {
+            let file_rel = rel(root, &file);
+            if file_rel == INSTANCE_TABLES_MODULE {
+                continue;
+            }
+            match std::fs::read_to_string(&file) {
+                Ok(contents) => violations.extend(instance_table_sql_in(&file_rel, &contents)),
+                Err(_) => violations.push(format!(
+                    "{INSTANCE_TABLES_ID}: cannot read {file_rel} ({INSTANCE_TABLES_REFERENCE})."
+                )),
+            }
+        }
+    }
+    violations
+}
+
+/// The violations in one file: each SQL literal naming an instance table, at
+/// the line the table stands on, then each `format!` / `concat!` template
+/// whose joined pieces do (when no piece already did), at the call's line.
+fn instance_table_sql_in(file_rel: &str, contents: &str) -> Vec<String> {
+    let source = RustSource::scan(contents);
+    let mut violations: Vec<String> = source
+        .literals
+        .iter()
+        .flat_map(|literal| {
+            instance_tables_named_in(&literal.text)
+                .into_iter()
+                .map(|(offset, table)| {
+                    instance_table_violation(file_rel, literal.line + offset, table)
+                })
+        })
+        .collect();
+    for call in macro_calls(&source) {
+        let flagged_piece = call
+            .parts
+            .iter()
+            .any(|part| !instance_tables_named_in(&part.text).is_empty());
+        if !flagged_piece {
+            violations.extend(
+                instance_tables_named_in(&call.joined)
+                    .into_iter()
+                    .map(|(_, table)| instance_table_violation(file_rel, call.line, table)),
+            );
+        }
+    }
+    violations
+}
+
+/// Each instance table a SQL text names, with the 0-based line offset it
+/// stands on. A text holding no SQL names none.
+fn instance_tables_named_in(text: &str) -> Vec<(usize, &'static str)> {
+    let code = strip_sql_comments(&unqualified_sql(text));
+    if !holds_sql_statement(&code) && find_sql_word(&code, "table", 0).is_none() {
+        return Vec::new();
+    }
+    INSTANCE_TABLES
+        .iter()
+        .filter_map(|table| {
+            find_sql_word(&code, table, 0).map(|at| (code[..at].matches('\n').count(), *table))
+        })
+        .collect()
+}
+
+fn instance_table_violation(file_rel: &str, line: usize, table: &str) -> String {
+    format!(
+        "{INSTANCE_TABLES_ID}: {file_rel}:{line} names {table} in SQL ({INSTANCE_TABLES_REFERENCE})."
+    )
+}
+
 const SECRET_SEAM_ID: &str = "integrations-secret-seam";
 const SECRET_SEAM_REFERENCE: &str = "external-integration-plugins ADR-EIP-004, DDR-9";
 /// The `SecretBox` definition, whose own tests open what they seal.
@@ -15452,6 +15573,91 @@ cc = "1"
             ),
             "the doctor file outside its rotation command: {violations:?}"
         );
+    }
+
+    // --- `integrations-instance-tables` ---------------------------------------
+
+    fn instance_tables_tree(extra: &[(&'static str, &'static str)]) -> tempfile::TempDir {
+        let mut files = vec![
+            (
+                INSTANCE_TABLES_MODULE,
+                "fn read() { sqlx::query(\"SELECT key_id FROM integration_secrets_key\"); }\n",
+            ),
+            (
+                "crates/foundry-acceptance/src/support/instance_integration_setup.rs",
+                "fn count() { sqlx::query(\"SELECT count(*) FROM integration_secrets_key\"); }\n",
+            ),
+            (
+                "crates/foundry-store/tests/iis_instance_store.rs",
+                "fn dump() { sqlx::query(\"SELECT * FROM instance_slack_app\"); }\n",
+            ),
+            (
+                "crates/foundry-app/src/integrations/mod.rs",
+                "fn slot() { SecretSlot::new(\"instance_slack_app\", \"1\", \"sealed_client_secret\"); }\n",
+            ),
+        ];
+        files.extend_from_slice(extra);
+        stage(&files)
+    }
+
+    #[test]
+    fn instance_tables_pass_on_the_tree() {
+        let violations = check_integrations_instance_tables(&workspace_root());
+        assert!(violations.is_empty(), "{violations:?}");
+        let violations = check_integrations_instance_tables(instance_tables_tree(&[]).path());
+        assert!(violations.is_empty(), "{violations:?}");
+        let missing = check_integrations_instance_tables(stage(&[]).path());
+        assert!(
+            refuses_only(&missing, "integrations-instance-tables: ", "crates"),
+            "a missing crates/ fails closed: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn instance_tables_refuse_sql_outside_the_store_module() {
+        for (file, table, body) in [
+            (
+                "crates/foundry-store/src/integrations/keys.rs",
+                "integration_secrets_key",
+                "fn a() {}\nfn b() {}\nfn peek() { sqlx::query(\"SELECT wrapped_key FROM integration_secrets_key\"); }\n",
+            ),
+            (
+                "crates/foundry-app/src/integrations/reload.rs",
+                "integration_config_version",
+                "fn a() {}\nfn b() {}\nfn bump() { sqlx::query(\"UPDATE integration_config_version SET version = version + 1\"); }\n",
+            ),
+            (
+                "crates/foundry-services/src/integrations.rs",
+                "instance_integration_audit_events",
+                "fn a() {}\nfn b() {}\nfn log() { sqlx::query(concat!(\"INSERT INTO \", \"instance_integration_audit_events (id) VALUES ($1)\")); }\n",
+            ),
+            (
+                "crates/foundry-store/src/lib.rs",
+                "integration_replica_states",
+                "fn a() {}\nfn b() {}\nconst P: &str = \"SELECT count(*) FROM information_schema.tables WHERE table_name = 'integration_replica_states'\";\n",
+            ),
+            (
+                "crates/foundry-store/src/integrations/sweeps.rs",
+                "instance_slack_app_pending",
+                "fn a() {}\nfn b() {}\nfn sweep() { sqlx::query(\"DELETE FROM instance_slack_app_pending WHERE expires_at < $1\"); }\n",
+            ),
+            (
+                "crates/foundry-store/src/integrations/connections.rs",
+                "instance_slack_app",
+                "fn a() {}\nfn b() {}\nfn app() { sqlx::query(\"SELECT client_id FROM instance_slack_app\"); }\n",
+            ),
+        ] {
+            let tree = instance_tables_tree(&[(file, body)]);
+            let violations = check_integrations_instance_tables(tree.path());
+            assert!(
+                refuses_only(
+                    &violations,
+                    "integrations-instance-tables: ",
+                    &format!("{file}:3")
+                ) && violations[0].contains(table),
+                "{table} in {file}: {violations:?}"
+            );
+        }
     }
 
     // --- Rule 4 `project-lifecycle-write-guard`, route writers ---------------

@@ -44,6 +44,11 @@
 //!
 //! All project reads go through `live_projects`; `outbox.notified_at` is never
 //! touched.
+//!
+//! instance-integration-setup adds [`instance`]: every query on migration
+//! 0033's instance tables (the secrets key, the saved Slack app, the config
+//! version, the replica states and the instance activity), under the
+//! instance-integrations lock (ADR-IIS-004).
 
 mod claims;
 mod connections;
@@ -51,6 +56,7 @@ mod context;
 mod dispatch;
 mod emails;
 mod history;
+mod instance;
 mod keys;
 mod metrics;
 mod recording;
@@ -69,6 +75,12 @@ pub use dispatch::{
 };
 pub use emails::{EmailChoiceRow, EmailProject};
 pub use history::{DeliveryHistoryRow, FinishedDeliveryRow, ProjectRoute, RouteSettings};
+pub use instance::{
+    InstanceSnapshot, KeyWrapper, NewSecretsKey, ReplicaState, SavedSlackApp, SealedSlot,
+    SecretsKeyOutcome, SlackAppSave, SlackSaveOutcome, StoredSecretsKey,
+    INSTANCE_INTEGRATIONS_LOCK,
+};
+pub(crate) use instance::{PROBE_0033_SQL, PROBE_0033_TABLES};
 pub use keys::{KeyCheck, ResealOutcome};
 pub use metrics::{DeliveryTally, IntegrationBacklog, IntegrationCensus};
 pub use recording::{DeliveryResult, LostConnection, RecordOutcome};

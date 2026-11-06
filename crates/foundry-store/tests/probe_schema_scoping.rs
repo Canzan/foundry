@@ -74,11 +74,23 @@ async fn setup(base: &str, stmts: &[&str]) {
 
 /// external-integration-plugins: 0028's outbox columns and dispatch start,
 /// 0029's index, 0030's eight tables (ADR-EIP-002 Earned Trust) and 0031's
-/// project-email choices, for schema `s`. Every healthy schema needs them
+/// project-email choices; instance-integration-setup: 0033's five instance
+/// tables (ADR-IIS-004), for schema `s`. Every healthy schema needs them
 /// since the probe asks for them.
-fn integrations_0028_0031(s: &str) -> Vec<String> {
+fn integrations_0028_0033(s: &str) -> Vec<String> {
     let mut out = integrations_0028_0030(s);
     out.push(email_choices_0031(s));
+    out.extend(
+        [
+            "integration_secrets_key",
+            "instance_slack_app",
+            "integration_config_version",
+            "integration_replica_states",
+            "instance_integration_audit_events",
+        ]
+        .iter()
+        .map(|t| format!("CREATE TABLE {s}.{t} (id bigint)")),
+    );
     out
 }
 
@@ -171,7 +183,7 @@ async fn probe_column_check_is_scoped_to_current_schema() {
         ]
         .into_iter()
         .map(str::to_string)
-        .chain(integrations_0028_0031("sibling"))
+        .chain(integrations_0028_0033("sibling"))
         .collect::<Vec<_>>()
         .iter()
         .map(String::as_str)
@@ -248,7 +260,7 @@ async fn probe_refuses_a_schema_without_the_provisioned_marker() {
              WHERE deleted_at IS NULL"
                 .to_string(),
         ])
-        .chain(integrations_0028_0031("current"))
+        .chain(integrations_0028_0033("current"))
         .collect();
     stmts.extend(owned.iter().map(String::as_str));
     setup(&base, &stmts).await;
@@ -364,7 +376,7 @@ async fn probe_project_lifecycle_events_check_is_scoped_to_current_schema() {
     stmts.extend(through_0024("sibling"));
     stmts.push(records_0025("sibling"));
     stmts.extend(projects_0026("sibling", true, true));
-    stmts.extend(integrations_0028_0031("sibling"));
+    stmts.extend(integrations_0028_0033("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active")
@@ -396,7 +408,7 @@ async fn probe_deleted_marker_and_live_view_check_is_scoped_to_current_schema() 
     }
     stmts.extend(projects_0026("active", false, false));
     stmts.extend(projects_0026("sibling", true, true));
-    stmts.extend(integrations_0028_0031("sibling"));
+    stmts.extend(integrations_0028_0033("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active").await.expect_err(
@@ -428,7 +440,7 @@ async fn probe_detach_column_check_is_scoped_to_current_schema() {
     }
     stmts.extend(projects_0026("active", true, false));
     stmts.extend(projects_0026("sibling", true, true));
-    stmts.extend(integrations_0028_0031("sibling"));
+    stmts.extend(integrations_0028_0033("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active")
@@ -464,7 +476,7 @@ async fn probe_email_choices_check_is_scoped_to_current_schema() {
         stmts.extend(projects_0026(s, true, true));
     }
     stmts.extend(integrations_0028_0030("active"));
-    stmts.extend(integrations_0028_0031("sibling"));
+    stmts.extend(integrations_0028_0033("sibling"));
     let refs: Vec<&str> = stmts.iter().map(String::as_str).collect();
     setup(&base, &refs).await;
     let msg = probe_message(&base, "active")

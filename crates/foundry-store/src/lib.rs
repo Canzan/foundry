@@ -472,6 +472,18 @@ impl Store {
                 "missing migration-0031 table integration_email_choices".to_string(),
             ));
         }
+        // instance-integration-setup (ADR-IIS-004): the reload, the instance
+        // page and their writes need 0033's tables; refuse readiness without
+        // them. Scoped as above.
+        let (instance_tables,): (i64,) = sqlx::query_as(integrations::PROBE_0033_SQL)
+            .fetch_one(&self.pool)
+            .await?;
+        if instance_tables < integrations::PROBE_0033_TABLES {
+            return Err(ProbeError::Failed(format!(
+                "missing migration-0033 instance integration tables (found {instance_tables} of {})",
+                integrations::PROBE_0033_TABLES
+            )));
+        }
         Ok(ProbeReport {
             select_one_ok: true,
             round_trip_ms: started.elapsed().as_millis(),
