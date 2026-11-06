@@ -316,8 +316,9 @@ async fn main() -> anyhow::Result<()> {
         };
 
     // external-integration-plugins (DDR-9, DDR-10, DD-2): the integration
-    // settings, read once. A partial Slack trio or a malformed secrets key
-    // refuses start naming the setting; a missing secrets key is not a refusal
+    // settings, read once. A partial Slack trio, a malformed instance key or
+    // the two key names set to different values (ADR-IIS-001 decision 1)
+    // refuses start naming the settings; a missing key is not a refusal
     // (Slack is simply not offered, K-20). The secrets probe (ADR-EIP-004
     // decision 4) then decides whether this replica starts degraded.
     let (integrations, secrets_check) =
@@ -345,9 +346,14 @@ async fn main() -> anyhow::Result<()> {
                 )
             }
             Err(err) => {
+                use foundry_app::integrations::config::ConfigError;
+                let probe = match err {
+                    ConfigError::SecretsKey(_) | ConfigError::ConflictingKeys => "secrets",
+                    _ => "integrations",
+                };
                 tracing::error!(
                     event = "health.startup.refused",
-                    probe = "integrations",
+                    probe,
                     detail = %err,
                     "integration settings refused — refusing to start"
                 );
@@ -901,8 +907,8 @@ async fn probe_secrets(
     } else if integrations.settings().secrets.is_none() {
         tracing::info!(
             probe = "secrets",
-            setting = foundry_auth::secret_box::SECRETS_KEY_SETTING,
-            "no secrets key and no stored credential: integrations are not offered"
+            setting = foundry_auth::secret_box::INSTANCE_KEY_SETTING,
+            "no instance key and no stored credential: integrations are not offered"
         );
     }
     check

@@ -177,11 +177,7 @@ fn run_ci() -> ExitCode {
             vec!["run", "-q", "-p", "xtask", "--", "check-arch"],
             vec![],
         ),
-        (
-            "cargo build --release",
-            vec!["build", "--all", "--release"],
-            vec![],
-        ),
+        release_build_step(),
         (
             // Exclude foundry-acceptance here: it is a heavy integration
             // suite (Postgres testcontainer + many spawned foundry
@@ -236,6 +232,17 @@ fn run_ci() -> ExitCode {
     }
 
     run_steps("ci", &steps)
+}
+
+/// `ci`'s standalone release build. A stripped build-override drops the
+/// sqlx-macros proc-macro dylib's symbols ("mis-aligned LINKEDIT" on macOS),
+/// so the step keeps them itself, as scripts/eip-lanes.sh does (DEVOPS task 9).
+fn release_build_step() -> Gate<'static> {
+    (
+        "cargo build --release",
+        vec!["build", "--all", "--release"],
+        vec![("CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP", "false")],
+    )
 }
 
 /// Fast pre-COMMIT smoke: the subset of `ci` that catches the class of failure
@@ -323,17 +330,10 @@ fn run_steps(kind: &str, steps: &[Gate<'_>]) -> ExitCode {
             );
             return ExitCode::from(1);
         }
-        let bin = "cargo";
-
-        let mut cmd = Command::new(bin);
-        cmd.args(args);
-        for (k, v) in env_vars {
-            cmd.env(k, v);
-        }
-        let status = match cmd.status() {
+        let status = match step_command(args, env_vars).status() {
             Ok(s) => s,
             Err(err) => {
-                eprintln!("xtask {kind} :: failed to launch `{bin}`: {err}");
+                eprintln!("xtask {kind} :: failed to launch `cargo`: {err}");
                 return ExitCode::from(1);
             }
         };
@@ -348,6 +348,16 @@ fn run_steps(kind: &str, steps: &[Gate<'_>]) -> ExitCode {
 
     println!("\nxtask {kind} :: all gates green");
     ExitCode::SUCCESS
+}
+
+/// The `cargo` command one gate runs: its args, and its env over the inherited one.
+fn step_command(args: &[&str], env_vars: &[(&str, &str)]) -> Command {
+    let mut cmd = Command::new("cargo");
+    cmd.args(args);
+    for (k, v) in env_vars {
+        cmd.env(k, v);
+    }
+    cmd
 }
 
 fn which(bin: &str) -> bool {
@@ -415,5 +425,27 @@ fn current_docker_context_host() -> Option<String> {
         None
     } else {
         Some(host)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::ffi::OsStr;
+
+    #[test]
+    fn the_release_build_keeps_build_override_symbols() {
+        let (_, args, env_vars) = release_build_step();
+        let cmd = step_command(&args, &env_vars);
+        assert!(
+            cmd.get_envs().any(|(k, v)| k
+                == OsStr::new("CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP")
+                && v == Some(OsStr::new("false"))),
+            "the release build sets CARGO_PROFILE_RELEASE_BUILD_OVERRIDE_STRIP=false"
+        );
+        assert_eq!(
+            cmd.get_args().collect::<Vec<_>>(),
+            ["build", "--all", "--release"]
+        );
     }
 }

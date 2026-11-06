@@ -1,10 +1,12 @@
-//! Sealed credentials at rest (ADR-EIP-004, DDR-9).
+//! Sealed credentials at rest (ADR-EIP-004, DDR-9, ADR-IIS-001).
 //!
 //! [`SecretBox`] seals outside credentials (Slack bot token, Matrix access
-//! token, ...) with AES-256-GCM (`ring`) under the operator-held
-//! `FOUNDRY_SECRETS_KEY`, and opens them under that key or a retired one
-//! listed in `FOUNDRY_SECRETS_KEY_PREVIOUS`. No I/O: `seal` returns a value,
-//! `open` returns a [`SecretString`].
+//! token, ...) with AES-256-GCM (`ring`) under its current key, and opens them
+//! under that key or a retired one. The operator's key comes from
+//! `FOUNDRY_INSTANCE_KEY` (retired keys in `FOUNDRY_INSTANCE_KEY_PREVIOUS`),
+//! with the legacy `FOUNDRY_SECRETS_KEY` / `FOUNDRY_SECRETS_KEY_PREVIOUS` read
+//! as aliases. No I/O: `seal` returns a value, `open` returns a
+//! [`SecretString`].
 //!
 //! Sealed format (version 1): `0x01 | key id (8) | nonce (12) | ciphertext | tag (16)`.
 //! The associated data binds a ciphertext to where it lives
@@ -19,9 +21,13 @@ use secrecy::{ExposeSecret, SecretString};
 use sha2::{Digest, Sha256};
 use thiserror::Error;
 
-/// The setting holding the current key: 32 random bytes, base64url.
+/// The setting holding the operator's instance key: 32 random bytes, base64url.
+pub const INSTANCE_KEY_SETTING: &str = "FOUNDRY_INSTANCE_KEY";
+/// Retired instance keys (comma-separated) accepted for opening only.
+pub const INSTANCE_KEY_PREVIOUS_SETTING: &str = "FOUNDRY_INSTANCE_KEY_PREVIOUS";
+/// The legacy name of [`INSTANCE_KEY_SETTING`], still read as an alias.
 pub const SECRETS_KEY_SETTING: &str = "FOUNDRY_SECRETS_KEY";
-/// The setting holding retired keys (comma-separated) accepted for opening only.
+/// The legacy name of [`INSTANCE_KEY_PREVIOUS_SETTING`], still read as an alias.
 pub const SECRETS_KEY_PREVIOUS_SETTING: &str = "FOUNDRY_SECRETS_KEY_PREVIOUS";
 
 const FORMAT_VERSION: u8 = 1;
@@ -43,6 +49,9 @@ pub enum SecretBoxError {
     /// The system random source or the cipher failed while sealing.
     #[error("the credential could not be sealed")]
     SealFailed,
+    /// The system random source failed while generating a key.
+    #[error("a key could not be generated")]
+    GenerateFailed,
     /// Moved, altered, truncated or sealed under a key this box does not hold.
     #[error("the sealed credential could not be opened")]
     OpenRefused,
@@ -95,9 +104,41 @@ impl SecretsKey {
         if bytes.len() != KEY_LEN {
             return Err(malformed);
         }
-        let cipher = UnboundKey::new(&AES_256_GCM, &bytes).map_err(|_| malformed)?;
-        Ok(Self {
-            id: KeyId::derive(&bytes),
+        Self::from_bytes(&bytes).ok_or(malformed)
+    }
+
+    /// The keys of a comma-separated retired-key list, each entry trimmed and
+    /// blank entries ignored. A malformed entry is refused naming `setting`.
+    pub fn parse_list(
+        list: &SecretString,
+        setting: &'static str,
+    ) -> Result<Vec<Self>, SecretBoxError> {
+        list.expose_secret()
+            .split(',')
+            .map(str::trim)
+            .filter(|entry| !entry.is_empty())
+            .map(|entry| Self::parse(&SecretString::from(entry.to_string()), setting))
+            .collect()
+    }
+
+    /// A new key: 32 bytes from the system random source, with its text in the
+    /// operator-key format (unpadded base64url), which [`Self::parse`] reads
+    /// back to the same key id.
+    pub fn generate() -> Result<GeneratedKey, SecretBoxError> {
+        let mut bytes = Zeroizing::new([0u8; KEY_LEN]);
+        SystemRandom::new()
+            .fill(&mut bytes[..])
+            .map_err(|_| SecretBoxError::GenerateFailed)?;
+        let key = Self::from_bytes(&bytes[..]).ok_or(SecretBoxError::GenerateFailed)?;
+        let text =
+            SecretString::from(base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(&bytes[..]));
+        Ok(GeneratedKey { text, key })
+    }
+
+    fn from_bytes(bytes: &[u8]) -> Option<Self> {
+        let cipher = UnboundKey::new(&AES_256_GCM, bytes).ok()?;
+        Some(Self {
+            id: KeyId::derive(bytes),
             cipher: LessSafeKey::new(cipher),
         })
     }
@@ -105,6 +146,13 @@ impl SecretsKey {
     pub fn key_id(&self) -> KeyId {
         self.id
     }
+}
+
+/// A key made by [`SecretsKey::generate`]: the key and its base64url text.
+/// Deliberately implements neither `Debug` nor `Display`.
+pub struct GeneratedKey {
+    pub text: SecretString,
+    pub key: SecretsKey,
 }
 
 /// Where a sealed value lives (table, row id, column): the associated data.
@@ -150,22 +198,6 @@ impl SealedSecret {
     }
 }
 
-/// The retired keys of a comma-separated `FOUNDRY_SECRETS_KEY_PREVIOUS`
-/// value, each entry trimmed and blank entries ignored.
-fn previous_keys(list: &SecretString) -> Result<Vec<SecretsKey>, SecretBoxError> {
-    list.expose_secret()
-        .split(',')
-        .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .map(|entry| {
-            SecretsKey::parse(
-                &SecretString::from(entry.to_string()),
-                SECRETS_KEY_PREVIOUS_SETTING,
-            )
-        })
-        .collect()
-}
-
 /// Seals under the current key; opens under the current or a previous key.
 pub struct SecretBox {
     current: SecretsKey,
@@ -191,7 +223,10 @@ impl SecretBox {
         previous: Option<&SecretString>,
     ) -> Result<Self, SecretBoxError> {
         let current = SecretsKey::parse(current, SECRETS_KEY_SETTING)?;
-        let previous = previous.map(previous_keys).transpose()?.unwrap_or_default();
+        let previous = previous
+            .map(|list| SecretsKey::parse_list(list, SECRETS_KEY_PREVIOUS_SETTING))
+            .transpose()?
+            .unwrap_or_default();
         Ok(Self::new(current, previous))
     }
 
@@ -256,5 +291,35 @@ impl SecretBox {
 
     fn keys(&self) -> impl Iterator<Item = &SecretsKey> {
         std::iter::once(&self.current).chain(&self.previous)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::engine::general_purpose::{URL_SAFE, URL_SAFE_NO_PAD};
+    use proptest::prelude::*;
+
+    fn key_id_of(text: String) -> KeyId {
+        SecretsKey::parse(&SecretString::from(text), INSTANCE_KEY_SETTING)
+            .expect("32 bytes of base64url")
+            .key_id()
+    }
+
+    proptest! {
+        #[test]
+        fn any_32_bytes_read_as_the_same_key_padded_or_not(bytes in any::<[u8; KEY_LEN]>()) {
+            let expected = KeyId::derive(&bytes);
+            prop_assert_eq!(key_id_of(URL_SAFE_NO_PAD.encode(bytes)), expected);
+            prop_assert_eq!(key_id_of(URL_SAFE.encode(bytes)), expected);
+        }
+
+        #[test]
+        fn a_generated_key_reads_back_to_the_same_key(_run in 0u8..=255) {
+            let generated = SecretsKey::generate().expect("the system random source");
+            let text = generated.text.expose_secret().to_string();
+            prop_assert_eq!(URL_SAFE_NO_PAD.decode(&text).map(|b| b.len()), Ok(KEY_LEN));
+            prop_assert_eq!(key_id_of(text), generated.key.key_id());
+        }
     }
 }

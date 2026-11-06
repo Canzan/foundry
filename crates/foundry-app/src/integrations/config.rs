@@ -3,17 +3,21 @@
 //!
 //! Read once through a lookup (the environment in production, the scenario's
 //! settings in the acceptance harness), so both read the same names the same
-//! way. A malformed secrets key, a partial Slack trio or a malformed
-//! `FOUNDRY_OUTBOUND_ALLOW` entry refuses start naming the setting; a missing secrets key is not an error (integrations are simply
-//! not offered: DD-2, R-3). The delivery worker's settings (poll, lease,
+//! way. A malformed instance key, the two key names set to different values
+//! (ADR-IIS-001 decision 1), a partial Slack trio or a malformed
+//! `FOUNDRY_OUTBOUND_ALLOW` entry refuses start naming the settings; a missing
+//! key is not an error (integrations are simply not offered: DD-2, R-3).
+//! The delivery worker's settings (poll, lease,
 //! give-up, on/off) are read here too, so the acceptance harness hands them to
 //! the in-process worker the same way (ADR-EIP-002 decisions 4 and 11).
 
 use foundry_auth::secret_box::{
-    SecretBox, SecretBoxError, SECRETS_KEY_PREVIOUS_SETTING, SECRETS_KEY_SETTING,
+    SecretBox, SecretBoxError, SecretsKey, INSTANCE_KEY_PREVIOUS_SETTING, INSTANCE_KEY_SETTING,
+    SECRETS_KEY_PREVIOUS_SETTING, SECRETS_KEY_SETTING,
 };
 use foundry_integrations::{MalformedAllowEntry, OutboundAllow, OUTBOUND_ALLOW_SETTING};
 use secrecy::SecretString;
+use std::path::PathBuf;
 use std::time::Duration;
 
 pub const SLACK_CLIENT_ID: &str = "SLACK_CLIENT_ID";
@@ -29,6 +33,13 @@ pub const GIVE_UP_SECONDS: &str = "FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS";
 /// `off` stops this process's delivery worker (another process sends).
 pub const WORKER: &str = "FOUNDRY_INTEGRATIONS_WORKER";
 
+/// Where Foundry keeps the files it makes (ADR-IIS-002).
+pub const DATA_DIR: &str = "FOUNDRY_DATA_DIR";
+/// How often a replica checks for instance integration changes (ADR-IIS-004).
+pub const RELOAD_MS: &str = "FOUNDRY_INTEGRATIONS_RELOAD_MS";
+
+pub const DEFAULT_DATA_DIR: &str = "/var/lib/foundry";
+pub const DEFAULT_RELOAD_MS: u64 = 5_000;
 pub const DEFAULT_POLL_MS: u64 = 1_000;
 pub const DEFAULT_LEASE_SECONDS: u64 = 45;
 pub const DEFAULT_GIVE_UP_SECONDS: u64 = 86_400;
@@ -53,12 +64,52 @@ pub enum ConfigError {
     PartialSlack { missing: &'static str },
     #[error(transparent)]
     SecretsKey(#[from] SecretBoxError),
+    #[error("{INSTANCE_KEY_SETTING} and {SECRETS_KEY_SETTING} are set to different values: set one of them, or both to the same key")]
+    ConflictingKeys,
     #[error("{setting} is not a whole number")]
     NotANumber { setting: &'static str },
     #[error("FOUNDRY_INTEGRATIONS_LEASE_SECONDS is under {MIN_LEASE_SECONDS}: a delivery's lease could expire during its send")]
     LeaseTooShort,
     #[error(transparent)]
     OutboundAllow(#[from] MalformedAllowEntry),
+}
+
+/// Which setting supplied the operator's instance key (ADR-IIS-001 decision 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeySetting {
+    /// `FOUNDRY_INSTANCE_KEY`.
+    InstanceKey,
+    /// The legacy `FOUNDRY_SECRETS_KEY`, alone or with the same value under
+    /// both names.
+    LegacySecretsKey,
+}
+
+impl KeySetting {
+    /// Which name supplies the key, and its text, given each name's
+    /// non-blank value: the one that is set, the legacy name when both hold
+    /// the same value, and a refusal when they hold different values. Does not
+    /// parse the key.
+    fn resolve(
+        instance_key: Option<String>,
+        legacy_key: Option<String>,
+    ) -> Result<Option<(Self, SecretString)>, ConfigError> {
+        let chosen = match (instance_key, legacy_key) {
+            (None, None) => return Ok(None),
+            (Some(new), None) => (Self::InstanceKey, new),
+            (None, Some(legacy)) => (Self::LegacySecretsKey, legacy),
+            (Some(new), Some(legacy)) if new == legacy => (Self::LegacySecretsKey, legacy),
+            (Some(_), Some(_)) => return Err(ConfigError::ConflictingKeys),
+        };
+        Ok(Some((chosen.0, SecretString::from(chosen.1))))
+    }
+
+    /// The setting's name.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::InstanceKey => INSTANCE_KEY_SETTING,
+            Self::LegacySecretsKey => SECRETS_KEY_SETTING,
+        }
+    }
 }
 
 /// The delivery worker's settings.
@@ -83,13 +134,7 @@ impl WorkerSettings {
     }
 
     fn read(get: &impl Fn(&str) -> Option<String>) -> Result<Self, ConfigError> {
-        let number = |setting: &'static str, default: u64| match get(setting) {
-            None => Ok(default),
-            Some(raw) => raw
-                .trim()
-                .parse::<u64>()
-                .map_err(|_| ConfigError::NotANumber { setting }),
-        };
+        let number = |setting: &'static str, default: u64| whole_number(get, setting, default);
         let lease = number(LEASE_SECONDS, DEFAULT_LEASE_SECONDS)?;
         if lease < MIN_LEASE_SECONDS {
             return Err(ConfigError::LeaseTooShort);
@@ -100,6 +145,21 @@ impl WorkerSettings {
             lease: Duration::from_secs(lease),
             give_up_after: Duration::from_secs(number(GIVE_UP_SECONDS, DEFAULT_GIVE_UP_SECONDS)?),
         })
+    }
+}
+
+/// A whole-number setting, `default` when unset.
+fn whole_number(
+    get: &impl Fn(&str) -> Option<String>,
+    setting: &'static str,
+    default: u64,
+) -> Result<u64, ConfigError> {
+    match get(setting) {
+        None => Ok(default),
+        Some(raw) => raw
+            .trim()
+            .parse::<u64>()
+            .map_err(|_| ConfigError::NotANumber { setting }),
     }
 }
 
@@ -118,8 +178,17 @@ pub struct IntegrationSettings {
     /// events addresses are built from it.
     pub public_url: String,
     pub slack: Option<SlackSettings>,
-    /// `None` when `FOUNDRY_SECRETS_KEY` is not set (DD-2: integrations off).
+    /// Whether `FOUNDRY_PUBLIC_URL` was unset and `public_url` is the
+    /// process's own fallback address (I-29).
+    pub public_url_fell_back: bool,
+    /// `None` when neither key name is set (DD-2: integrations off).
     pub secrets: Option<SecretBox>,
+    /// Which name supplied the operator's key; `None` when neither is set.
+    pub key_setting: Option<KeySetting>,
+    /// `FOUNDRY_DATA_DIR`.
+    pub data_dir: PathBuf,
+    /// `FOUNDRY_INTEGRATIONS_RELOAD_MS`.
+    pub reload: Duration,
     pub worker: WorkerSettings,
     /// `FOUNDRY_OUTBOUND_ALLOW`: the private ranges and hosts outbound
     /// requests may reach (ADR-EIP-006 decision 6); empty when unset.
@@ -139,14 +208,21 @@ impl IntegrationSettings {
         default_public_url: &str,
     ) -> Result<Self, ConfigError> {
         let get = |name: &str| lookup(name).filter(|v| !v.trim().is_empty());
-        let public_url = get(PUBLIC_URL)
+        let configured_public_url = get(PUBLIC_URL);
+        let public_url_fell_back = configured_public_url.is_none();
+        let public_url = configured_public_url
             .unwrap_or_else(|| default_public_url.to_string())
             .trim_end_matches('/')
             .to_string();
+        let (key_setting, secrets) = secrets(&get)?;
         Ok(Self {
             public_url,
+            public_url_fell_back,
             slack: slack_settings(&get)?,
-            secrets: secrets(&get)?,
+            secrets,
+            key_setting,
+            data_dir: get(DATA_DIR).map_or_else(|| PathBuf::from(DEFAULT_DATA_DIR), PathBuf::from),
+            reload: Duration::from_millis(whole_number(&get, RELOAD_MS, DEFAULT_RELOAD_MS)?.max(1)),
             worker: WorkerSettings::read(&get)?,
             outbound: OutboundAllow::parse(&get(OUTBOUND_ALLOW_SETTING).unwrap_or_default())?,
         })
@@ -156,8 +232,12 @@ impl IntegrationSettings {
     pub fn off(public_url: &str) -> Self {
         Self {
             public_url: public_url.trim_end_matches('/').to_string(),
+            public_url_fell_back: false,
             slack: None,
             secrets: None,
+            key_setting: None,
+            data_dir: PathBuf::from(DEFAULT_DATA_DIR),
+            reload: Duration::from_millis(DEFAULT_RELOAD_MS),
             worker: WorkerSettings::off(),
             outbound: OutboundAllow::default(),
         }
@@ -203,13 +283,246 @@ fn slack_settings(
     }))
 }
 
-fn secrets(get: &impl Fn(&str) -> Option<String>) -> Result<Option<SecretBox>, ConfigError> {
-    let Some(current) = get(SECRETS_KEY_SETTING) else {
-        return Ok(None);
+/// The operator's key under whichever name supplies it, and every retired
+/// key listed under either previous-key name (both are for opening only).
+fn secrets(
+    get: &impl Fn(&str) -> Option<String>,
+) -> Result<(Option<KeySetting>, Option<SecretBox>), ConfigError> {
+    let resolved = KeySetting::resolve(get(INSTANCE_KEY_SETTING), get(SECRETS_KEY_SETTING))?;
+    let Some((setting, text)) = resolved else {
+        return Ok((None, None));
     };
-    let previous = get(SECRETS_KEY_PREVIOUS_SETTING).map(SecretString::from);
-    Ok(Some(SecretBox::from_settings(
-        &SecretString::from(current),
-        previous.as_ref(),
-    )?))
+    let current = SecretsKey::parse(&text, setting.name())?;
+    let mut previous = Vec::new();
+    for name in [INSTANCE_KEY_PREVIOUS_SETTING, SECRETS_KEY_PREVIOUS_SETTING] {
+        if let Some(list) = get(name) {
+            previous.extend(SecretsKey::parse_list(&SecretString::from(list), name)?);
+        }
+    }
+    Ok((Some(setting), Some(SecretBox::new(current, previous))))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    use foundry_auth::secret_box::KeyId;
+    use std::collections::HashMap;
+
+    const FALLBACK_URL: &str = "http://localhost:8080";
+    /// 20 characters: base64url, but 15 bytes.
+    const MALFORMED: &str = "c2hvcnQta2V5LXRleHQh";
+
+    fn key_text(byte: u8) -> String {
+        URL_SAFE_NO_PAD.encode([byte; 32])
+    }
+
+    fn key_id(text: &str) -> KeyId {
+        SecretsKey::parse(&SecretString::from(text.to_string()), INSTANCE_KEY_SETTING)
+            .expect("a well-formed key")
+            .key_id()
+    }
+
+    fn read(settings: &[(&str, &str)]) -> Result<IntegrationSettings, ConfigError> {
+        let settings: HashMap<String, String> = settings
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        IntegrationSettings::from_lookup(|name| settings.get(name).cloned(), FALLBACK_URL)
+    }
+
+    /// One value a key name can hold.
+    #[derive(Debug, Clone, Copy)]
+    enum Value {
+        Unset,
+        Empty,
+        KeyA,
+        KeyB,
+        Malformed,
+    }
+
+    impl Value {
+        fn text(self) -> Option<String> {
+            match self {
+                Self::Unset => None,
+                Self::Empty => Some(String::new()),
+                Self::KeyA => Some(key_text(1)),
+                Self::KeyB => Some(key_text(2)),
+                Self::Malformed => Some(MALFORMED.to_string()),
+            }
+        }
+    }
+
+    /// What the two key names resolve to.
+    #[derive(Debug, PartialEq, Eq)]
+    enum Outcome {
+        NoKey,
+        Key(KeySetting, KeyId),
+        Malformed(&'static str),
+        Conflict,
+    }
+
+    fn outcome(new: Value, legacy: Value) -> Outcome {
+        let mut settings = Vec::new();
+        let (new_text, legacy_text) = (new.text(), legacy.text());
+        if let Some(text) = &new_text {
+            settings.push((INSTANCE_KEY_SETTING, text.as_str()));
+        }
+        if let Some(text) = &legacy_text {
+            settings.push((SECRETS_KEY_SETTING, text.as_str()));
+        }
+        match read(&settings) {
+            Ok(read) => match (read.key_setting, read.secrets) {
+                (None, None) => Outcome::NoKey,
+                (Some(setting), Some(secrets)) => Outcome::Key(setting, secrets.current_key_id()),
+                _ => panic!("a key setting without a key, or the reverse"),
+            },
+            Err(err) => {
+                let text = format!("{err} {err:?}");
+                for value in [&new_text, &legacy_text].into_iter().flatten() {
+                    assert!(
+                        value.is_empty() || !text.contains(value.as_str()),
+                        "the refusal never prints a value: {text}"
+                    );
+                }
+                match err {
+                    ConfigError::SecretsKey(SecretBoxError::MalformedKey { setting }) => {
+                        Outcome::Malformed(setting)
+                    }
+                    ConfigError::ConflictingKeys => Outcome::Conflict,
+                    other => panic!("unexpected refusal {other:?}"),
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_two_key_names_resolve_over_every_pair_of_values() {
+        use KeySetting::{InstanceKey as New, LegacySecretsKey as Legacy};
+        use Value::{Empty, KeyA, KeyB, Malformed, Unset};
+        let a = || key_id(&key_text(1));
+        let b = || key_id(&key_text(2));
+        let table = [
+            (Unset, Unset, Outcome::NoKey),
+            (Unset, Empty, Outcome::NoKey),
+            (Unset, KeyA, Outcome::Key(Legacy, a())),
+            (Unset, KeyB, Outcome::Key(Legacy, b())),
+            (Unset, Malformed, Outcome::Malformed(SECRETS_KEY_SETTING)),
+            (Empty, Unset, Outcome::NoKey),
+            (Empty, Empty, Outcome::NoKey),
+            (Empty, KeyA, Outcome::Key(Legacy, a())),
+            (Empty, KeyB, Outcome::Key(Legacy, b())),
+            (Empty, Malformed, Outcome::Malformed(SECRETS_KEY_SETTING)),
+            (KeyA, Unset, Outcome::Key(New, a())),
+            (KeyA, Empty, Outcome::Key(New, a())),
+            (KeyA, KeyA, Outcome::Key(Legacy, a())),
+            (KeyA, KeyB, Outcome::Conflict),
+            (KeyA, Malformed, Outcome::Conflict),
+            (KeyB, Unset, Outcome::Key(New, b())),
+            (KeyB, Empty, Outcome::Key(New, b())),
+            (KeyB, KeyA, Outcome::Conflict),
+            (KeyB, KeyB, Outcome::Key(Legacy, b())),
+            (KeyB, Malformed, Outcome::Conflict),
+            (Malformed, Unset, Outcome::Malformed(INSTANCE_KEY_SETTING)),
+            (Malformed, Empty, Outcome::Malformed(INSTANCE_KEY_SETTING)),
+            (Malformed, KeyA, Outcome::Conflict),
+            (Malformed, KeyB, Outcome::Conflict),
+            (
+                Malformed,
+                Malformed,
+                Outcome::Malformed(SECRETS_KEY_SETTING),
+            ),
+        ];
+        for (new, legacy, expected) in table {
+            assert_eq!(outcome(new, legacy), expected, "{new:?} / {legacy:?}");
+        }
+    }
+
+    #[test]
+    fn a_conflict_names_both_settings() {
+        let text = ConfigError::ConflictingKeys.to_string();
+        assert!(text.contains(INSTANCE_KEY_SETTING) && text.contains(SECRETS_KEY_SETTING));
+    }
+
+    #[test]
+    fn retired_keys_are_held_under_either_previous_name() {
+        let (current, new_old, legacy_old) = (key_text(1), key_text(3), key_text(4));
+        let read = read(&[
+            (INSTANCE_KEY_SETTING, &current),
+            (INSTANCE_KEY_PREVIOUS_SETTING, &new_old),
+            (SECRETS_KEY_PREVIOUS_SETTING, &format!(" {legacy_old} ,")),
+        ])
+        .expect("well-formed keys");
+        let held = read.secrets.expect("a key").key_ids();
+        assert_eq!(
+            held,
+            [key_id(&current), key_id(&new_old), key_id(&legacy_old)]
+        );
+
+        for name in [INSTANCE_KEY_PREVIOUS_SETTING, SECRETS_KEY_PREVIOUS_SETTING] {
+            let refusal = read_err(&[(INSTANCE_KEY_SETTING, &current), (name, MALFORMED)]);
+            assert_eq!(
+                refusal,
+                ConfigError::SecretsKey(SecretBoxError::MalformedKey { setting: name })
+            );
+        }
+    }
+
+    fn read_err(settings: &[(&str, &str)]) -> ConfigError {
+        match read(settings) {
+            Ok(_) => panic!("the settings are refused"),
+            Err(err) => err,
+        }
+    }
+
+    /// (settings, data dir, reload ms, public URL, fell back)
+    type Reported = (
+        &'static [(&'static str, &'static str)],
+        &'static str,
+        u64,
+        &'static str,
+        bool,
+    );
+
+    #[test]
+    fn data_dir_reload_period_and_public_url_fallback_are_reported() {
+        let table: [Reported; 4] = [
+            (&[], DEFAULT_DATA_DIR, DEFAULT_RELOAD_MS, FALLBACK_URL, true),
+            (
+                &[(DATA_DIR, ""), (RELOAD_MS, " "), (PUBLIC_URL, "")],
+                DEFAULT_DATA_DIR,
+                DEFAULT_RELOAD_MS,
+                FALLBACK_URL,
+                true,
+            ),
+            (
+                &[
+                    (DATA_DIR, "/srv/foundry"),
+                    (RELOAD_MS, " 200 "),
+                    (PUBLIC_URL, "https://foundry.example/"),
+                ],
+                "/srv/foundry",
+                200,
+                "https://foundry.example",
+                false,
+            ),
+            (&[(RELOAD_MS, "0")], DEFAULT_DATA_DIR, 1, FALLBACK_URL, true),
+        ];
+        for (settings, data_dir, reload_ms, public_url, fell_back) in table {
+            let read = read(settings).expect("valid settings");
+            assert_eq!(read.data_dir, PathBuf::from(data_dir), "{settings:?}");
+            assert_eq!(
+                read.reload,
+                Duration::from_millis(reload_ms),
+                "{settings:?}"
+            );
+            assert_eq!(read.public_url, public_url, "{settings:?}");
+            assert_eq!(read.public_url_fell_back, fell_back, "{settings:?}");
+        }
+        assert_eq!(
+            read_err(&[(RELOAD_MS, "soon")]),
+            ConfigError::NotANumber { setting: RELOAD_MS }
+        );
+    }
 }

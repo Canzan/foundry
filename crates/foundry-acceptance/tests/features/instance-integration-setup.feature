@@ -473,7 +473,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
       | FOUNDRY_INSTANCE_KEY and FOUNDRY_SECRETS_KEY both set to empty values | Instance key: made by Foundry in /var/lib/foundry/instance.key.                                          |
       | FOUNDRY_INSTANCE_KEY and FOUNDRY_SECRETS_KEY set to the same key      | Credentials saved here are sealed directly with the instance key. Move to a secrets key to manage it here. |
 
-  @pending @iis-subprocess @us-iis-08 @kpi-iis-g1 @error
+  @iis-subprocess @us-iis-08 @kpi-iis-g1 @error
   Scenario Outline: Foundry refuses to start on a malformed or conflicting instance key, naming only the setting
     When Foundry is started with <setting>
     Then Foundry refuses to start with a "health.startup.refused" line naming <names>, never the value
