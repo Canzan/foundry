@@ -42,6 +42,44 @@ journeys:
         - Every refusal on the way (no connection, not invited, encrypted room) names the next step.
 
     steps:
+      - id: 0
+        name: Set up integrations for this Foundry
+        action: >
+          Priya, an instance admin, opens /admin/instance/integrations (Instance
+          admin › Integrations), generates the secrets key (Matrix is then ready)
+          and enters the Foundry Slack app's client ID, client secret and signing
+          secret. Workspaces are offered Add to Slack and Connect Matrix within
+          60 s, with no restart.
+        mockup: |
+          +-- /admin/instance/integrations --------------------------------------+
+          | Integrations for this Foundry                                         |
+          |  Instance key  set by the operator                                    |
+          |  Secrets key   set. Credentials entered here are sealed with it.      |
+          |  Slack         set up here · app ${slack_client_id}                   |
+          |                Client secret: set   Signing secret: set               |
+          |  Matrix        ready                                                  |
+          +-----------------------------------------------------------------------+
+        emotional_state:
+          entry: Stuck (workspace pages say "not set up")
+          exit: Relieved, no restart and no environment edit
+        shared_artifacts: [slack_client_id, connection_status]
+        integration_checkpoint: >
+          No key or secret is ever shown or stored in plaintext (the secrets key
+          is encrypted under an instance key that never lives in the database);
+          every replica uses the change within 60 s; only instance admins reach
+          the page.
+        failure_modes:
+          - No instance key, and Foundry cannot make one (I-27).
+          - The instance key cannot open the stored secrets key (I-26).
+          - A secret or key appears in a page, log or activity line.
+          - A replica keeps answering "not set up" after the save.
+        gherkin: |
+          Scenario: An instance admin enters the Slack app and workspaces can add Slack at once
+            Given this Foundry has a secrets key and no Slack app
+            When Priya saves the Slack app with client ID "6123456789012.7234567890123", its client secret and its signing secret
+            Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
+            And within 60 seconds, without a restart, Canzan Labs' workspace integrations page offers Add to Slack on every replica
+
       - id: 1
         name: Connect Slack
         action: >
@@ -62,7 +100,7 @@ journeys:
           The connection is stored for Canzan Labs only; no token is rendered,
           logged or returned; an audit record names Priya.
         failure_modes:
-          - The instance has no Foundry Slack app credentials (K-2).
+          - The instance has no Foundry Slack app credentials (K-2); an instance admin fixes it at /admin/instance/integrations (step 0; instance-integration-setup).
           - Priya cancels on Slack's screen, or a forged return arrives (K-3).
           - A non-admin reaches the page or the return address (uniform 404).
           - The Slack token appears in a log line or the page source.
@@ -94,7 +132,7 @@ journeys:
           to; the destination is kept by Slack's channel id.
         failure_modes:
           - The workspace has no chat connection (K-4 for a lead; for an admin W-4 with a link to workspace integrations; integrations-wayfinding).
-          - This Foundry is not set up for the kind, or has no secrets key (W-2, W-3; integrations-wayfinding).
+          - This Foundry is not set up for the kind, or has no secrets key (W-2, W-3; integrations-wayfinding). An instance admin is also offered "Set up integrations for this Foundry" (I-19; instance-integration-setup).
           - A shared channel is saved without the K-6 tick.
           - A plain member or outsider reaches the page (uniform 404).
         gherkin: |
@@ -240,6 +278,7 @@ journeys:
           Same events, levels, history and lifecycle as Slack; only the
           destination field differs.
         failure_modes:
+          - Matrix is not set up on this Foundry (no secrets key); an instance admin generates one at /admin/instance/integrations (step 0; instance-integration-setup).
           - The bot was not invited (K-14).
           - The room is end-to-end encrypted (K-15).
           - The bot is kicked, or the room becomes encrypted later (Needs attention).
@@ -275,6 +314,10 @@ journeys:
         source_of_truth: the route record (Slack channel id, Matrix room id, webhook URL)
         consumers: [route row, K-5, K-6, history, API]
         integration_risk: MEDIUM - names refresh; ids are identity
+      slack_client_id:
+        source_of_truth: the Slack app in effect (environment SLACK_* when set, else the app saved at /admin/instance/integrations); not secret
+        consumers: [instance integrations page, its activity, Add to Slack's approval request]
+        integration_risk: LOW
       slack_team:
         source_of_truth: Slack's install answer
         consumers: [K-1, K-10]
@@ -323,6 +366,14 @@ journeys:
           "no connection" failure mode is split by cause and audience (W-2 to
           W-5). The project page names the workspace connection its routes reuse
           (W-6 to W-8). See docs/feature/integrations-wayfinding/discuss/.
+      - date: "2026-11-05"
+        feature: instance-integration-setup
+        change: >
+          New step 0 "Set up integrations for this Foundry": an instance admin
+          generates the secrets key and enters the Slack app at
+          /admin/instance/integrations, with no restart. Step 1's K-2, step 2's
+          W-2/W-3 and step 7's Matrix "not set up" become fixable there. See
+          docs/feature/instance-integration-setup/discuss/.
 
   - id: journey-choose-my-project-emails
     title: Choose the project events Foundry emails me, get exactly those, and stop any of them in one click

@@ -1,0 +1,243 @@
+# Feature journey: instance-integration-setup. Extends SSOT
+# journey-route-project-events-to-chat with a step 0 before step 1 ("Connect
+# Slack"). Step 1's K-2 and step 7's Matrix "not set up" become fixable in the
+# browser by an instance admin. Copy ids I-n are in user-stories.md. Paths are
+# proposals for DESIGN.
+schema_version: "0.1"
+
+journey:
+  id: journey-instance-integration-setup
+  extends: journey-route-project-events-to-chat   # inserts step 0 before step 1
+  job: job-route-project-events-to-chat
+  persona: persona-instance-operator   # Priya (instance admin); Tomás (workspace admin only), Lena (lead), Marco (foil) inline
+  platform: web + slack + matrix
+  emotional_arc:
+    pattern: Problem Relief
+    start: Stuck. Workspace pages say Slack and Matrix are not set up, and the only fix is editing Foundry's environment plus a restart.
+    middle: Guided. One page says what this Foundry has and lacks; one button makes the key; three values make the Slack app.
+    end: Relieved. Add to Slack and Connect Matrix appear on the workspace page with no restart.
+    transition_rules:
+      - A change that affects existing connections (replace the key, switch or remove the Slack app) states the count and consequence before it happens.
+      - No secret or key is ever shown back; the page says "set".
+      - An environment setting is shown read-only, with the way to move it into Foundry.
+
+  steps:
+    - id: 0a
+      name: Find where integrations are set up
+      story: US-IIS-04   # Deliverable B; in A, I-1 on the instance dashboard is the way in
+      action: >
+        Priya follows "Set up integrations for this Foundry" (shown after W-2 or W-3, beside
+        the existing "How to set up Slack"), or Instance admin › Integrations (I-1).
+      emotional_state: {entry: Stuck, exit: Oriented}
+      shared_artifacts: [viewer_is_instance_admin, matrix_offer, instance_slack_state]
+      integration_checkpoint: The link is offered only to an instance admin (KPI-IIS-G2).
+      failure_modes:
+        - A workspace admin who is not an instance admin is offered the link and lands on the uniform 404.
+        - The setup guide still says "Restart Foundry".
+      gherkin: |
+        Scenario: An instance admin is sent from the workspace page to the instance setup
+          Given this Foundry has a secrets key and no Slack app
+          When Priya opens the workspace integrations page
+          Then Priya is offered "How to set up Slack"
+          And following "Set up integrations for this Foundry" lands on the instance integrations page
+
+    - id: 0b
+      name: See what this Foundry has and lacks
+      story: US-IIS-01
+      action: Priya opens /admin/instance/integrations.
+      mockup: |
+        Integrations for this Foundry
+        Instance key ${instance_key_source}      (I-25 / I-27 / I-30)
+        Secrets key  ${stored_secrets_key} ${legacy_direct_seals} ${secrets_probe}   (I-2 / I-2e / I-3 / I-4 / I-26)
+        Slack        ${instance_slack_state}     (I-5 / I-6 / I-7 / I-13)
+          ${public_url} (I-29 when unset)
+          Redirect URL ${slack_return_url}  Events URL ${slack_events_url}  Manifest ${manifest}
+        Matrix       ${matrix_offer}             (I-8 / I-9)
+      emotional_state: {entry: Oriented, exit: Guided}
+      shared_artifacts: [instance_key_source, stored_secrets_key, legacy_direct_seals, secrets_probe, matrix_offer, instance_slack_state, public_url, slack_return_url, slack_events_url, manifest, slack_client_id]
+      integration_checkpoint: The states agree with what /workspace/integrations offers; the manifest and URLs equal the setup page's.
+      failure_modes:
+        - A non-instance-admin or signed-out visitor gets anything but the uniform 404.
+        - A key or secret from the environment appears in the page.
+        - FOUNDRY_PUBLIC_URL is unset and the page shows localhost addresses without I-29.
+      gherkin: |
+        Scenario: Without a secrets key the page says integrations need one
+          Given this Foundry has no secrets key and no Slack app
+          When Priya opens the instance integrations page
+          Then Priya reads "This Foundry has no secrets key yet. Foundry needs one to store Slack and Matrix credentials."
+          And Priya reads "Matrix: needs the secrets key (above). Nothing else is set up for Matrix on this Foundry."
+
+    - id: 0c
+      name: Generate the secrets key
+      story: US-IIS-02
+      action: Priya chooses "Generate secrets key".
+      emotional_state: {entry: Guided, exit: Encouraged (Matrix ready)}
+      shared_artifacts: [stored_secrets_key, instance_key_source, instance_activity]
+      integration_checkpoint: Create-if-absent (one key for concurrent requests); every replica uses the key within 60 s; the key is never shown, logged or audited.
+      failure_modes:
+        - A second press, or two replicas at once, creates a second key and strands what was sealed.
+        - One replica keeps answering "Matrix is not set up" until restarted.
+        - The key appears in a page, log or activity line.
+      gherkin: |
+        @walking_skeleton
+        Scenario: Generating the secrets key makes Matrix available at once
+          Given this Foundry has no secrets key
+          When Priya chooses "Generate secrets key"
+          Then Priya reads "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it."
+          And within 60 seconds, without a restart, Canzan Labs' workspace integrations page offers to connect Matrix on every replica
+
+    - id: 0d
+      name: Enter the Slack app
+      story: US-IIS-03
+      action: Priya creates the app from the manifest in Slack and saves its three values.
+      emotional_state: {entry: Encouraged, exit: Relieved}
+      shared_artifacts: [slack_client_id, instance_slack_state, instance_activity]
+      integration_checkpoint: Secrets sealed with the key in effect; every replica uses the app within 60 s.
+      failure_modes:
+        - A blank or malformed value is accepted (I-11, I-12).
+        - A secret appears in a page, log or activity line.
+        - Slack's event verification fails because a replica still has no app.
+      gherkin: |
+        Scenario: An instance admin enters the Slack app and workspaces can add Slack at once
+          Given this Foundry has a secrets key and no Slack app
+          When Priya saves the Slack app with client ID "6123456789012.7234567890123", its client secret and its signing secret
+          Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
+          And within 60 seconds, without a restart, Canzan Labs' workspace integrations page offers Add to Slack on every replica
+
+    - id: 0e
+      name: Change it later
+      story: [US-IIS-05, US-IIS-07]   # Deliverable B
+      action: Priya rotates a Slack secret, switches or removes the app, or replaces the secrets key.
+      emotional_state: {entry: Wary, exit: In control}
+      shared_artifacts: [connected_workspace_count, sealed_credential_count, instance_activity]
+      integration_checkpoint: Confirms are GET pages, changes are POSTs; no connection turns lost and no admin is emailed because of the change.
+      failure_modes:
+        - Replacing the key leaves a credential sealed under a key no replica holds.
+        - A link prefetcher removes the app or replaces the key.
+      gherkin: |
+        Scenario: Replacing the key re-seals everything and nobody reconnects
+          Given Foundry keeps the secrets key and holds 3 saved credentials
+          When Priya confirms "Replace secrets key"
+          Then Priya reads "Replaced. 3 saved credentials are sealed under the new key."
+          And no connection is marked lost and no workspace admin is emailed
+
+    - id: 0f
+      name: Upgrade an environment-configured instance, then move under a secrets key
+      story: US-IIS-06
+      action: >
+        After the upgrade, credentials sealed directly with FOUNDRY_SECRETS_KEY keep
+        opening. Priya chooses "Move to a secrets key" and saves the same Slack app;
+        the operator may then remove SLACK_*.
+      emotional_state: {entry: Cautious, exit: Assured}
+      shared_artifacts: [instance_key_source, legacy_direct_seals, stored_secrets_key, instance_slack_state, sealed_credential_count]
+      integration_checkpoint: No gap - during the roll and the move, no connection turns lost and every replica on the new release opens every credential within 60 s.
+      failure_modes:
+        - The upgrade stops opening credentials sealed with the existing key.
+        - Removing SLACK_* leaves Slack "not set up".
+      gherkin: |
+        Scenario: After the upgrade, connections sealed with the environment key keep working
+          Given Canzan Labs' Slack connection was sealed with FOUNDRY_SECRETS_KEY before the upgrade
+          When Foundry is upgraded and Sam files "Rotate LLDAP bind password" in Identity Platform
+          Then the issue reaches #auth-dev
+          And the instance integrations page reads "Saved credentials are sealed directly with the instance key. Move them under a secrets key to manage it here."
+
+        Scenario: Moving to a secrets key re-seals everything and nobody reconnects
+          Given Canzan Labs' Slack and Matrix connections are sealed directly with FOUNDRY_SECRETS_KEY
+          When Priya chooses "Move to a secrets key"
+          Then Priya reads "Moved. 2 saved credentials are sealed under a new secrets key. Nobody needs to reconnect."
+          And Sam's next new issue in Identity Platform reaches #auth-dev and #auth:canzan.dev
+
+    - id: 0g
+      name: Run standalone with no key setting
+      story: US-IIS-08
+      action: A single-binary or compose deploy starts with no instance key set; Foundry makes one in its data directory.
+      emotional_state: {entry: Unaware, exit: Reassured (knows what to back up)}
+      shared_artifacts: [instance_key_source]
+      integration_checkpoint: >
+        The file is made create-if-absent and reused on restart; a server with a different
+        file says so (I-26); an operator key that replaces the file holds the file's key as
+        previous (I-30); no key ever reaches the database in plaintext.
+      failure_modes:
+        - Two servers make two different files and fail silently.
+        - The data directory is read-only and the board does not start.
+        - An operator key replaces the file and the stored secrets key stops opening.
+        - A malformed operator key starts Foundry silently degraded instead of refusing.
+      gherkin: |
+        Scenario: A standalone Foundry makes its own instance key and says what to back up
+          Given Foundry starts for the first time with data directory /var/lib/foundry and no instance key set
+          When Priya opens the instance integrations page
+          Then Priya reads "Instance key: made by Foundry in /var/lib/foundry/instance.key. Back up this file apart from the database. Every Foundry server must use the same file. Without it, saved connections must be reconnected."
+
+  shared_artifacts:
+    viewer_is_instance_admin:
+      source_of_truth: Store::is_instance_admin (instance_admins row); already on NavContext.is_instance_admin
+      consumers: [sidebar "Instance admin", I-1, instance page gate, I-19 on W-2/W-3]
+      integration_risk: HIGH - a link to a non-instance-admin leads to the uniform 404
+    instance_key_source:
+      source_of_truth: >
+        The instance key in effect, never in the database: the operator setting when present
+        (DESIGN names it; FOUNDRY_SECRETS_KEY is read as it), else the file Foundry makes in its
+        data directory, else none. Previous keys (operator setting, superseded file) open only.
+      consumers: [I-25, I-27, I-30, whether Generate is offered]
+      integration_risk: HIGH - every replica must hold the same one, or the secrets key does not open (I-26)
+    stored_secrets_key:
+      source_of_truth: The secrets key row, encrypted under the instance key (new; DESIGN decides storage). Present / absent / does not open.
+      consumers: [I-2, I-3, I-26, I-21, matrix_offer, slack_offer, Slack form offered, worker runs_worker]
+      integration_risk: HIGH - every replica must agree within 60 s
+    legacy_direct_seals:
+      source_of_truth: Stored credentials whose key id is the instance key's own (sealed before this feature, ADR-EIP-004 format)
+      consumers: [I-2e, I-22 count, Move offered]
+      integration_risk: HIGH - must keep opening after the upgrade (US-IIS-06 AC 1)
+    secrets_probe:
+      source_of_truth: The boot SecretsCheck (missing key ids over stored credentials; mod.rs check_secrets)
+      consumers: [I-4, I-13, foundry_integration_secrets_degraded]
+      integration_risk: MEDIUM
+    matrix_offer:
+      source_of_truth: Integrations::matrix_offer (derives from stored_secrets_key / legacy_direct_seals and per-connection readability)
+      consumers: [I-8, I-9, /workspace/integrations Matrix section, route form W-2]
+      integration_risk: MEDIUM - the instance page and workspace page must read the same value
+    public_url:
+      source_of_truth: FOUNDRY_PUBLIC_URL (main.rs; falls back to http://localhost:{port})
+      consumers: [I-29, slack_return_url, slack_events_url, manifest]
+      integration_risk: HIGH - unset means Slack cannot reach the addresses (I-29)
+    instance_slack_state:
+      source_of_truth: The Slack app in effect - all three SLACK_* when set, else the saved app (new), else none.
+      consumers: [I-5 / I-6 / I-7 / I-13, W-2 / Add to Slack, route form W-2 / W-3, install, events endpoint, delivery]
+      integration_risk: HIGH - every replica must agree within 60 s
+    slack_client_id:
+      source_of_truth: the Slack app in effect (not secret)
+      consumers: [I-6, I-7, I-14, I-18]
+      integration_risk: LOW
+    slack_return_url:
+      source_of_truth: Integrations::slack_return_url (FOUNDRY_PUBLIC_URL + /workspace/integrations/slack/return)
+      consumers: [instance page, manifest, setup page, install redirect]
+      integration_risk: HIGH - a mismatch makes Slack refuse the install
+    slack_events_url:
+      source_of_truth: Integrations::slack_events_url (new; public_url + slack::EVENTS_PATH), which slack::manifest also uses
+      consumers: [instance page, manifest, setup page]
+      integration_risk: MEDIUM
+    manifest:
+      source_of_truth: slack::manifest(public_url) (DD-9)
+      consumers: [instance page, /workspace/integrations/slack/setup, operator docs]
+      integration_risk: MEDIUM - one template or the two pages drift
+    connected_workspace_count:
+      source_of_truth: integration_connections (kind slack, not disconnected), instance-wide
+      consumers: [I-14, I-15]
+      integration_risk: MEDIUM
+    sealed_credential_count:
+      source_of_truth: every stored sealed credential (connections + saved Slack app)
+      consumers: [I-23, I-24, I-18]
+      integration_risk: MEDIUM
+    instance_activity:
+      source_of_truth: new instance-level record of key and Slack app changes (integration_audit_events requires a workspace)
+      consumers: [I-18]
+      integration_risk: MEDIUM - must never hold a key or secret
+
+  changelog:
+    - date: "2026-11-05"
+      feature: instance-integration-setup
+      change: >
+        Journey created (DISCUSS). Revised the same day: the secrets key is made in the UI
+        and stored encrypted under an instance key that never lives in the database, and
+        standalone deploys get a Foundry-made instance key. Peer-review revision: single-source
+        artifacts, I-29 / I-30, step 0f Move scenario. SSOT change applied 2026-11-05 (journey-external-integration-plugins.yaml).
