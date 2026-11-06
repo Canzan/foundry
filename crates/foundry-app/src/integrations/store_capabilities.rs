@@ -13,13 +13,15 @@
 //!   time;
 //! - [`ConnectionCredentials`]: read-only, a connection's sealed credential;
 //! - [`ConnectionHealth`]: the events door's `connected → lost` transition
-//!   on Slack's signed word.
+//!   on Slack's signed word;
+//! - [`KeyProbe`]: the boot function's reads of the stored instance rows and
+//!   its one write, the current instance key's check value.
 
 use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
-    DispatchOutcome, EmailSendFacts, LostConnection, NewDelivery, PendingDelivery, Pruned, Pruning,
-    RecordOutcome, RetentionView,
+    DispatchOutcome, EmailSendFacts, InstanceSnapshot, KeyCheck, LostConnection, NewDelivery,
+    PendingDelivery, Pruned, Pruning, RecordOutcome, RetentionView,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -132,6 +134,15 @@ pub trait ConnectionHealth: Send + Sync {
         reason: &str,
         now: OffsetDateTime,
     ) -> Result<Option<LostConnection>, StoreError>;
+}
+
+/// The boot function's store (ADR-IIS-001 decision 9).
+#[async_trait]
+pub trait KeyProbe: Send + Sync {
+    /// Record a key's check value unless one is stored.
+    async fn record_key_check(&self, check: &KeyCheck) -> Result<(), StoreError>;
+    /// The stored instance rows, read in one snapshot.
+    async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError>;
 }
 
 /// Every capability, over the store.
@@ -273,5 +284,16 @@ impl ConnectionHealth for StoreCapabilities {
         now: OffsetDateTime,
     ) -> Result<Option<LostConnection>, StoreError> {
         self.0.slack_app_lost(team_id, app_id, reason, now).await
+    }
+}
+
+#[async_trait]
+impl KeyProbe for StoreCapabilities {
+    async fn record_key_check(&self, check: &KeyCheck) -> Result<(), StoreError> {
+        self.0.record_key_check(check).await
+    }
+
+    async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError> {
+        self.0.instance_snapshot().await
     }
 }

@@ -3,7 +3,8 @@
 //! Slack adapter ([`slack`]), the Matrix adapter ([`matrix`]), the client for
 //! user-supplied addresses ([`outbound`]), the doors ([`handlers`]), why a
 //! route door has no connection ([`no_connection`]) and members' project
-//! emails ([`project_emails`]).
+//! emails ([`project_emails`]); the key mode and the credential box
+//! ([`keys`]), which [`Integrations::boot`], the one boot function, resolves.
 //!
 //! [`Integrations`] is what the settings built; [`IntegrationsHandle`] is how
 //! [`crate::AppState`] holds it. Production installs it once at boot; the
@@ -12,6 +13,7 @@
 
 pub mod config;
 pub mod handlers;
+pub mod keys;
 pub mod matrix;
 pub mod no_connection;
 pub mod outbound;
@@ -27,7 +29,8 @@ use config::IntegrationSettings;
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
 use foundry_integrations::ChannelKind;
 use foundry_services::integrations::{DestinationCatalogs, UnreadableConnections};
-use foundry_store::integrations::{KeyCheck, SealedConnection};
+use foundry_store::integrations::{InstanceSnapshot, KeyCheck, SealedConnection};
+use keys::{CredentialBox, InstanceKeySource, KeyFile, KeyFileRead, Keyring};
 use outbound::OutboundHttp;
 use project_emails::ProjectMail;
 use secrecy::{ExposeSecret, SecretString};
@@ -150,6 +153,7 @@ pub struct Integrations {
     /// admitted after these integrations were installed.
     outbound: std::sync::OnceLock<OutboundHttp>,
     secrets: SecretsCheck,
+    keyring: Keyring,
 }
 
 impl Integrations {
@@ -166,13 +170,142 @@ impl Integrations {
         Self::try_new(settings).expect("the Slack app's client builds")
     }
 
+    /// Integrations judged over no stored rows (the boot function judges
+    /// them over the stored ones).
     fn assembled(settings: IntegrationSettings, slack: Option<SlackApp>) -> Self {
+        let keyring = Keyring::resolve(
+            settings.secrets.as_ref(),
+            settings.key_setting,
+            KeyFile::Unwritable,
+            None,
+            &BTreeSet::new(),
+        );
         Self {
             settings,
             slack,
             outbound: std::sync::OnceLock::new(),
             secrets: SecretsCheck::default(),
+            keyring,
         }
+    }
+
+    /// The one boot function (ADR-IIS-001 decision 9), shared by `main.rs`
+    /// and the acceptance harness's boot, rewire and restart: the held
+    /// instance keys (the operator's, else the key file's), the current
+    /// instance key's check value recorded, the stored rows read, the key
+    /// mode resolved, then the probe: the check values of the held keys
+    /// opened, and the key ids of every stored sealed value (connections and
+    /// the saved Slack app) compared with them. A store failure never stops
+    /// the board: the server starts degraded and says so. Refused only when
+    /// the Slack app's client cannot be built.
+    pub async fn boot(
+        mut settings: IntegrationSettings,
+        store: &dyn store_capabilities::KeyProbe,
+        key_source: &dyn InstanceKeySource,
+    ) -> Result<Self, SlackClientError> {
+        // The key file is consulted only without an operator key; with one,
+        // its state does not enter the mode.
+        let key_file = if settings.secrets.is_some() {
+            KeyFile::Unwritable
+        } else {
+            match key_source.key_file() {
+                KeyFileRead::Unwritable => KeyFile::Unwritable,
+                KeyFileRead::Unreadable => KeyFile::Unreadable,
+                KeyFileRead::Held(key) => {
+                    settings.secrets = Some(SecretBox::new(*key, Vec::new()));
+                    KeyFile::Held
+                }
+            }
+        };
+        let integrations = Self::try_new(settings)?;
+        if let Some(check) = integrations.key_check() {
+            if let Err(err) = store.record_key_check(&check).await {
+                tracing::warn!(error = %err, "secrets probe: recording the key check failed");
+            }
+        }
+        let (keyring, secrets) = match store.instance_snapshot().await {
+            Ok(snapshot) => integrations.probe(&snapshot, key_file),
+            Err(err) => {
+                tracing::warn!(error = %err, "secrets probe: reading stored credentials failed");
+                let unknown = SecretsCheck {
+                    missing_key_ids: vec!["unknown".to_string()],
+                };
+                (
+                    integrations.keyring_over(None, &BTreeSet::new(), key_file),
+                    unknown,
+                )
+            }
+        };
+        let integrations = Self {
+            keyring,
+            ..integrations
+        }
+        .with_secrets_check(secrets);
+        integrations.log_secrets_verdict();
+        Ok(integrations)
+    }
+
+    /// The key mode and the probe's verdict over `snapshot`.
+    fn probe(&self, snapshot: &InstanceSnapshot, key_file: KeyFile) -> (Keyring, SecretsCheck) {
+        let mut sealed = snapshot.sealed_credentials.clone();
+        if let Some(app) = &snapshot.slack_app {
+            sealed.push(app.sealed_client_secret.clone());
+            sealed.push(app.sealed_signing_secret.clone());
+        }
+        let keyring = self.keyring_over(snapshot.secrets_key.as_ref(), &key_ids(&sealed), key_file);
+        let credentials = keyring.credentials(self.settings.secrets.as_ref());
+        let verdict = judge(&credentials, &sealed, &snapshot.key_checks);
+        (keyring, verdict)
+    }
+
+    fn keyring_over(
+        &self,
+        stored: Option<&foundry_store::integrations::StoredSecretsKey>,
+        stored_key_ids: &BTreeSet<String>,
+        key_file: KeyFile,
+    ) -> Keyring {
+        Keyring::resolve(
+            self.settings.secrets.as_ref(),
+            self.settings.key_setting,
+            key_file,
+            stored,
+            stored_key_ids,
+        )
+    }
+
+    /// The boot line naming key ids only, never a key.
+    fn log_secrets_verdict(&self) {
+        if self.secrets.degraded() {
+            tracing::warn!(
+                event = "health.degraded",
+                probe = "secrets",
+                missing_key_ids = %self.secrets.missing_key_ids.join(","),
+                "stored integration credentials cannot be opened with the configured secrets keys; \
+                 the board runs, those connections are unavailable"
+            );
+        } else if !self.credentials().holds_a_key() {
+            tracing::info!(
+                probe = "secrets",
+                setting = foundry_auth::secret_box::INSTANCE_KEY_SETTING,
+                "no instance key and no stored credential: integrations are not offered"
+            );
+        }
+    }
+
+    /// The boot probe's verdict.
+    pub fn secrets_check(&self) -> &SecretsCheck {
+        &self.secrets
+    }
+
+    /// The credential box: what this server seals with and opens under.
+    pub fn credentials(&self) -> CredentialBox<'_> {
+        self.keyring.credentials(self.settings.secrets.as_ref())
+    }
+
+    /// The box new credentials are sealed with: `None` unless the key mode
+    /// is `Direct` or `Sealed` (the Matrix and Slack offers key off it).
+    pub fn sealing_box(&self) -> Option<&SecretBox> {
+        self.credentials().sealing()
     }
 
     /// The client for admin- and lead-supplied addresses (ADR-EIP-006).
@@ -196,43 +329,7 @@ impl Integrations {
     /// configured keys. A key that stored credentials need but this Foundry
     /// lacks, or holds under an id whose check value does not open, is missing.
     pub fn check_secrets(&self, credentials: &[Vec<u8>], checks: &[KeyCheck]) -> SecretsCheck {
-        let needed: BTreeSet<String> = credentials
-            .iter()
-            .map(|sealed| {
-                SealedSecret::from_bytes(sealed.clone())
-                    .key_id()
-                    .to_string()
-            })
-            .collect();
-        let missing = needed
-            .into_iter()
-            .filter(|key_id| !self.proves_key(key_id, checks))
-            .collect();
-        SecretsCheck {
-            missing_key_ids: missing,
-        }
-    }
-
-    /// Whether this Foundry holds the key `key_id` and its stored check
-    /// value, if any, opens to the canary.
-    fn proves_key(&self, key_id: &str, checks: &[KeyCheck]) -> bool {
-        let Some(secrets) = self.settings.secrets.as_ref() else {
-            return false;
-        };
-        if !secrets.key_ids().iter().any(|id| id.to_string() == key_id) {
-            return false;
-        }
-        checks
-            .iter()
-            .filter(|check| check.key_id == key_id)
-            .all(|check| {
-                secrets
-                    .open(
-                        &SealedSecret::from_bytes(check.sealed_canary.clone()),
-                        &key_check_slot(key_id),
-                    )
-                    .is_ok_and(|canary| canary.expose_secret() == KEY_CHECK_CANARY)
-            })
+        judge(&self.credentials(), credentials, checks)
     }
 
     pub fn settings(&self) -> &IntegrationSettings {
@@ -242,7 +339,7 @@ impl Integrations {
     /// What a workspace whose `unreadable` connections these are is offered
     /// for Matrix.
     pub fn matrix_offer(&self, unreadable: UnreadableConnections) -> MatrixOffer {
-        match &self.settings.secrets {
+        match self.sealing_box() {
             _ if unreadable.matrix => MatrixOffer::Unavailable,
             None => MatrixOffer::NoSecretsKey,
             Some(_) => MatrixOffer::Ready,
@@ -252,7 +349,7 @@ impl Integrations {
     /// What a workspace whose `unreadable` connections these are is offered
     /// for Slack.
     pub fn slack_offer(&self, unreadable: UnreadableConnections) -> SlackOffer {
-        match (&self.slack, &self.settings.secrets) {
+        match (&self.slack, self.sealing_box()) {
             (None, _) => SlackOffer::NotSetUp,
             (Some(_), _) if unreadable.slack => SlackOffer::Unavailable,
             (Some(_), None) => SlackOffer::NoSecretsKey,
@@ -263,7 +360,7 @@ impl Integrations {
     /// Whether the boot probe proved the key of every stored credential: then
     /// every connection opens, and none needs judging one by one (DD-2).
     pub fn every_credential_opens(&self) -> bool {
-        self.settings.secrets.is_some() && !self.secrets.degraded()
+        self.credentials().holds_a_key() && !self.secrets.degraded()
     }
 
     /// Whether this Foundry's keys open `connection`'s credential.
@@ -284,23 +381,20 @@ impl Integrations {
         format!("{}{}", self.settings.public_url, slack::RETURN_PATH)
     }
 
-    /// Whether this process delivers: its worker is on and it holds the
-    /// secrets key the credentials are sealed with (DD-2).
+    /// Whether this process delivers: its worker is on and it can seal, or a
+    /// held key opens a stored credential, so openable deliveries never stop
+    /// (ADR-IIS-001 decision 4).
     pub fn runs_worker(&self) -> bool {
-        self.settings.worker.enabled && self.settings.secrets.is_some()
+        self.settings.worker.enabled && (self.keyring.mode().seals() || self.keyring.opens_stored())
     }
 
     /// The connection's bot token, when this Foundry's keys open it for that
     /// row (ADR-EIP-004: the row-bound slot).
     fn open_credential(&self, connection_id: uuid::Uuid, sealed: Vec<u8>) -> Option<SecretString> {
-        self.settings
-            .secrets
-            .as_ref()?
-            .open(
-                &SealedSecret::from_bytes(sealed),
-                &credential_slot(connection_id),
-            )
-            .ok()
+        self.credentials().open(
+            &SealedSecret::from_bytes(sealed),
+            &credential_slot(connection_id),
+        )
     }
 
     /// Ask Slack to withdraw the access the connection's (already forgotten)
@@ -347,6 +441,44 @@ impl Integrations {
         let token = self.open_credential(connection_id, sealed)?;
         Some(SlackBot::new(app, token))
     }
+}
+
+/// The key ids the sealed values claim.
+fn key_ids(sealed: &[Vec<u8>]) -> BTreeSet<String> {
+    sealed
+        .iter()
+        .map(|value| SealedSecret::from_bytes(value.clone()).key_id().to_string())
+        .collect()
+}
+
+/// The probe over `credentials`: each key that a stored sealed value needs
+/// but this server lacks, or holds under an id whose stored check value does
+/// not open to the canary, is missing.
+fn judge(credentials: &CredentialBox<'_>, sealed: &[Vec<u8>], checks: &[KeyCheck]) -> SecretsCheck {
+    let missing = key_ids(sealed)
+        .into_iter()
+        .filter(|key_id| !proves_key(credentials, key_id, checks))
+        .collect();
+    SecretsCheck {
+        missing_key_ids: missing,
+    }
+}
+
+/// Whether `credentials` hold the key `key_id` and its stored check value,
+/// if any, opens to the canary.
+fn proves_key(credentials: &CredentialBox<'_>, key_id: &str, checks: &[KeyCheck]) -> bool {
+    credentials.holds(key_id)
+        && checks
+            .iter()
+            .filter(|check| check.key_id == key_id)
+            .all(|check| {
+                credentials
+                    .open(
+                        &SealedSecret::from_bytes(check.sealed_canary.clone()),
+                        &key_check_slot(key_id),
+                    )
+                    .is_some_and(|canary| canary.expose_secret() == KEY_CHECK_CANARY)
+            })
 }
 
 #[cfg(not(feature = "test-support"))]
@@ -471,6 +603,7 @@ mod tests {
             api_base_url: "https://slack.com/api".to_string(),
             authorize_url: "https://slack.com/oauth/v2/authorize".to_string(),
         });
+        settings.key_setting = secrets_key.then_some(config::KeySetting::LegacySecretsKey);
         settings.secrets = secrets_key.then(|| {
             SecretBox::from_settings(
                 &SecretString::from("ZWlwLXBoYXNlNS1yb3RhdGVkLW5ldy1rZXktMzJieXQ"),

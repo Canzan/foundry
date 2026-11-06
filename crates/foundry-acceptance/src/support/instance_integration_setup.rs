@@ -20,9 +20,9 @@
 //!   `FOUNDRY_DATA_DIR` per scenario (never the real `/var/lib/foundry`), a
 //!   short `FOUNDRY_INTEGRATIONS_RELOAD_MS`, `FOUNDRY_PUBLIC_URL` set or not,
 //!   and a Slack app given as settings. They reach the in-process app through
-//!   [`boot`] (today `eip::rewire`; DELIVER routes it, and the restart, through
-//!   the one shared boot function, ADR-IIS-001 decision 9) and the operator's
-//!   process through its environment.
+//!   [`boot`] (`eip::rewire`, which with the restart goes through the one
+//!   shared boot function `Integrations::boot`, ADR-IIS-001 decision 9) and
+//!   the operator's process through its environment.
 //!
 //! Every oracle reads what a person or an operator reads: pages, the activity,
 //! the key file in the scenario's own directory, `/readyz`, `/metrics`,
@@ -433,8 +433,8 @@ fn name(world: &mut FoundryWorld, scenario: &str, real: &str) {
 }
 
 /// Start (or restart) the in-process Foundry, and every replica, with the
-/// scenario's settings. Today through `eip::rewire`; DELIVER routes it
-/// through the one shared boot function (brief.md "Boot and restart").
+/// scenario's settings, through `eip::rewire` and so the one shared boot
+/// function `main.rs` starts with (brief.md "Boot and restart").
 pub async fn boot(world: &mut FoundryWorld) {
     apply(world);
     if world.iis.public_url_unset {

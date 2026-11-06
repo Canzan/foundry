@@ -162,7 +162,7 @@ async fn connect(state: &AppState, caller: &Caller, code: &str) -> Result<(), No
     let integrations = state.integrations.current();
     let (Some(app), Some(secrets), SlackOffer::Ready) = (
         integrations.slack(),
-        integrations.settings().secrets.as_ref(),
+        integrations.sealing_box(),
         integrations.slack_offer(unreadable),
     ) else {
         return Err("slack_not_offered".into());

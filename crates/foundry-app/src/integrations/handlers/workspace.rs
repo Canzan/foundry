@@ -267,7 +267,7 @@ pub(super) async fn workspace_page(
     let page = WorkspacePage {
         nav: caller.nav(state, csrf.clone()).await,
         csrf,
-        matrix_offered: integrations.settings().secrets.is_some(),
+        matrix_offered: integrations.sealing_box().is_some(),
         matrix_not_set_up: matrix_offer == MatrixOffer::NoSecretsKey,
         matrix_unavailable: matrix_offer == MatrixOffer::Unavailable,
         matrix,

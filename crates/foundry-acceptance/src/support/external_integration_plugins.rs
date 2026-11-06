@@ -1290,7 +1290,7 @@ fn scenario_settings(
 /// its own delivery worker on (each replica is an instance, as production
 /// wires one); the in-process app then runs no worker of its own.
 pub async fn rewire(world: &mut FoundryWorld) {
-    use foundry_app::integrations::Integrations;
+    use foundry_app::integrations::{keys::NoKeyFile, store_capabilities, Integrations};
     let harness = tm::harness(world);
     // Subprocess and replica scenarios: the in-process app runs no delivery
     // worker of its own on the shared schema.
@@ -1300,11 +1300,13 @@ pub async fn rewire(world: &mut FoundryWorld) {
         &harness.base_url(),
         "the in-process app",
     );
-    harness
-        .app
-        .state
-        .integrations
-        .install(Integrations::new(settings));
+    // The one boot function `main.rs` starts with (ADR-IIS-001 decision 9):
+    // the key mode and the secrets probe over the stored rows.
+    let store = store_capabilities::StoreCapabilities::new(harness.app.state.store.clone());
+    let integrations = Integrations::boot(settings, &*store, &NoKeyFile)
+        .await
+        .expect("the Slack app's client builds");
+    harness.app.state.integrations.install(integrations);
     // Project emails go through the notifier's email transport, which the
     // composition root hands to `project_mail` once (ADR-EIP-007 decision 4).
     // The in-process notifier always holds the recorder, so "no email
@@ -6943,39 +6945,10 @@ pub async fn send_test_for_reference(
 }
 
 /// Restart the in-process Foundry with the secrets key `key` (`None`: no
-/// key), as the binary starts: the settings, then the boot secrets probe over
-/// the stored credentials and key check values (`main.rs`'s
-/// `probe_secrets`), then those integrations installed.
+/// key), as the binary starts: through [`rewire`], the one boot function.
 pub async fn restart_in_process_with_key(world: &mut FoundryWorld, key: Option<&str>) {
-    use foundry_app::integrations::Integrations;
     world.eip.spec.secrets_key = key.map(str::to_string);
     rewire(world).await;
-    let harness = tm::harness(world);
-    let settings = scenario_settings(
-        world,
-        world.eip.spec.in_process_worker,
-        &harness.base_url(),
-        "the restarted in-process app",
-    );
-    let integrations = Integrations::new(settings);
-    let store = &harness.app.state.store;
-    if let Some(check) = integrations.key_check() {
-        store
-            .record_key_check(&check)
-            .await
-            .expect("record the key check");
-    }
-    let credentials = store
-        .sealed_credentials()
-        .await
-        .expect("stored credentials");
-    let checks = store.key_checks().await.expect("stored key checks");
-    let probe = integrations.check_secrets(&credentials, &checks);
-    harness
-        .app
-        .state
-        .integrations
-        .install(integrations.with_secrets_check(probe));
 }
 
 /// Whether the bot is a member of `room`, as Lena's client reads the room.

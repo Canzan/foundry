@@ -320,28 +320,32 @@ async fn main() -> anyhow::Result<()> {
     // the two key names set to different values (ADR-IIS-001 decision 1)
     // refuses start naming the settings; a missing key is not a refusal
     // (Slack is simply not offered, K-20). The secrets probe (ADR-EIP-004
-    // decision 4) then decides whether this replica starts degraded.
+    // decision 4) then decides whether this replica starts degraded, inside
+    // the one boot function the acceptance harness shares (ADR-IIS-001
+    // decision 9). No key file adapter yet (ADR-IIS-002): `NoKeyFile`.
     let (integrations, secrets_check) =
         match foundry_app::integrations::config::IntegrationSettings::from_env(&public_url) {
             Ok(settings) => {
-                let integrations = match foundry_app::integrations::Integrations::try_new(settings)
-                {
-                    Ok(integrations) => integrations,
-                    Err(err) => {
-                        tracing::error!(
-                            event = "health.startup.refused",
-                            probe = "integrations",
-                            detail = %err,
-                            "the Slack app's client could not be built — refusing to start"
-                        );
-                        return Err(err.into());
-                    }
+                use foundry_app::integrations::{
+                    keys::NoKeyFile, store_capabilities, Integrations,
                 };
-                let check = probe_secrets(&store, &integrations).await;
+                let probe_store = store_capabilities::StoreCapabilities::new(store.clone());
+                let integrations =
+                    match Integrations::boot(settings, &*probe_store, &NoKeyFile).await {
+                        Ok(integrations) => integrations,
+                        Err(err) => {
+                            tracing::error!(
+                                event = "health.startup.refused",
+                                probe = "integrations",
+                                detail = %err,
+                                "the Slack app's client could not be built — refusing to start"
+                            );
+                            return Err(err.into());
+                        }
+                    };
+                let check = integrations.secrets_check().clone();
                 (
-                    foundry_app::integrations::IntegrationsHandle::new(
-                        integrations.with_secrets_check(check.clone()),
-                    ),
+                    foundry_app::integrations::IntegrationsHandle::new(integrations),
                     check,
                 )
             }
@@ -871,47 +875,6 @@ fn init_tracing() {
     } else {
         builder.json().init();
     }
-}
-
-/// external-integration-plugins (DD-2, ADR-EIP-004 decision 4): record the
-/// current key's check value, then judge whether every stored credential can
-/// be opened. A store failure here never stops the board: the replica starts
-/// degraded and says so. Logs name key ids only, never a key.
-async fn probe_secrets(
-    store: &Store,
-    integrations: &foundry_app::integrations::Integrations,
-) -> foundry_app::integrations::SecretsCheck {
-    use foundry_app::integrations::SecretsCheck;
-    if let Some(check) = integrations.key_check() {
-        if let Err(err) = store.record_key_check(&check).await {
-            tracing::warn!(error = %err, "secrets probe: recording the key check failed");
-        }
-    }
-    let check = match (store.sealed_credentials().await, store.key_checks().await) {
-        (Ok(credentials), Ok(checks)) => integrations.check_secrets(&credentials, &checks),
-        (Err(err), _) | (_, Err(err)) => {
-            tracing::warn!(error = %err, "secrets probe: reading stored credentials failed");
-            SecretsCheck {
-                missing_key_ids: vec!["unknown".to_string()],
-            }
-        }
-    };
-    if check.degraded() {
-        tracing::warn!(
-            event = "health.degraded",
-            probe = "secrets",
-            missing_key_ids = %check.missing_key_ids.join(","),
-            "stored integration credentials cannot be opened with the configured secrets keys; \
-             the board runs, those connections are unavailable"
-        );
-    } else if integrations.settings().secrets.is_none() {
-        tracing::info!(
-            probe = "secrets",
-            setting = foundry_auth::secret_box::INSTANCE_KEY_SETTING,
-            "no instance key and no stored credential: integrations are not offered"
-        );
-    }
-    check
 }
 
 /// Inspect `std::env::args()` for a recognised subcommand. Returns

@@ -99,7 +99,7 @@ async fn save_matrix(
 ) -> Result<(), String> {
     let integrations = state.integrations.current();
     let unreachable = || MATRIX_UNREACHABLE.replace("{homeserver}", entered);
-    let Some(secrets) = integrations.settings().secrets.as_ref() else {
+    let Some(secrets) = integrations.sealing_box() else {
         return Err(MATRIX_NOT_CONNECTED.to_string());
     };
     let Some((homeserver, host)) = matrix::homeserver_address(entered) else {
