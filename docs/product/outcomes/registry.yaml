@@ -1175,3 +1175,120 @@ outcomes:
   artifact: crates/foundry-acceptance/tests/features/integrations-wayfinding.feature
   related: []
   superseded_by: null
+- id: OUT-38
+  kind: specification
+  summary: The instance integrations page names this Foundry's key state and offers
+    only the step that applies
+  feature: instance-integration-setup
+  inputs:
+  - shape: '(instance key: operator | Foundry-made file | replaced file | none and
+      unwritable | file unreadable; secrets key: stored and opens | stored and does
+      not open | none, direct seals or legacy name | none; saved credentials no held
+      key opens; Slack app: environment | saved | saved and unreadable | none; FOUNDRY_PUBLIC_URL
+      set or not), viewer an instance admin'
+  output:
+    shape: One I-n per state (I-25, I-30, I-27, I-31; I-2, I-26, I-2e/I-2e0, I-3,
+      I-4; I-7, I-6, I-13, I-5, I-29; I-8, I-9); Generate offered only under I-3,
+      Move only under I-2e/I-2e0, neither under I-4, I-26, I-27, I-31; I-26 restore-only
+      in Deliverable A
+  keywords:
+  - instance
+  - integrations
+  - secrets-key
+  - instance-key
+  - key-mode
+  - page-state
+  artifact: crates/foundry-acceptance/tests/features/instance-integration-setup.feature
+  related: []
+  superseded_by: null
+- id: OUT-39
+  kind: operation
+  summary: Generate or Move stores exactly one secrets key, sealed under the instance
+    key, and applies it on every replica within 60 s
+  feature: instance-integration-setup
+  inputs:
+  - shape: POST /admin/instance/integrations/secrets-key or /secrets-key/move by an
+      instance admin, on any replica, concurrently or repeated
+  output:
+    shape: 'Create-if-absent: one integration_secrets_key row; Move re-seals every
+      direct seal all-or-nothing and answers I-22 (n = 0 answers I-21); one activity
+      line; the serving replica at once, others within 60 s, no connection lost, no
+      email; withheld (changes nothing, answers the page) under a stored key, I-4,
+      I-27, I-31'
+  keywords:
+  - secrets-key
+  - generate
+  - move
+  - create-if-absent
+  - reload
+  - replicas
+  artifact: crates/foundry-acceptance/tests/features/instance-integration-setup.feature
+  related: []
+  superseded_by: null
+- id: OUT-40
+  kind: operation
+  summary: An instance admin saves the Foundry Slack app on the instance page; it
+    is in effect at once unless the environment's app is
+  feature: instance-integration-setup
+  inputs:
+  - shape: POST /admin/instance/integrations/slack (client_id, client_secret, signing_secret)
+      by an instance admin
+  output:
+    shape: Shape-checked (I-11 blank, I-12 malformed, typed client ID kept, secrets
+      cleared, nothing stored); secrets sealed, shown only as set; I-10 and Add to
+      Slack within 60 s on every replica; I-17 and the environment app kept while
+      all three SLACK_* are set; I-3 without a secrets key; events, install and return
+      use the app in effect
+  keywords:
+  - slack-app
+  - instance
+  - save
+  - environment-precedence
+  - live
+  artifact: crates/foundry-acceptance/tests/features/instance-integration-setup.feature
+  related: []
+  superseded_by: null
+- id: OUT-41
+  kind: invariant
+  summary: No key or Slack secret is ever shown, logged, audited, or recoverable from
+    a database dump
+  feature: instance-integration-setup
+  inputs:
+  - shape: the instance key (operator or file), the generated secrets key, the Slack
+      client and signing secrets, bot tokens; any page, page source, log line, activity
+      line, start refusal or database dump
+  output:
+    shape: None appears in any of them in plaintext or base64 or hex; no value in
+      a dump unwraps the stored secrets key; refusals name settings, never values
+  keywords:
+  - secrets
+  - no-echo
+  - dump
+  - instance-key
+  - leak
+  artifact: crates/foundry-acceptance/tests/features/instance-integration-setup.feature
+  related: []
+  superseded_by: null
+- id: OUT-42
+  kind: invariant
+  summary: A Foundry with no operator instance key makes one key file in its data
+    directory, once, and never overwrites it
+  feature: instance-integration-setup
+  inputs:
+  - shape: process start with no FOUNDRY_INSTANCE_KEY (empty counts as unset), FOUNDRY_DATA_DIR
+      writable, unwritable, or holding an unreadable file; several servers starting
+      together on one directory
+  output:
+    shape: Exactly one instance.key, mode 0600, owned by Foundry's user, reused on
+      restart (I-25); unwritable shows I-27 and unreadable I-31, the board serves
+      and the file is untouched; an operator key later takes over and re-seals (I-30);
+      a malformed operator key or conflicting names refuse start
+  keywords:
+  - instance-key
+  - key-file
+  - create-if-absent
+  - standalone
+  - data-dir
+  artifact: crates/foundry-acceptance/tests/features/instance-integration-setup.feature
+  related: []
+  superseded_by: null

@@ -168,6 +168,18 @@ Approved by the user 2026-11-05 ("Accept all, review, then DESIGN"):
 
 Review record: peer review needs_revision → fixed → approved, 2026-11-05.
 
+Refinements from DISTILL upstream issues (2026-11-06, no new user decision):
+
+- Issue 1: the planted-string checks no longer name `/api/v1/integrations`,
+  which does not exist and is not in scope. The checks cover pages, page
+  source, logs, activity and the database (US-IIS-02 AC 4, US-IIS-03 AC 3, the
+  scenarios, KPI-IIS-G1).
+- Issue 2: I-22 gains a one-credential form.
+- Issue 6: brief.md's "held in the session" line for a pending Slack app is
+  Deliverable B and is already superseded by ADR-IIS-003 r4 (a fenced
+  `instance_slack_app_pending` table). No discuss/ change, and brief.md is left
+  as is here.
+
 ## Requirements Summary
 
 - Primary need: an instance admin turns on Matrix (one button) and Slack (three

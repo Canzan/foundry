@@ -274,6 +274,10 @@ pub struct SlackDouble {
     ledger: Mutex<Ledger>,
     silent: Arc<AtomicBool>,
     release: Notify,
+    /// The client secret the token exchange accepts: the Foundry app's
+    /// ([`CLIENT_SECRET`]) unless a scenario's instance holds another app
+    /// (instance-integration-setup: the app an instance admin saved).
+    client_secret: Mutex<String>,
 }
 
 impl std::fmt::Debug for SlackDouble {
@@ -348,6 +352,7 @@ impl SlackDouble {
             ledger: Mutex::new(Ledger::default()),
             silent: silent.clone(),
             release: Notify::new(),
+            client_secret: Mutex::new(CLIENT_SECRET.to_string()),
         });
         let app = Router::new()
             .route("/oauth/v2/authorize", get(authorize))
@@ -535,6 +540,12 @@ impl SlackDouble {
         self.ledger.lock().unwrap().uninstalls
     }
 
+    /// Accept `secret` as the Foundry app's client secret in the token
+    /// exchange from now on (the app this scenario's instance holds).
+    pub fn expect_client_secret(&self, secret: &str) {
+        *self.client_secret.lock().unwrap() = secret.to_string();
+    }
+
     /// Every bot token the double has issued (sentinels for the leak scans).
     pub fn issued_tokens(&self) -> Vec<String> {
         self.ledger.lock().unwrap().tokens.keys().cloned().collect()
@@ -698,7 +709,8 @@ async fn oauth_access(State(double): State<Arc<SlackDouble>>, body: String) -> R
     let Some(team) = issued else {
         return refuse("invalid_code");
     };
-    if form.get("client_secret").map(String::as_str) != Some(CLIENT_SECRET) {
+    let accepted = double.client_secret.lock().unwrap().clone();
+    if form.get("client_secret").map(String::as_str) != Some(accepted.as_str()) {
         return refuse("invalid_client");
     }
     let token = format!("xoxb-eip-sentinel-{}", uuid::Uuid::new_v4().simple());

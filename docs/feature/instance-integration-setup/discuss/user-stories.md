@@ -166,7 +166,7 @@ Delivery split (D17):
 | I-19 | W-2 (Slack or Matrix) or W-3, viewer is an instance admin (B) | `Set up integrations for this Foundry` (link to `/admin/instance/integrations`), shown after any existing link |
 | I-20 | `/workspace/integrations/slack/setup` steps 3 and 4 (B) | `3. An instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin › Integrations.` `4. No restart is needed. A workspace admin can then choose Add to Slack on the workspace integrations page.` Footnote: `An instance operator may instead set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET in Foundry's environment and restart; the environment takes precedence.` |
 | I-21 | after generating the key | `Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.` |
-| I-22 | after moving | `Moved. {n} saved credentials are sealed under a new secrets key. Nobody needs to reconnect.` |
+| I-22 | after moving | n ≥ 2: `Moved. {n} saved credentials are sealed under a new secrets key. Nobody needs to reconnect.` n = 1: `Moved. 1 saved credential is sealed under a new secrets key. Nobody needs to reconnect.` (n = 0 answers I-21, per I-2e0.) |
 | I-23 | replace-key confirm (B) | `Replace the secrets key? Foundry seals its {n} saved credentials again under a new key. Nobody needs to reconnect.` then `Replace secrets key` |
 | I-24 | after replacing the key (B) | `Replaced. {n} saved credentials are sealed under the new key.` |
 | I-25 | instance key line | Operator-set: `Instance key: set by the operator.` Made by Foundry: `Instance key: made by Foundry in {path}. Back up this file apart from the database. Every Foundry server must use the same file. Without it, saved connections must be reconnected.` |
@@ -423,7 +423,7 @@ Scenario: A database dump alone opens nothing
 @property
 Scenario: The secrets key is never shown
   Given Priya generated the secrets key
-  Then the key appears in no page, page source, log line, activity line or API answer
+  Then the key appears in no page, page source, log line or activity line
 
 Scenario: A later generate does not replace the key
   Given Priya generated the secrets key and Canzan Labs then connected Matrix
@@ -457,8 +457,8 @@ Scenario: Generating is recorded
    without the instance key, yield neither the secrets key nor any credential
    sealed with it.
 4. Observed through every response of `/admin/instance/integrations`,
-   `/workspace/integrations`, the route form and `/api/v1/integrations`
-   (shipped), plus the captured log stream and activity: the generated key,
+   `/workspace/integrations` and the route form (shipped), including page
+   source, plus the captured log stream and activity: the generated key,
    read through the feature-gated test seam, never appears.
 5. `POST /admin/instance/integrations/secrets-key` changes nothing and answers
    the page's current state in each of these cases:
@@ -551,7 +551,7 @@ Scenario Outline: A blank or malformed value is refused and nothing is saved
 @property
 Scenario: The saved Slack secrets never leave Foundry
   Given Priya saved the Slack app with client secret "3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8" and signing secret "b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05"
-  Then neither value appears in any page, page source, log line, activity line or API answer
+  Then neither value appears in any page, page source, log line or activity line
 
 Scenario: Slack's install and event checks use the saved app
   Given Priya saved the Slack app 6123456789012.7234567890123
@@ -579,7 +579,7 @@ Scenario: Nothing can be saved without a secrets key
    malformed field answers I-12, naming the field. Nothing is saved, the client
    ID typed is kept, and the secret fields are empty.
 3. Observed through every response of `/admin/instance/integrations` (GET and
-   POST), `/workspace/integrations` and `/api/v1/integrations` (shipped), plus
+   POST) and `/workspace/integrations` (shipped), including page source, plus
    the captured log stream, the activity, and a direct database read: the
    planted secret values never appear, and are never stored in plaintext.
 4. `POST /integrations/slack/events` (shipped) verifies with the saved signing

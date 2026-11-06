@@ -16,6 +16,8 @@ pub mod matrix;
 pub mod no_connection;
 pub mod outbound;
 pub mod project_emails;
+#[cfg(feature = "test-support")]
+pub mod secrets_key_seam;
 pub mod slack;
 pub mod store_capabilities;
 pub mod worker;

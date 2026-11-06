@@ -164,6 +164,13 @@ pub struct InstanceSpec {
     /// False for subprocess and replica scenarios: the in-process app then
     /// runs no delivery worker of its own on the shared schema.
     pub in_process_worker: bool,
+    /// `FOUNDRY_PUBLIC_URL`, or `None` for an operator who never set it
+    /// (instance-integration-setup I-29).
+    pub public_url: Option<String>,
+    /// Further settings, by names this spec spells nowhere else
+    /// (instance-integration-setup: the instance key, its legacy alias, the
+    /// data directory, the reload period, a Slack app given as values).
+    pub extra_env: Vec<(&'static str, String)>,
 }
 
 impl Default for InstanceSpec {
@@ -177,6 +184,8 @@ impl Default for InstanceSpec {
             lease_seconds: 45,
             poll_ms: 200,
             in_process_worker: true,
+            public_url: Some("https://foundry.canzan.dev".to_string()),
+            extra_env: Vec::new(),
         }
     }
 }
@@ -696,18 +705,18 @@ pub fn base(world: &FoundryWorld) -> String {
     tm::harness(world).base_url()
 }
 
-fn http(world: &FoundryWorld) -> reqwest::Client {
+pub(crate) fn http(world: &FoundryWorld) -> reqwest::Client {
     tm::http(world)
 }
 
-fn email_of(world: &FoundryWorld, who: &str) -> Option<String> {
+pub(crate) fn email_of(world: &FoundryWorld, who: &str) -> Option<String> {
     match tm::resolve_actor(world, who) {
         Actor::SignedOut => None,
         Actor::Person(email) => Some(email),
     }
 }
 
-async fn cookie(world: &mut FoundryWorld, who: Option<&str>) -> String {
+pub(crate) async fn cookie(world: &mut FoundryWorld, who: Option<&str>) -> String {
     let csrf = format!("foundry_csrf={}", world.eip.csrf);
     let Some(email) = who else { return csrf };
     let key = (base(world), email.to_string());
@@ -821,7 +830,7 @@ fn keep(world: &mut FoundryWorld, email: Option<String>, answer: Answer) {
     tm::record(world, &actor, answer);
 }
 
-fn went_through(answer: &Answer, what: &str) {
+pub(crate) fn went_through(answer: &Answer, what: &str) {
     assert!(
         answer.status.is_success() || answer.status.is_redirection(),
         "precondition: {what} went through the product; {}",
@@ -1179,7 +1188,7 @@ pub async fn given_email_setup(world: &mut FoundryWorld, can_send: bool) {
     rewire(world).await;
 }
 
-async fn ensure_slack(world: &mut FoundryWorld) -> Arc<SlackDouble> {
+pub(crate) async fn ensure_slack(world: &mut FoundryWorld) -> Arc<SlackDouble> {
     if world.eip.slack.is_none() {
         world.eip.slack = Some(SlackDouble::spawn().await);
     }
@@ -1207,11 +1216,10 @@ pub fn instance_env(world: &FoundryWorld) -> Vec<(&'static str, String)> {
             spec.lease_seconds.to_string(),
         ),
         ("FOUNDRY_INTEGRATIONS_POLL_MS", spec.poll_ms.to_string()),
-        (
-            "FOUNDRY_PUBLIC_URL",
-            "https://foundry.canzan.dev".to_string(),
-        ),
     ];
+    if let Some(url) = &spec.public_url {
+        env.push(("FOUNDRY_PUBLIC_URL", url.clone()));
+    }
     if let Some(key) = &spec.secrets_key {
         env.push(("FOUNDRY_SECRETS_KEY", key.clone()));
     }
@@ -1243,6 +1251,7 @@ pub fn instance_env(world: &FoundryWorld) -> Vec<(&'static str, String)> {
             }
         }
     }
+    env.extend(spec.extra_env.iter().cloned());
     env
 }
 
@@ -5065,7 +5074,7 @@ pub async fn given_process(world: &mut FoundryWorld) {
     start_process(world).await;
 }
 
-async fn database_url(world: &FoundryWorld) -> (String, String) {
+pub(crate) async fn database_url(world: &FoundryWorld) -> (String, String) {
     let base_url = ensure_postgres().await;
     let schema = tm::harness(world).schema.clone();
     (
@@ -5123,6 +5132,34 @@ pub fn process_output(world: &FoundryWorld) -> String {
     out
 }
 
+/// As [`process_output`], but the logs must be there: both files exist, the
+/// output is not empty, and it holds the process's start line. A leak scan
+/// over a missing log would pass for nothing (instance-integration-setup
+/// KPI-IIS-G1).
+pub fn process_output_present(world: &FoundryWorld) -> String {
+    let schema = tm::harness(world).schema.clone();
+    let dir = std::path::PathBuf::from("/tmp/foundry-slice6");
+    let mut out = String::new();
+    for f in [
+        format!("{schema}.stdout.log"),
+        format!("{schema}.stderr.log"),
+    ] {
+        let path = dir.join(&f);
+        let text = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("the operator's log {} exists: {e}", path.display()));
+        out.push_str(&text);
+    }
+    assert!(
+        !out.trim().is_empty(),
+        "the operator's process logged something"
+    );
+    assert!(
+        out.contains("foundry listening on"),
+        "the operator's log holds its start line; the scan reads the right process"
+    );
+    out
+}
+
 pub fn then_output_clean(world: &FoundryWorld) {
     let out = process_output(world);
     let mut sentinels = vec![
@@ -5166,6 +5203,12 @@ pub async fn when_start_with(world: &mut FoundryWorld, setting: &str) {
         "a delivery lease shorter than 35 seconds" => world.eip.spec.lease_seconds = 20,
         other => panic!("unknown setting {other:?}"),
     }
+    start_expecting_refusal(world).await;
+}
+
+/// Start the operator's process with the scenario's settings and keep what
+/// it printed and how it exited (it is killed after 20 s if it keeps running).
+pub(crate) async fn start_expecting_refusal(world: &mut FoundryWorld) {
     let (url, schema) = database_url(world).await;
     let env = instance_env(world);
     let out = tokio::task::spawn_blocking(move || {
