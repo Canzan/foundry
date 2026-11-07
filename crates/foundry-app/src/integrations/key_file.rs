@@ -497,6 +497,13 @@ mod tests {
         {
             Ok(self.0.clone())
         }
+        async fn rewrap_secrets_key(
+            &self,
+            _rewrap: &foundry_store::integrations::SecretsKeyRewrap,
+            _at: time::OffsetDateTime,
+        ) -> Result<foundry_store::integrations::RewrapOutcome, foundry_store::StoreError> {
+            Ok(foundry_store::integrations::RewrapOutcome::AlreadyRewrapped)
+        }
     }
 
     /// Booted with no operator key on `dir` over `snapshot`.
@@ -508,9 +515,14 @@ mod tests {
             super::super::config::IntegrationSettings::off("https://foundry.example.org");
         settings.data_dir = dir.0.clone();
         let key_file = InstanceKeyFile::of(&settings);
-        super::super::Integrations::boot(settings, &Stored(snapshot), &key_file)
-            .await
-            .expect("boot")
+        super::super::Integrations::boot(
+            settings,
+            &Stored(snapshot),
+            &key_file,
+            time::OffsetDateTime::now_utc(),
+        )
+        .await
+        .expect("boot")
     }
 
     fn snapshot() -> foundry_store::integrations::InstanceSnapshot {

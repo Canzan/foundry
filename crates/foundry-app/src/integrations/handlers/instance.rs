@@ -54,6 +54,8 @@ pub const SLACK_APP_PATH: &str = "/admin/instance/integrations/slack";
 
 /// I-25, operator-set.
 const KEY_BY_OPERATOR: &str = "Instance key: set by the operator.";
+/// I-30: the operator's key took over Foundry's file.
+const KEY_REPLACED_FILE: &str = "Instance key: set by the operator. The secrets key, first sealed with {path}, is now sealed with the operator's key. Keep a backup of {path} until you are sure, then remove it.";
 /// I-25, made by Foundry.
 const KEY_IN_FILE: &str = "Instance key: made by Foundry in {path}. Back up this file apart from the database. Every Foundry server must use the same file. Without it, saved connections must be reconnected.";
 /// I-27.
@@ -129,6 +131,8 @@ pub struct PageFacts {
     pub operator_key: bool,
     /// The instance key file's path, as the page names it.
     pub key_file: String,
+    /// The key file the stored secrets key was re-wrapped from (I-30).
+    pub rewrapped_from: Option<String>,
     /// Some stored credential is sealed directly under a held instance key.
     pub saved_direct: bool,
     /// Some stored value opens under no key this server holds (I-4).
@@ -305,8 +309,11 @@ fn instance_key_line(facts: &PageFacts) -> String {
     let words = match facts.mode {
         KeyMode::NoInstanceKey(NoKeyReason::Unwritable) => KEY_UNWRITABLE,
         KeyMode::NoInstanceKey(NoKeyReason::Unreadable) => KEY_UNREADABLE,
-        _ if facts.operator_key => KEY_BY_OPERATOR,
-        _ => KEY_IN_FILE,
+        _ => match (facts.operator_key, &facts.rewrapped_from) {
+            (true, Some(path)) => return KEY_REPLACED_FILE.replace("{path}", path),
+            (true, None) => KEY_BY_OPERATOR,
+            (false, _) => KEY_IN_FILE,
+        },
     };
     words.replace("{path}", &facts.key_file)
 }
@@ -322,6 +329,7 @@ fn facts_of(integrations: &Integrations, direct_seals: usize, saver: Option<Stri
         key_file: crate::integrations::key_file::key_path(&settings.data_dir)
             .display()
             .to_string(),
+        rewrapped_from: integrations.rewrapped_from().map(str::to_string),
         saved_direct: direct_seals > 0,
         unopenable_values: integrations.secrets_check().degraded(),
         slack_app: integrations.slack().is_some(),
@@ -348,6 +356,9 @@ fn activity_line(row: &InstanceActivityRow) -> String {
     let actor = row.actor_name.as_deref().unwrap_or("Foundry");
     let what = match row.action.as_str() {
         "secrets_key_generated" => "generated the secrets key".to_string(),
+        "secrets_key_rewrapped" => {
+            "re-sealed the secrets key under the operator's instance key".to_string()
+        }
         "credentials_moved" => match row.count.unwrap_or_default() {
             1 => "moved 1 credential under a secrets key".to_string(),
             n => format!("moved {n} credentials under a secrets key"),
@@ -670,6 +681,7 @@ mod tests {
             mode,
             operator_key,
             key_file: FILE.to_string(),
+            rewrapped_from: None,
             saved_direct,
             unopenable_values: false,
             slack_app: false,

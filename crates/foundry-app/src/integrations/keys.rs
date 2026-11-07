@@ -15,7 +15,9 @@ use super::config::KeySetting;
 use foundry_auth::secret_box::{
     GeneratedKey, SealedSecret, SecretBox, SecretSlot, SecretsKey, INSTANCE_KEY_SETTING,
 };
-use foundry_store::integrations::{KeyCheck, KeyWrapper, NewSecretsKey, StoredSecretsKey};
+use foundry_store::integrations::{
+    KeyCheck, KeyWrapper, NewSecretsKey, SecretsKeyRewrap, StoredSecretsKey,
+};
 use secrecy::SecretString;
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -216,6 +218,14 @@ pub fn secrets_key_slot() -> SecretSlot {
 /// The stored secrets key, opened under the held instance keys and read back
 /// as a key whose id is the stored one.
 fn unwrap_secrets_key(instance: &SecretBox, stored: &StoredSecretsKey) -> Option<SecretBox> {
+    opened_secrets_key(instance, stored).map(|(_, keys)| keys)
+}
+
+/// The stored secrets key's wrapped text and key, opened under `instance`.
+fn opened_secrets_key(
+    instance: &SecretBox,
+    stored: &StoredSecretsKey,
+) -> Option<(SecretString, SecretBox)> {
     let text = instance
         .open(
             &SealedSecret::from_bytes(stored.wrapped_key.clone()),
@@ -223,7 +233,33 @@ fn unwrap_secrets_key(instance: &SecretBox, stored: &StoredSecretsKey) -> Option
         )
         .ok()?;
     let key = SecretsKey::parse(&text, INSTANCE_KEY_SETTING).ok()?;
-    (key.key_id().to_string() == stored.key_id).then(|| SecretBox::new(key, Vec::new()))
+    (key.key_id().to_string() == stored.key_id).then(|| (text, SecretBox::new(key, Vec::new())))
+}
+
+/// The stored secrets key opened under the held `instance` keys, and its
+/// re-wrap under the operator's current instance key when it is wrapped under
+/// another (ADR-IIS-002 r5, ADR-IIS-001 decision 8), recording `from_path`
+/// when that other key was the key file's. `None` when no held key opens it.
+pub fn plan_rewrap(
+    instance: &SecretBox,
+    stored: &StoredSecretsKey,
+    from_path: Option<String>,
+) -> Option<(SecretBox, Option<SecretsKeyRewrap>)> {
+    let (text, secrets) = opened_secrets_key(instance, stored)?;
+    let current = instance.current_key_id().to_string();
+    if stored.wrapped_by_key_id == current {
+        return Some((secrets, None));
+    }
+    let wrapped = instance.seal(&text, &secrets_key_slot()).ok()?;
+    let rewrap = SecretsKeyRewrap {
+        key_id: stored.key_id.clone(),
+        from_key_id: stored.wrapped_by_key_id.clone(),
+        wrapped_key: wrapped.as_bytes().to_vec(),
+        wrapped_by_key_id: current,
+        wrapped_by: KeyWrapper::Operator,
+        rewrapped_from_path: from_path,
+    };
+    Some((secrets, Some(rewrap)))
 }
 
 /// The unwrapped secrets key (when any) and the mode. No `Debug`.

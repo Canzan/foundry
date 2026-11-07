@@ -86,6 +86,48 @@ impl StoredSecretsKey {
     }
 }
 
+/// The stored secrets key wrapped again under another instance key
+/// (ADR-IIS-002 r5, ADR-IIS-001 decision 8), compare-and-set on
+/// `from_key_id`: the instance key it was wrapped under when read. No
+/// `Debug`: it carries the wrapped key.
+#[derive(Clone)]
+pub struct SecretsKeyRewrap {
+    pub key_id: String,
+    pub from_key_id: String,
+    pub wrapped_key: Vec<u8>,
+    pub wrapped_by_key_id: String,
+    pub wrapped_by: KeyWrapper,
+    /// The key file the key was wrapped under, when the re-wrap moves it off
+    /// one (I-30); `None` keeps what is recorded.
+    pub rewrapped_from_path: Option<String>,
+}
+
+/// What a boot's re-wrap did.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RewrapOutcome {
+    /// The key, one system activity line and the version bump were committed
+    /// together.
+    Rewrapped { version: i64 },
+    /// The stored key is no longer the one read (another replica re-wrapped
+    /// it first): nothing changed.
+    AlreadyRewrapped,
+}
+
+/// What `doctor rotate-secrets` did, or why it changed nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub enum RotateOutcome<E> {
+    /// The re-wrap (when any), every re-sealed value (`resealed` counts
+    /// credentials), the canary and the version bump were committed together.
+    Rotated {
+        rewrapped: bool,
+        resealed: usize,
+        version: i64,
+    },
+    /// The caller could not re-wrap the key or re-seal a value: the
+    /// transaction was rolled back, so nothing changed.
+    Refused(E),
+}
+
 /// One stored sealed value, as a re-seal closure is handed it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SealedSlot {
@@ -191,6 +233,7 @@ enum Activity {
     CredentialsMoved,
     SlackAppSaved,
     SlackAppReplaced,
+    SecretsKeyRewrapped,
 }
 
 impl Activity {
@@ -200,6 +243,7 @@ impl Activity {
             Self::CredentialsMoved => "credentials_moved",
             Self::SlackAppSaved => "slack_app_saved",
             Self::SlackAppReplaced => "slack_app_replaced",
+            Self::SecretsKeyRewrapped => "secrets_key_rewrapped",
         }
     }
 }
@@ -289,14 +333,7 @@ impl Store {
                 return Ok(SecretsKeyOutcome::Refused(why));
             }
         };
-        sqlx::query(
-            "INSERT INTO integration_key_checks (key_id, sealed_canary) VALUES ($1, $2)
-             ON CONFLICT (key_id) DO UPDATE SET sealed_canary = EXCLUDED.sealed_canary",
-        )
-        .bind(&canary.key_id)
-        .bind(&canary.sealed_canary)
-        .execute(&mut *tx)
-        .await?;
+        upsert_key_check(&mut tx, canary).await?;
         let (activity, count) = match resealed {
             0 => (Activity::SecretsKeyGenerated, None),
             n => (Activity::CredentialsMoved, Some(count_of(n))),
@@ -315,6 +352,80 @@ impl Store {
         let version = bump_version(&mut tx).await?;
         tx.commit().await?;
         Ok(SecretsKeyOutcome::Stored { resealed, version })
+    }
+
+    /// A boot's re-wrap of the stored secrets key under the operator's
+    /// instance key (ADR-IIS-002 r5): under the exclusive lock, compare-and-set
+    /// on the key and the instance key it was read wrapped under. The winner
+    /// records Foundry's system line (I-18) and bumps the version; a replica
+    /// that lost changes nothing and adopts the row on its rebuild.
+    pub async fn rewrap_secrets_key(
+        &self,
+        rewrap: &SecretsKeyRewrap,
+        at: OffsetDateTime,
+    ) -> Result<RewrapOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        lock_exclusive(&mut tx).await?;
+        if !update_wrapped_key(&mut tx, rewrap).await? {
+            tx.rollback().await?;
+            return Ok(RewrapOutcome::AlreadyRewrapped);
+        }
+        record_activity(
+            &mut tx,
+            &ActivityLine {
+                actor: None,
+                activity: Activity::SecretsKeyRewrapped,
+                client_id: None,
+                count: None,
+                at,
+            },
+        )
+        .await?;
+        let version = bump_version(&mut tx).await?;
+        tx.commit().await?;
+        Ok(RewrapOutcome::Rewrapped { version })
+    }
+
+    /// `doctor rotate-secrets` (ADR-IIS-001 decision 8, ADR-IIS-004 rule 1):
+    /// in one transaction under the exclusive lock, hand the stored secrets
+    /// key (when any) to `rewrap` and store the re-wrap it returns, hand every
+    /// stored sealed value to `reseal` and store what it returns (`None`
+    /// keeps the value), write `canary` and bump the version. A refusal from
+    /// either rolls everything back.
+    pub async fn rotate_instance_key<E>(
+        &self,
+        mut rewrap: impl FnMut(&StoredSecretsKey) -> Result<Option<SecretsKeyRewrap>, E>,
+        mut reseal: impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
+        canary: &KeyCheck,
+    ) -> Result<RotateOutcome<E>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        lock_exclusive(&mut tx).await?;
+        let stored = read_secrets_key(&mut tx).await?;
+        let plan = match stored.as_ref().map(&mut rewrap).transpose() {
+            Ok(plan) => plan.flatten(),
+            Err(why) => {
+                tx.rollback().await?;
+                return Ok(RotateOutcome::Refused(why));
+            }
+        };
+        if let Some(plan) = &plan {
+            update_wrapped_key(&mut tx, plan).await?;
+        }
+        let resealed = match reseal_sealed_values(&mut tx, &mut reseal).await? {
+            Ok(resealed) => resealed.counted(Tally::Credentials),
+            Err(why) => {
+                tx.rollback().await?;
+                return Ok(RotateOutcome::Refused(why));
+            }
+        };
+        upsert_key_check(&mut tx, canary).await?;
+        let version = bump_version(&mut tx).await?;
+        tx.commit().await?;
+        Ok(RotateOutcome::Rotated {
+            rewrapped: plan.is_some(),
+            resealed,
+            version,
+        })
     }
 
     /// An instance admin's Slack app save (ADR-IIS-003): under the exclusive
@@ -551,6 +662,42 @@ pub(super) async fn seal_fence_holds(
     .execute(&mut **tx)
     .await?;
     Ok(stored_key_id(tx).await?.as_deref() == sealed_under)
+}
+
+/// Write `canary` as its key's check value, replacing any.
+async fn upsert_key_check(tx: &mut Tx<'_>, canary: &KeyCheck) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT INTO integration_key_checks (key_id, sealed_canary) VALUES ($1, $2)
+         ON CONFLICT (key_id) DO UPDATE SET sealed_canary = EXCLUDED.sealed_canary",
+    )
+    .bind(&canary.key_id)
+    .bind(&canary.sealed_canary)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
+/// Store `rewrap` if the stored key is still `rewrap.key_id` wrapped under
+/// `rewrap.from_key_id`; whether it was.
+async fn update_wrapped_key(
+    tx: &mut Tx<'_>,
+    rewrap: &SecretsKeyRewrap,
+) -> Result<bool, sqlx::Error> {
+    let done = sqlx::query(
+        "UPDATE integration_secrets_key
+            SET wrapped_key = $3, wrapped_by_key_id = $4, wrapped_by_source = $5,
+                rewrapped_from_path = COALESCE($6, rewrapped_from_path)
+          WHERE id = 1 AND key_id = $1 AND wrapped_by_key_id = $2",
+    )
+    .bind(&rewrap.key_id)
+    .bind(&rewrap.from_key_id)
+    .bind(&rewrap.wrapped_key)
+    .bind(&rewrap.wrapped_by_key_id)
+    .bind(rewrap.wrapped_by.wire_name())
+    .bind(rewrap.rewrapped_from_path.as_deref())
+    .execute(&mut **tx)
+    .await?;
+    Ok(done.rows_affected() == 1)
 }
 
 async fn stored_key_id(tx: &mut Tx<'_>) -> Result<Option<String>, sqlx::Error> {

@@ -680,74 +680,121 @@ where
 
 const ROTATE: &str = "foundry doctor rotate-secrets";
 
-/// external-integration-plugins (C-11, ADR-EIP-004 decision 5) — `foundry
-/// doctor rotate-secrets`: re-seal every stored credential under
-/// `FOUNDRY_SECRETS_KEY` (opening each under it or
-/// `FOUNDRY_SECRETS_KEY_PREVIOUS`) and write the new key's check value, in
-/// one transaction. Prints `<n> credential(s)` and the key id, never a key.
-/// Exits 0 rotated; 2 the key settings are missing or malformed; 3 the
-/// database cannot be reached or the transaction failed; 4 a credential
-/// neither key opens (nothing changed).
+/// external-integration-plugins (C-11) and instance-integration-setup
+/// (ADR-IIS-001 decision 8, ADR-IIS-004 rule 1) — `foundry doctor
+/// rotate-secrets`: under the current instance key (`FOUNDRY_INSTANCE_KEY`,
+/// or its legacy alias `FOUNDRY_SECRETS_KEY`), opening under it or a
+/// previous instance key, re-wrap the stored secrets key and re-seal every
+/// value not sealed under the secrets key, writing the key's check value, in
+/// one transaction under the exclusive instance lock. Prints counts and key
+/// ids, never a key. Exits 0 rotated; 2 the key settings are missing,
+/// malformed or conflicting; 3 the database cannot be reached or the
+/// transaction failed; 4 the secrets key or a credential no held key opens
+/// (nothing changed).
 pub fn run_rotate_secrets() -> i32 {
-    use foundry_auth::secret_box::{SECRETS_KEY_PREVIOUS_SETTING, SECRETS_KEY_SETTING};
-    let setting = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
-    let Some(current) = setting(SECRETS_KEY_SETTING) else {
-        eprintln!("{ROTATE}: {SECRETS_KEY_SETTING} is not set; set it to the new key first");
-        return 2;
-    };
-    let previous = setting(SECRETS_KEY_PREVIOUS_SETTING).map(secrecy::SecretString::from);
-    let secrets = match foundry_auth::secret_box::SecretBox::from_settings(
-        &secrecy::SecretString::from(current),
-        previous.as_ref(),
-    ) {
-        Ok(secrets) => secrets,
+    use foundry_auth::secret_box::{INSTANCE_KEY_SETTING, SECRETS_KEY_SETTING};
+    let get = |name: &str| std::env::var(name).ok().filter(|v| !v.trim().is_empty());
+    let instance = match crate::integrations::config::secrets(&get) {
+        Ok((_, Some(instance))) => instance,
+        Ok((_, None)) => {
+            eprintln!(
+                "{ROTATE}: {INSTANCE_KEY_SETTING} is not set, and {SECRETS_KEY_SETTING} is not set; \
+                 set the new instance key first"
+            );
+            return 2;
+        }
         Err(err) => {
             eprintln!("{ROTATE}: {err}");
             return 2;
         }
     };
     run_with_store(ROTATE, move |store| async move {
-        rotate_secrets(&store, &secrets).await
+        rotate_secrets(&store, &instance).await
     })
+}
+
+/// Why a rotation changed nothing.
+#[derive(Debug, Clone, Copy)]
+enum RotateRefusal {
+    /// No held instance key opens the stored secrets key.
+    SecretsKey,
+    /// No held instance key opens this sealed value.
+    Value(foundry_store::integrations::SealedSlot),
 }
 
 /// The rotation itself: the only place outside the integrations module that
 /// opens a sealed credential (check-arch `integrations-secret-seam`).
 async fn rotate_secrets(
     store: &foundry_store::Store,
-    secrets: &foundry_auth::secret_box::SecretBox,
+    instance: &foundry_auth::secret_box::SecretBox,
 ) -> i32 {
-    use crate::integrations::{credential_slot, key_check};
-    use foundry_auth::secret_box::{
-        SealedSecret, SECRETS_KEY_PREVIOUS_SETTING, SECRETS_KEY_SETTING,
-    };
-    use foundry_store::integrations::ResealOutcome;
-    let Some(canary) = key_check(secrets) else {
+    use crate::integrations::{key_check, keys::plan_rewrap, sealed_slot};
+    use foundry_auth::secret_box::{SealedSecret, SecretBox};
+    use foundry_store::integrations::{RotateOutcome, SealedSlot, StoredSecretsKey};
+    let Some(canary) = key_check(instance) else {
         eprintln!("{ROTATE}: the new key could not seal its check value; nothing changed");
         return 3;
     };
-    let reseal = |connection_id: uuid::Uuid, sealed: &[u8]| {
-        let slot = credential_slot(connection_id);
-        let plaintext = secrets
-            .open(&SealedSecret::from_bytes(sealed.to_vec()), &slot)
-            .map_err(|_| connection_id)?;
-        secrets
-            .seal(&plaintext, &slot)
-            .map(|resealed| resealed.as_bytes().to_vec())
-            .map_err(|_| connection_id)
+    // The stored secrets key, once the transaction has opened it: what the
+    // remaining direct seals are sealed again under.
+    let secrets: std::sync::OnceLock<SecretBox> = std::sync::OnceLock::new();
+    let rewrap = |stored: &StoredSecretsKey| {
+        let (opened, rewrap) =
+            plan_rewrap(instance, stored, None).ok_or(RotateRefusal::SecretsKey)?;
+        let _ = secrets.set(opened);
+        Ok(rewrap)
     };
-    match store.reseal_credentials(reseal, &canary).await {
-        Ok(ResealOutcome::Resealed { credentials }) => {
-            println!(
-                "rotate-secrets: {credentials} credential(s) sealed again under key {}",
-                canary.key_id
-            );
+    let reseal = |slot: SealedSlot, sealed: &[u8]| {
+        let sealed = SealedSecret::from_bytes(sealed.to_vec());
+        let target = secrets.get();
+        if target.is_some_and(|keys| keys.current_key_id() == sealed.key_id()) {
+            return Ok(None);
+        }
+        let aad = sealed_slot(slot);
+        let plaintext = instance
+            .open(&sealed, &aad)
+            .map_err(|_| RotateRefusal::Value(slot))?;
+        target
+            .unwrap_or(instance)
+            .seal(&plaintext, &aad)
+            .map(|resealed| Some(resealed.as_bytes().to_vec()))
+            .map_err(|_| RotateRefusal::Value(slot))
+    };
+    match store.rotate_instance_key(rewrap, reseal, &canary).await {
+        Ok(RotateOutcome::Rotated {
+            rewrapped,
+            resealed,
+            ..
+        }) => {
+            let under = secrets.get().map_or(canary.key_id.clone(), |keys| {
+                keys.current_key_id().to_string()
+            });
+            println!("rotate-secrets: {resealed} credential(s) sealed again under key {under}");
+            if rewrapped {
+                println!(
+                    "rotate-secrets: the secrets key is now wrapped under instance key {}",
+                    canary.key_id
+                );
+            }
             0
         }
-        Ok(ResealOutcome::Refused(connection_id)) => {
+        Ok(RotateOutcome::Refused(RotateRefusal::SecretsKey)) => {
             eprintln!(
-                "{ROTATE}: the credential of connection {connection_id} opens under neither \
-                 {SECRETS_KEY_SETTING} nor {SECRETS_KEY_PREVIOUS_SETTING}; nothing changed"
+                "{ROTATE}: the stored secrets key opens under neither the instance key nor a \
+                 previous instance key; nothing changed"
+            );
+            4
+        }
+        Ok(RotateOutcome::Refused(RotateRefusal::Value(slot))) => {
+            let what = match slot {
+                SealedSlot::Connection(id) => format!("the credential of connection {id}"),
+                SealedSlot::SlackClientSecret | SealedSlot::SlackSigningSecret => {
+                    "the saved Slack app".to_string()
+                }
+            };
+            eprintln!(
+                "{ROTATE}: {what} opens under neither the instance key nor a previous instance \
+                 key; nothing changed"
             );
             4
         }

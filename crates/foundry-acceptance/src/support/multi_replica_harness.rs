@@ -527,7 +527,8 @@ impl MultiReplicaHarness {
         use foundry_app::integrations::{keys::NoKeyFile, store_capabilities, Integrations};
         for replica in &self.replicas {
             let store = store_capabilities::StoreCapabilities::new(replica.state.store.clone());
-            let integrations = Integrations::boot(settings(), &*store, &NoKeyFile)
+            let now = replica.state.clock.now();
+            let integrations = Integrations::boot(settings(), &*store, &NoKeyFile, now)
                 .await
                 .expect("the Slack app's client builds");
             replica.state.integrations.install(integrations);

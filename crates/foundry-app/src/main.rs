@@ -332,8 +332,9 @@ async fn main() -> anyhow::Result<()> {
                 };
                 let probe_store = store_capabilities::StoreCapabilities::new(store.clone());
                 let key_file = InstanceKeyFile::of(&settings);
+                let now = time::OffsetDateTime::now_utc();
                 let integrations =
-                    match Integrations::boot(settings, &*probe_store, &key_file).await {
+                    match Integrations::boot(settings, &*probe_store, &key_file, now).await {
                         Ok(integrations) => integrations,
                         Err(err) => {
                             tracing::error!(

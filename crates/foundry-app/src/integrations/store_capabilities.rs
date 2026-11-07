@@ -28,7 +28,8 @@ use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
     DispatchOutcome, EmailSendFacts, InstanceActivityRow, InstanceSnapshot, KeyCheck,
     LostConnection, NewDelivery, NewSecretsKey, PendingDelivery, Pruned, Pruning, RecordOutcome,
-    ReplicaState, RetentionView, SealedSlot, SecretsKeyOutcome, SlackAppSave, SlackSaveOutcome,
+    ReplicaState, RetentionView, RewrapOutcome, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap,
+    SlackAppSave, SlackSaveOutcome,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -162,6 +163,12 @@ pub trait KeyProbe: Send + Sync {
     async fn record_key_check(&self, check: &KeyCheck) -> Result<(), StoreError>;
     /// The stored instance rows, read in one snapshot.
     async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError>;
+    /// Re-wrap the stored secrets key, compare-and-set (ADR-IIS-002 r5).
+    async fn rewrap_secrets_key(
+        &self,
+        rewrap: &SecretsKeyRewrap,
+        at: OffsetDateTime,
+    ) -> Result<RewrapOutcome, StoreError>;
 }
 
 /// A replica's reload task (ADR-IIS-004 r4, r8): reads, and one write, its
@@ -363,6 +370,14 @@ impl KeyProbe for StoreCapabilities {
 
     async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError> {
         self.0.instance_snapshot().await
+    }
+
+    async fn rewrap_secrets_key(
+        &self,
+        rewrap: &SecretsKeyRewrap,
+        at: OffsetDateTime,
+    ) -> Result<RewrapOutcome, StoreError> {
+        self.0.rewrap_secrets_key(rewrap, at).await
     }
 }
 

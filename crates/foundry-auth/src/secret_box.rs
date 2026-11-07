@@ -230,6 +230,13 @@ impl SecretBox {
         Ok(Self::new(current, previous))
     }
 
+    /// This box, also opening with `key` as a previous key: how a boot holds
+    /// a superseded instance key it read after the box was built.
+    pub fn with_previous(mut self, key: SecretsKey) -> Self {
+        self.previous.push(key);
+        self
+    }
+
     pub fn current_key_id(&self) -> KeyId {
         self.current.id
     }

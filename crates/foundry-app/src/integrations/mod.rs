@@ -178,6 +178,8 @@ pub struct Integrations {
     saved_app: slack_app::SavedApp,
     /// The key file as boot found it (consulted only without an operator key).
     key_file: KeyFile,
+    /// The key file the stored secrets key was re-wrapped from (I-30).
+    rewrapped_from: Option<String>,
     /// Built on first use, so a test-support build reaches a test host
     /// admitted after these integrations were installed.
     outbound: std::sync::OnceLock<OutboundHttp>,
@@ -221,19 +223,38 @@ impl Integrations {
     /// the saved Slack app) compared with them. A store failure never stops
     /// the board: the server starts degraded and says so. Refused only when
     /// the Slack app's client cannot be built.
+    ///
+    /// With an operator key, a readable key file's key is held as a previous
+    /// instance key (never written or removed), and a secrets key the file
+    /// wrapped is re-wrapped under the operator's key at `now`
+    /// (ADR-IIS-002 r5, I-30).
     pub async fn boot(
         mut settings: IntegrationSettings,
         store: &dyn store_capabilities::KeyProbe,
         key_source: &dyn InstanceKeySource,
+        now: time::OffsetDateTime,
     ) -> Result<Self, SlackClientError> {
-        // The key file is consulted only without an operator key; with one,
-        // its state does not enter the mode. It is made only over a database
-        // holding nothing an earlier key sealed (ADR-IIS-002 r3).
-        let key_file = if settings.secrets.is_some() {
+        let snapshot = store.instance_snapshot().await;
+        // With an operator key, the key file's state does not enter the mode.
+        // Without one, it is made only over a database holding nothing an
+        // earlier key sealed (ADR-IIS-002 r3).
+        let key_file = if let Some(operator) = settings.secrets.take() {
+            let held_file = match key_source.key_file(false) {
+                KeyFileRead::Held(key) => Some(*key),
+                _ => None,
+            };
+            let superseded = held_file.is_some();
+            settings.secrets = Some(match held_file {
+                Some(key) => operator.with_previous(key),
+                None => operator,
+            });
+            if superseded {
+                rewrap_file_key(&settings, store, snapshot.as_ref().ok(), now).await;
+            }
             KeyFile::Unwritable
         } else {
-            let may_make = store.instance_snapshot().await.is_ok_and(|snapshot| {
-                snapshot.secrets_key.is_none() && sealed_values(&snapshot).is_empty()
+            let may_make = snapshot.as_ref().is_ok_and(|snapshot| {
+                snapshot.secrets_key.is_none() && sealed_values(snapshot).is_empty()
             });
             match key_source.key_file(may_make) {
                 KeyFileRead::Unwritable => KeyFile::Unwritable,
@@ -273,6 +294,7 @@ impl Integrations {
     pub fn rebuilt(&self, snapshot: Result<InstanceSnapshot, foundry_store::StoreError>) -> Self {
         let mut integrations = Self::assembled_from(self.settings.clone(), self.slack.clone());
         integrations.key_file = self.key_file;
+        integrations.rewrapped_from = self.rewrapped_from.clone();
         integrations.saved_slack = self.saved_slack.clone();
         integrations.saved_app = self.saved_app;
         integrations.reload_nudge = self.reload_nudge.clone();
@@ -293,6 +315,7 @@ impl Integrations {
             saved_slack: None,
             saved_app: slack_app::SavedApp::Absent,
             key_file: KeyFile::Unwritable,
+            rewrapped_from: None,
             outbound: std::sync::OnceLock::new(),
             secrets: SecretsCheck::default(),
             keyring,
@@ -310,9 +333,14 @@ impl Integrations {
     ) -> Self {
         let key_file = self.key_file;
         let mut applied_version = None;
+        let mut rewrapped_from = self.rewrapped_from.clone();
         let (keyring, secrets, saved) = match snapshot {
             Ok(snapshot) => {
                 applied_version = Some(snapshot.version);
+                rewrapped_from = snapshot
+                    .secrets_key
+                    .as_ref()
+                    .and_then(|key| key.rewrapped_from_path.clone());
                 let (keyring, secrets) = self.probe(&snapshot, key_file, held);
                 let saved = snapshot.slack_app.map(|app| {
                     let (state, opened) = slack_app::open_saved(
@@ -339,6 +367,7 @@ impl Integrations {
         let integrations = Self {
             keyring,
             applied_version,
+            rewrapped_from,
             ..self
         }
         .with_secrets_check(secrets);
@@ -386,6 +415,11 @@ impl Integrations {
             saved_app,
             ..self
         }
+    }
+
+    /// The key file the stored secrets key was re-wrapped from (I-30).
+    pub fn rewrapped_from(&self) -> Option<&str> {
+        self.rewrapped_from.as_deref()
     }
 
     /// The saved Slack app as the held keys open it: absent, opening, or
@@ -649,6 +683,38 @@ impl Integrations {
 
 /// Every stored sealed value: the connections' credentials and the saved
 /// Slack app's two secrets.
+/// Boot's re-wrap (ADR-IIS-002 r5): a stored secrets key the key file
+/// wrapped, opened under the file's key `settings` holds as a previous key,
+/// wrapped again under the operator's key, compare-and-set. One replica wins
+/// and records Foundry's line; the rest change nothing and adopt the row.
+async fn rewrap_file_key(
+    settings: &IntegrationSettings,
+    store: &dyn store_capabilities::KeyProbe,
+    snapshot: Option<&InstanceSnapshot>,
+    now: time::OffsetDateTime,
+) {
+    use foundry_store::integrations::{KeyWrapper, RewrapOutcome};
+    let Some((instance, stored)) = settings.secrets.as_ref().zip(
+        snapshot
+            .and_then(|snapshot| snapshot.secrets_key.as_ref())
+            .filter(|stored| stored.wrapped_by == KeyWrapper::File),
+    ) else {
+        return;
+    };
+    let path = key_file::key_path(&settings.data_dir).display().to_string();
+    let Some((_, Some(rewrap))) = keys::plan_rewrap(instance, stored, Some(path)) else {
+        return;
+    };
+    match store.rewrap_secrets_key(&rewrap, now).await {
+        Ok(RewrapOutcome::Rewrapped { version }) => tracing::info!(
+            version,
+            "secrets key re-wrapped under the operator's instance key"
+        ),
+        Ok(RewrapOutcome::AlreadyRewrapped) => {}
+        Err(err) => tracing::warn!(error = %err, "re-wrapping the secrets key failed"),
+    }
+}
+
 fn sealed_values(snapshot: &InstanceSnapshot) -> Vec<Vec<u8>> {
     let mut sealed = snapshot.sealed_credentials.clone();
     if let Some(app) = &snapshot.slack_app {

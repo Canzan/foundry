@@ -1315,7 +1315,8 @@ pub async fn rewire(world: &mut FoundryWorld) {
     // the key mode and the secrets probe over the stored rows.
     let store = store_capabilities::StoreCapabilities::new(harness.app.state.store.clone());
     let key_file = InstanceKeyFile::of(&settings);
-    let integrations = Integrations::boot(settings, &*store, &key_file)
+    let now = harness.app.state.clock.now();
+    let integrations = Integrations::boot(settings, &*store, &key_file, now)
         .await
         .expect("the Slack app's client builds");
     harness.app.state.integrations.install(integrations);

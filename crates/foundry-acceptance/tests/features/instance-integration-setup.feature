@@ -451,7 +451,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And this Foundry still answers that it is ready
     And Canzan Labs' Slack connection is not marked lost and no workspace admin is emailed
 
-  @pending @us-iis-08 @kpi-iis-2 @kpi-iis-g1
+  @us-iis-08 @kpi-iis-2 @kpi-iis-g1
   Scenario: Moving from Foundry's key file to an operator key loses nothing
     Given this Foundry starts with no instance key setting and a writable data directory
     And Priya has generated the secrets key

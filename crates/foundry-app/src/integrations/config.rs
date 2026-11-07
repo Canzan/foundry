@@ -315,7 +315,7 @@ fn slack_settings(
 
 /// The operator's key under whichever name supplies it, and every retired
 /// key listed under either previous-key name (both are for opening only).
-fn secrets(
+pub(crate) fn secrets(
     get: &impl Fn(&str) -> Option<String>,
 ) -> Result<(Option<KeySetting>, Option<SecretBox>), ConfigError> {
     let resolved = KeySetting::resolve(get(INSTANCE_KEY_SETTING), get(SECRETS_KEY_SETTING))?;

@@ -110,6 +110,7 @@ impl Lab {
             IntegrationSettings::off("https://foundry.example.org"),
             &*StoreCapabilities::new(store.clone()),
             &NoKeyFile,
+            time::OffsetDateTime::now_utc(),
         )
         .await
         .expect("boot");

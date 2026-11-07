@@ -11,7 +11,8 @@
 
 use foundry_store::integrations::{
     ConnectionWriteOutcome, KeyCheck, KeyWrapper, NewConnection, NewSecretsKey, ReplicaState,
-    SealedSlot, SecretsKeyOutcome, SlackAppSave, SlackSaveOutcome, INSTANCE_INTEGRATIONS_LOCK,
+    RewrapOutcome, RotateOutcome, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackAppSave,
+    SlackSaveOutcome, INSTANCE_INTEGRATIONS_LOCK,
 };
 use foundry_store::{run_migrations, run_migrations_from_dir, Store};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -542,6 +543,157 @@ async fn concurrent_generates_store_exactly_one_key() {
         "{again:?}"
     );
     assert_eq!(dump(&pool).await, before);
+}
+
+// ---------------------------------------------------------------------------
+// Re-wrap (ADR-IIS-002 r5) and doctor rotation (ADR-IIS-001 decision 8)
+// ---------------------------------------------------------------------------
+
+fn rewrap_of(from_key_id: &str, to_key_id: &str) -> SecretsKeyRewrap {
+    SecretsKeyRewrap {
+        key_id: "sk-a".to_string(),
+        from_key_id: from_key_id.to_string(),
+        wrapped_key: format!("wrapped-under:{to_key_id}").into_bytes(),
+        wrapped_by_key_id: to_key_id.to_string(),
+        wrapped_by: KeyWrapper::Operator,
+        rewrapped_from_path: Some("/var/lib/foundry/instance.key".to_string()),
+    }
+}
+
+/// Replicas racing the re-wrap off the key file: exactly one wins, records
+/// Foundry's one system line and bumps the version once; the loser changes
+/// nothing. The row then names the operator's key and the file it left.
+#[tokio::test]
+async fn replicas_racing_the_rewrap_record_exactly_one_system_line() {
+    let pg = postgres().await;
+    let pool = pg.migrated().await;
+    let first = Store::from_pool(pool.clone());
+    let second = Store::from_pool(pool.clone());
+    first
+        .store_secrets_key(&new_key("sk-a", None), &canary("sk-a"), at(0), reseal_all)
+        .await
+        .expect("generate");
+    let before = dump(&pool).await;
+
+    let rewrap = rewrap_of("ik-1", "op-1");
+    let (a, b) = tokio::join!(
+        first.rewrap_secrets_key(&rewrap, at(5)),
+        second.rewrap_secrets_key(&rewrap, at(5)),
+    );
+    let mut outcomes = [a.expect("first"), b.expect("second")];
+    outcomes.sort_by_key(|o| matches!(o, RewrapOutcome::AlreadyRewrapped));
+    assert_eq!(
+        outcomes,
+        [
+            RewrapOutcome::Rewrapped { version: 2 },
+            RewrapOutcome::AlreadyRewrapped
+        ]
+    );
+    assert_eq!(
+        changed(&before, &dump(&pool).await),
+        BTreeSet::from([
+            "integration_secrets_key",
+            "integration_config_version",
+            "instance_integration_audit_events",
+        ])
+    );
+    let lines = activity(&pool).await;
+    assert_eq!(lines.len(), 2, "{lines:?}");
+    assert_eq!(
+        lines[1],
+        (None, "secrets_key_rewrapped".to_string(), None, None)
+    );
+    let row: (Vec<u8>, String, String, Option<String>) = sqlx::query_as(
+        "SELECT wrapped_key, wrapped_by_key_id, wrapped_by_source, rewrapped_from_path
+           FROM integration_secrets_key",
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("row");
+    assert_eq!(
+        row,
+        (
+            b"wrapped-under:op-1".to_vec(),
+            "op-1".to_string(),
+            "operator".to_string(),
+            Some("/var/lib/foundry/instance.key".to_string())
+        )
+    );
+
+    let settled = dump(&pool).await;
+    let again = first
+        .rewrap_secrets_key(&rewrap_of("ik-1", "op-1"), at(6))
+        .await
+        .expect("again");
+    assert_eq!(again, RewrapOutcome::AlreadyRewrapped);
+    assert_eq!(dump(&pool).await, settled);
+}
+
+/// Rotation re-wraps the stored key, re-seals what the caller returns, writes
+/// the canary and bumps once, in one transaction; a refusal partway (after
+/// the re-wrap) leaves everything as it was.
+#[tokio::test]
+async fn rotation_rewraps_and_reseals_all_or_nothing() {
+    let pg = postgres().await;
+    let pool = pg.migrated().await;
+    let store = Store::from_pool(pool.clone());
+    let ws = workspace(&pool).await;
+    let direct = connection(&pool, ws, "slack", b"ik-1:direct").await;
+    let under_secrets = connection(&pool, ws, "matrix", b"sk-a:sealed").await;
+    store
+        .store_secrets_key(&new_key("sk-a", None), &canary("sk-a"), at(0), |_, _| {
+            Ok::<_, String>(None)
+        })
+        .await
+        .expect("generate");
+    let before = dump(&pool).await;
+
+    let refused = store
+        .rotate_instance_key(
+            |_| Ok(Some(rewrap_of("ik-1", "op-2"))),
+            |_, _| Err("cannot open"),
+            &canary("op-2"),
+        )
+        .await
+        .expect("rotate");
+    assert_eq!(refused, RotateOutcome::Refused("cannot open"));
+    assert_eq!(dump(&pool).await, before);
+
+    let rotated = store
+        .rotate_instance_key(
+            |stored| {
+                assert_eq!(stored.wrapped_by_key_id, "ik-1");
+                Ok::<_, String>(Some(rewrap_of("ik-1", "op-2")))
+            },
+            |_, sealed| {
+                Ok(sealed
+                    .starts_with(b"ik-1:")
+                    .then(|| [b"sk-a:".as_slice(), sealed].concat()))
+            },
+            &canary("op-2"),
+        )
+        .await
+        .expect("rotate");
+    assert_eq!(
+        rotated,
+        RotateOutcome::Rotated {
+            rewrapped: true,
+            resealed: 1,
+            version: 2
+        }
+    );
+    assert_eq!(
+        changed(&before, &dump(&pool).await),
+        BTreeSet::from([
+            "integration_secrets_key",
+            "integration_config_version",
+            "integration_key_checks",
+            "integration_connections",
+        ])
+    );
+    let sealed = sealed_credentials(&pool).await;
+    assert_eq!(sealed[&direct], b"sk-a:ik-1:direct".to_vec());
+    assert_eq!(sealed[&under_secrets], b"sk-a:sealed".to_vec());
 }
 
 // ---------------------------------------------------------------------------
