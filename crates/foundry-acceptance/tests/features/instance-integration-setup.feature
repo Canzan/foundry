@@ -252,7 +252,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Canzan Labs' workspace integrations page offers to connect Matrix
     And a new Matrix route for Identity Platform no longer reads "Matrix is not set up on this Foundry yet. An instance operator sets it up once."
 
-  @pending @iis-subprocess @us-iis-02 @kpi-iis-1
+  @iis-subprocess @us-iis-02 @kpi-iis-1
   Scenario: After a restart the stored secrets key is in effect and the key check passes
     Given Foundry runs as the operator's standalone process with its instance key set by the operator
     And Priya has generated the secrets key
@@ -485,7 +485,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
   # ---------------------------------------------- keys and secrets never leave
 
-  @pending @iis-subprocess @us-iis-02 @us-iis-03 @us-iis-08 @kpi-iis-g1
+  @iis-subprocess @us-iis-02 @us-iis-03 @us-iis-08 @kpi-iis-g1
   Scenario: No key or secret appears in any page, log line or activity line, or in plaintext in the database
     Given Foundry runs as the operator's standalone process with no instance key setting and a writable data directory
     And Priya has generated the secrets key
@@ -499,7 +499,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
   # DEVOPS D5 / task 8: the reload path, not only boot, updates the two alert
   # inputs. Two operator processes, not MultiReplicaHarness: metrics live in one
   # process-wide registry, so only a process shows a per-server /metrics.
-  @pending @iis-subprocess @us-iis-08 @us-iis-01 @kpi-iis-1 @error
+  @iis-subprocess @us-iis-08 @us-iis-01 @kpi-iis-1 @error
   Scenario: A server that cannot open the new secrets key says so and raises the alarm, without a restart
     Given Foundry runs as two servers on one database, the second with a different instance key set by the operator
     When Priya generates the secrets key on the first server

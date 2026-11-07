@@ -5171,7 +5171,7 @@ pub fn process_output_present(world: &FoundryWorld) -> String {
         "the operator's process logged something"
     );
     assert!(
-        out.contains("foundry listening on"),
+        out.contains("foundry listening addr="),
         "the operator's log holds its start line; the scan reads the right process"
     );
     out

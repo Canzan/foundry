@@ -8,10 +8,12 @@
 //! row: at boot (its first tick), on every applied reload and every 10 s of
 //! the injected clock. A sealed value under a key id this replica does not
 //! hold wakes it at once, at most once per second of the injected clock.
+//! Boot and every applied reload set the secrets alert inputs through
+//! [`raise_alert_inputs`] (DEVOPS D5, task 8).
 
 use super::keys::KeyMode;
 use super::store_capabilities::IntegrationsReload;
-use super::{Integrations, IntegrationsHandle};
+use super::{Integrations, IntegrationsHandle, SecretsCheck};
 use crate::Clock;
 use foundry_store::integrations::ReplicaState;
 use foundry_store::StoreError;
@@ -22,6 +24,56 @@ use time::OffsetDateTime;
 const BEAT_EVERY: time::Duration = time::Duration::seconds(10);
 /// How often (on the clock) an unknown key id may wake the reload early.
 const NUDGE_EVERY: time::Duration = time::Duration::seconds(1);
+
+/// The degraded gauge: 1 while this server cannot open its secrets key
+/// (I-26) or some stored value (I-4).
+pub const SECRETS_DEGRADED: &str = "foundry_integration_secrets_degraded";
+/// The startup and reload probe failure counter, labelled `probe_name`.
+pub const PROBE_FAILURES_TOTAL: &str = "probe_failures_total";
+/// The secrets probe's `probe_name`.
+pub const SECRETS_PROBE: &str = "secrets";
+
+/// The secrets alert inputs over one boot's or applied reload's outcome
+/// (DEVOPS D5, task 8): the degraded gauge's value, the secrets probe's
+/// failure count to add, and whether the `health.degraded` line is logged.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct AlertInputs {
+    degraded: f64,
+    failures: u64,
+    logs_degraded: bool,
+}
+
+/// The alert inputs over the key mode, and whether some stored value opens
+/// under no held key (I-4).
+fn alert_inputs(mode: KeyMode, check: &SecretsCheck) -> AlertInputs {
+    let degraded = mode == KeyMode::Unopenable || check.degraded();
+    AlertInputs {
+        degraded: if degraded { 1.0 } else { 0.0 },
+        failures: u64::from(degraded),
+        logs_degraded: degraded,
+    }
+}
+
+/// Set the secrets alert inputs from `integrations`: what boot ends with and
+/// every applied reload. The line names the key mode and key ids, never a key.
+pub fn raise_alert_inputs(integrations: &Integrations) {
+    let mode = integrations.key_mode();
+    let check = integrations.secrets_check();
+    let inputs = alert_inputs(mode, check);
+    metrics::gauge!(SECRETS_DEGRADED).set(inputs.degraded);
+    metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => SECRETS_PROBE)
+        .increment(inputs.failures);
+    if inputs.logs_degraded {
+        tracing::warn!(
+            event = "health.degraded",
+            probe = SECRETS_PROBE,
+            key_mode = key_mode_name(mode),
+            missing_key_ids = %check.missing_key_ids.join(","),
+            "this Foundry cannot open its secrets key or some stored integration credential; \
+             the board runs, those connections are unavailable"
+        );
+    }
+}
 
 /// One replica's reload task.
 pub struct Reload {
@@ -111,7 +163,11 @@ impl Reload {
         }
         let snapshot = self.store.instance_snapshot().await?;
         let next = seen.rebuilt(Ok(snapshot));
-        Ok(self.integrations.install_over(&seen, next))
+        let installed = self.integrations.install_over(&seen, next);
+        if installed {
+            raise_alert_inputs(&self.integrations.current());
+        }
+        Ok(installed)
     }
 
     async fn beat(&mut self, now: OffsetDateTime) {
@@ -159,7 +215,46 @@ fn key_mode_name(mode: KeyMode) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::integrations::keys::NoKeyReason;
     use time::macros::datetime;
+
+    /// Every key mode, with and without I-4: only I-26 or I-4 sets the gauge,
+    /// adds one secrets probe failure and logs `health.degraded`.
+    #[test]
+    fn only_an_unopenable_key_or_value_raises_the_alarm() {
+        let clean = SecretsCheck::default();
+        let i4 = SecretsCheck {
+            missing_key_ids: vec!["k-old".to_string()],
+        };
+        let calm = AlertInputs {
+            degraded: 0.0,
+            failures: 0,
+            logs_degraded: false,
+        };
+        let alarm = AlertInputs {
+            degraded: 1.0,
+            failures: 1,
+            logs_degraded: true,
+        };
+        #[rustfmt::skip]
+        let table = [
+            (KeyMode::NoInstanceKey(NoKeyReason::Unwritable), &clean, calm),
+            (KeyMode::NoInstanceKey(NoKeyReason::Unreadable), &clean, calm),
+            (KeyMode::Direct,                                 &clean, calm),
+            (KeyMode::AwaitingSecretsKey,                     &clean, calm),
+            (KeyMode::Sealed,                                 &clean, calm),
+            (KeyMode::Unopenable,                             &clean, alarm),
+            (KeyMode::NoInstanceKey(NoKeyReason::Unwritable), &i4,    alarm),
+            (KeyMode::NoInstanceKey(NoKeyReason::Unreadable), &i4,    alarm),
+            (KeyMode::Direct,                                 &i4,    alarm),
+            (KeyMode::AwaitingSecretsKey,                     &i4,    alarm),
+            (KeyMode::Sealed,                                 &i4,    alarm),
+            (KeyMode::Unopenable,                             &i4,    alarm),
+        ];
+        for (mode, check, inputs) in table {
+            assert_eq!(alert_inputs(mode, check), inputs, "{mode:?}, {check:?}");
+        }
+    }
 
     /// An unknown key id reloads at once, then at most once a second.
     #[test]

@@ -12,6 +12,11 @@ use foundry_app::{
     build_notifier, build_router, metrics_server, mint_bootstrap_if_needed, AppState, SystemClock,
     DEFAULT_FILE_UPLOAD_MAX_MB, DEFAULT_SSE_HEARTBEAT_MS,
 };
+// Slice 8 (ADR-019 / D5): the startup-probe failure counter, labelled with
+// the bounded code-defined `probe_name`. The secrets probe's series and the
+// degraded gauge are set by boot and every reload through one path
+// (`integrations::reload::raise_alert_inputs`).
+use foundry_app::integrations::reload::{PROBE_FAILURES_TOTAL, SECRETS_PROBE};
 use foundry_store::Store;
 use secrecy::SecretString;
 use std::net::SocketAddr;
@@ -32,11 +37,6 @@ const OUTBOX_PENDING_JOBS: &str = "outbox_pending_jobs";
 /// tokens. Same poll loop. Unlabelled (1 series).
 const BOOTSTRAP_TOKENS_UNCLAIMED: &str = "bootstrap_tokens_unclaimed";
 
-/// Slice 8 (ADR-019 / D5) — counter: startup-probe failures, labelled
-/// with the bounded code-defined `probe_name`. The Principle-9 recursive
-/// self-monitoring metric.
-const PROBE_FAILURES_TOTAL: &str = "probe_failures_total";
-
 /// Slice 8 (ADR-019 / D5 / D6) — the closed, code-defined `probe_name`
 /// set. Every probe in the startup sequence has its name here so it
 /// register-at-0's (Grafana shows the full "all probes passing"
@@ -44,13 +44,6 @@ const PROBE_FAILURES_TOTAL: &str = "probe_failures_total";
 /// add its name here. Bounded + code-defined; never request-derived
 /// (the slice-6 ADR-011 cardinality invariant, extended by D6).
 const PROBE_NAMES: &[&str] = &["store", "metrics", "machine_token", SECRETS_PROBE];
-/// external-integration-plugins (DD-2, U-D8): the secrets probe's
-/// `probe_name`, registered at 0 with the rest of `PROBE_NAMES` and
-/// counted when a stored credential cannot be opened.
-const SECRETS_PROBE: &str = "secrets";
-/// external-integration-plugins (DD-2, U-D8): 1 while this replica started
-/// degraded because a stored credential cannot be opened.
-const SECRETS_DEGRADED: &str = "foundry_integration_secrets_degraded";
 
 /// Slice 7 (ADR-015) — default cadence for the daily tombstone GC
 /// sweep. 86400 seconds = 24 hours. Operators tune via
@@ -324,7 +317,7 @@ async fn main() -> anyhow::Result<()> {
     // the one boot function the acceptance harness shares (ADR-IIS-001
     // decision 9), with the instance key file of `FOUNDRY_DATA_DIR` as its key
     // source (ADR-IIS-002), read only when no operator key is set.
-    let (integrations, secrets_check) =
+    let integrations =
         match foundry_app::integrations::config::IntegrationSettings::from_env(&public_url) {
             Ok(settings) => {
                 use foundry_app::integrations::{
@@ -346,11 +339,7 @@ async fn main() -> anyhow::Result<()> {
                             return Err(err.into());
                         }
                     };
-                let check = integrations.secrets_check().clone();
-                (
-                    foundry_app::integrations::IntegrationsHandle::new(integrations),
-                    check,
-                )
+                foundry_app::integrations::IntegrationsHandle::new(integrations)
             }
             Err(err) => {
                 use foundry_app::integrations::config::ConfigError;
@@ -513,11 +502,9 @@ async fn main() -> anyhow::Result<()> {
     for probe_name in PROBE_NAMES {
         metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => *probe_name).absolute(0);
     }
-    // external-integration-plugins (DD-2): the secrets probe's verdict.
-    metrics::gauge!(SECRETS_DEGRADED).set(if secrets_check.degraded() { 1.0 } else { 0.0 });
-    if secrets_check.degraded() {
-        metrics::counter!(PROBE_FAILURES_TOTAL, "probe_name" => SECRETS_PROBE).increment(1);
-    }
+    // external-integration-plugins (DD-2), DEVOPS D5 / task 8: the secrets
+    // probe's verdict, through the path every applied reload shares.
+    foundry_app::integrations::reload::raise_alert_inputs(&state.integrations.current());
 
     // token-mutations-metric-export — register the per-principal
     // revoke-storm guardrail counter at 0 BEFORE the first revoke. The

@@ -469,17 +469,10 @@ impl Integrations {
         )
     }
 
-    /// The boot line naming key ids only, never a key.
+    /// The line for a server with no key and nothing stored. A degraded
+    /// verdict is logged with the alert inputs ([`reload::raise_alert_inputs`]).
     fn log_secrets_verdict(&self) {
-        if self.secrets.degraded() {
-            tracing::warn!(
-                event = "health.degraded",
-                probe = "secrets",
-                missing_key_ids = %self.secrets.missing_key_ids.join(","),
-                "stored integration credentials cannot be opened with the configured secrets keys; \
-                 the board runs, those connections are unavailable"
-            );
-        } else if !self.credentials().holds_a_key() {
+        if !self.secrets.degraded() && !self.credentials().holds_a_key() {
             tracing::info!(
                 probe = "secrets",
                 setting = foundry_auth::secret_box::INSTANCE_KEY_SETTING,
