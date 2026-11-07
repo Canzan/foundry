@@ -170,3 +170,59 @@ Found while planning the roadmap (2026-11-06). None blocks a step; each has a pl
     iis_reload, key_file test probe; check-arch `SEAL_FENCED_WRITERS` +`update_wrapped_key`;
     new `foundry-app/tests/iis_admin_cli_rotate.rs`. Rotation writes no activity line (no copy).
     RELEASING R-5 (06-03) must quote the new rotate-secrets output lines.
+44. **06-01 (b4e4fbc).** Item 24 closed: `reload.rs::raise_alert_inputs` is the one path setting
+    the degraded gauge, `probe_failures_total{probe_name="secrets"}` (+1 per degraded applied
+    reload) and the `health.degraded probe=secrets` line, called from boot and `Reload::apply`.
+    Degraded = Unopenable (I-26) or I-4; before, I-26 alone never raised it. The serving server's
+    own post-write rebuild no longer logs health.degraded (no test checked it). The restart
+    scenario passed before any change. Out of plan, DISTILL bug: the sweep's
+    `process_output_present` looked for `foundry listening on`; main.rs logs
+    `foundry listening addr=` — fixed in eip support; leak checks untouched. Confirm in review
+    that +1 per degraded reload matches the DEVOPS task 8 alert rule.
+45. **06-02 (efe406b).** Image: builder `mkdir /foundry-data`, runtime `COPY --chown=65532:65532
+    --chmod=0700` to /var/lib/foundry + `VOLUME`. Compose mounts named `foundry-data`. New
+    scenario tagged `@real-io` (inherits `@docker-compose`), deliberately NOT
+    `@instance-integration-setup` (that lane would run it without the shared image). Out of plan:
+    `compose_harness.rs` gains `image_directory` / `image_volumes` (docker create + cp -a + rm -v;
+    image inspect). Caveat: running the @docker-compose lane straight through test-in-lima.sh
+    needs `cp .env.example .env` in the same command (ignored files are not synced).
+46. **06-03 (a871310).** Docs only, four planned files. Beyond the wording: RELEASING "Cutting a
+    release" step 5 no longer names the homelab/zot (deployment-independence criterion); R-5
+    example `deploy/foundry` corrected to `deploy/foundry-app`; R-2 "Dev and prod" now "Each
+    instance". Release time: CHANGELOG `### Migration notes` for 0033 (task 7), and CHANGELOG
+    line ~327 links the old section title "Integrations: secrets key and Slack".
+47. **Adversarial review (2026-11-07): NEEDS_REVISION.** Orchestrator triage:
+    - B1 (03-03 Direct-mode form row) REFUTED: I-2e0 reads "Credentials saved here are sealed
+      directly with the instance key", so Direct shows the form; AC1's "no Slack form" is the
+      no-secrets-key/AwaitingSecretsKey (I-3) state. Item 31 stands.
+    - B2 (RED evidence for 05-02/05-03 guards) -> mutation phase must mutation-prove the r3
+      guard, the `wrapped_by_key_id` CAS predicate and the EPERM mapping.
+    - H1 CONFIRMED: `probe` removes every `instance.key.tmp.*`, including a sibling replica's
+      in-flight temp file on a shared volume; that replica's `link` then fails NotFound and
+      reads Unwritable (I-27). Fix: remove only stale temp files; NotFound on link re-reads.
+    - H2: delete the unlocked `reseal_credentials` with its two eip_store tests and allow-list
+      entry (item 43).
+    - H3 CONFIRMED (item 39): Withheld/no-file states show I-25 "made by Foundry in {path}".
+    - H4: post-write `install` raises no alert inputs and is not version-CAS; route every
+      install through one function that raises alerts and refuses a lower applied version.
+    - M1 retry-twice-StaleKey returns no message; M2 one Credentials tally (item 36);
+      M3 check `update_wrapped_key`'s bool; M4 key_file branch tests (item 41);
+      M5 Canzan fixture hosts in new test lines (repo-wide convention, still replace in range).
+48. **Post-merge gate (2026-11-07): BLOCKED.** Lanes green (IIS 59/597, eip 181/1942,
+    wayfinding 54/400, docker-compose 4/23); all five elevator pitches observed on a real
+    process (deliver/wave-decisions.md). `cargo xtask ci` FAILED: foundry-app lib
+    `key_file::tests::two_servers_racing_on_one_directory_hold_one_key` "expected a held key,
+    got Unwritable", 11/30 alone — the H1 race (item 47). Also: `FOUNDRY_PUBLIC_URL=` (empty)
+    makes I-29 read "use , which Slack cannot reach" and relative manifest URLs; main.rs:122
+    uses the raw variable while IntegrationSettings treats empty as unset.
+49. **Review revision `9dff994` (2026-11-07): gate GREEN.** H1 (temp file stale only after
+    10 min `STALE_TEMP`; link NotFound reads sibling file or retries once; race test 100/100
+    alone), H4 (one `swap`: version-CAS + `raise_alert_inputs`; a degraded post-write install
+    now counts +1 probe failure), H3 (no key-file line when Withheld — copy choice for the
+    user), H2 (`reseal_credentials` gone; `SEAL_FENCED_WRITERS` 6 -> 5), M2 (one
+    `store_secrets_key` tally), M3 (`RotateOutcome::KeyChanged`, exit 3), M1 (retried save
+    answers NOT_CONNECTED as placeholder — needs a DISCUSS copy line), blank
+    `FOUNDRY_PUBLIC_URL` = unset. Lanes IIS 59/597, eip 181/1942, wayfinding 54/400;
+    `xtask smoke` and `xtask ci` (Docker, 2132 scenarios) all gates green.
+    Open: ADR-IIS-004 line 35 and brief.md line 1258 still name `reseal_credentials`;
+    key_file mutation not rerun (mutation phase).
