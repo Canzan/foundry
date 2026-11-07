@@ -108,14 +108,39 @@ impl KeyMode {
     pub fn generates(self, unopenable_values: bool) -> bool {
         self == Self::AwaitingSecretsKey && !unopenable_values
     }
+
+    /// Whether Move applies (ADR-IIS-001 r5): only while sealing directly,
+    /// and never under I-4.
+    pub fn moves(self, unopenable_values: bool) -> bool {
+        self == Self::Direct && !unopenable_values
+    }
 }
 
 /// What Generate stores: a new secrets key wrapped under the sealing
 /// instance key, and the new key's check value. No `Debug`: it carries the
-/// wrapped key.
+/// wrapped key and the new key itself, which Move seals with.
 pub struct GeneratePlan {
     pub key: NewSecretsKey,
     pub canary: KeyCheck,
+    secrets: SecretBox,
+}
+
+impl GeneratePlan {
+    /// `sealed` in `slot`, opened under the held `instance` keys and sealed
+    /// again under the new secrets key; `None` when no held instance key
+    /// opens it (Move then changes nothing).
+    pub fn reseal(
+        &self,
+        instance: &SecretBox,
+        slot: &SecretSlot,
+        sealed: &[u8],
+    ) -> Option<Vec<u8>> {
+        let opened = instance
+            .open(&SealedSecret::from_bytes(sealed.to_vec()), slot)
+            .ok()?;
+        let resealed = self.secrets.seal(&opened, slot).ok()?;
+        Some(resealed.as_bytes().to_vec())
+    }
 }
 
 /// A new secrets key, wrapped under `instance`'s current key (decision 2:
@@ -148,6 +173,7 @@ fn plan_of(
             created_by,
         },
         canary,
+        secrets,
     })
 }
 
@@ -577,6 +603,65 @@ mod tests {
         for (mode, i4, generates) in table {
             assert_eq!(mode.generates(i4), generates, "{mode:?}, I-4 {i4}");
         }
+    }
+
+    /// The Move gate over every mode, with and without I-4: only `Direct`
+    /// without I-4 moves.
+    #[rustfmt::skip]
+    #[test]
+    fn move_applies_only_while_sealing_directly_and_never_under_i4() {
+        use KeyMode::*;
+        let table = [
+            (NoInstanceKey(NoKeyReason::Unwritable), false, false),
+            (NoInstanceKey(NoKeyReason::Unwritable), true, false),
+            (NoInstanceKey(NoKeyReason::Unreadable), false, false),
+            (NoInstanceKey(NoKeyReason::Unreadable), true, false),
+            (Direct, false, true),
+            (Direct, true, false),
+            (AwaitingSecretsKey, false, false),
+            (AwaitingSecretsKey, true, false),
+            (Sealed, false, false),
+            (Sealed, true, false),
+            (Unopenable, false, false),
+            (Unopenable, true, false),
+        ];
+        for (mode, i4, moves) in table {
+            assert_eq!(mode.moves(i4), moves, "{mode:?}, I-4 {i4}");
+        }
+    }
+
+    /// A value sealed directly under a held instance key reseals under the
+    /// plan's new secrets key, which alone opens it then; one no held key
+    /// opens is refused.
+    #[test]
+    fn a_move_reseals_what_a_held_instance_key_opens_and_refuses_the_rest() {
+        let instance = instance_box();
+        let plan = plan_generate(
+            &instance,
+            foundry_store::integrations::KeyWrapper::Operator,
+            None,
+        )
+        .expect("a plan");
+        let slot = secrets_key_slot();
+        let token = SecretString::from("xoxb-direct");
+        let direct = SecretBox::new(key(2), Vec::new())
+            .seal(&token, &slot)
+            .expect("seal");
+        let resealed = plan
+            .reseal(&instance, &slot, direct.as_bytes())
+            .expect("a held key opens it");
+        let opened = plan
+            .secrets
+            .open(&SealedSecret::from_bytes(resealed.clone()), &slot)
+            .expect("the secrets key opens it");
+        assert_eq!(opened.expose_secret(), "xoxb-direct");
+        assert!(instance
+            .open(&SealedSecret::from_bytes(resealed), &slot)
+            .is_err());
+        let foreign = SecretBox::new(key(9), Vec::new())
+            .seal(&token, &slot)
+            .expect("seal");
+        assert!(plan.reseal(&instance, &slot, foreign.as_bytes()).is_none());
     }
 
     /// Held ids are keys 1–3 (the operator's and its previous keys); 4–6 are

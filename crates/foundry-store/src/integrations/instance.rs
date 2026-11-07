@@ -247,7 +247,33 @@ impl Store {
         key: &NewSecretsKey,
         canary: &KeyCheck,
         at: OffsetDateTime,
+        reseal: impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
+    ) -> Result<SecretsKeyOutcome<E>, StoreError> {
+        self.store_secrets_key_tallied(key, canary, at, reseal, Tally::Values)
+            .await
+    }
+
+    /// [`Self::store_secrets_key`] as the instance admin's Move answers it
+    /// (I-22, I-18): `resealed` and the "moved n" line count credentials,
+    /// each connection one and the saved Slack app one, not sealed values.
+    pub async fn move_to_secrets_key<E>(
+        &self,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        at: OffsetDateTime,
+        reseal: impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
+    ) -> Result<SecretsKeyOutcome<E>, StoreError> {
+        self.store_secrets_key_tallied(key, canary, at, reseal, Tally::Credentials)
+            .await
+    }
+
+    async fn store_secrets_key_tallied<E>(
+        &self,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        at: OffsetDateTime,
         mut reseal: impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
+        tally: Tally,
     ) -> Result<SecretsKeyOutcome<E>, StoreError> {
         let mut tx = self.pool.begin().await?;
         lock_exclusive(&mut tx).await?;
@@ -257,7 +283,7 @@ impl Store {
         }
         insert_secrets_key(&mut tx, key, at).await?;
         let resealed = match reseal_sealed_values(&mut tx, &mut reseal).await? {
-            Ok(resealed) => resealed,
+            Ok(resealed) => resealed.counted(tally),
             Err(why) => {
                 tx.rollback().await?;
                 return Ok(SecretsKeyOutcome::Refused(why));
@@ -558,11 +584,36 @@ async fn insert_secrets_key(
 /// Hand every stored sealed value (connections, then the saved Slack app) to
 /// `reseal`, row-locked, and store each value it returns. The outer error is
 /// the database's; the inner, the caller's refusal (the caller rolls back).
+/// How a Generate or Move counts what it re-sealed.
+#[derive(Debug, Clone, Copy)]
+enum Tally {
+    /// Every sealed value: a connection's credential, each Slack app secret.
+    Values,
+    /// Every credential: a connection, and the saved Slack app once.
+    Credentials,
+}
+
+/// What a re-seal changed.
+#[derive(Debug, Default)]
+struct Resealed {
+    connections: usize,
+    app_secrets: usize,
+}
+
+impl Resealed {
+    fn counted(&self, tally: Tally) -> usize {
+        match tally {
+            Tally::Values => self.connections + self.app_secrets,
+            Tally::Credentials => self.connections + usize::from(self.app_secrets > 0),
+        }
+    }
+}
+
 async fn reseal_sealed_values<E>(
     tx: &mut Tx<'_>,
     reseal: &mut impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
-) -> Result<Result<usize, E>, sqlx::Error> {
-    let mut resealed = 0;
+) -> Result<Result<Resealed, E>, sqlx::Error> {
+    let mut resealed = Resealed::default();
     let connections: Vec<(Uuid, Vec<u8>)> = sqlx::query_as(
         "SELECT id, sealed_credential FROM integration_connections
           WHERE sealed_credential IS NOT NULL ORDER BY id FOR UPDATE",
@@ -581,7 +632,7 @@ async fn reseal_sealed_values<E>(
                 .bind(value)
                 .execute(&mut **tx)
                 .await?;
-                resealed += 1;
+                resealed.connections += 1;
             }
         }
     }
@@ -611,7 +662,7 @@ async fn reseal_sealed_values<E>(
             Ok(None) => {}
             Ok(Some(value)) => {
                 sqlx::query(sql).bind(value).execute(&mut **tx).await?;
-                resealed += 1;
+                resealed.app_secrets += 1;
             }
         }
     }

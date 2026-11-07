@@ -11,6 +11,13 @@
 //! through the shared boot probe ([`Integrations::reboot`]) and installs them
 //! before it answers I-21. Other replicas follow on their reload (ADR-IIS-004).
 //!
+//! Move, `POST …/secrets-key/move` (US-IIS-06), is the same use-case where
+//! [`KeyMode::moves`] holds: every value sealed directly under a held
+//! instance key is re-sealed under the new key in the same transaction, and
+//! it answers I-22 (or I-21 with nothing saved). Both gates are judged over
+//! the stored rows as they are at the post, never the last rebuild's, and
+//! both are withheld under I-4.
+//!
 //! The Slack app save, `POST …/slack` (US-IIS-03), behind the same guard:
 //! a blank or malformed field answers I-11 or I-12 before anything is
 //! touched, the typed client ID kept and both secrets cleared; without a sealing mode it answers I-3 and stores nothing; otherwise both
@@ -23,8 +30,10 @@ use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyMode, NoKeyReason};
 use crate::integrations::slack_app::{plan_save, Refusal, SavedApp, SlackAppForm, SlackField};
-use crate::integrations::store_capabilities::{InstanceKeyWrites, KeyProbe, StoreCapabilities};
-use crate::integrations::{slack, Integrations};
+use crate::integrations::store_capabilities::{
+    InstanceKeyWrites, KeyProbe, ResealRefused, StoreCapabilities,
+};
+use crate::integrations::{sealed_slot, slack, Integrations};
 use crate::AppState;
 use askama::Template;
 use axum::body::Bytes;
@@ -63,6 +72,14 @@ const DIRECT_NOTHING_SAVED: &str = "Credentials saved here are sealed directly w
 /// I-3.
 const NO_SECRETS_KEY: &str =
     "This Foundry has no secrets key yet. Foundry needs one to store Slack and Matrix credentials.";
+/// I-4: some saved credential opens under no key this server holds.
+const VALUES_UNOPENABLE: &str = "This Foundry cannot read some saved credentials: neither its instance key nor its previous instance key opens them. An instance operator sets the instance key they were sealed with as the previous instance key, and restarts Foundry.";
+/// I-22, n = 1.
+const MOVED_ONE: &str =
+    "Moved. 1 saved credential is sealed under a new secrets key. Nobody needs to reconnect.";
+/// I-22, n ≥ 2.
+const MOVED_MANY: &str =
+    "Moved. {n} saved credentials are sealed under a new secrets key. Nobody needs to reconnect.";
 /// I-26 (restore-only in Deliverable A).
 const SECRETS_KEY_UNOPENABLE: &str = "This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry.";
 /// I-8.
@@ -189,6 +206,24 @@ impl KeyOffer {
             Self::Move => MOVE_PATH,
         }
     }
+
+    /// Whether this door applies in `mode`, with I-4 holding or not.
+    pub fn applies(self, mode: KeyMode, unopenable_values: bool) -> bool {
+        match self {
+            Self::Generate => mode.generates(unopenable_values),
+            Self::Move => mode.moves(unopenable_values),
+        }
+    }
+}
+
+/// What a Generate or Move that stored the key answers: I-21 when nothing
+/// was re-sealed, else I-22 over the `moved` credentials.
+pub fn stored_notice(moved: usize) -> String {
+    match moved {
+        0 => SECRETS_KEY_GENERATED.to_string(),
+        1 => MOVED_ONE.to_string(),
+        n => MOVED_MANY.replace("{n}", &n.to_string()),
+    }
 }
 
 /// What the page shows and offers. Never a key, a key id or a secret.
@@ -196,7 +231,7 @@ impl KeyOffer {
 pub struct PageState {
     /// I-25, or I-27 / I-31 in its place.
     pub instance_key: String,
-    /// I-2, I-2e, I-2e0, I-3 or I-26; none without an instance key.
+    /// I-2, I-2e, I-2e0, I-3, I-4 or I-26; none without an instance key.
     pub secrets_key: Option<&'static str>,
     pub offer: Option<KeyOffer>,
     /// I-8 or I-9.
@@ -216,20 +251,18 @@ pub struct PageState {
 
 /// The page of `facts` (pure and total).
 pub fn page_state(facts: &PageFacts) -> PageState {
-    let (secrets_key, offer) = match facts.mode {
-        KeyMode::NoInstanceKey(_) => (None, None),
-        KeyMode::AwaitingSecretsKey => (
-            Some(NO_SECRETS_KEY),
-            facts
-                .mode
-                .generates(facts.unopenable_values)
-                .then_some(KeyOffer::Generate),
-        ),
-        KeyMode::Direct if facts.saved_direct => (Some(DIRECT_SAVED), Some(KeyOffer::Move)),
-        KeyMode::Direct => (Some(DIRECT_NOTHING_SAVED), Some(KeyOffer::Move)),
-        KeyMode::Sealed => (Some(SECRETS_KEY_SET), None),
-        KeyMode::Unopenable => (Some(SECRETS_KEY_UNOPENABLE), None),
+    let secrets_key = match facts.mode {
+        KeyMode::NoInstanceKey(_) => None,
+        KeyMode::Unopenable => Some(SECRETS_KEY_UNOPENABLE),
+        _ if facts.unopenable_values => Some(VALUES_UNOPENABLE),
+        KeyMode::AwaitingSecretsKey => Some(NO_SECRETS_KEY),
+        KeyMode::Direct if facts.saved_direct => Some(DIRECT_SAVED),
+        KeyMode::Direct => Some(DIRECT_NOTHING_SAVED),
+        KeyMode::Sealed => Some(SECRETS_KEY_SET),
     };
+    let offer = [KeyOffer::Generate, KeyOffer::Move]
+        .into_iter()
+        .find(|offer| offer.applies(facts.mode, facts.unopenable_values));
     let slack = slack_setup(facts);
     let environment_slack = facts
         .environment_slack
@@ -316,6 +349,10 @@ fn activity_line(row: &InstanceActivityRow) -> String {
     let actor = row.actor_name.as_deref().unwrap_or("Foundry");
     let what = match row.action.as_str() {
         "secrets_key_generated" => "generated the secrets key".to_string(),
+        "credentials_moved" => match row.count.unwrap_or_default() {
+            1 => "moved 1 credential under a secrets key".to_string(),
+            n => format!("moved {n} credentials under a secrets key"),
+        },
         "slack_app_saved" => format!(
             "saved the Slack app ({})",
             row.client_id.as_deref().unwrap_or_default()
@@ -338,8 +375,8 @@ struct InstancePage {
     csrf: String,
     /// Where the Slack app form posts.
     slack_door: &'static str,
-    /// What the post just did (I-21).
-    notice: Option<&'static str>,
+    /// What the post just did (I-21, I-22, I-10 …).
+    notice: Option<String>,
     /// The client ID a refused save typed, kept in the form (I-11, I-12).
     kept_client_id: String,
     page: PageState,
@@ -366,18 +403,40 @@ pub async fn generate_secrets_key(
     let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
-    let notice = generate(&state, user.user_id).await;
+    let notice = store_secrets_key(&state, user.user_id, KeyOffer::Generate).await;
     answer(&state, &user, &headers, notice, String::new()).await
 }
 
-/// Generate where it applies, then this server's integrations rebuilt and
-/// installed: I-21 when this post stored the key, else nothing to tell.
-async fn generate(state: &AppState, actor: Uuid) -> Option<&'static str> {
-    let integrations = state.integrations.current();
-    if !integrations
-        .key_mode()
-        .generates(integrations.secrets_check().degraded())
-    {
+/// `POST /admin/instance/integrations/secrets-key/move`: Move.
+pub async fn move_to_secrets_key(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let notice = store_secrets_key(&state, user.user_id, KeyOffer::Move).await;
+    answer(&state, &user, &headers, notice, String::new()).await
+}
+
+/// Generate or Move (one use-case, ADR-IIS-001 decision 5) where `door`
+/// applies over the stored rows as they are now, then this server's
+/// integrations rebuilt and installed: I-21 or I-22 when this post stored
+/// the key, else nothing to tell.
+async fn store_secrets_key(state: &AppState, actor: Uuid, door: KeyOffer) -> Option<String> {
+    let store = StoreCapabilities::new(state.store.clone());
+    let integrations = match store.instance_snapshot().await {
+        Ok(snapshot) => state.integrations.current().rebuilt(Ok(snapshot)),
+        Err(err) => {
+            tracing::warn!(error = %err, "reading the stored credentials failed");
+            return None;
+        }
+    };
+    if !door.applies(
+        integrations.key_mode(),
+        integrations.secrets_check().degraded(),
+    ) {
         return None;
     }
     let settings = integrations.settings();
@@ -385,21 +444,39 @@ async fn generate(state: &AppState, actor: Uuid) -> Option<&'static str> {
         Some(_) => KeyWrapper::Operator,
         None => KeyWrapper::File,
     };
-    let Some(plan) = settings
-        .secrets
-        .as_ref()
-        .and_then(|instance| plan_generate(instance, wrapped_by, Some(actor)))
-    else {
+    let instance = settings.secrets.as_ref()?;
+    let Some(plan) = plan_generate(instance, wrapped_by, Some(actor)) else {
         tracing::warn!(probe = "secrets", "generating the secrets key failed");
         return None;
     };
-    let store = StoreCapabilities::new(state.store.clone());
-    let outcome = store
-        .store_secrets_key(&plan.key, &plan.canary, state.clock.now(), &|_, _| Ok(None))
-        .await;
+    let reseal = |slot, sealed: &[u8]| {
+        plan.reseal(instance, &sealed_slot(slot), sealed)
+            .map(Some)
+            .ok_or(ResealRefused)
+    };
+    let now = state.clock.now();
+    let outcome = match door {
+        KeyOffer::Generate => {
+            store
+                .store_secrets_key(&plan.key, &plan.canary, now, &reseal)
+                .await
+        }
+        KeyOffer::Move => {
+            store
+                .move_to_secrets_key(&plan.key, &plan.canary, now, &reseal)
+                .await
+        }
+    };
     let notice = match outcome {
-        Ok(SecretsKeyOutcome::Stored { .. }) => Some(SECRETS_KEY_GENERATED),
-        Ok(SecretsKeyOutcome::AlreadyStored { .. } | SecretsKeyOutcome::Refused(_)) => None,
+        Ok(SecretsKeyOutcome::Stored { resealed, .. }) => Some(stored_notice(resealed)),
+        Ok(SecretsKeyOutcome::AlreadyStored { .. }) => None,
+        Ok(SecretsKeyOutcome::Refused(ResealRefused)) => {
+            tracing::warn!(
+                probe = "secrets",
+                "a stored credential could not be re-sealed; nothing changed"
+            );
+            None
+        }
         Err(err) => {
             tracing::warn!(error = %err, "storing the secrets key failed");
             return None;
@@ -429,13 +506,20 @@ pub async fn save_slack_app(
             &state,
             &user,
             &headers,
-            Some(refused(refusal)),
+            Some(refused(refusal).to_string()),
             form.client_id,
         )
         .await;
     }
     let notice = save_slack(&state, user.user_id, &form).await;
-    answer(&state, &user, &headers, notice, String::new()).await
+    answer(
+        &state,
+        &user,
+        &headers,
+        notice.map(str::to_string),
+        String::new(),
+    )
+    .await
 }
 
 /// What a refused save answers: I-11 for a blank field, I-12 for a
@@ -526,7 +610,7 @@ async fn answer(
     state: &AppState,
     user: &SessionUser,
     headers: &HeaderMap,
-    notice: Option<&'static str>,
+    notice: Option<String>,
     kept_client_id: String,
 ) -> Response {
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
@@ -771,6 +855,82 @@ mod tests {
         assert_eq!(
             activity_line(&row(None)),
             "21 Oct 2026 · Foundry generated the secrets key"
+        );
+    }
+
+    /// What a Generate or Move that stored the key answers, over n in
+    /// {0, 1, 2, many}: I-21 for none, I-22 singular for one, plural after.
+    #[test]
+    fn the_answer_names_how_many_credentials_moved() {
+        let i21 = "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.";
+        let table = [
+            (0, i21.to_string()),
+            (1, "Moved. 1 saved credential is sealed under a new secrets key. Nobody needs to reconnect.".to_string()),
+            (2, "Moved. 2 saved credentials are sealed under a new secrets key. Nobody needs to reconnect.".to_string()),
+            (137, "Moved. 137 saved credentials are sealed under a new secrets key. Nobody needs to reconnect.".to_string()),
+        ];
+        for (moved, words) in table {
+            assert_eq!(stored_notice(moved), words, "n = {moved}");
+        }
+    }
+
+    /// Every mode, with I-4 and without: Generate is offered only while
+    /// awaiting a secrets key, Move only while sealing directly, neither
+    /// under I-4, and I-4 names itself wherever the key line shows (I-26
+    /// keeps its own words).
+    #[test]
+    fn generate_and_move_are_withheld_under_i4_in_every_mode() {
+        use KeyMode::*;
+        let unwritable = NoInstanceKey(NoKeyReason::Unwritable);
+        let unreadable = NoInstanceKey(NoKeyReason::Unreadable);
+        #[rustfmt::skip]
+        let table = [
+            (unwritable,         false, None,                    None),
+            (unwritable,         true,  None,                    None),
+            (unreadable,         false, None,                    None),
+            (unreadable,         true,  None,                    None),
+            (AwaitingSecretsKey, false, Some(KeyOffer::Generate), Some(NO_SECRETS_KEY)),
+            (AwaitingSecretsKey, true,  None,                    Some(VALUES_UNOPENABLE)),
+            (Direct,             false, Some(KeyOffer::Move),    Some(DIRECT_SAVED)),
+            (Direct,             true,  None,                    Some(VALUES_UNOPENABLE)),
+            (Sealed,             false, None,                    Some(SECRETS_KEY_SET)),
+            (Sealed,             true,  None,                    Some(VALUES_UNOPENABLE)),
+            (Unopenable,         false, None,                    Some(SECRETS_KEY_UNOPENABLE)),
+            (Unopenable,         true,  None,                    Some(SECRETS_KEY_UNOPENABLE)),
+        ];
+        for (mode, unopenable_values, offer, line) in table {
+            let facts = PageFacts {
+                unopenable_values,
+                ..facts(mode, true, true)
+            };
+            let page = page_state(&facts);
+            assert_eq!((page.offer, page.secrets_key), (offer, line), "{facts:?}");
+            for door in [KeyOffer::Generate, KeyOffer::Move] {
+                assert_eq!(
+                    door.applies(mode, unopenable_values),
+                    offer == Some(door),
+                    "{door:?} {facts:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_move_line_names_how_many_credentials_moved() {
+        let row = |count: i32| InstanceActivityRow {
+            created_at: time::macros::datetime!(2026-10-21 14:02 UTC),
+            actor_name: Some("Priya Raman".to_string()),
+            action: "credentials_moved".into(),
+            client_id: None,
+            count: Some(count),
+        };
+        assert_eq!(
+            activity_line(&row(2)),
+            "21 Oct 2026 · Priya Raman moved 2 credentials under a secrets key"
+        );
+        assert_eq!(
+            activity_line(&row(1)),
+            "21 Oct 2026 · Priya Raman moved 1 credential under a secrets key"
         );
     }
 

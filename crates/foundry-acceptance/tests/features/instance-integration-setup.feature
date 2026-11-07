@@ -125,7 +125,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya is not offered "Start over"
     And Priya is offered no way to enter the Slack app
 
-  @pending @us-iis-01 @us-iis-02 @us-iis-06 @kpi-iis-2 @error
+  @us-iis-01 @us-iis-02 @us-iis-06 @kpi-iis-2 @error
   Scenario Outline: Saved credentials no held key opens are named, and generate and move change nothing
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     And Foundry's environment sets the Slack app 6123456789012.7234567890123
@@ -351,7 +351,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then #auth-dev shows within 10 seconds a Foundry message "AUTH-12 Rotate LLDAP bind password" / "New issue in Identity Platform by Sam Okafor · Backlog" with Open in Foundry
     And the instance integrations page reads "Saved credentials are sealed directly with the instance key. Move them under a secrets key to manage it here."
 
-  @pending @us-iis-06 @kpi-iis-5 @kpi-iis-4
+  @us-iis-06 @kpi-iis-5 @kpi-iis-4
   Scenario: Moving to a secrets key re-seals everything and nobody reconnects
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     And Foundry's environment sets the Slack app 6123456789012.7234567890123
@@ -366,7 +366,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Sam files "Rotate LLDAP bind password" in Identity Platform
     Then #auth-dev shows within 10 seconds a Foundry message "AUTH-12 Rotate LLDAP bind password" / "New issue in Identity Platform by Sam Okafor · Backlog" with Open in Foundry
 
-  @pending @iis-replica @us-iis-06 @kpi-iis-5 @kpi-iis-4
+  @iis-replica @us-iis-06 @kpi-iis-5 @kpi-iis-4
   Scenario: After a move on one replica, every replica opens the moved credentials and keeps delivering
     Given this Foundry runs as two replicas with the legacy FOUNDRY_SECRETS_KEY setting
     And Foundry's environment sets the Slack app 6123456789012.7234567890123
@@ -380,7 +380,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Sam files "Rotate LLDAP bind password" in Identity Platform
     Then within 60 seconds every replica's history of the route to #auth-dev lists AUTH-12 as delivered
 
-  @pending @us-iis-06 @error
+  @us-iis-06 @error
   Scenario: Moving with nothing saved yet just generates the secrets key
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     When Priya chooses "Move to a secrets key" on the instance integrations page

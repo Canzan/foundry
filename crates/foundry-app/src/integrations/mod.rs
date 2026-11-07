@@ -31,7 +31,9 @@ use config::IntegrationSettings;
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
 use foundry_integrations::ChannelKind;
 use foundry_services::integrations::{DestinationCatalogs, UnreadableConnections};
-use foundry_store::integrations::{InstanceSnapshot, KeyCheck, SavedSlackApp, SealedConnection};
+use foundry_store::integrations::{
+    InstanceSnapshot, KeyCheck, SavedSlackApp, SealedConnection, SealedSlot,
+};
 use keys::{CredentialBox, InstanceKeySource, KeyFile, KeyFileRead, KeyMode, Keyring};
 use outbound::OutboundHttp;
 use project_emails::ProjectMail;
@@ -121,6 +123,16 @@ pub fn credential_slot(connection_id: uuid::Uuid) -> SecretSlot {
     )
 }
 
+/// The row a stored sealed value is bound to, as a Generate or Move is
+/// handed it.
+pub fn sealed_slot(slot: SealedSlot) -> SecretSlot {
+    match slot {
+        SealedSlot::Connection(connection_id) => credential_slot(connection_id),
+        SealedSlot::SlackClientSecret => slack_app::client_secret_slot(),
+        SealedSlot::SlackSigningSecret => slack_app::signing_secret_slot(),
+    }
+}
+
 /// The current key's check value, freshly sealed (`None` if sealing fails).
 pub fn key_check(secrets: &SecretBox) -> Option<KeyCheck> {
     let key_id = secrets.current_key_id().to_string();
@@ -173,6 +185,10 @@ pub struct Integrations {
     /// The config version of the stored rows these were judged over; `None`
     /// before any were read, or when the read failed.
     applied_version: Option<i64>,
+    /// Woken when a sealed value names a key id this server does not hold:
+    /// this replica's reload then runs at once (ADR-IIS-004, rate-limited
+    /// there). Shared with every rebuild.
+    reload_nudge: Arc<tokio::sync::Notify>,
 }
 
 impl Integrations {
@@ -253,6 +269,7 @@ impl Integrations {
         integrations.key_file = self.key_file;
         integrations.saved_slack = self.saved_slack.clone();
         integrations.saved_app = self.saved_app;
+        integrations.reload_nudge = self.reload_nudge.clone();
         integrations.probed(snapshot, self.keyring.secrets_key())
     }
 
@@ -274,6 +291,7 @@ impl Integrations {
             secrets: SecretsCheck::default(),
             keyring,
             applied_version: None,
+            reload_nudge: Arc::new(tokio::sync::Notify::new()),
         }
     }
 
@@ -560,11 +578,21 @@ impl Integrations {
 
     /// The connection's bot token, when this Foundry's keys open it for that
     /// row (ADR-EIP-004: the row-bound slot).
+    /// A credential sealed under a key id this server does not hold nudges
+    /// the reload: another replica may have just moved or replaced the key.
     fn open_credential(&self, connection_id: uuid::Uuid, sealed: Vec<u8>) -> Option<SecretString> {
-        self.credentials().open(
-            &SealedSecret::from_bytes(sealed),
-            &credential_slot(connection_id),
-        )
+        let sealed = SealedSecret::from_bytes(sealed);
+        let credentials = self.credentials();
+        let opened = credentials.open(&sealed, &credential_slot(connection_id));
+        if opened.is_none() && !credentials.holds(&sealed.key_id().to_string()) {
+            self.reload_nudge.notify_one();
+        }
+        opened
+    }
+
+    /// What this replica's reload waits on besides its period.
+    pub fn reload_nudge(&self) -> Arc<tokio::sync::Notify> {
+        self.reload_nudge.clone()
     }
 
     /// Ask Slack to withdraw the access the connection's (already forgotten)

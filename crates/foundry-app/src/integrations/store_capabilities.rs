@@ -190,6 +190,16 @@ pub trait InstanceKeyWrites: Send + Sync {
         reseal: Resealer<'_>,
     ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError>;
 
+    /// [`Self::store_secrets_key`] for Move: the outcome and the "moved n"
+    /// line count credentials (a connection, the saved Slack app), I-22.
+    async fn move_to_secrets_key(
+        &self,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        at: OffsetDateTime,
+        reseal: Resealer<'_>,
+    ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError>;
+
     /// Save the Slack app, fenced on the key its secrets were sealed under,
     /// with its activity line and the version bump: one transaction.
     async fn save_slack_app(&self, app: &SlackAppSave) -> Result<SlackSaveOutcome, StoreError>;
@@ -382,6 +392,18 @@ impl InstanceKeyWrites for StoreCapabilities {
     ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError> {
         self.0
             .store_secrets_key(key, canary, at, |slot, sealed| reseal(slot, sealed))
+            .await
+    }
+
+    async fn move_to_secrets_key(
+        &self,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        at: OffsetDateTime,
+        reseal: Resealer<'_>,
+    ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError> {
+        self.0
+            .move_to_secrets_key(key, canary, at, |slot, sealed| reseal(slot, sealed))
             .await
     }
 
