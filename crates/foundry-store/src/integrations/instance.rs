@@ -157,6 +157,19 @@ pub struct ReplicaState {
     pub beat_at: OffsetDateTime,
 }
 
+/// One instance activity line as stored, newest first in a read (I-18).
+/// Never a key, a secret, a key id or a length.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstanceActivityRow {
+    pub created_at: OffsetDateTime,
+    /// The actor's display name; `None` for Foundry itself.
+    pub actor_name: Option<String>,
+    /// The stored action's wire name (`secrets_key_generated`, …).
+    pub action: String,
+    pub client_id: Option<String>,
+    pub count: Option<i32>,
+}
+
 /// The instance activity lines this module writes (ADR-IIS-005).
 #[derive(Clone, Copy)]
 enum Activity {
@@ -370,6 +383,42 @@ impl Store {
             key_checks,
             sealed_credentials,
         })
+    }
+
+    /// The instance's latest activity lines, newest first (I-18).
+    pub async fn instance_activity(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<InstanceActivityRow>, StoreError> {
+        type Row = (
+            OffsetDateTime,
+            Option<String>,
+            String,
+            Option<String>,
+            Option<i32>,
+        );
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT a.created_at, u.display_name, a.action, a.client_id, a.count
+               FROM instance_integration_audit_events a
+               LEFT JOIN users u ON u.id = a.actor_id
+              ORDER BY a.created_at DESC, a.id DESC
+              LIMIT $1",
+        )
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(created_at, actor_name, action, client_id, count)| InstanceActivityRow {
+                    created_at,
+                    actor_name,
+                    action,
+                    client_id,
+                    count,
+                },
+            )
+            .collect())
     }
 
     /// Upsert this replica's state row: the only write a reload makes.

@@ -71,7 +71,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya is offered no way to enter the Slack app
     And Priya reads "Matrix: needs the secrets key (above). Nothing else is set up for Matrix on this Foundry."
 
-  @pending @us-iis-01 @kpi-iis-2
+  @us-iis-01 @kpi-iis-2
   Scenario: With a secrets key the page shows what to paste into Slack
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key
@@ -83,7 +83,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya reads "Matrix: ready. Workspace admins connect their own Matrix bot on their workspace's integrations page."
     And Priya is not offered "Generate secrets key"
 
-  @pending @us-iis-01 @kpi-iis-2 @error
+  @us-iis-01 @kpi-iis-2 @error
   Scenario: Unreachable Slack addresses are named before Priya copies them
     Given this Foundry starts with its instance key set by the operator
     And the operator has not given this Foundry its public address
@@ -113,7 +113,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya reads "Matrix: ready. Workspace admins connect their own Matrix bot on their workspace's integrations page."
 
   # Deliverable A: I-26 is restore-only (no Replace, no Start over).
-  @pending @us-iis-01 @us-iis-08 @kpi-iis-2 @error
+  @us-iis-01 @us-iis-08 @kpi-iis-2 @error
   Scenario: A missing or different instance key is named, never silent
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key
@@ -244,7 +244,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
       | no instance key setting and an instance key file it cannot read | This Foundry cannot read its instance key file (/var/lib/foundry/instance.key).                                |
       | the legacy FOUNDRY_SECRETS_KEY setting                           | Credentials saved here are sealed directly with the instance key. Move to a secrets key to manage it here.    |
 
-  @pending @us-iis-02 @kpi-iis-1
+  @us-iis-02 @kpi-iis-1
   Scenario: Generating is recorded
     Given this Foundry starts with its instance key set by the operator
     When Priya chooses "Generate secrets key" on the instance integrations page

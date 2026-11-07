@@ -13,11 +13,12 @@
 
 use super::config::KeySetting;
 use foundry_auth::secret_box::{
-    SealedSecret, SecretBox, SecretSlot, SecretsKey, INSTANCE_KEY_SETTING,
+    GeneratedKey, SealedSecret, SecretBox, SecretSlot, SecretsKey, INSTANCE_KEY_SETTING,
 };
-use foundry_store::integrations::StoredSecretsKey;
+use foundry_store::integrations::{KeyCheck, KeyWrapper, NewSecretsKey, StoredSecretsKey};
 use secrecy::SecretString;
 use std::collections::BTreeSet;
+use uuid::Uuid;
 
 /// Why this server holds no instance key (I-27 / I-31).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,6 +100,54 @@ impl KeyMode {
     pub fn seals(self) -> bool {
         matches!(self, Self::Direct | Self::Sealed)
     }
+
+    /// Whether Generate applies (ADR-IIS-001 decision 5): only while awaiting
+    /// a secrets key, and never while some stored value opens under no held
+    /// key (I-4, `unopenable_values`).
+    pub fn generates(self, unopenable_values: bool) -> bool {
+        self == Self::AwaitingSecretsKey && !unopenable_values
+    }
+}
+
+/// What Generate stores: a new secrets key wrapped under the sealing
+/// instance key, and the new key's check value. No `Debug`: it carries the
+/// wrapped key.
+pub struct GeneratePlan {
+    pub key: NewSecretsKey,
+    pub canary: KeyCheck,
+}
+
+/// A new secrets key, wrapped under `instance`'s current key (decision 2:
+/// the value wrapped is the key's base64url text), with its canary. `None`
+/// when the random source or sealing fails.
+pub fn plan_generate(
+    instance: &SecretBox,
+    wrapped_by: KeyWrapper,
+    created_by: Option<Uuid>,
+) -> Option<GeneratePlan> {
+    let generated = SecretsKey::generate().ok()?;
+    plan_of(instance, generated, wrapped_by, created_by)
+}
+
+fn plan_of(
+    instance: &SecretBox,
+    generated: GeneratedKey,
+    wrapped_by: KeyWrapper,
+    created_by: Option<Uuid>,
+) -> Option<GeneratePlan> {
+    let wrapped = instance.seal(&generated.text, &secrets_key_slot()).ok()?;
+    let secrets = SecretBox::new(generated.key, Vec::new());
+    let canary = super::key_check(&secrets)?;
+    Some(GeneratePlan {
+        key: NewSecretsKey {
+            key_id: secrets.current_key_id().to_string(),
+            wrapped_key: wrapped.as_bytes().to_vec(),
+            wrapped_by_key_id: instance.current_key_id().to_string(),
+            wrapped_by,
+            created_by,
+        },
+        canary,
+    })
 }
 
 /// Where the instance key file's key comes from: an injected capability, so
@@ -455,6 +504,44 @@ mod tests {
         assert!(!credentials.holds(&id(1)));
     }
 
+    /// The stored row a plan's key becomes.
+    fn stored_of(plan: &GeneratePlan) -> StoredSecretsKey {
+        StoredSecretsKey {
+            key_id: plan.key.key_id.clone(),
+            wrapped_key: plan.key.wrapped_key.clone(),
+            wrapped_by_key_id: plan.key.wrapped_by_key_id.clone(),
+            wrapped_by: plan.key.wrapped_by,
+            rewrapped_from_path: None,
+            created_by: plan.key.created_by,
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    /// The Generate gate over every mode, with and without I-4: only
+    /// `AwaitingSecretsKey` without I-4 generates.
+    #[rustfmt::skip]
+    #[test]
+    fn generate_applies_only_while_awaiting_a_secrets_key_and_never_under_i4() {
+        use KeyMode::*;
+        let table = [
+            (NoInstanceKey(NoKeyReason::Unwritable), false, false),
+            (NoInstanceKey(NoKeyReason::Unwritable), true, false),
+            (NoInstanceKey(NoKeyReason::Unreadable), false, false),
+            (NoInstanceKey(NoKeyReason::Unreadable), true, false),
+            (Direct, false, false),
+            (Direct, true, false),
+            (AwaitingSecretsKey, false, true),
+            (AwaitingSecretsKey, true, false),
+            (Sealed, false, false),
+            (Sealed, true, false),
+            (Unopenable, false, false),
+            (Unopenable, true, false),
+        ];
+        for (mode, i4, generates) in table {
+            assert_eq!(mode.generates(i4), generates, "{mode:?}, I-4 {i4}");
+        }
+    }
+
     /// Held ids are keys 1–3 (the operator's and its previous keys); 4–6 are
     /// keys this server never held.
     fn stored_ids(mask: u8) -> BTreeSet<String> {
@@ -494,6 +581,32 @@ mod tests {
             if row.is_none() && some_held {
                 prop_assert_eq!(mode, KeyMode::Direct);
             }
+        }
+    }
+
+    proptest! {
+        /// For any instance key: generate, wrap, unwrap and parse round-trip
+        /// to the same key id; the canary is the new key's; the row unwraps
+        /// to `Sealed` and seals under the new key.
+        #[test]
+        fn a_generated_key_wrapped_under_any_instance_key_unwraps_to_the_same_key_id(
+            bytes in any::<[u8; 32]>(),
+            created_by in any::<u128>(),
+        ) {
+            let text = SecretString::from(URL_SAFE_NO_PAD.encode(bytes));
+            let instance = SecretBox::new(SecretsKey::parse(&text, INSTANCE_KEY_SETTING).expect("32 bytes"), vec![]);
+            let actor = Some(Uuid::from_u128(created_by));
+            let plan = plan_generate(&instance, KeyWrapper::Operator, actor).expect("the plan");
+            prop_assert_eq!(&plan.key.wrapped_by_key_id, &instance.current_key_id().to_string());
+            prop_assert_eq!(&plan.canary.key_id, &plan.key.key_id);
+            prop_assert_eq!(plan.key.created_by, actor);
+            let stored = stored_of(&plan);
+            let unwrapped = unwrap_secrets_key(&instance, &stored).expect("unwraps");
+            prop_assert_eq!(unwrapped.current_key_id().to_string(), plan.key.key_id.clone());
+            let keyring = Keyring::resolve(Some(&instance), Some(InstanceKey), KeyFile::Unwritable, Some(&stored), &BTreeSet::new());
+            prop_assert_eq!(keyring.mode(), KeyMode::Sealed);
+            let sealing = keyring.credentials(Some(&instance)).sealing().map(|b| b.current_key_id().to_string());
+            prop_assert_eq!(sealing, Some(plan.key.key_id.clone()));
         }
     }
 }

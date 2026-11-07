@@ -49,7 +49,7 @@ pub async fn show_slack_setup(
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
     let page = SetupPage {
         nav: caller.nav(&state, csrf).await,
-        manifest: slack::manifest(&state.integrations.current().settings().public_url),
+        manifest: slack::manifest(&state.integrations.current()),
     };
     render(page.render(), set_cookie)
 }

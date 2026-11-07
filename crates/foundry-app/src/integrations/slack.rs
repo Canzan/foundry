@@ -542,18 +542,23 @@ fn domain_of(url: &str) -> Option<String> {
 }
 
 /// The Slack app manifest for this instance (DD-9): its return and events
-/// addresses, the bot scopes and events, and nothing secret.
-pub fn manifest(public_url: &str) -> String {
+/// addresses, both from `integrations`, the bot scopes and events, and
+/// nothing secret.
+pub fn manifest(integrations: &super::Integrations) -> String {
+    let (return_url, events_url) = (
+        integrations.slack_return_url(),
+        integrations.slack_events_url(),
+    );
     let manifest = json!({
         "display_information": { "name": "Foundry" },
         "features": { "bot_user": { "display_name": "Foundry", "always_online": false } },
         "oauth_config": {
-            "redirect_urls": [format!("{public_url}{RETURN_PATH}")],
+            "redirect_urls": [return_url],
             "scopes": { "bot": BOT_SCOPES }
         },
         "settings": {
             "event_subscriptions": {
-                "request_url": format!("{public_url}{EVENTS_PATH}"),
+                "request_url": events_url,
                 "bot_events": BOT_EVENTS
             },
             "org_deploy_enabled": false,
@@ -587,7 +592,10 @@ mod tests {
 
     #[test]
     fn the_manifest_names_this_instance_and_asks_only_the_bot_scopes() {
-        let manifest = manifest("https://foundry.canzan.dev");
+        let integrations = crate::integrations::Integrations::new(
+            crate::integrations::config::IntegrationSettings::off("https://foundry.canzan.dev"),
+        );
+        let manifest = manifest(&integrations);
         assert!(manifest.contains("https://foundry.canzan.dev/workspace/integrations/slack/return"));
         assert!(manifest.contains("https://foundry.canzan.dev/integrations/slack/events"));
         for scope in BOT_SCOPES {

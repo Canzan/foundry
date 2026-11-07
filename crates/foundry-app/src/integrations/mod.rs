@@ -147,8 +147,11 @@ impl SecretsCheck {
 
 /// The integration settings and the adapters built from them.
 pub struct Integrations {
-    settings: IntegrationSettings,
-    slack: Option<SlackApp>,
+    /// Shared with the integrations a reload rebuilds from them.
+    settings: Arc<IntegrationSettings>,
+    slack: Option<Arc<SlackApp>>,
+    /// The key file as boot found it (consulted only without an operator key).
+    key_file: KeyFile,
     /// Built on first use, so a test-support build reaches a test host
     /// admitted after these integrations were installed.
     outbound: std::sync::OnceLock<OutboundHttp>,
@@ -161,7 +164,7 @@ impl Integrations {
     /// cannot be built, and startup stops.
     pub fn try_new(settings: IntegrationSettings) -> Result<Self, SlackClientError> {
         let slack = settings.slack.as_ref().map(SlackApp::build).transpose()?;
-        Ok(Self::assembled(settings, slack))
+        Ok(Self::assembled(settings, slack.map(Arc::new)))
     }
 
     /// [`Self::try_new`] for tests, whose clients always build.
@@ -172,21 +175,8 @@ impl Integrations {
 
     /// Integrations judged over no stored rows (the boot function judges
     /// them over the stored ones).
-    fn assembled(settings: IntegrationSettings, slack: Option<SlackApp>) -> Self {
-        let keyring = Keyring::resolve(
-            settings.secrets.as_ref(),
-            settings.key_setting,
-            KeyFile::Unwritable,
-            None,
-            &BTreeSet::new(),
-        );
-        Self {
-            settings,
-            slack,
-            outbound: std::sync::OnceLock::new(),
-            secrets: SecretsCheck::default(),
-            keyring,
-        }
+    fn assembled(settings: IntegrationSettings, slack: Option<Arc<SlackApp>>) -> Self {
+        Self::assembled_from(Arc::new(settings), slack)
     }
 
     /// The one boot function (ADR-IIS-001 decision 9), shared by `main.rs`
@@ -217,32 +207,63 @@ impl Integrations {
                 }
             }
         };
-        let integrations = Self::try_new(settings)?;
-        if let Some(check) = integrations.key_check() {
+        let integrations = Self {
+            key_file,
+            ..Self::try_new(settings)?
+        };
+        Ok(integrations.probed(store).await)
+    }
+
+    /// The same boot over the stored rows as they are now, from these
+    /// integrations' settings, Slack app and key file: what the serving
+    /// replica installs after an instance write commits.
+    pub async fn reboot(&self, store: &dyn store_capabilities::KeyProbe) -> Self {
+        let mut integrations = Self::assembled_from(self.settings.clone(), self.slack.clone());
+        integrations.key_file = self.key_file;
+        integrations.probed(store).await
+    }
+
+    fn assembled_from(settings: Arc<IntegrationSettings>, slack: Option<Arc<SlackApp>>) -> Self {
+        let keyring = Keyring::resolve(
+            settings.secrets.as_ref(),
+            settings.key_setting,
+            KeyFile::Unwritable,
+            None,
+            &BTreeSet::new(),
+        );
+        Self {
+            settings,
+            slack,
+            key_file: KeyFile::Unwritable,
+            outbound: std::sync::OnceLock::new(),
+            secrets: SecretsCheck::default(),
+            keyring,
+        }
+    }
+
+    /// The boot's probe (ADR-IIS-001 decision 9): the current instance key's
+    /// check value recorded, the stored rows read, the key mode resolved and
+    /// the stored key ids judged, the verdict logged.
+    async fn probed(self, store: &dyn store_capabilities::KeyProbe) -> Self {
+        let key_file = self.key_file;
+        if let Some(check) = self.key_check() {
             if let Err(err) = store.record_key_check(&check).await {
                 tracing::warn!(error = %err, "secrets probe: recording the key check failed");
             }
         }
         let (keyring, secrets) = match store.instance_snapshot().await {
-            Ok(snapshot) => integrations.probe(&snapshot, key_file),
+            Ok(snapshot) => self.probe(&snapshot, key_file),
             Err(err) => {
                 tracing::warn!(error = %err, "secrets probe: reading stored credentials failed");
                 let unknown = SecretsCheck {
                     missing_key_ids: vec!["unknown".to_string()],
                 };
-                (
-                    integrations.keyring_over(None, &BTreeSet::new(), key_file),
-                    unknown,
-                )
+                (self.keyring_over(None, &BTreeSet::new(), key_file), unknown)
             }
         };
-        let integrations = Self {
-            keyring,
-            ..integrations
-        }
-        .with_secrets_check(secrets);
+        let integrations = Self { keyring, ..self }.with_secrets_check(secrets);
         integrations.log_secrets_verdict();
-        Ok(integrations)
+        integrations
     }
 
     /// The key mode and the probe's verdict over `snapshot`.
@@ -385,12 +406,17 @@ impl Integrations {
     }
 
     pub(crate) fn slack(&self) -> Option<&SlackApp> {
-        self.slack.as_ref()
+        self.slack.as_deref()
     }
 
     /// Slack's fixed return address for this instance.
     pub fn slack_return_url(&self) -> String {
         format!("{}{}", self.settings.public_url, slack::RETURN_PATH)
+    }
+
+    /// Slack's events address for this instance.
+    pub fn slack_events_url(&self) -> String {
+        format!("{}{}", self.settings.public_url, slack::EVENTS_PATH)
     }
 
     /// Whether this process delivers: its worker is on and it can seal, or a

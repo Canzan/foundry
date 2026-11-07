@@ -3,6 +3,7 @@
 {% block app_content %}
 <main data-instance-integrations>
   <h1>Integrations for this Foundry</h1>
+  {% if let Some(notice) = notice %}<p data-instance-notice role="status">{{ notice }}</p>{% endif %}
   <section data-instance-key>
     <p data-instance-key-line>{{ page.instance_key }}</p>
     {% if let Some(line) = page.secrets_key %}<p data-secrets-key-line>{{ line }}</p>{% endif %}
@@ -13,9 +14,27 @@
     </form>
     {% endif %}
   </section>
+  {% if let Some(slack) = page.slack %}
+  <section data-integration="slack">
+    <h2>Slack</h2>
+    {% if let Some(warning) = slack.warning %}<p data-public-url-warning role="alert">{{ warning }}</p>{% endif %}
+    <p data-slack-line>{{ slack.line }}</p>
+    <pre data-slack-manifest>{{ slack.addresses.manifest }}</pre>
+    <p>Redirect URL <code data-slack-redirect-url>{{ slack.addresses.redirect_url }}</code></p>
+    <p>Events URL <code data-slack-events-url>{{ slack.addresses.events_url }}</code></p>
+  </section>
+  {% endif %}
   <section data-integration="matrix">
     <h2>Matrix</h2>
     <p data-matrix-line>{{ page.matrix }}</p>
   </section>
+  {% if !activity.is_empty() %}
+  <section data-instance-integration-activity>
+    <h2>Activity</h2>
+    <ul>
+      {% for line in activity %}<li>{{ line }}</li>{% endfor %}
+    </ul>
+  </section>
+  {% endif %}
 </main>
 {% endblock %}

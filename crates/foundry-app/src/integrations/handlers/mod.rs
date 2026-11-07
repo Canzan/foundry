@@ -4,7 +4,10 @@
 //!
 //! - `GET /admin/instance/integrations`: the instance integrations page
 //!   (instance admins, US-IIS-01): where the instance key comes from (I-25),
-//!   the secrets key's state with Generate or Move, and Matrix's line.
+//!   the secrets key's state with Generate or Move, Slack's manifest and
+//!   addresses with a secrets key (I-5, I-29), Matrix's line and the activity.
+//! - `POST /admin/instance/integrations/secrets-key`: Generate (US-IIS-02),
+//!   where it applies; anywhere else it changes nothing and answers the page.
 //! - `GET /workspace/integrations`: the Slack connection (K-1), what is
 //!   missing (K-2, K-20) or Add to Slack, and the activity list (R-4).
 //! - `POST /workspace/integrations/matrix`: connects Matrix (admins,
@@ -82,7 +85,7 @@ mod routes;
 mod slack_setup;
 mod workspace;
 
-pub use instance::{show_instance, INSTANCE_PATH};
+pub use instance::{generate_secrets_key, show_instance, INSTANCE_PATH, SECRETS_KEY_PATH};
 pub use matrix_setup::connect_matrix;
 pub use routes::{
     create_route, delete_route, edit_route, pause_route, preview_route, resume_route, send_test,

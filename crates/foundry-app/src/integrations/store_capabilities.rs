@@ -15,13 +15,16 @@
 //! - [`ConnectionHealth`]: the events door's `connected → lost` transition
 //!   on Slack's signed word;
 //! - [`KeyProbe`]: the boot function's reads of the stored instance rows and
-//!   its one write, the current instance key's check value.
+//!   its one write, the current instance key's check value;
+//! - [`InstanceKeyWrites`]: the instance page's Generate (one write
+//!   use-case, `store_secrets_key`) and its activity read.
 
 use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
-    DispatchOutcome, EmailSendFacts, InstanceSnapshot, KeyCheck, LostConnection, NewDelivery,
-    PendingDelivery, Pruned, Pruning, RecordOutcome, RetentionView,
+    DispatchOutcome, EmailSendFacts, InstanceActivityRow, InstanceSnapshot, KeyCheck,
+    LostConnection, NewDelivery, NewSecretsKey, PendingDelivery, Pruned, Pruning, RecordOutcome,
+    RetentionView, SealedSlot, SecretsKeyOutcome,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -35,6 +38,15 @@ pub type DispatchPlanner<'a> = &'a (dyn Fn(&DispatchBatch) -> Vec<NewDelivery> +
 pub type ClaimChooser<'a> = &'a (dyn Fn(&ClaimView) -> Option<i64> + Sync);
 /// The expiry plan a sweep applies.
 pub type ExpiryPlanner<'a> = &'a (dyn Fn(&[PendingDelivery]) -> Vec<i64> + Sync);
+/// The re-seal a Generate or Move applies to each stored sealed value:
+/// `None` keeps it as it is; a refusal rolls the whole write back.
+pub type Resealer<'a> =
+    &'a (dyn Fn(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, ResealRefused> + Sync);
+
+/// A stored value the re-seal could not open or seal again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ResealRefused;
+
 /// The retention plan a sweep applies.
 pub type RetentionPlanner<'a> = &'a (dyn Fn(&RetentionView) -> Pruning + Sync);
 
@@ -143,6 +155,24 @@ pub trait KeyProbe: Send + Sync {
     async fn record_key_check(&self, check: &KeyCheck) -> Result<(), StoreError>;
     /// The stored instance rows, read in one snapshot.
     async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError>;
+}
+
+/// The instance integrations page's writes and its activity (ADR-IIS-001
+/// decision 5).
+#[async_trait]
+pub trait InstanceKeyWrites: Send + Sync {
+    /// Create-if-absent the secrets key, re-seal through `reseal`, write the
+    /// canary and the activity line, bump the version: one transaction.
+    async fn store_secrets_key(
+        &self,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        at: OffsetDateTime,
+        reseal: Resealer<'_>,
+    ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError>;
+
+    /// The instance's latest activity lines, newest first.
+    async fn instance_activity(&self, limit: i64) -> Result<Vec<InstanceActivityRow>, StoreError>;
 }
 
 /// Every capability, over the store.
@@ -295,5 +325,24 @@ impl KeyProbe for StoreCapabilities {
 
     async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError> {
         self.0.instance_snapshot().await
+    }
+}
+
+#[async_trait]
+impl InstanceKeyWrites for StoreCapabilities {
+    async fn store_secrets_key(
+        &self,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        at: OffsetDateTime,
+        reseal: Resealer<'_>,
+    ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError> {
+        self.0
+            .store_secrets_key(key, canary, at, |slot, sealed| reseal(slot, sealed))
+            .await
+    }
+
+    async fn instance_activity(&self, limit: i64) -> Result<Vec<InstanceActivityRow>, StoreError> {
+        self.0.instance_activity(limit).await
     }
 }

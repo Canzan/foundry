@@ -844,6 +844,11 @@ pub fn build_router(state: AppState) -> Router {
             integrations::handlers::INSTANCE_PATH,
             get(integrations::handlers::show_instance),
         )
+        // US-IIS-02: Generate, behind the same guard; carries `_csrf`.
+        .route(
+            integrations::handlers::SECRETS_KEY_PATH,
+            post(integrations::handlers::generate_secrets_key),
+        )
         .route(
             integrations::handlers::WORKSPACE_PATH,
             get(integrations::handlers::show_workspace),

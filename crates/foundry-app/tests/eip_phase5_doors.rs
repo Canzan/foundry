@@ -560,6 +560,7 @@ mod router {
         clock: Arc<MockClock>,
         calls: Calls,
         settings_key: IntegrationSettings,
+        integrations: IntegrationsHandle,
         url: String,
         ws: Uuid,
         priya: Uuid,
@@ -623,6 +624,7 @@ mod router {
                 .expect("project");
             let (slack, calls) = slack().await;
             let clock = MockClock::new(time::OffsetDateTime::now_utc());
+            let integrations = IntegrationsHandle::new(Integrations::new(settings(&slack)));
             let state = AppState {
                 oidc: None,
                 store: store.clone(),
@@ -639,7 +641,7 @@ mod router {
                 db_schema: "public".into(),
                 public_url: "http://foundry.test".into(),
                 clock: clock.clone(),
-                integrations: IntegrationsHandle::new(Integrations::new(settings(&slack))),
+                integrations: integrations.clone(),
                 notifier: Arc::new(Notifier::new(vec![])),
                 revoke_rate_limiter: Arc::new(
                     foundry_app::rate_limit::RevokeRateLimiter::default(),
@@ -662,6 +664,7 @@ mod router {
                 clock,
                 calls,
                 settings_key: settings(&slack),
+                integrations,
                 url,
                 ws,
                 priya,
@@ -899,6 +902,56 @@ mod router {
         assert_eq!(status, StatusCode::OK, "{setup}");
         assert!(setup.contains("/integrations/slack/events"), "{setup}");
         lab.start_install(&priya).await;
+    }
+
+    // instance-integration-setup US-IIS-02 (SC-6): Priya, a workspace admin
+    // but not an instance admin (Tomás in the stories), posting Generate gets
+    // the uniform not-found and no secrets key is stored. The same post from
+    // her as an instance admin stores exactly one.
+    #[tokio::test]
+    async fn only_an_instance_admin_generates_the_secrets_key() {
+        const DOOR: &str = "/admin/instance/integrations/secrets-key";
+        let lab = Lab::start().await;
+        let env = [
+            ("FOUNDRY_INSTANCE_KEY", SECRETS_KEY),
+            ("FOUNDRY_INTEGRATIONS_WORKER", "off"),
+        ];
+        let awaiting = IntegrationSettings::from_lookup(
+            |name| {
+                env.iter()
+                    .find(|(k, _)| *k == name)
+                    .map(|(_, v)| v.to_string())
+            },
+            "http://foundry.test",
+        )
+        .expect("complete settings");
+        lab.integrations.install(Integrations::new(awaiting));
+        let secrets_keys = || async {
+            sqlx::query_scalar::<_, i64>("SELECT count(*) FROM integration_secrets_key")
+                .fetch_one(lab.store.pool())
+                .await
+                .expect("count secrets keys")
+        };
+        let priya = lab.sign_in(PRIYA).await;
+        let (status, body) = lab.answer(form(DOOR, &priya, &[])).await;
+        assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
+        assert!(body.contains(NOT_FOUND), "{body}");
+        assert_eq!(secrets_keys().await, 0, "no secrets key was stored");
+
+        exec(
+            &lab.store,
+            "INSERT INTO instance_admins (user_id) VALUES ($1)",
+            &[lab.priya],
+        )
+        .await;
+        let (status, body) = lab.answer(form(DOOR, &priya, &[])).await;
+        assert_eq!(status, StatusCode::OK, "{body}");
+        assert!(body.contains("Secrets key generated."), "{body}");
+        assert_eq!(
+            secrets_keys().await,
+            1,
+            "the instance admin's post stored it"
+        );
     }
 
     // ADR-EIP-005 decision 4: Slack's return is accepted only with the state

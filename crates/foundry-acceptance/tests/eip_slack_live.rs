@@ -23,8 +23,9 @@ use axum::http::HeaderMap;
 use axum::routing::{get, post};
 use axum::Router;
 use foundry_acceptance::support::slack_double::sign_v0;
-use foundry_app::integrations::config::SlackSettings;
+use foundry_app::integrations::config::{IntegrationSettings, SlackSettings};
 use foundry_app::integrations::slack::{manifest, SlackApp, EVENTS_PATH, RETURN_PATH};
+use foundry_app::integrations::Integrations;
 use secrecy::SecretString;
 use serde_json::{json, Map, Value};
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -95,7 +96,8 @@ async fn record() {
     let redirect_uri = format!("{public_url}{RETURN_PATH}");
     let approval = secrets.app().approval_url(STATE, &redirect_uri);
     println!("SLACK-RECORD-MANIFEST-BEGIN");
-    println!("{}", manifest(&public_url));
+    let integrations = Integrations::new(IntegrationSettings::off(&public_url));
+    println!("{}", manifest(&integrations));
     println!("SLACK-RECORD-MANIFEST-END");
     println!("SLACK-RECORD-APPROVAL {approval}");
 

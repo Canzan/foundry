@@ -1,20 +1,31 @@
 //! The instance integrations page, `GET /admin/instance/integrations`
-//! (US-IIS-01): behind `require_instance_admin`, the uniform 404 for everyone
-//! else. It only reads. What it shows and offers is [`page_state`], a pure
-//! function of the key mode and where the instance key comes from; the posts
-//! its buttons carry land in later steps.
+//! (US-IIS-01), and its Generate, `POST …/secrets-key` (US-IIS-02): both
+//! behind `require_instance_admin`, the uniform 404 for everyone else. What
+//! the page shows and offers is [`page_state`], a pure function of the key
+//! mode, where the instance key comes from and Slack's addresses.
+//!
+//! Generate applies only where [`KeyMode::generates`] holds; anywhere else it
+//! changes nothing and answers the page as it is. It builds the plan (a new
+//! key wrapped under the instance key, and its canary), hands it to the one
+//! write use-case, and after the commit rebuilds this server's integrations
+//! through the shared boot probe ([`Integrations::reboot`]) and installs them
+//! before it answers I-21. Other replicas follow on their reload (ADR-IIS-004).
 
 use super::render;
-use crate::bootstrap::resource_not_found_page;
+use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
-use crate::integrations::keys::{KeyMode, NoKeyReason};
-use crate::integrations::Integrations;
+use crate::integrations::keys::{plan_generate, KeyMode, NoKeyReason};
+use crate::integrations::store_capabilities::{InstanceKeyWrites, StoreCapabilities};
+use crate::integrations::{slack, Integrations};
 use crate::AppState;
 use askama::Template;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Response;
+use foundry_store::integrations::{InstanceActivityRow, KeyWrapper, SecretsKeyOutcome};
+use time::OffsetDateTime;
 use tower_sessions::Session;
+use uuid::Uuid;
 
 pub const INSTANCE_PATH: &str = "/admin/instance/integrations";
 pub const SECRETS_KEY_PATH: &str = "/admin/instance/integrations/secrets-key";
@@ -44,6 +55,14 @@ const NO_SECRETS_KEY: &str =
 const SECRETS_KEY_UNOPENABLE: &str = "This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry.";
 /// I-8.
 const MATRIX_READY: &str = "Matrix: ready. Workspace admins connect their own Matrix bot on their workspace's integrations page.";
+/// I-5.
+const SLACK_NOT_SET_UP: &str = "Slack: not set up. Create the Foundry Slack app in Slack from the manifest below, then enter its credentials.";
+/// I-29, above I-5's addresses.
+const PUBLIC_URL_FELL_BACK: &str = "FOUNDRY_PUBLIC_URL is not set, so the addresses below use {fallback_url}, which Slack cannot reach. An instance operator sets FOUNDRY_PUBLIC_URL to this Foundry's public address and restarts Foundry.";
+/// I-21.
+const SECRETS_KEY_GENERATED: &str = "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.";
+/// How many activity lines the page lists.
+const ACTIVITY_LINES: i64 = 20;
 /// I-9.
 const MATRIX_NEEDS_KEY: &str =
     "Matrix: needs the secrets key (above). Nothing else is set up for Matrix on this Foundry.";
@@ -58,6 +77,31 @@ pub struct PageFacts {
     pub key_file: String,
     /// Some stored credential is sealed directly under a held instance key.
     pub saved_direct: bool,
+    /// Some stored value opens under no key this server holds (I-4).
+    pub unopenable_values: bool,
+    /// A Slack app is in effect on this server.
+    pub slack_app: bool,
+    pub addresses: SlackAddresses,
+}
+
+/// What Slack is told about this Foundry, from its integrations (one source
+/// with the Slack setup page).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlackAddresses {
+    pub manifest: String,
+    pub redirect_url: String,
+    pub events_url: String,
+    /// The fallback address, when `FOUNDRY_PUBLIC_URL` is unset (I-29).
+    pub fell_back_to: Option<String>,
+}
+
+/// I-5 with what to paste into Slack, and I-29 above it when the addresses
+/// fell back.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlackSetup {
+    pub warning: Option<String>,
+    pub line: &'static str,
+    pub addresses: SlackAddresses,
 }
 
 /// The key action the page offers: a submit control carrying the copy.
@@ -95,13 +139,21 @@ pub struct PageState {
     pub offer: Option<KeyOffer>,
     /// I-8 or I-9.
     pub matrix: &'static str,
+    /// I-5: with a secrets key and no Slack app.
+    pub slack: Option<SlackSetup>,
 }
 
 /// The page of `facts` (pure and total).
 pub fn page_state(facts: &PageFacts) -> PageState {
     let (secrets_key, offer) = match facts.mode {
         KeyMode::NoInstanceKey(_) => (None, None),
-        KeyMode::AwaitingSecretsKey => (Some(NO_SECRETS_KEY), Some(KeyOffer::Generate)),
+        KeyMode::AwaitingSecretsKey => (
+            Some(NO_SECRETS_KEY),
+            facts
+                .mode
+                .generates(facts.unopenable_values)
+                .then_some(KeyOffer::Generate),
+        ),
         KeyMode::Direct if facts.saved_direct => (Some(DIRECT_SAVED), Some(KeyOffer::Move)),
         KeyMode::Direct => (Some(DIRECT_NOTHING_SAVED), Some(KeyOffer::Move)),
         KeyMode::Sealed => (Some(SECRETS_KEY_SET), None),
@@ -116,7 +168,20 @@ pub fn page_state(facts: &PageFacts) -> PageState {
         } else {
             MATRIX_NEEDS_KEY
         },
+        slack: slack_setup(facts),
     }
+}
+
+fn slack_setup(facts: &PageFacts) -> Option<SlackSetup> {
+    (facts.mode == KeyMode::Sealed && !facts.slack_app).then(|| SlackSetup {
+        warning: facts
+            .addresses
+            .fell_back_to
+            .as_ref()
+            .map(|url| PUBLIC_URL_FELL_BACK.replace("{fallback_url}", url)),
+        line: SLACK_NOT_SET_UP,
+        addresses: facts.addresses.clone(),
+    })
 }
 
 fn instance_key_line(facts: &PageFacts) -> String {
@@ -137,7 +202,33 @@ fn facts_of(integrations: &Integrations) -> PageFacts {
         operator_key: settings.key_setting.is_some(),
         key_file: settings.data_dir.join(KEY_FILE_NAME).display().to_string(),
         saved_direct: integrations.holds_direct_seals(),
+        unopenable_values: integrations.secrets_check().degraded(),
+        slack_app: integrations.slack().is_some(),
+        addresses: SlackAddresses {
+            manifest: slack::manifest(integrations),
+            redirect_url: integrations.slack_return_url(),
+            events_url: integrations.slack_events_url(),
+            fell_back_to: settings
+                .public_url_fell_back
+                .then(|| settings.public_url.clone()),
+        },
     }
+}
+
+/// An activity line as I-18 reads it.
+fn activity_line(row: &InstanceActivityRow) -> String {
+    let actor = row.actor_name.as_deref().unwrap_or("Foundry");
+    let what = match row.action.as_str() {
+        "secrets_key_generated" => "generated the secrets key".to_string(),
+        other => other.replace('_', " "),
+    };
+    format!("{} · {actor} {what}", display_date(row.created_at))
+}
+
+/// "21 Oct 2026".
+fn display_date(at: OffsetDateTime) -> String {
+    let month = at.month().to_string();
+    format!("{} {} {}", at.day(), &month[..3], at.year())
 }
 
 #[derive(Template)]
@@ -145,7 +236,10 @@ fn facts_of(integrations: &Integrations) -> PageFacts {
 struct InstancePage {
     nav: crate::nav::NavContext,
     csrf: String,
+    /// What the post just did (I-21).
+    notice: Option<&'static str>,
     page: PageState,
+    activity: Vec<String>,
 }
 
 pub async fn show_instance(
@@ -156,17 +250,101 @@ pub async fn show_instance(
     let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
-    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    answer(&state, &user, &headers, None).await
+}
+
+/// `POST /admin/instance/integrations/secrets-key`: Generate.
+pub async fn generate_secrets_key(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let notice = generate(&state, user.user_id).await;
+    answer(&state, &user, &headers, notice).await
+}
+
+/// Generate where it applies, then this server's integrations rebuilt and
+/// installed: I-21 when this post stored the key, else nothing to tell.
+async fn generate(state: &AppState, actor: Uuid) -> Option<&'static str> {
+    let integrations = state.integrations.current();
+    if !integrations
+        .key_mode()
+        .generates(integrations.secrets_check().degraded())
+    {
+        return None;
+    }
+    let settings = integrations.settings();
+    let wrapped_by = match settings.key_setting {
+        Some(_) => KeyWrapper::Operator,
+        None => KeyWrapper::File,
+    };
+    let Some(plan) = settings
+        .secrets
+        .as_ref()
+        .and_then(|instance| plan_generate(instance, wrapped_by, Some(actor)))
+    else {
+        tracing::warn!(probe = "secrets", "generating the secrets key failed");
+        return None;
+    };
+    let store = StoreCapabilities::new(state.store.clone());
+    let outcome = store
+        .store_secrets_key(&plan.key, &plan.canary, state.clock.now(), &|_, _| Ok(None))
+        .await;
+    let notice = match outcome {
+        Ok(SecretsKeyOutcome::Stored { .. }) => Some(SECRETS_KEY_GENERATED),
+        Ok(SecretsKeyOutcome::AlreadyStored { .. } | SecretsKeyOutcome::Refused(_)) => None,
+        Err(err) => {
+            tracing::warn!(error = %err, "storing the secrets key failed");
+            return None;
+        }
+    };
+    state
+        .integrations
+        .install(integrations.reboot(&*store).await);
+    notice
+}
+
+/// The page as this server's integrations are now, with `notice` above it.
+async fn answer(
+    state: &AppState,
+    user: &SessionUser,
+    headers: &HeaderMap,
+    notice: Option<&'static str>,
+) -> Response {
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let page = page_state(&facts_of(&state.integrations.current()));
+    let activity = match StoreCapabilities::new(state.store.clone())
+        .instance_activity(ACTIVITY_LINES)
+        .await
+    {
+        Ok(rows) => rows.iter().map(activity_line).collect(),
+        Err(err) => {
+            tracing::warn!(error = %err, "reading the instance activity failed");
+            Vec::new()
+        }
+    };
     let nav = crate::nav::NavContext::home_for(
-        &state,
+        state,
         user.user_id,
         user.workspace_id,
         true,
         csrf.clone(),
     )
     .await;
-    render(InstancePage { nav, csrf, page }.render(), set_cookie)
+    render(
+        InstancePage {
+            nav,
+            csrf,
+            notice,
+            page,
+            activity,
+        }
+        .render(),
+        set_cookie,
+    )
 }
 
 #[cfg(test)]
@@ -175,14 +353,35 @@ mod tests {
 
     const FILE: &str = "/data/instance.key";
 
+    fn addresses(fell_back_to: Option<&str>) -> SlackAddresses {
+        SlackAddresses {
+            manifest: "{\"manifest\": true}".to_string(),
+            redirect_url: "https://foundry.example.org/workspace/integrations/slack/return".into(),
+            events_url: "https://foundry.example.org/integrations/slack/events".into(),
+            fell_back_to: fell_back_to.map(str::to_string),
+        }
+    }
+
     fn facts(mode: KeyMode, operator_key: bool, saved_direct: bool) -> PageFacts {
         PageFacts {
             mode,
             operator_key,
             key_file: FILE.to_string(),
             saved_direct,
+            unopenable_values: false,
+            slack_app: false,
+            addresses: addresses(None),
         }
     }
+
+    const ALL_MODES: [KeyMode; 6] = [
+        KeyMode::NoInstanceKey(NoKeyReason::Unwritable),
+        KeyMode::NoInstanceKey(NoKeyReason::Unreadable),
+        KeyMode::Direct,
+        KeyMode::AwaitingSecretsKey,
+        KeyMode::Sealed,
+        KeyMode::Unopenable,
+    ];
 
     fn file_line() -> String {
         KEY_IN_FILE.replace("{path}", FILE)
@@ -223,17 +422,98 @@ mod tests {
         ];
         for (mode, operator_key, saved_direct, instance_key, secrets_key, offer, matrix) in table {
             let facts = facts(mode, operator_key, saved_direct);
+            let page = page_state(&facts);
             assert_eq!(
-                page_state(&facts),
-                PageState {
-                    instance_key,
-                    secrets_key,
-                    offer,
-                    matrix
-                },
+                (page.instance_key, page.secrets_key, page.offer, page.matrix),
+                (instance_key, secrets_key, offer, matrix),
                 "{facts:?}"
             );
         }
+    }
+
+    /// Every mode, with I-4 or without: Generate is offered exactly where
+    /// the gate lets it apply.
+    #[test]
+    fn generate_is_offered_only_where_it_applies() {
+        for mode in ALL_MODES {
+            for unopenable_values in [false, true] {
+                let facts = PageFacts {
+                    unopenable_values,
+                    ..facts(mode, true, false)
+                };
+                let offered = page_state(&facts).offer == Some(KeyOffer::Generate);
+                assert_eq!(offered, mode.generates(unopenable_values), "{facts:?}");
+            }
+        }
+    }
+
+    /// I-5 and its addresses show only with a secrets key and no Slack app;
+    /// I-29 names the fallback above them only when the address fell back.
+    #[test]
+    fn slacks_addresses_show_with_a_secrets_key_and_no_app() {
+        for mode in ALL_MODES {
+            for slack_app in [false, true] {
+                for fell_back_to in [None, Some("http://localhost:8080")] {
+                    let facts = PageFacts {
+                        slack_app,
+                        addresses: addresses(fell_back_to),
+                        ..facts(mode, true, false)
+                    };
+                    let expected = (mode == KeyMode::Sealed && !slack_app).then(|| SlackSetup {
+                        warning: fell_back_to.map(|_| "FOUNDRY_PUBLIC_URL is not set, so the addresses below use http://localhost:8080, which Slack cannot reach. An instance operator sets FOUNDRY_PUBLIC_URL to this Foundry's public address and restarts Foundry.".to_string()),
+                        line: SLACK_NOT_SET_UP,
+                        addresses: addresses(fell_back_to),
+                    });
+                    assert_eq!(page_state(&facts).slack, expected, "{facts:?}");
+                }
+            }
+        }
+    }
+
+    /// One Integrations: the page's manifest is the setup page's, and both
+    /// addresses it shows are the ones the manifest names.
+    #[test]
+    fn the_pages_addresses_and_manifest_come_from_one_integrations() {
+        use crate::integrations::config::IntegrationSettings;
+        let mut settings = IntegrationSettings::off("http://localhost:8080");
+        settings.public_url_fell_back = true;
+        let integrations = Integrations::new(settings);
+        let addresses = facts_of(&integrations).addresses;
+        assert_eq!(addresses.manifest, slack::manifest(&integrations));
+        assert_eq!(
+            addresses.redirect_url,
+            "http://localhost:8080/workspace/integrations/slack/return"
+        );
+        assert_eq!(
+            addresses.events_url,
+            "http://localhost:8080/integrations/slack/events"
+        );
+        for url in [&addresses.redirect_url, &addresses.events_url] {
+            assert!(addresses.manifest.contains(url.as_str()), "{url}");
+        }
+        assert_eq!(
+            addresses.fell_back_to.as_deref(),
+            Some("http://localhost:8080")
+        );
+    }
+
+    #[test]
+    fn an_activity_line_names_its_date_and_actor() {
+        let row = |actor: Option<&str>| InstanceActivityRow {
+            created_at: time::macros::datetime!(2026-10-21 14:02 UTC),
+            actor_name: actor.map(str::to_string),
+            action: "secrets_key_generated".into(),
+            client_id: None,
+            count: None,
+        };
+        assert_eq!(
+            activity_line(&row(Some("Priya Raman"))),
+            "21 Oct 2026 · Priya Raman generated the secrets key"
+        );
+        assert_eq!(
+            activity_line(&row(None)),
+            "21 Oct 2026 · Foundry generated the secrets key"
+        );
     }
 
     #[test]
