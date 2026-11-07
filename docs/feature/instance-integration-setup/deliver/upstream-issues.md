@@ -120,3 +120,53 @@ Found while planning the roadmap (2026-11-06). None blocks a step; each has a pl
 35. **Gaps left by 03-04.** The handler's retry-once after a reload has no test of its own; the
     seal-fence rule reads string literals only, so a `format!`-split write could slip past;
     an absent seam file passes the marker check (an absent seam cannot ship).
+36. **04-01 split the store's count: values vs credentials.** I-22 counts credentials (each
+    connection 1, the saved app 1); the 01-02 store test `move_reseals_every_sealed_value_in_
+    the_same_transaction` asserts sealed values (app = 2). 04-01 added `move_to_secrets_key`
+    in `foundry-store/src/integrations/instance.rs` (out of plan) sharing the transaction
+    body; `store_secrets_key` still counts values. For the L1-L6 pass / acceptance designer:
+    change the store test to count credentials and fold the two back into one. Also out of
+    plan: `handlers/mod.rs` re-export. Items 27 and 34 handled for Move (fresh snapshot gate;
+    exclusive lock through the shared body).
+37. **05-01 (4d9f5ef) deviations.** Out of plan: `integrations/config.rs` now re-exports
+    `DATA_DIR`/`DEFAULT_DATA_DIR` from `key_file.rs` so the literal lives only in the adapter.
+    Item 7 closed (temp `FOUNDRY_DATA_DIR` per eip/wayfinding scenario). Item 14 NOT done:
+    holding the superseded file key as a previous key needs a foundry-auth `SecretBox` API to
+    add a previous key after build; belongs with ADR-IIS-002 r5 (re-wrap, I-18, I-30, Deliverable
+    B). Left for 05-02: ADR r3 (no file minted when the DB holds a secrets key or direct seals),
+    a link EPERM gold test, the owner check on a pre-existing file (no libc in foundry-app).
+    `multi_replica_harness.rs` still boots replicas with `NoKeyFile`; shared-directory scenarios
+    must change it. eip/wayfinding lanes not rerun after the ENOTDIR fix (temp dir is writable).
+38. **05-02 (5c82d08) RED did not fail.** The four target scenarios already passed on 05-01's
+    code; RED logged EXECUTED/FAIL. New behaviour (r3: no file minted over a stored secrets key
+    or direct seals; link EPERM/ENOTSUP -> I-27) is pinned by gold tests written alongside the
+    code, not before. Expect des-verify-integrity to flag it. Out of plan: `keys.rs`
+    (`key_file(may_make)`, `KeyFileRead::Withheld`, `KeyFile::Withheld`; decide maps Withheld
+    to Unopenable / AwaitingSecretsKey+I-4, never I-27). Owner check on a pre-existing file
+    compares file uid with data-dir uid and only warns (`integrations.key_file.other_owner`);
+    ADR is silent on refuse vs warn. Item 37 sub-points closed.
+39. **Withheld still shows I-25.** With no file made, the page's key line still reads "made by
+    Foundry in {path}". Needs a DESIGN/DISTILL copy decision and a `handlers/instance.rs` edit.
+40. **Boot reads the store snapshot twice** (before the key file, then in `reboot`). Share it in
+    the refactor pass.
+41. **key_file.rs mutation: 59% so far (13 caught / 9 missed / 7 unviable, 29 of 35 run at the
+    3600 s bound).** Misses: warning-only branches (lines 119, 126, 148; no tracing capture),
+    line 78 (non-NotFound stat error -> Unreadable untested), line 166 (EEXIST lost race never
+    reached; needs a link seam returning AlreadyExists), line 192 (fresh-file check cannot fail
+    on a real fs). Mutation stage must close these.
+42. **05-03 (c947ba9) recording integrity.** RED EXECUTED FAIL was logged (13:15:03Z) before the
+    RED run; the run that followed did fail 1 of 15 (the un-pended scenario, cause not kept in
+    the truncated log). Store CAS and admin_cli tests were written alongside the code, never
+    seen failing. Expect des-verify-integrity to flag both.
+43. **05-03 item closures.** Item 14 done via the out-of-plan foundry-auth builder
+    `SecretBox::with_previous(self, key)` (boot holds only the built box, not the raw key).
+    Item 34 done: rotation runs in `Store::rotate_instance_key` under the exclusive lock, all or
+    nothing. The old `foundry-store/src/integrations/keys.rs::reseal_credentials` is now
+    test-only (two eip_store tests) and still on the seal-fence allow-list: retire it with its
+    tests and allow-list entry (refactor or 06-0x). Item 40 partly done (`reboot` still re-reads).
+    Item 39 untouched. Out of plan: foundry-auth `secret_box.rs`, store `integrations/mod.rs`,
+    `store_capabilities.rs` (`KeyProbe::rewrap_secrets_key`), `config.rs` (`secrets()` now
+    pub(crate)), `boot(..., now)` signature through main.rs, eip support, multi_replica_harness,
+    iis_reload, key_file test probe; check-arch `SEAL_FENCED_WRITERS` +`update_wrapped_key`;
+    new `foundry-app/tests/iis_admin_cli_rotate.rs`. Rotation writes no activity line (no copy).
+    RELEASING R-5 (06-03) must quote the new rotate-secrets output lines.
