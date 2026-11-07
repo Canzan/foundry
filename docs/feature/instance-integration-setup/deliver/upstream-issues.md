@@ -51,3 +51,37 @@ Found while planning the roadmap (2026-11-06). None blocks a step; each has a pl
     unused key; kept as today's eip behaviour.
 14. **Operator key plus key file.** With an operator key set, the key file is not read. Adding a
     superseded key file as a previous key is for 05-01.
+15. **02-01 touched two files outside its plan.** `instance_admin.rs` makes
+    `require_instance_admin` `pub(crate)` (no behaviour change) so the instance page reuses
+    the uniform 404. `integrations/mod.rs` adds read-only `key_mode()` and
+    `holds_direct_seals()` so the page can tell I-3 from I-2e0 and I-2e from I-2e0.
+16. **02-02 touched files outside its plan.** `foundry-store/src/integrations/instance.rs` and
+    `mod.rs` add `instance_activity(limit)` (SQL on 0033 tables stays in that module);
+    `handlers/mod.rs` exports the POST; `foundry-app/tests/eip_phase5_doors.rs` holds the
+    Tomás handler test; `foundry-acceptance/tests/eip_slack_live.rs` follows the new
+    `slack::manifest(&Integrations)`. `no_connection.rs` needed no change.
+17. **Reload is `Integrations::reboot`, not `boot`.** It shares boot's probe steps but not the
+    function, because `IntegrationSettings` cannot be cloned (`SecretBox`). 02-04 should make
+    the poll reload use the same path, or fold `reboot` into `boot`.
+18. **Activity copy.** Only "generated the secrets key" has copy; other actions render their
+    stored name with spaces until their steps add copy (02-03 adds the Slack save line).
+19. **02-03 touched files outside its plan.** `handlers/mod.rs` re-exports the save handler;
+    `foundry-store/src/lib.rs` adds `Store::user_display_name` for I-6's "saved by";
+    `Cargo.lock` gains `base64`/`hex` for foundry-acceptance (earlier lockfile drift).
+20. **Left open by 02-03.** No field validation on the Slack save (03-02 owns I-11/I-12). A saved
+    app uses Slack's default API/authorize URLs; the `SLACK_API_BASE_URL`/`SLACK_AUTHORIZE_URL`
+    seams apply only to the env trio (03-03 must apply them to the saved app). The Slack form
+    renders only in Sealed mode, not Direct, although the POST accepts Direct.
+21. **02-04 resolved items 12 and 17.** The replica harness boots through `Integrations::boot`;
+    boot, the serving-replica apply and the reload share `Integrations::rebuilt`. Out-of-plan
+    edits: `multi_replica_harness.rs`, `external_integration_plugins.rs` (await), `keys.rs`
+    (`resolve_holding` keeps a held key whose id is unchanged). Item 10 stays open; the
+    `key_mode` wire names are now `no_instance_key`, `direct`, `awaiting_secrets_key`, `sealed`, `unopenable`.
+22. **For DISTILL: the race scenario does not exercise the reload.** "Two generate requests at the
+    same moment" passes with the reload deleted, since each replica rebuilds after its own POST.
+    Only the walking skeleton and `foundry-app/tests/iis_reload.rs` depend on the loop.
+23. **Roadmap lane tag.** `us-02-multi-replica` matches nothing; the tag is `@multi-replica`.
+24. **For DEVOPS: metrics not wired.** D5 / task 8's `foundry_integration_secrets_degraded` and
+    `probe_failures_total` updates from the reload are in no step's criteria; pick up in 06-0x.
+25. **"Reload never touches the key file" holds by construction** (no `InstanceKeySource` in
+    `Reload`/`rebuilt`), not by a test.
