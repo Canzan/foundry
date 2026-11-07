@@ -56,6 +56,11 @@ pub enum KeyFile {
     Unwritable,
     /// The file exists but cannot be read.
     Unreadable,
+    /// No file, and none made: the database already holds a secrets key or
+    /// a sealed value a new key could never open (ADR-IIS-002 r3). Judged
+    /// as a held key that opens nothing stored: `Unopenable` or I-4, never
+    /// I-27.
+    Withheld,
 }
 
 /// The stored secrets key, as far as the held instance keys go.
@@ -82,7 +87,8 @@ impl KeyMode {
     /// The mode of `facts`. Precedence: `NoInstanceKey`, then a stored key
     /// (`Sealed` or `Unopenable`), then `Direct` or `AwaitingSecretsKey`.
     pub fn decide(facts: &KeyFacts) -> Self {
-        let holds = facts.operator.is_some() || facts.key_file == KeyFile::Held;
+        let holds =
+            facts.operator.is_some() || matches!(facts.key_file, KeyFile::Held | KeyFile::Withheld);
         match (holds, facts.key_file, facts.stored_key) {
             (false, KeyFile::Unreadable, _) => Self::NoInstanceKey(NoKeyReason::Unreadable),
             (false, _, _) => Self::NoInstanceKey(NoKeyReason::Unwritable),
@@ -180,8 +186,8 @@ fn plan_of(
 /// Where the instance key file's key comes from: an injected capability, so
 /// the boot function never touches the filesystem itself.
 pub trait InstanceKeySource: Send + Sync {
-    /// Read (or make) the key file.
-    fn key_file(&self) -> KeyFileRead;
+    /// Read the key file, or make it when `may_make` and it is absent.
+    fn key_file(&self, may_make: bool) -> KeyFileRead;
 }
 
 /// What a key source read. No `Debug`: it carries a key.
@@ -189,13 +195,15 @@ pub enum KeyFileRead {
     Held(Box<SecretsKey>),
     Unwritable,
     Unreadable,
+    /// Absent, and not made (`may_make` was false).
+    Withheld,
 }
 
 /// No key file adapter (until ADR-IIS-002 lands): the file cannot be made.
 pub struct NoKeyFile;
 
 impl InstanceKeySource for NoKeyFile {
-    fn key_file(&self) -> KeyFileRead {
+    fn key_file(&self, _may_make: bool) -> KeyFileRead {
         KeyFileRead::Unwritable
     }
 }
@@ -406,7 +414,8 @@ mod tests {
 
     /// The ADR's table, read row by row in its precedence order.
     fn adr_mode(facts: &KeyFacts) -> KeyMode {
-        let holds = facts.operator.is_some() || facts.key_file == KeyFile::Held;
+        let holds =
+            facts.operator.is_some() || matches!(facts.key_file, KeyFile::Held | KeyFile::Withheld);
         if !holds && facts.key_file == KeyFile::Unreadable {
             return KeyMode::NoInstanceKey(NoKeyReason::Unreadable);
         }
@@ -431,7 +440,12 @@ mod tests {
     fn every_combination_of_facts_takes_the_adr_mode() {
         let mut seen = BTreeSet::new();
         for operator in [None, Some(InstanceKey), Some(LegacySecretsKey)] {
-            for key_file in [KeyFile::Held, KeyFile::Unwritable, KeyFile::Unreadable] {
+            for key_file in [
+                KeyFile::Held,
+                KeyFile::Unwritable,
+                KeyFile::Unreadable,
+                KeyFile::Withheld,
+            ] {
                 for stored_key in [
                     StoredKey::Absent,
                     StoredKey::Unwraps,
@@ -474,6 +488,8 @@ mod tests {
             (facts(Some(LegacySecretsKey), KeyFile::Unwritable, StoredKey::Unwraps, true), Sealed),
             (facts(Some(LegacySecretsKey), KeyFile::Unwritable, StoredKey::DoesNotUnwrap, true), Unopenable),
             (facts(None, KeyFile::Held, StoredKey::Absent, false), AwaitingSecretsKey),
+            // no file minted over a stored key (ADR-IIS-002 r3): I-26, never I-27
+            (facts(None, KeyFile::Withheld, StoredKey::DoesNotUnwrap, false), Unopenable),
         ];
         for (facts, mode) in table {
             assert_eq!(KeyMode::decide(&facts), mode, "{facts:?}");

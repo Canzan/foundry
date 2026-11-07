@@ -227,13 +227,18 @@ impl Integrations {
         key_source: &dyn InstanceKeySource,
     ) -> Result<Self, SlackClientError> {
         // The key file is consulted only without an operator key; with one,
-        // its state does not enter the mode.
+        // its state does not enter the mode. It is made only over a database
+        // holding nothing an earlier key sealed (ADR-IIS-002 r3).
         let key_file = if settings.secrets.is_some() {
             KeyFile::Unwritable
         } else {
-            match key_source.key_file() {
+            let may_make = store.instance_snapshot().await.is_ok_and(|snapshot| {
+                snapshot.secrets_key.is_none() && sealed_values(&snapshot).is_empty()
+            });
+            match key_source.key_file(may_make) {
                 KeyFileRead::Unwritable => KeyFile::Unwritable,
                 KeyFileRead::Unreadable => KeyFile::Unreadable,
+                KeyFileRead::Withheld => KeyFile::Withheld,
                 KeyFileRead::Held(key) => {
                     settings.secrets = Some(SecretBox::new(*key, Vec::new()));
                     KeyFile::Held

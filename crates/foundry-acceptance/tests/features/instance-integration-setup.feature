@@ -412,7 +412,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
   # ------------------------------------------------------------------ US-IIS-08
 
-  @pending @iis-subprocess @us-iis-08 @kpi-iis-6 @kpi-iis-2
+  @iis-subprocess @us-iis-08 @kpi-iis-6 @kpi-iis-2
   Scenario: A standalone Foundry makes its own instance key, says what to back up, and turns on Matrix in one click
     Given Foundry runs as the operator's standalone process with no instance key setting and a writable data directory
     When Priya opens the instance integrations page
@@ -421,7 +421,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya chooses "Generate secrets key" on the instance integrations page
     Then Canzan Labs' workspace integrations page offers to connect Matrix
 
-  @pending @iis-subprocess @us-iis-08 @kpi-iis-6 @error
+  @iis-subprocess @us-iis-08 @kpi-iis-6 @error
   Scenario: Servers starting together on one data directory make one key file and share it
     Given two Foundry servers share one data directory and neither has an instance key setting
     When both servers start at the same moment
@@ -429,7 +429,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya generates the secrets key on the first server
     Then within 60 seconds the second server's instance integrations page reads "Secrets key: set. Credentials entered here are sealed with it."
 
-  @pending @us-iis-08 @kpi-iis-6
+  @us-iis-08 @kpi-iis-6
   Scenario: The key file is reused, not remade, on restart
     Given this Foundry starts with no instance key setting and a writable data directory
     And Priya has generated the secrets key
@@ -439,7 +439,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And the instance integrations page reads "Slack: set up here · app 6123456789012.7234567890123"
     And Canzan Labs' workspace integrations page offers Add to Slack
 
-  @pending @us-iis-08 @kpi-iis-2 @error
+  @us-iis-08 @kpi-iis-2 @error
   Scenario: A server with a different key file says so and still serves
     Given this Foundry starts with no instance key setting and a writable data directory
     And Priya has generated the secrets key

@@ -10,8 +10,11 @@
 //! `O_CREAT|O_EXCL|O_WRONLY` with mode 0600 at open, the key written and
 //! `fsync`ed, then `link(2)`ed to `instance.key` (`EEXIST`: another server
 //! won), the directory `fsync`ed, the temp file removed and whichever file
-//! exists read back. An existing `instance.key` is never overwritten, chmod-ed
-//! or removed. No key, and no file content, is ever logged.
+//! exists read back. A filesystem without hard links (`EPERM`, `ENOTSUP`)
+//! cannot hold the file (I-27). No file is made over a database that already
+//! holds what an earlier key sealed (r3). An existing `instance.key` is never
+//! overwritten, chmod-ed or removed. No key, and no file content, is ever
+//! logged.
 
 use super::keys::{InstanceKeySource, KeyFileRead};
 use foundry_auth::secret_box::{SecretsKey, INSTANCE_KEY_SETTING};
@@ -42,11 +45,16 @@ pub fn key_path(data_dir: &Path) -> PathBuf {
 /// the shared boot is given.
 pub struct InstanceKeyFile {
     dir: PathBuf,
+    /// `link(2)`: the one call a filesystem without hard links refuses.
+    link: fn(&Path, &Path) -> std::io::Result<()>,
 }
 
 impl InstanceKeyFile {
     pub fn in_dir(dir: impl Into<PathBuf>) -> Self {
-        Self { dir: dir.into() }
+        Self {
+            dir: dir.into(),
+            link: |from, to| std::fs::hard_link(from, to),
+        }
     }
 
     /// The key file of `settings`' data directory.
@@ -58,17 +66,25 @@ impl InstanceKeyFile {
         key_path(&self.dir)
     }
 
-    /// The probe (ADR-IIS-002 r2, r6): leftover temp files removed, then the
-    /// existing file read, or a new one made, linked, read back and checked
-    /// before its key is used.
-    fn probe(&self) -> KeyFileRead {
+    /// The probe (ADR-IIS-002 r2, r3, r6): leftover temp files removed,
+    /// then the existing file read, or, when `may_make`, a new one made,
+    /// linked, read back and checked before its key is used.
+    fn probe(&self, may_make: bool) -> KeyFileRead {
         self.remove_leftovers();
         match std::fs::symlink_metadata(self.path()) {
             Ok(_) => self.read_existing(),
             // No file there; a data directory that is no directory cannot
             // take one, which the attempt reports (I-27).
             Err(err) if matches!(err.kind(), ErrorKind::NotFound | ErrorKind::NotADirectory) => {
-                self.create()
+                if may_make {
+                    self.create()
+                } else {
+                    tracing::warn!(
+                        event = "integrations.key_file.withheld",
+                        "no instance key file: none is made while the database holds what an earlier instance key sealed"
+                    );
+                    KeyFileRead::Withheld
+                }
             }
             Err(err) => {
                 tracing::warn!(
@@ -95,7 +111,8 @@ impl InstanceKeyFile {
     }
 
     /// A file that was already there: used when it parses, even with wider
-    /// bits (warned, never chmod-ed); never rewritten when it does not.
+    /// bits or another owner than its data directory's (warned, never
+    /// chmod-ed or chown-ed); never rewritten when it does not.
     fn read_existing(&self) -> KeyFileRead {
         match read_key(&self.path()) {
             Ok((key, mode)) => {
@@ -104,6 +121,12 @@ impl InstanceKeyFile {
                         event = "integrations.key_file.wide_mode",
                         mode = format!("{mode:o}"),
                         "the instance key file is readable beyond its owner; it is used and left as it is"
+                    );
+                }
+                if !self.owned_as_its_directory() {
+                    tracing::warn!(
+                        event = "integrations.key_file.other_owner",
+                        "the instance key file belongs to another user than its data directory; it is used and left as it is"
                     );
                 }
                 KeyFileRead::Held(Box::new(key))
@@ -119,6 +142,13 @@ impl InstanceKeyFile {
         }
     }
 
+    /// Whether the file's owner is the data directory's: the running user's
+    /// stand-in, with no libc to ask for the uid.
+    fn owned_as_its_directory(&self) -> bool {
+        let uid = |path: &Path| std::fs::symlink_metadata(path).map(|meta| meta.uid()).ok();
+        uid(&self.path()) == uid(&self.dir)
+    }
+
     /// Make the file once. A directory that cannot take it is `Unwritable`
     /// (I-27); losing the race to another server reads the winner's file.
     fn create(&self) -> KeyFileRead {
@@ -126,7 +156,7 @@ impl InstanceKeyFile {
             .dir
             .join(format!("{TEMP_PREFIX}{}", uuid::Uuid::new_v4().simple()));
         let made = write_temp(&temp).and_then(|uid| {
-            let linked = std::fs::hard_link(&temp, self.path());
+            let linked = (self.link)(&temp, &self.path());
             let _ = std::fs::remove_file(&temp);
             match linked {
                 Ok(()) => {
@@ -134,6 +164,7 @@ impl InstanceKeyFile {
                     Ok(Some(uid))
                 }
                 Err(err) if err.kind() == ErrorKind::AlreadyExists => Ok(None),
+                // EPERM, ENOTSUP and the rest: this filesystem cannot hold it.
                 Err(err) => Err(err),
             }
         });
@@ -171,8 +202,8 @@ impl InstanceKeyFile {
 }
 
 impl InstanceKeySource for InstanceKeyFile {
-    fn key_file(&self) -> KeyFileRead {
-        self.probe()
+    fn key_file(&self, may_make: bool) -> KeyFileRead {
+        self.probe(may_make)
     }
 }
 
@@ -275,6 +306,7 @@ mod tests {
             KeyFileRead::Held(key) => key.key_id().to_string(),
             KeyFileRead::Unwritable => panic!("expected a held key, got Unwritable"),
             KeyFileRead::Unreadable => panic!("expected a held key, got Unreadable"),
+            KeyFileRead::Withheld => panic!("expected a held key, got Withheld"),
         }
     }
 
@@ -283,17 +315,18 @@ mod tests {
             KeyFileRead::Held(_) => "held",
             KeyFileRead::Unwritable => "unwritable",
             KeyFileRead::Unreadable => "unreadable",
+            KeyFileRead::Withheld => "withheld",
         }
     }
 
     #[test]
     fn an_absent_file_is_made_once_private_and_read_back_the_same() {
         let dir = Dir::new();
-        let first = held_id(InstanceKeyFile::in_dir(&dir.0).key_file());
+        let first = held_id(InstanceKeyFile::in_dir(&dir.0).key_file(true));
         let meta = std::fs::metadata(dir.file()).expect("the file was made");
         assert_eq!(meta.permissions().mode() & 0o777, PRIVATE_MODE);
         let bytes = std::fs::read(dir.file()).expect("read the file");
-        let second = held_id(InstanceKeyFile::in_dir(&dir.0).key_file());
+        let second = held_id(InstanceKeyFile::in_dir(&dir.0).key_file(true));
         assert_eq!(first, second, "a second boot reads the same key");
         assert_eq!(std::fs::read(dir.file()).unwrap(), bytes, "never rewritten");
         assert_eq!(
@@ -310,7 +343,7 @@ mod tests {
         let dir = Dir::new();
         let ids: Vec<String> = std::thread::scope(|s| {
             let racers: Vec<_> = (0..8)
-                .map(|_| s.spawn(|| held_id(InstanceKeyFile::in_dir(&dir.0).key_file())))
+                .map(|_| s.spawn(|| held_id(InstanceKeyFile::in_dir(&dir.0).key_file(true))))
                 .collect();
             racers.into_iter().map(|r| r.join().unwrap()).collect()
         });
@@ -323,7 +356,7 @@ mod tests {
         let dir = Dir::new();
         let leftover = dir.0.join(format!("{TEMP_PREFIX}crashed"));
         std::fs::write(&leftover, b"partial").unwrap();
-        held_id(InstanceKeyFile::in_dir(&dir.0).key_file());
+        held_id(InstanceKeyFile::in_dir(&dir.0).key_file(true));
         assert_eq!(dir.names(), vec![FILE_NAME.to_string()]);
     }
 
@@ -334,13 +367,13 @@ mod tests {
         let dir = Dir::new();
         let blocker = dir.0.join("not-a-directory");
         std::fs::write(&blocker, b"a file\n").unwrap();
-        let read = InstanceKeyFile::in_dir(&blocker).key_file();
+        let read = InstanceKeyFile::in_dir(&blocker).key_file(true);
         assert_eq!(state(&read), "unwritable");
 
         let read_only = Dir::new();
         std::fs::set_permissions(&read_only.0, std::fs::Permissions::from_mode(0o500)).unwrap();
         let writable_anyway = File::create(read_only.0.join("probe")).is_ok();
-        let read = InstanceKeyFile::in_dir(&read_only.0).key_file();
+        let read = InstanceKeyFile::in_dir(&read_only.0).key_file(true);
         let expected = if writable_anyway {
             "held"
         } else {
@@ -353,7 +386,7 @@ mod tests {
 
         let missing = dir.0.join("never-made");
         assert_eq!(
-            state(&InstanceKeyFile::in_dir(&missing).key_file()),
+            state(&InstanceKeyFile::in_dir(&missing).key_file(true)),
             "unwritable"
         );
     }
@@ -369,7 +402,7 @@ mod tests {
         ] {
             let dir = Dir::new();
             dir.plant(&bytes, PRIVATE_MODE);
-            let read = InstanceKeyFile::in_dir(&dir.0).key_file();
+            let read = InstanceKeyFile::in_dir(&dir.0).key_file(true);
             assert_eq!(state(&read), "unreadable", "{fault}");
             assert_eq!(
                 std::fs::read(dir.file()).unwrap(),
@@ -380,7 +413,7 @@ mod tests {
         }
         let dir = Dir::new();
         std::fs::create_dir(dir.file()).unwrap();
-        let read = InstanceKeyFile::in_dir(&dir.0).key_file();
+        let read = InstanceKeyFile::in_dir(&dir.0).key_file(true);
         assert_eq!(
             state(&read),
             "unreadable",
@@ -394,10 +427,159 @@ mod tests {
         let bytes = format!("{}\n", generated.text.expose_secret()).into_bytes();
         let dir = Dir::new();
         dir.plant(&bytes, 0o644);
-        let id = held_id(InstanceKeyFile::in_dir(&dir.0).key_file());
+        let id = held_id(InstanceKeyFile::in_dir(&dir.0).key_file(true));
         assert_eq!(id, generated.key.key_id().to_string());
         let meta = std::fs::metadata(dir.file()).unwrap();
         assert_eq!(meta.permissions().mode() & 0o777, 0o644, "never chmod-ed");
         assert_eq!(std::fs::read(dir.file()).unwrap(), bytes, "never rewritten");
+    }
+
+    #[test]
+    fn a_filesystem_without_hard_links_is_unwritable_and_keeps_nothing() {
+        for (fault, error) in [
+            ("link EPERM", ErrorKind::PermissionDenied),
+            ("link ENOTSUP", ErrorKind::Unsupported),
+        ] {
+            let dir = Dir::new();
+            let file = InstanceKeyFile {
+                link: match error {
+                    ErrorKind::PermissionDenied => |_, _| Err(ErrorKind::PermissionDenied.into()),
+                    _ => |_, _| Err(ErrorKind::Unsupported.into()),
+                },
+                ..InstanceKeyFile::in_dir(&dir.0)
+            };
+            assert_eq!(state(&file.key_file(true)), "unwritable", "{fault}");
+            assert!(dir.names().is_empty(), "{fault}: no file and no temp file");
+        }
+    }
+
+    #[test]
+    fn no_file_is_made_over_a_database_an_earlier_key_sealed() {
+        let dir = Dir::new();
+        let read = InstanceKeyFile::in_dir(&dir.0).key_file(false);
+        assert_eq!(state(&read), "withheld");
+        assert!(dir.names().is_empty(), "no key file minted");
+
+        let leftover = Dir::new();
+        std::fs::write(leftover.0.join(format!("{TEMP_PREFIX}crashed")), b"partial").unwrap();
+        let read = InstanceKeyFile::in_dir(&leftover.0).key_file(false);
+        assert_eq!(state(&read), "withheld");
+        assert!(leftover.names().is_empty(), "the leftover is still removed");
+
+        let generated = SecretsKey::generate().unwrap();
+        let existing = Dir::new();
+        existing.plant(
+            format!("{}\n", generated.text.expose_secret()).as_bytes(),
+            PRIVATE_MODE,
+        );
+        let id = held_id(InstanceKeyFile::in_dir(&existing.0).key_file(false));
+        assert_eq!(
+            id,
+            generated.key.key_id().to_string(),
+            "an existing file is read"
+        );
+    }
+
+    /// The boot's store: one snapshot, whatever is asked.
+    struct Stored(foundry_store::integrations::InstanceSnapshot);
+
+    #[async_trait::async_trait]
+    impl super::super::store_capabilities::KeyProbe for Stored {
+        async fn record_key_check(
+            &self,
+            _check: &foundry_store::integrations::KeyCheck,
+        ) -> Result<(), foundry_store::StoreError> {
+            Ok(())
+        }
+        async fn instance_snapshot(
+            &self,
+        ) -> Result<foundry_store::integrations::InstanceSnapshot, foundry_store::StoreError>
+        {
+            Ok(self.0.clone())
+        }
+    }
+
+    /// Booted with no operator key on `dir` over `snapshot`.
+    async fn boot_over(
+        dir: &Dir,
+        snapshot: foundry_store::integrations::InstanceSnapshot,
+    ) -> super::super::Integrations {
+        let mut settings =
+            super::super::config::IntegrationSettings::off("https://foundry.example.org");
+        settings.data_dir = dir.0.clone();
+        let key_file = InstanceKeyFile::of(&settings);
+        super::super::Integrations::boot(settings, &Stored(snapshot), &key_file)
+            .await
+            .expect("boot")
+    }
+
+    fn snapshot() -> foundry_store::integrations::InstanceSnapshot {
+        foundry_store::integrations::InstanceSnapshot {
+            version: 1,
+            secrets_key: None,
+            slack_app: None,
+            key_checks: Vec::new(),
+            sealed_credentials: Vec::new(),
+        }
+    }
+
+    /// ADR-IIS-002 r3 through the boot: a stored secrets key, or a value
+    /// sealed directly, and no file: none is made, and the page reads I-26
+    /// or I-4, never I-27. An empty database gets its file.
+    #[tokio::test]
+    async fn a_stored_key_with_no_file_mints_none_and_reads_unopenable() {
+        use super::super::keys::KeyMode;
+        let earlier = SecretsKey::generate().unwrap();
+        let earlier = foundry_auth::secret_box::SecretBox::new(earlier.key, Vec::new());
+
+        let dir = Dir::new();
+        let stored_key = foundry_store::integrations::InstanceSnapshot {
+            secrets_key: Some(foundry_store::integrations::StoredSecretsKey {
+                key_id: "an-earlier-secrets-key".to_string(),
+                wrapped_key: vec![7; 48],
+                wrapped_by_key_id: earlier.current_key_id().to_string(),
+                wrapped_by: foundry_store::integrations::KeyWrapper::File,
+                rewrapped_from_path: None,
+                created_by: None,
+                created_at: time::OffsetDateTime::UNIX_EPOCH,
+            }),
+            ..snapshot()
+        };
+        let booted = boot_over(&dir, stored_key).await;
+        assert_eq!(booted.key_mode(), KeyMode::Unopenable, "I-26");
+        assert!(
+            dir.names().is_empty(),
+            "no file minted over a stored secrets key"
+        );
+
+        let dir = Dir::new();
+        let sealed = earlier
+            .seal(
+                &SecretString::from("xoxb-a-bot-token"),
+                &foundry_auth::secret_box::SecretSlot::new(
+                    "integration_connections",
+                    "1",
+                    "credential",
+                ),
+            )
+            .expect("seal");
+        let direct = foundry_store::integrations::InstanceSnapshot {
+            sealed_credentials: vec![sealed.as_bytes().to_vec()],
+            ..snapshot()
+        };
+        let booted = boot_over(&dir, direct).await;
+        assert_eq!(booted.key_mode(), KeyMode::AwaitingSecretsKey);
+        assert!(booted.secrets_check().degraded(), "I-4");
+        assert!(dir.names().is_empty(), "no file minted over a direct seal");
+
+        let dir = Dir::new();
+        let fresh = boot_over(&dir, snapshot()).await;
+        assert_eq!(fresh.key_mode(), KeyMode::AwaitingSecretsKey);
+        assert!(!fresh.secrets_check().degraded());
+        assert_eq!(
+            dir.names(),
+            vec![FILE_NAME.to_string()],
+            "an empty database gets its file"
+        );
     }
 }
