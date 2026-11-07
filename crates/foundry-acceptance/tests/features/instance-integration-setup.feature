@@ -92,7 +92,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya reads "FOUNDRY_PUBLIC_URL is not set, so the addresses below use http://localhost:8080, which Slack cannot reach. An instance operator sets FOUNDRY_PUBLIC_URL to this Foundry's public address and restarts Foundry."
     And the warning about the unreachable address comes before the Slack addresses
 
-  @pending @us-iis-01 @us-iis-06 @kpi-iis-2 @kpi-iis-g1
+  @us-iis-01 @us-iis-06 @kpi-iis-2 @kpi-iis-g1
   Scenario: An instance configured before this feature is shown without its secrets
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     And Foundry's environment sets the Slack app 6123456789012.7234567890123
@@ -327,7 +327,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
   # ------------------------------------------------------------------ US-IIS-06
 
-  @pending @us-iis-06 @kpi-iis-5
+  @us-iis-06 @kpi-iis-5
   Scenario: After the upgrade, a connection sealed with the environment key keeps delivering
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     And Foundry's environment sets the Slack app 6123456789012.7234567890123
@@ -339,7 +339,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then #auth-dev shows within 10 seconds a Foundry message "AUTH-12 Rotate LLDAP bind password" / "New issue in Identity Platform by Sam Okafor · Backlog" with Open in Foundry
     And the instance integrations page reads "Saved credentials are sealed directly with the instance key. Move them under a secrets key to manage it here."
 
-  @pending @us-iis-06 @kpi-iis-5
+  @us-iis-06 @kpi-iis-5
   Scenario: Renaming the setting to FOUNDRY_INSTANCE_KEY with the same value keeps everything working
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     And Foundry's environment sets the Slack app 6123456789012.7234567890123

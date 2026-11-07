@@ -366,11 +366,7 @@ impl Integrations {
         key_file: KeyFile,
         held: Option<&Arc<SecretBox>>,
     ) -> (Keyring, SecretsCheck) {
-        let mut sealed = snapshot.sealed_credentials.clone();
-        if let Some(app) = &snapshot.slack_app {
-            sealed.push(app.sealed_client_secret.clone());
-            sealed.push(app.sealed_signing_secret.clone());
-        }
+        let sealed = sealed_values(snapshot);
         let keyring = Keyring::resolve_holding(
             held,
             self.settings.secrets.as_ref(),
@@ -473,11 +469,20 @@ impl Integrations {
         self.keyring.mode()
     }
 
-    /// Whether some stored value is sealed directly under a held instance
-    /// key (I-2e, not I-2e0). In `Direct` no secrets key is stored, so a held
-    /// key opening a stored value is a direct seal; other modes have none to move.
-    pub fn holds_direct_seals(&self) -> bool {
-        self.keyring.mode() == KeyMode::Direct && self.keyring.opens_stored()
+    /// How many of `snapshot`'s stored key ids are sealed directly under a
+    /// held instance key (I-2e when some, I-2e0 when none), counted by key
+    /// id with no stored flag. Only `Direct` has direct seals to move.
+    pub fn direct_seals(&self, snapshot: &InstanceSnapshot) -> usize {
+        if self.keyring.mode() != KeyMode::Direct {
+            return 0;
+        }
+        let held: BTreeSet<String> = self
+            .settings
+            .secrets
+            .as_ref()
+            .map(|keys| keys.key_ids().iter().map(ToString::to_string).collect())
+            .unwrap_or_default();
+        keys::direct_seal_count(&key_ids(&sealed_values(snapshot)), &held)
     }
 
     /// What a workspace whose `unreadable` connections these are is offered
@@ -590,6 +595,17 @@ impl Integrations {
         let token = self.open_credential(connection_id, sealed)?;
         Some(SlackBot::new(app, token))
     }
+}
+
+/// Every stored sealed value: the connections' credentials and the saved
+/// Slack app's two secrets.
+fn sealed_values(snapshot: &InstanceSnapshot) -> Vec<Vec<u8>> {
+    let mut sealed = snapshot.sealed_credentials.clone();
+    if let Some(app) = &snapshot.slack_app {
+        sealed.push(app.sealed_client_secret.clone());
+        sealed.push(app.sealed_signing_secret.clone());
+    }
+    sealed
 }
 
 /// The key ids the sealed values claim.

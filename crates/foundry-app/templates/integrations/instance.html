@@ -14,14 +14,18 @@
     </form>
     {% endif %}
   </section>
-  {% if let Some(slack) = page.slack %}
+  {% if page.slack.is_some() || page.environment_slack.is_some() %}
   <section data-integration="slack">
     <h2>Slack</h2>
+    {% if let Some(line) = page.environment_slack %}<p data-slack-line>{{ line }}</p>{% endif %}
+    {% if let Some(slack) = page.slack %}
     {% if let Some(warning) = slack.warning %}<p data-public-url-warning role="alert">{{ warning }}</p>{% endif %}
     <p data-slack-line>{{ slack.line }}</p>
     <pre data-slack-manifest>{{ slack.addresses.manifest }}</pre>
     <p>Redirect URL <code data-slack-redirect-url>{{ slack.addresses.redirect_url }}</code></p>
     <p>Events URL <code data-slack-events-url>{{ slack.addresses.events_url }}</code></p>
+    {% endif %}
+    {% if page.slack_form %}
     <form method="post" action="{{ slack_door }}" data-slack-app-form>
       <input type="hidden" name="_csrf" value="{{ csrf }}">
       <label>Client ID <input type="text" name="client_id" value="" autocomplete="off"></label>
@@ -29,6 +33,7 @@
       <label>Signing secret <input type="password" name="signing_secret" value="" autocomplete="off"></label>
       <button type="submit">Save Slack app</button>
     </form>
+    {% endif %}
   </section>
   {% endif %}
   {% if let Some(saved) = page.saved_slack %}

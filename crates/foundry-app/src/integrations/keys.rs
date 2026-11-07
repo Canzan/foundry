@@ -226,9 +226,9 @@ impl Keyring {
         stored: Option<&StoredSecretsKey>,
         stored_key_ids: &BTreeSet<String>,
     ) -> Self {
-        let held = |key_id: &String| {
-            instance.is_some_and(|keys| keys.key_ids().iter().any(|id| id.to_string() == *key_id))
-        };
+        let held_ids: BTreeSet<String> = instance
+            .map(|keys| keys.key_ids().iter().map(ToString::to_string).collect())
+            .unwrap_or_default();
         let kept = held_secrets_key.zip(stored).and_then(|(keys, row)| {
             (keys.current_key_id().to_string() == row.key_id).then(|| keys.clone())
         });
@@ -243,7 +243,7 @@ impl Keyring {
             (Some(_), Some(_)) => StoredKey::Unwraps,
             (Some(_), None) => StoredKey::DoesNotUnwrap,
         };
-        let direct_seals = stored_key_ids.iter().any(held);
+        let direct_seals = direct_seal_count(stored_key_ids, &held_ids) > 0;
         let opens_secrets_sealed = secrets_key.as_ref().is_some_and(|keys| {
             let id = keys.current_key_id().to_string();
             stored_key_ids.contains(&id)
@@ -283,6 +283,15 @@ impl Keyring {
             mode: self.mode,
         }
     }
+}
+
+/// How many stored key ids are a held instance key's: the values sealed
+/// directly, counted by key id with no stored flag (ADR-IIS-001 r3).
+pub fn direct_seal_count(
+    stored_key_ids: &BTreeSet<String>,
+    held_key_ids: &BTreeSet<String>,
+) -> usize {
+    stored_key_ids.intersection(held_key_ids).count()
 }
 
 /// The credential box (decision 3): the current key is the secrets key when
@@ -609,6 +618,17 @@ mod tests {
             if row.is_none() && some_held {
                 prop_assert_eq!(mode, KeyMode::Direct);
             }
+        }
+    }
+
+    proptest! {
+        /// Over arbitrary stored key ids, with keys 1–3 held: the direct-seal
+        /// count is the number of stored ids among the held ones.
+        #[test]
+        fn the_direct_seal_count_is_the_stored_ids_a_held_key_has(mask in 0u8..64) {
+            let held: BTreeSet<String> = instance_box().key_ids().iter().map(ToString::to_string).collect();
+            let expected = (mask & 0b111).count_ones() as usize;
+            prop_assert_eq!(direct_seal_count(&stored_ids(mask), &held), expected);
         }
     }
 
