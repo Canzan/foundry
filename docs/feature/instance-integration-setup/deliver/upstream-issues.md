@@ -226,3 +226,14 @@ Found while planning the roadmap (2026-11-06). None blocks a step; each has a pl
     `xtask smoke` and `xtask ci` (Docker, 2132 scenarios) all gates green.
     Open: ADR-IIS-004 line 35 and brief.md line 1258 still name `reseal_credentials`;
     key_file mutation not rerun (mutation phase).
+50. **Refactor pass `bc9af98` (2026-11-07): L1-L3, gate GREEN.** Key text in a
+    `Zeroizing<String>` sized past `MAX_FILE_BYTES`; `may_make` TOCTOU documented (mod.rs
+    ~257); item 40 closed (boot rebuilds over its snapshot via `with_key_check`, re-reads only
+    after a re-wrap or a failed first read; a sibling write during boot now lands on the next
+    polled reload); store `commit_recorded`; one `CONNECT_ATTEMPTS`, `reinstall`,
+    `sealed_under`, shared Generate/Move `key_door`; ADR-IIS-004:35 and brief.md:1258 renamed
+    to `reseal_sealed_values`. L4-L6 no change. Skipped: skipping the probe under an operator
+    key (it reads the previous key for I-30 and sweeps stale temps). Open copy issue: with an
+    operator key and no file, `integrations.key_file.withheld` logs a misleading reason.
+    Unit 649/649; lanes IIS 59/597, eip 181/1942, wayfinding 54/400; smoke and ci (Docker,
+    2132 scenarios) all gates green.
