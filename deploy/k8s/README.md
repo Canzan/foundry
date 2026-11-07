@@ -92,19 +92,48 @@ The full sequence and failure-mode analysis (migration fails mid-roll,
 expand-contract patterns, etc.) is in
 `docs/feature/foundry-backend-mvp/design/system/migrations.md`.
 
-## Integrations (Slack) and the secrets key
+## Integrations
 
-`FOUNDRY_SECRETS_KEY` and the three `SLACK_*` settings go in
-`foundry-app-secrets` (see the template); the worker settings stay
-unset in the ConfigMap. A malformed key, a partial Slack trio or a
-lease under 35 s makes the new pod refuse to start
-(`health.startup.refused` names the setting), so the rollout stalls
-with the old pod serving. A missing key, or one that cannot open a
-stored credential, starts the pod **degraded**: `/readyz` stays 200,
-the board serves, `foundry_integration_secrets_degraded` reads 1 and
-the Slack connection reads "unavailable". Creating, rotating
-(`foundry doctor rotate-secrets`) and restoring the key are in
-RELEASING.md, "Integrations: secrets key and Slack" (R-1 to R-8).
+Slack and Matrix credentials are sealed under a **secrets key** that
+Foundry keeps in the database, and the secrets key is sealed under the
+**instance key**. On Kubernetes the instance key comes from the
+operator: `FOUNDRY_INSTANCE_KEY` in `foundry-app-secrets`.
+
+1. Generate it once:
+   `openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'`.
+2. Keep an offline copy apart from database backups. A database dump
+   alone opens no credential.
+3. Put it in the Secret as `FOUNDRY_INSTANCE_KEY` (leave
+   `FOUNDRY_INSTANCE_KEY_PREVIOUS` empty), apply, roll.
+4. An instance admin opens `/admin/instance/integrations`, generates the
+   secrets key and enters the Slack app (RELEASING.md R-1, R-2).
+
+These manifests mount **no volume** at `FOUNDRY_DATA_DIR`
+(`/var/lib/foundry`). Without an operator key a pod would make its own
+key file there, and a per-pod `emptyDir` would give each replica a
+different key, so every replica but one could not open the secrets key
+(I-26). Left on the read-only root filesystem, a pod with no operator
+key shows "no instance key" (I-27) on every replica instead: uniform,
+and integrations stay off while the board serves. The alternative, one
+`ReadWriteMany` volume mounted at `/var/lib/foundry` on every replica,
+works but is not shipped here.
+
+An existing Secret that still carries `FOUNDRY_SECRETS_KEY` keeps
+working (the legacy name is still read). Keep that name until the
+rollback window closes (RELEASING.md, "Upgrading from
+`FOUNDRY_SECRETS_KEY`"). Adding `FOUNDRY_INSTANCE_KEY` with a
+**different** value refuses start.
+
+A malformed instance key, the two key names set to different values, a
+partial Slack trio or a lease under 35 s makes the new pod refuse to
+start (`health.startup.refused` names the setting, never its value), so
+the rollout stalls with the old pods serving. A missing key, or one
+that cannot open the stored secrets key, starts the pod **degraded**:
+`/readyz` stays 200, the board serves and
+`foundry_integration_secrets_degraded` reads 1. The settings, the alert
+rules, rotation (`foundry doctor rotate-secrets`) and recovery are in
+RELEASING.md, "Integrations: instance key, secrets key and Slack"
+(R-1 to R-8).
 
 ## Probes and graceful shutdown
 

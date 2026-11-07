@@ -69,9 +69,8 @@ git push origin vX.Y.Z
 #
 #    Track progress in the Actions tab.
 #
-#    The homelab deploys the image the Forgejo mirror builds
-#    (.forgejo/workflows/build-and-publish.yml, pushed to zot), not the
-#    GHCR one. Both builds run `cargo xtask openapi --check` in the
+#    A Forgejo mirror build (.forgejo/workflows/build-and-publish.yml)
+#    publishes the same tree to a second registry. Both builds run `cargo xtask openapi --check` in the
 #    Dockerfile and refuse a tree whose description names another release.
 ```
 
@@ -359,61 +358,120 @@ config drift (wrong DATABASE_URL host, expired DB credentials,
 missing CLI binary on the bastion) before a real moderation
 reversal needs it.
 
-## Integrations: secrets key and Slack
+## Integrations: instance key, secrets key and Slack
 
-Secrets go in the Kubernetes Secret, everything else in the ConfigMap (see
-`deploy/k8s/foundry-secret.example.yaml` and `foundry-configmap.yaml`).
+Slack and Matrix credentials are sealed under a **secrets key** that Foundry keeps in the
+database, wrapped under the **instance key**. The instance key comes from the operator
+(`FOUNDRY_INSTANCE_KEY`) or, when none is set, from a file Foundry makes once in
+`FOUNDRY_DATA_DIR`. An instance admin creates the secrets key and enters the Slack app at
+`/admin/instance/integrations`.
+
+On Kubernetes, secrets go in the Secret and everything else in the ConfigMap (see
+`deploy/k8s/foundry-secret.example.yaml` and `foundry-configmap.yaml`); with compose or the
+single binary they are plain environment settings (`.env.example`).
 
 | Setting | Where | Value |
 |---|---|---|
-| `FOUNDRY_SECRETS_KEY` | Secret | 32 random bytes, base64url; distinct per cluster; generated once |
-| `FOUNDRY_SECRETS_KEY_PREVIOUS` | Secret | Empty, except during a rotation |
-| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` | Secret | From that cluster's own Slack app; all three or none |
-| `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL` | none | Never set in a cluster (test seams; the defaults are Slack's) |
+| `FOUNDRY_INSTANCE_KEY` | Secret | 32 random bytes, base64url, padded or not; distinct per instance; generated once (R-1). Unset: Foundry uses its key file |
+| `FOUNDRY_INSTANCE_KEY_PREVIOUS` | Secret | Retired instance keys, comma-separated. Empty, except while the instance key changes (R-5) |
+| `FOUNDRY_SECRETS_KEY`, `FOUNDRY_SECRETS_KEY_PREVIOUS` | Secret | Legacy names of the two above, still read. The same value under both names counts as the legacy name |
+| `FOUNDRY_DATA_DIR` | none | Default `/var/lib/foundry`. Holds `instance.key` only when no operator key is set. Not mounted on Kubernetes |
+| `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` | Secret | Optional: the Slack app entered in the UI is used otherwise. All three or none; all three win over the saved app |
+| `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL` | none | Never set in a deploy (test seams; the defaults are Slack's) |
 | `FOUNDRY_INTEGRATIONS_POLL_MS`, `_GIVE_UP_SECONDS`, `_LEASE_SECONDS` | none | Unset (defaults 1000, 86400, 45) |
+| `FOUNDRY_INTEGRATIONS_RELOAD_MS` | none | Unset (default 5000); a test knob, like `_POLL_MS` |
 
-A key that is not 32 bytes, two of the three Slack settings, or a lease under 35 seconds
-stops Foundry at start: `health.startup.refused` names the setting (never its value), the
-new pod crash-loops and the old one keeps serving. A missing key, or one that cannot open a
-stored credential, does **not** stop Foundry (see R-8).
+An instance key that is not 32 bytes, `FOUNDRY_INSTANCE_KEY` and `FOUNDRY_SECRETS_KEY` set to
+different values, two of the three Slack settings, or a lease under 35 seconds stops Foundry at
+start: `health.startup.refused` names the setting (never its value), the new pod crash-loops and
+the old one keeps serving. An empty value counts as unset, under either name. A missing key, or
+one that cannot open the stored secrets key, does **not** stop Foundry (see R-8).
 
-**R-1 Create the secrets key** (once per cluster, before any workspace connects Slack):
+**Backups.** Back up the instance key apart from the database dump: the Secret value, or the key
+file (`docker compose cp foundry:/var/lib/foundry/instance.key .`). A dump alone opens nothing.
+Keep the instance key of every period whose dumps you keep: a dump restored under a later
+instance key shows "cannot open its secrets key" (I-26) until that key is set as
+`FOUNDRY_INSTANCE_KEY_PREVIOUS`.
+
+**Compose.** The key file lives in the named volume `foundry-data`, beside `foundry-pg-data`.
+`docker compose down -v` deletes **both** the key and the database: back up both first.
+`docker compose up --scale foundry=N` (N > 1) needs `FOUNDRY_HOST_PORT=0`, since the default
+maps a fixed host port; the replicas share `foundry-data`, so they share one key file. A host
+bind mount at `/var/lib/foundry` must be owned by uid 65532, or Foundry shows I-27. A
+`docker run` without `-v` gets an anonymous volume: the key survives a container restart, not a
+re-creation.
+
+**R-1 Create the instance key** (once per instance; on Kubernetes, required, since no volume is
+mounted at `FOUNDRY_DATA_DIR`):
 
 ```sh
 openssl rand -base64 32 | tr '+/' '-_' | tr -d '=\n'
 ```
 
-Foundry accepts it padded or not. Keep an **offline copy** (a password manager that does not
-run on the cluster), apart from database backups: that copy is the backup. Losing every copy
-means workspace admins reconnect Slack; no board data is lost. Apply and roll, then check
-`probe_failures_total{probe_name="secrets"} == 0`, `foundry_integration_secrets_degraded == 0`
-and no `health.startup.refused` line in the logs.
+Keep an **offline copy** (a password manager that does not run where Foundry runs), apart from
+database backups: that copy is the backup. Set it as `FOUNDRY_INSTANCE_KEY`, apply and roll, then
+check `probe_failures_total{probe_name="secrets"} == 0` and no `health.startup.refused` line in
+the logs. An instance admin then opens `/admin/instance/integrations` and presses Generate to
+create the secrets key. With compose or the single binary and no operator key, Foundry makes
+`instance.key` itself; back that file up instead. Losing every copy of the instance key means
+workspace admins reconnect Slack; no board data is lost.
 
-**R-2 Create the cluster's Slack app** (once per instance): a workspace admin opens
-`/workspace/integrations/slack/setup`, which renders the app manifest for this instance; paste it
-at api.slack.com (Create New App, From a manifest). Copy Client ID, Client Secret and Signing
-Secret into that cluster's Secret, apply, roll, then retry Event Subscriptions in the Slack app:
-"Verified" proves the inbound path. Dev and prod each get their own app.
+**R-2 Create the instance's Slack app** (once per instance): an instance admin opens
+`/admin/instance/integrations`, which renders the app manifest for this instance; paste it at
+api.slack.com (Create New App, From a manifest). Enter its Client ID, Client Secret and Signing
+Secret on the same page and save; every replica picks it up without a restart. Then retry Event
+Subscriptions in the Slack app: "Verified" proves the inbound path. Each instance gets its own
+app. A Slack app set in the environment (the `SLACK_*` trio) stays in effect until all three are
+removed and Foundry restarts.
 
-**R-5 Rotate the secrets key** (the order matters):
+**R-5 Change the instance key** (the order matters):
 
-1. Set `FOUNDRY_SECRETS_KEY=<new>` and `FOUNDRY_SECRETS_KEY_PREVIOUS=<old>`; apply; roll every
-   replica. Check `foundry_integration_secrets_degraded == 0` on each.
+1. Set `FOUNDRY_INSTANCE_KEY=<new>` and `FOUNDRY_INSTANCE_KEY_PREVIOUS=<old>` (or the legacy
+   names, if the instance still uses them); apply; roll every replica. Check
+   `foundry_integration_secrets_degraded == 0` on each.
 2. Run the rotation once, with the pod's environment:
 
    ```sh
-   kubectl -n foundry exec deploy/foundry -- /app/foundry doctor rotate-secrets
+   kubectl -n foundry exec deploy/foundry-app -- /app/foundry doctor rotate-secrets
    # rotate-secrets: 1 credential(s) sealed again under key 3f9c…
+   # rotate-secrets: the secrets key is now wrapped under instance key 8a1d…
    ```
 
-   It re-seals every stored credential under the new key and records the new key's check value
-   in one transaction; a failure changes nothing. Exit 2: the key settings are missing or
-   malformed; 3: the database could not be reached or the transaction failed; 4: a credential
-   neither key opens (nothing was changed; find the key it was sealed with).
-3. Clear `FOUNDRY_SECRETS_KEY_PREVIOUS`; apply; roll.
+   It reads `FOUNDRY_INSTANCE_KEY` (or the legacy `FOUNDRY_SECRETS_KEY`) and both previous-key
+   lists. The first line counts the credentials sealed again, under the secrets key when one is
+   stored (its id is shown), else directly under the new instance key. The second line appears
+   when the stored secrets key was wrapped again under the new instance key. It runs in one
+   transaction under an exclusive lock; any refusal rolls back. Exit 2: the key settings are
+   missing or malformed; 3: the database could not be reached or the transaction failed; 4: the
+   secrets key or a credential opens under no key held (nothing was changed; set the key it was
+   sealed with as a previous key).
+3. Clear `FOUNDRY_INSTANCE_KEY_PREVIOUS`; apply; roll.
 
 Nobody reconnects. A broken order degrades (R-8); it never marks a connection lost or emails
 an admin.
+
+**Upgrading from `FOUNDRY_SECRETS_KEY`.** Zero-touch: the instance keeps sealing credentials
+directly with that key, and deliveries continue. **Keep the legacy name as it is:** the previous
+release reads only `FOUNDRY_SECRETS_KEY`, so renaming early removes the rollback target's key.
+Press Move (on `/admin/instance/integrations`) only after every replica runs the new release (the
+orchestrator's rollout status; replicas of the previous release write no replica state). Rename
+to `FOUNDRY_INSTANCE_KEY` (same value) only after Move has soaked and the rollback window has
+closed. On a fresh instance, or one using the key file, press Generate after the roll completes;
+same advice.
+
+**Rolling back after Move or Generate.** Before any Generate, Move or Slack-app save, rolling
+back to the previous release is lossless: it ignores the new tables. After Generate or Move, the
+previous release knows only the environment key, so credentials sealed under the secrets key do
+not open: `foundry_integration_secrets_degraded` reads 1 and deliveries wait as
+`Transient(secret_unavailable)` (not marked lost, no email). With the key file, the previous
+release has no key at all. A Slack app saved in the UI is ignored unless the environment trio
+is set, and inbound Slack events answer 401 during the rollback. Recovery is rolling forward:
+credentials, connections and issues are intact and every sealed row opens again. Deliveries
+still pending resume; any that reached the 24 h give-up meanwhile are already failed and are
+**not** resumed (R-6 skips stale events instead). Do not run the previous release's
+`doctor rotate-secrets` (it exits 4 and changes nothing). So Move and Generate are the point
+after which a rollback costs integration deliveries, not board data: press them after the
+release has soaked.
 
 **R-6 Roll forward after a long rollback** (optional). Events written while the previous
 release ran are delivered late after the upgrade. To skip them instead, before rolling forward:
@@ -430,11 +488,50 @@ again. Foundry logs a warning at boot while an invalid index exists.
 
 **R-8 Degraded secrets.** `foundry_integration_secrets_degraded == 1` and a
 `health.degraded probe=secrets` warning naming the missing key ids (never a key) mean the
-board is up but a stored Slack credential cannot be opened: its connection reads "Slack is
-unavailable: this Foundry cannot read its saved connection. An instance operator needs to check
-the secrets key." and its messages wait (given up after a day). Restore the key, or set the old
-one as `FOUNDRY_SECRETS_KEY_PREVIOUS`, and roll; the connection recovers without anyone
-reconnecting. If the key is truly lost, an admin reconnects Slack.
+board is up but a stored credential, or the secrets key itself, cannot be opened: its
+connection reads "Slack is unavailable: this Foundry cannot read its saved connection. An
+instance operator needs to check the secrets key." and its messages wait (given up after a
+day). Both alert inputs are set at boot and on every applied reload. Restore the instance key,
+or set the old one as `FOUNDRY_INSTANCE_KEY_PREVIOUS`, and roll; the connection recovers without
+anyone reconnecting. If the key is truly lost, an admin reconnects Slack.
+
+Recommended alert rules (operator configuration; Foundry ships none):
+
+```yaml
+- alert: FoundrySecretsDegraded        # warning
+  expr: max(foundry_integration_secrets_degraded) == 1
+  for: 15m
+- alert: FoundrySecretsProbeFailed     # info
+  expr: increase(probe_failures_total{probe_name="secrets"}[15m]) > 0
+```
+
+The 15 minutes tolerate the Generate or Move roll window, where a previous-release replica cannot
+open the secrets key. Degraded past the roll means a replica holds a different instance key
+(I-26), or a previous-release replica is still running. The probe alert fires when a boot or
+reload probe failed; after Generate or Move it is expected only from previous-release replicas
+that restart before the roll replaces them.
+
+Reload lag and replica heartbeat have no metric. A read-only store query shows them:
+
+```sql
+SELECT r.replica, r.applied_version, v.version, r.key_mode, r.opens_secrets_key, r.beat_at
+  FROM integration_replica_states r CROSS JOIN integration_config_version v;
+```
+
+A replica whose `applied_version` stays below `version` for more than 60 s, or whose `beat_at`
+is older than 30 s, is stale. A replica of the previous release writes no row; rows older than
+1 h are pruned.
+
+What the instance integrations page shows, and what the operator does:
+
+- **I-27** "Foundry has no instance key and cannot make one (`{path}` cannot be written)."
+  Check the volume at `FOUNDRY_DATA_DIR` and that uid 65532 owns it, or set
+  `FOUNDRY_INSTANCE_KEY` (R-1); restart.
+- **I-31** "This Foundry cannot read its instance key file (`{path}`)." Restore `instance.key`
+  from backup, or set `FOUNDRY_INSTANCE_KEY`; restart.
+- **I-30** "The secrets key, first sealed with `{path}`, is now sealed with the operator's key."
+  The operator key took over the file: nothing to do. Keep a backup of the file until you are
+  sure, then it may be removed.
 
 ## Backing out a release
 
