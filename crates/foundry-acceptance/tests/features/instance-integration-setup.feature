@@ -178,7 +178,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya follows "Integrations" on the instance admin dashboard
     Then Priya is on the instance integrations page
 
-  @pending @us-iis-01 @us-iis-02 @us-iis-03 @kpi-iis-g2 @error
+  @us-iis-01 @us-iis-02 @us-iis-03 @kpi-iis-g2 @error
   Scenario Outline: Only an instance admin reaches the page or changes anything on it
     Given this Foundry starts with its instance key set by the operator
     When <person> <door>
@@ -262,7 +262,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
   # ------------------------------------------------------------------ US-IIS-03
 
-  @pending @us-iis-03 @driving_port @kpi-iis-1 @kpi-iis-g1
+  @us-iis-03 @driving_port @kpi-iis-1 @kpi-iis-g1
   Scenario: An instance admin enters the Slack app and Canzan Labs can add Slack at once
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key
@@ -293,7 +293,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
       | 6123456789012.7234567890123      | 3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8 |                                  | Enter the signing secret from the Slack app's Basic Information.                          |
       | 6123456789012.7234567890123      | 3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8 | b7e1 d4c9                        | That is not a Slack signing secret. Copy it again from the Slack app's Basic Information. |
 
-  @pending @us-iis-03 @error
+  @us-iis-03 @error
   Scenario: Nothing can be saved without a secrets key
     Given this Foundry starts with its instance key set by the operator
     When Priya posts a Slack app save request anyway

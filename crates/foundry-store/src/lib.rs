@@ -3116,6 +3116,19 @@ impl Store {
     /// data-consistency fault for a valid session); a password-less account is
     /// `Some` with `password_hash: None` (keycloak-sso DDD-13). Mirrors
     /// [`find_user_by_email`].
+    /// A user's display name; `None` when no such user.
+    pub async fn user_display_name(
+        &self,
+        user_id: uuid::Uuid,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(
+            sqlx::query_scalar("SELECT display_name FROM users WHERE id = $1")
+                .bind(user_id)
+                .fetch_optional(&self.pool)
+                .await?,
+        )
+    }
+
     pub async fn find_user_by_id(
         &self,
         user_id: uuid::Uuid,

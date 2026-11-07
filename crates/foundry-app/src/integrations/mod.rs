@@ -21,6 +21,7 @@ pub mod project_emails;
 #[cfg(feature = "test-support")]
 pub mod secrets_key_seam;
 pub mod slack;
+pub mod slack_app;
 pub mod store_capabilities;
 pub mod worker;
 
@@ -29,7 +30,7 @@ use config::IntegrationSettings;
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
 use foundry_integrations::ChannelKind;
 use foundry_services::integrations::{DestinationCatalogs, UnreadableConnections};
-use foundry_store::integrations::{InstanceSnapshot, KeyCheck, SealedConnection};
+use foundry_store::integrations::{InstanceSnapshot, KeyCheck, SavedSlackApp, SealedConnection};
 use keys::{CredentialBox, InstanceKeySource, KeyFile, KeyFileRead, KeyMode, Keyring};
 use outbound::OutboundHttp;
 use project_emails::ProjectMail;
@@ -149,7 +150,10 @@ impl SecretsCheck {
 pub struct Integrations {
     /// Shared with the integrations a reload rebuilds from them.
     settings: Arc<IntegrationSettings>,
+    /// The Slack app in effect (ADR-IIS-003 decision 2).
     slack: Option<Arc<SlackApp>>,
+    /// The saved app's facts, when it is the app in effect.
+    saved_slack: Option<slack_app::SavedAppFacts>,
     /// The key file as boot found it (consulted only without an operator key).
     key_file: KeyFile,
     /// Built on first use, so a test-support build reaches a test host
@@ -220,6 +224,7 @@ impl Integrations {
     pub async fn reboot(&self, store: &dyn store_capabilities::KeyProbe) -> Self {
         let mut integrations = Self::assembled_from(self.settings.clone(), self.slack.clone());
         integrations.key_file = self.key_file;
+        integrations.saved_slack = self.saved_slack.clone();
         integrations.probed(store).await
     }
 
@@ -234,6 +239,7 @@ impl Integrations {
         Self {
             settings,
             slack,
+            saved_slack: None,
             key_file: KeyFile::Unwritable,
             outbound: std::sync::OnceLock::new(),
             secrets: SecretsCheck::default(),
@@ -251,19 +257,75 @@ impl Integrations {
                 tracing::warn!(error = %err, "secrets probe: recording the key check failed");
             }
         }
-        let (keyring, secrets) = match store.instance_snapshot().await {
-            Ok(snapshot) => self.probe(&snapshot, key_file),
+        let (keyring, secrets, saved) = match store.instance_snapshot().await {
+            Ok(snapshot) => {
+                let (keyring, secrets) = self.probe(&snapshot, key_file);
+                let saved = snapshot.slack_app.map(|app| {
+                    let opened = slack_app::open_saved(
+                        &keyring.credentials(self.settings.secrets.as_ref()),
+                        &app,
+                    );
+                    (app, opened)
+                });
+                (keyring, secrets, Some(saved))
+            }
             Err(err) => {
                 tracing::warn!(error = %err, "secrets probe: reading stored credentials failed");
                 let unknown = SecretsCheck {
                     missing_key_ids: vec!["unknown".to_string()],
                 };
-                (self.keyring_over(None, &BTreeSet::new(), key_file), unknown)
+                (
+                    self.keyring_over(None, &BTreeSet::new(), key_file),
+                    unknown,
+                    None,
+                )
             }
         };
         let integrations = Self { keyring, ..self }.with_secrets_check(secrets);
+        let integrations = match saved {
+            Some(saved) => integrations.with_saved_slack(saved),
+            None => integrations,
+        };
         integrations.log_secrets_verdict();
         integrations
+    }
+
+    /// The Slack app in effect over the stored `saved` app (opened, when
+    /// both its secrets open): the environment's, else the saved one, else
+    /// none. A saved app whose client cannot be built is not in effect.
+    fn with_saved_slack(
+        self,
+        saved: Option<(SavedSlackApp, Option<config::SlackSettings>)>,
+    ) -> Self {
+        let environment = self.settings.slack.is_some();
+        let opened = match &saved {
+            None => slack_app::SavedApp::Absent,
+            Some((_, Some(_))) => slack_app::SavedApp::Opens,
+            Some((_, None)) => slack_app::SavedApp::DoesNotOpen,
+        };
+        let (slack, saved_slack) = match (slack_app::app_in_effect(environment, opened), saved) {
+            (slack_app::AppInEffect::Environment, _) => return self,
+            (slack_app::AppInEffect::Saved, Some((app, Some(settings)))) => {
+                match SlackApp::build(&settings) {
+                    Ok(built) => (Some(Arc::new(built)), Some(app.into())),
+                    Err(err) => {
+                        tracing::warn!(error = %err, "the saved Slack app's client could not be built");
+                        (None, None)
+                    }
+                }
+            }
+            _ => (None, None),
+        };
+        Self {
+            slack,
+            saved_slack,
+            ..self
+        }
+    }
+
+    /// The saved Slack app's facts, when it is the app in effect (I-6).
+    pub fn saved_slack(&self) -> Option<&slack_app::SavedAppFacts> {
+        self.saved_slack.as_ref()
     }
 
     /// The key mode and the probe's verdict over `snapshot`.

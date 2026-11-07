@@ -22,6 +22,21 @@
     <pre data-slack-manifest>{{ slack.addresses.manifest }}</pre>
     <p>Redirect URL <code data-slack-redirect-url>{{ slack.addresses.redirect_url }}</code></p>
     <p>Events URL <code data-slack-events-url>{{ slack.addresses.events_url }}</code></p>
+    <form method="post" action="{{ slack_door }}" data-slack-app-form>
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label>Client ID <input type="text" name="client_id" value="" autocomplete="off"></label>
+      <label>Client secret <input type="password" name="client_secret" value="" autocomplete="off"></label>
+      <label>Signing secret <input type="password" name="signing_secret" value="" autocomplete="off"></label>
+      <button type="submit">Save Slack app</button>
+    </form>
+  </section>
+  {% endif %}
+  {% if let Some(saved) = page.saved_slack %}
+  <section data-integration="slack">
+    <h2>Slack</h2>
+    <p data-slack-line>{{ saved.line }}</p>
+    <p data-slack-client-secret>{{ saved.client_secret }}</p>
+    <p data-slack-signing-secret>{{ saved.signing_secret }}</p>
   </section>
   {% endif %}
   <section data-integration="matrix">

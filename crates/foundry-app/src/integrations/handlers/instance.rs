@@ -10,19 +10,29 @@
 //! write use-case, and after the commit rebuilds this server's integrations
 //! through the shared boot probe ([`Integrations::reboot`]) and installs them
 //! before it answers I-21. Other replicas follow on their reload (ADR-IIS-004).
+//!
+//! The Slack app save, `POST …/slack` (US-IIS-03), behind the same guard:
+//! without a sealing mode it answers I-3 and stores nothing; otherwise both
+//! secrets are sealed and handed to the one write use-case, fenced on the
+//! sealing key, and this server's integrations are rebuilt and installed
+//! before it answers I-10 with I-6 (ADR-IIS-003).
 
 use super::render;
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyMode, NoKeyReason};
+use crate::integrations::slack_app::{plan_save, SlackAppForm};
 use crate::integrations::store_capabilities::{InstanceKeyWrites, StoreCapabilities};
 use crate::integrations::{slack, Integrations};
 use crate::AppState;
 use askama::Template;
+use axum::body::Bytes;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Response;
-use foundry_store::integrations::{InstanceActivityRow, KeyWrapper, SecretsKeyOutcome};
+use foundry_store::integrations::{
+    InstanceActivityRow, KeyWrapper, SecretsKeyOutcome, SlackSaveOutcome,
+};
 use time::OffsetDateTime;
 use tower_sessions::Session;
 use uuid::Uuid;
@@ -30,6 +40,7 @@ use uuid::Uuid;
 pub const INSTANCE_PATH: &str = "/admin/instance/integrations";
 pub const SECRETS_KEY_PATH: &str = "/admin/instance/integrations/secrets-key";
 pub const MOVE_PATH: &str = "/admin/instance/integrations/secrets-key/move";
+pub const SLACK_APP_PATH: &str = "/admin/instance/integrations/slack";
 
 /// The instance key file's name in `FOUNDRY_DATA_DIR`.
 const KEY_FILE_NAME: &str = "instance.key";
@@ -61,6 +72,15 @@ const SLACK_NOT_SET_UP: &str = "Slack: not set up. Create the Foundry Slack app 
 const PUBLIC_URL_FELL_BACK: &str = "FOUNDRY_PUBLIC_URL is not set, so the addresses below use {fallback_url}, which Slack cannot reach. An instance operator sets FOUNDRY_PUBLIC_URL to this Foundry's public address and restarts Foundry.";
 /// I-21.
 const SECRETS_KEY_GENERATED: &str = "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.";
+/// I-10.
+const SLACK_APP_SAVED: &str = "Saved. Workspace admins can now choose Add to Slack.";
+/// I-6, with the saved app's client ID, who saved it and when.
+const SLACK_SAVED_HERE: &str = "Slack: set up here · app {client_id} · saved by {name} · {date}";
+/// I-6's secret lines: set, never shown.
+const CLIENT_SECRET_SET: &str = "Client secret: set";
+const SIGNING_SECRET_SET: &str = "Signing secret: set";
+/// How many times a save is tried when the seal fence finds a newer key.
+const SAVE_ATTEMPTS: usize = 2;
 /// How many activity lines the page lists.
 const ACTIVITY_LINES: i64 = 20;
 /// I-9.
@@ -81,7 +101,25 @@ pub struct PageFacts {
     pub unopenable_values: bool,
     /// A Slack app is in effect on this server.
     pub slack_app: bool,
+    /// The saved app, when it is the one in effect.
+    pub saved_slack: Option<SavedSlack>,
     pub addresses: SlackAddresses,
+}
+
+/// The saved app in effect, as I-6 names it. Never a secret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedSlack {
+    pub client_id: String,
+    pub saved_by: String,
+    pub saved_at: OffsetDateTime,
+}
+
+/// I-6: the saved app's line, and its two secrets as set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavedSlackLines {
+    pub line: String,
+    pub client_secret: &'static str,
+    pub signing_secret: &'static str,
 }
 
 /// What Slack is told about this Foundry, from its integrations (one source
@@ -141,6 +179,8 @@ pub struct PageState {
     pub matrix: &'static str,
     /// I-5: with a secrets key and no Slack app.
     pub slack: Option<SlackSetup>,
+    /// I-6: the saved app in effect.
+    pub saved_slack: Option<SavedSlackLines>,
 }
 
 /// The page of `facts` (pure and total).
@@ -169,6 +209,14 @@ pub fn page_state(facts: &PageFacts) -> PageState {
             MATRIX_NEEDS_KEY
         },
         slack: slack_setup(facts),
+        saved_slack: facts.saved_slack.as_ref().map(|app| SavedSlackLines {
+            line: SLACK_SAVED_HERE
+                .replace("{client_id}", &app.client_id)
+                .replace("{name}", &app.saved_by)
+                .replace("{date}", &display_date(app.saved_at)),
+            client_secret: CLIENT_SECRET_SET,
+            signing_secret: SIGNING_SECRET_SET,
+        }),
     }
 }
 
@@ -194,8 +242,9 @@ fn instance_key_line(facts: &PageFacts) -> String {
     words.replace("{path}", &facts.key_file)
 }
 
-/// The facts of the integrations in effect on this server.
-fn facts_of(integrations: &Integrations) -> PageFacts {
+/// The facts of the integrations in effect on this server, the saved app
+/// in effect named as saved by `saver`.
+fn facts_of(integrations: &Integrations, saver: Option<String>) -> PageFacts {
     let settings = integrations.settings();
     PageFacts {
         mode: integrations.key_mode(),
@@ -204,6 +253,11 @@ fn facts_of(integrations: &Integrations) -> PageFacts {
         saved_direct: integrations.holds_direct_seals(),
         unopenable_values: integrations.secrets_check().degraded(),
         slack_app: integrations.slack().is_some(),
+        saved_slack: integrations.saved_slack().map(|app| SavedSlack {
+            client_id: app.client_id.clone(),
+            saved_by: saver.unwrap_or_else(|| "Foundry".to_string()),
+            saved_at: app.saved_at,
+        }),
         addresses: SlackAddresses {
             manifest: slack::manifest(integrations),
             redirect_url: integrations.slack_return_url(),
@@ -220,6 +274,10 @@ fn activity_line(row: &InstanceActivityRow) -> String {
     let actor = row.actor_name.as_deref().unwrap_or("Foundry");
     let what = match row.action.as_str() {
         "secrets_key_generated" => "generated the secrets key".to_string(),
+        "slack_app_saved" => format!(
+            "saved the Slack app ({})",
+            row.client_id.as_deref().unwrap_or_default()
+        ),
         other => other.replace('_', " "),
     };
     format!("{} · {actor} {what}", display_date(row.created_at))
@@ -236,6 +294,8 @@ fn display_date(at: OffsetDateTime) -> String {
 struct InstancePage {
     nav: crate::nav::NavContext,
     csrf: String,
+    /// Where the Slack app form posts.
+    slack_door: &'static str,
     /// What the post just did (I-21).
     notice: Option<&'static str>,
     page: PageState,
@@ -307,6 +367,74 @@ async fn generate(state: &AppState, actor: Uuid) -> Option<&'static str> {
     notice
 }
 
+/// `POST /admin/instance/integrations/slack`: save the Slack app. The form
+/// is read only past the guard, so every refusal is the uniform 404.
+pub async fn save_slack_app(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let fields: Vec<(String, String)> = serde_urlencoded::from_bytes(&body).unwrap_or_default();
+    let notice = save_slack(&state, user.user_id, &SlackAppForm::from_fields(&fields)).await;
+    answer(&state, &user, &headers, notice).await
+}
+
+/// The save where a sealing mode holds (else I-3, nothing stored), then this
+/// server's integrations rebuilt and installed: I-10 once it is saved. When
+/// the seal fence finds a newer sealing key, the integrations are rebuilt
+/// and the save tried once more.
+async fn save_slack(state: &AppState, actor: Uuid, form: &SlackAppForm) -> Option<&'static str> {
+    let store = StoreCapabilities::new(state.store.clone());
+    for _ in 0..SAVE_ATTEMPTS {
+        let integrations = state.integrations.current();
+        let Some(sealing) = integrations.sealing_box() else {
+            return Some(NO_SECRETS_KEY);
+        };
+        let Some(plan) = plan_save(
+            sealing,
+            integrations.key_mode(),
+            form,
+            actor,
+            state.clock.now(),
+        ) else {
+            tracing::warn!(probe = "secrets", "sealing the Slack app failed");
+            return None;
+        };
+        let outcome = store.save_slack_app(&plan).await;
+        state
+            .integrations
+            .install(integrations.reboot(&*store).await);
+        match outcome {
+            Ok(SlackSaveOutcome::Saved { .. }) => return Some(SLACK_APP_SAVED),
+            Ok(SlackSaveOutcome::StaleKey) => continue,
+            Err(err) => {
+                tracing::warn!(error = %err, "saving the Slack app failed");
+                return None;
+            }
+        }
+    }
+    None
+}
+
+/// Who saved the app in effect, by name.
+async fn saver_name(state: &AppState, integrations: &Integrations) -> Option<String> {
+    let saved_by = integrations.saved_slack()?.saved_by?;
+    match StoreCapabilities::new(state.store.clone())
+        .display_name(saved_by)
+        .await
+    {
+        Ok(name) => name,
+        Err(err) => {
+            tracing::warn!(error = %err, "reading who saved the Slack app failed");
+            None
+        }
+    }
+}
+
 /// The page as this server's integrations are now, with `notice` above it.
 async fn answer(
     state: &AppState,
@@ -315,7 +443,9 @@ async fn answer(
     notice: Option<&'static str>,
 ) -> Response {
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
-    let page = page_state(&facts_of(&state.integrations.current()));
+    let integrations = state.integrations.current();
+    let saver = saver_name(state, &integrations).await;
+    let page = page_state(&facts_of(&integrations, saver));
     let activity = match StoreCapabilities::new(state.store.clone())
         .instance_activity(ACTIVITY_LINES)
         .await
@@ -338,6 +468,7 @@ async fn answer(
         InstancePage {
             nav,
             csrf,
+            slack_door: SLACK_APP_PATH,
             notice,
             page,
             activity,
@@ -370,6 +501,7 @@ mod tests {
             saved_direct,
             unopenable_values: false,
             slack_app: false,
+            saved_slack: None,
             addresses: addresses(None),
         }
     }
@@ -478,7 +610,7 @@ mod tests {
         let mut settings = IntegrationSettings::off("http://localhost:8080");
         settings.public_url_fell_back = true;
         let integrations = Integrations::new(settings);
-        let addresses = facts_of(&integrations).addresses;
+        let addresses = facts_of(&integrations, None).addresses;
         assert_eq!(addresses.manifest, slack::manifest(&integrations));
         assert_eq!(
             addresses.redirect_url,

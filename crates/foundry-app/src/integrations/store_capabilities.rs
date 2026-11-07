@@ -17,14 +17,15 @@
 //! - [`KeyProbe`]: the boot function's reads of the stored instance rows and
 //!   its one write, the current instance key's check value;
 //! - [`InstanceKeyWrites`]: the instance page's Generate (one write
-//!   use-case, `store_secrets_key`) and its activity read.
+//!   use-case, `store_secrets_key`), its Slack app save (`save_slack_app`),
+//!   its activity read and the saver's name.
 
 use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
     DispatchOutcome, EmailSendFacts, InstanceActivityRow, InstanceSnapshot, KeyCheck,
     LostConnection, NewDelivery, NewSecretsKey, PendingDelivery, Pruned, Pruning, RecordOutcome,
-    RetentionView, SealedSlot, SecretsKeyOutcome,
+    RetentionView, SealedSlot, SecretsKeyOutcome, SlackAppSave, SlackSaveOutcome,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -171,8 +172,13 @@ pub trait InstanceKeyWrites: Send + Sync {
         reseal: Resealer<'_>,
     ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError>;
 
+    /// Save the Slack app, fenced on the key its secrets were sealed under,
+    /// with its activity line and the version bump: one transaction.
+    async fn save_slack_app(&self, app: &SlackAppSave) -> Result<SlackSaveOutcome, StoreError>;
     /// The instance's latest activity lines, newest first.
     async fn instance_activity(&self, limit: i64) -> Result<Vec<InstanceActivityRow>, StoreError>;
+    /// A person's display name (who saved the Slack app, I-6).
+    async fn display_name(&self, user_id: Uuid) -> Result<Option<String>, StoreError>;
 }
 
 /// Every capability, over the store.
@@ -342,7 +348,15 @@ impl InstanceKeyWrites for StoreCapabilities {
             .await
     }
 
+    async fn save_slack_app(&self, app: &SlackAppSave) -> Result<SlackSaveOutcome, StoreError> {
+        self.0.save_slack_app(app).await
+    }
+
     async fn instance_activity(&self, limit: i64) -> Result<Vec<InstanceActivityRow>, StoreError> {
         self.0.instance_activity(limit).await
+    }
+
+    async fn display_name(&self, user_id: Uuid) -> Result<Option<String>, StoreError> {
+        self.0.user_display_name(user_id).await
     }
 }
