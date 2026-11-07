@@ -12,7 +12,8 @@
 //! before it answers I-21. Other replicas follow on their reload (ADR-IIS-004).
 //!
 //! The Slack app save, `POST …/slack` (US-IIS-03), behind the same guard:
-//! without a sealing mode it answers I-3 and stores nothing; otherwise both
+//! a blank or malformed field answers I-11 or I-12 before anything is
+//! touched, the typed client ID kept and both secrets cleared; without a sealing mode it answers I-3 and stores nothing; otherwise both
 //! secrets are sealed and handed to the one write use-case, fenced on the
 //! sealing key, and this server's integrations are rebuilt and installed
 //! before it answers I-10 with I-6 (ADR-IIS-003).
@@ -21,7 +22,7 @@ use super::render;
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyMode, NoKeyReason};
-use crate::integrations::slack_app::{plan_save, SlackAppForm};
+use crate::integrations::slack_app::{plan_save, Refusal, SlackAppForm, SlackField};
 use crate::integrations::store_capabilities::{InstanceKeyWrites, KeyProbe, StoreCapabilities};
 use crate::integrations::{slack, Integrations};
 use crate::AppState;
@@ -74,6 +75,18 @@ const PUBLIC_URL_FELL_BACK: &str = "FOUNDRY_PUBLIC_URL is not set, so the addres
 const SECRETS_KEY_GENERATED: &str = "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.";
 /// I-7, with the environment's client ID.
 const SLACK_IN_ENVIRONMENT: &str = "Slack: set in Foundry's environment, app {client_id}. To manage it here, enter the same app below; it takes over once SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from the environment.";
+/// I-11, one per field in form order.
+const ENTER_CLIENT_ID: &str = "Enter the client ID from the Slack app's Basic Information.";
+const ENTER_CLIENT_SECRET: &str = "Enter the client secret from the Slack app's Basic Information.";
+const ENTER_SIGNING_SECRET: &str =
+    "Enter the signing secret from the Slack app's Basic Information.";
+/// I-12, one per field in form order.
+const NOT_A_CLIENT_ID: &str =
+    "That is not a Slack client ID. Copy it again from the Slack app's Basic Information.";
+const NOT_A_CLIENT_SECRET: &str =
+    "That is not a Slack client secret. Copy it again from the Slack app's Basic Information.";
+const NOT_A_SIGNING_SECRET: &str =
+    "That is not a Slack signing secret. Copy it again from the Slack app's Basic Information.";
 /// I-10.
 const SLACK_APP_SAVED: &str = "Saved. Workspace admins can now choose Add to Slack.";
 /// I-6, with the saved app's client ID, who saved it and when.
@@ -315,6 +328,8 @@ struct InstancePage {
     slack_door: &'static str,
     /// What the post just did (I-21).
     notice: Option<&'static str>,
+    /// The client ID a refused save typed, kept in the form (I-11, I-12).
+    kept_client_id: String,
     page: PageState,
     activity: Vec<String>,
 }
@@ -327,7 +342,7 @@ pub async fn show_instance(
     let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
-    answer(&state, &user, &headers, None).await
+    answer(&state, &user, &headers, None, String::new()).await
 }
 
 /// `POST /admin/instance/integrations/secrets-key`: Generate.
@@ -340,7 +355,7 @@ pub async fn generate_secrets_key(
         return resource_not_found_page();
     };
     let notice = generate(&state, user.user_id).await;
-    answer(&state, &user, &headers, notice).await
+    answer(&state, &user, &headers, notice, String::new()).await
 }
 
 /// Generate where it applies, then this server's integrations rebuilt and
@@ -396,8 +411,32 @@ pub async fn save_slack_app(
         return resource_not_found_page();
     };
     let fields: Vec<(String, String)> = serde_urlencoded::from_bytes(&body).unwrap_or_default();
-    let notice = save_slack(&state, user.user_id, &SlackAppForm::from_fields(&fields)).await;
-    answer(&state, &user, &headers, notice).await
+    let form = SlackAppForm::from_fields(&fields);
+    if let Some(refusal) = form.refusal() {
+        return answer(
+            &state,
+            &user,
+            &headers,
+            Some(refused(refusal)),
+            form.client_id,
+        )
+        .await;
+    }
+    let notice = save_slack(&state, user.user_id, &form).await;
+    answer(&state, &user, &headers, notice, String::new()).await
+}
+
+/// What a refused save answers: I-11 for a blank field, I-12 for a
+/// malformed one, naming it.
+fn refused(refusal: Refusal) -> &'static str {
+    match refusal {
+        Refusal::Blank(SlackField::ClientId) => ENTER_CLIENT_ID,
+        Refusal::Blank(SlackField::ClientSecret) => ENTER_CLIENT_SECRET,
+        Refusal::Blank(SlackField::SigningSecret) => ENTER_SIGNING_SECRET,
+        Refusal::Malformed(SlackField::ClientId) => NOT_A_CLIENT_ID,
+        Refusal::Malformed(SlackField::ClientSecret) => NOT_A_CLIENT_SECRET,
+        Refusal::Malformed(SlackField::SigningSecret) => NOT_A_SIGNING_SECRET,
+    }
 }
 
 /// The save where a sealing mode holds (else I-3, nothing stored), then this
@@ -473,6 +512,7 @@ async fn answer(
     user: &SessionUser,
     headers: &HeaderMap,
     notice: Option<&'static str>,
+    kept_client_id: String,
 ) -> Response {
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let integrations = state.integrations.current();
@@ -503,6 +543,7 @@ async fn answer(
             csrf,
             slack_door: SLACK_APP_PATH,
             notice,
+            kept_client_id,
             page,
             activity,
         }

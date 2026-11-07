@@ -8,7 +8,7 @@ use super::config::{SlackSettings, DEFAULT_SLACK_API_BASE_URL, DEFAULT_SLACK_AUT
 use super::keys::{CredentialBox, KeyMode};
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
 use foundry_store::integrations::{SavedSlackApp, SlackAppSave};
-use secrecy::SecretString;
+use secrecy::{ExposeSecret, SecretString};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -113,6 +113,64 @@ impl SlackAppForm {
     }
 }
 
+/// A field of the Slack app form.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlackField {
+    ClientId,
+    ClientSecret,
+    SigningSecret,
+}
+
+/// Why a save is refused: the first field in form order that is blank
+/// (I-11) or off its shape (I-12).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refusal {
+    Blank(SlackField),
+    Malformed(SlackField),
+}
+
+impl SlackField {
+    /// Whether `value`, trimmed, is this field's shape (ADR-IIS-003): the
+    /// client ID digits, a dot and digits; each secret 32 lowercase hex.
+    pub fn check(self, value: &str) -> Result<(), Refusal> {
+        let value = value.trim();
+        if value.is_empty() {
+            return Err(Refusal::Blank(self));
+        }
+        let fits = match self {
+            Self::ClientId => value
+                .split_once('.')
+                .is_some_and(|(left, right)| digits(left) && digits(right)),
+            Self::ClientSecret | Self::SigningSecret => {
+                value.len() == SECRET_LEN
+                    && value
+                        .bytes()
+                        .all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+            }
+        };
+        fits.then_some(()).ok_or(Refusal::Malformed(self))
+    }
+}
+
+/// Each Slack secret's length in hex characters.
+const SECRET_LEN: usize = 32;
+
+fn digits(part: &str) -> bool {
+    !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())
+}
+
+impl SlackAppForm {
+    /// The save refused, naming the first failing field in form order;
+    /// `None` when every field has its shape. Pure: no call to Slack.
+    pub fn refusal(&self) -> Option<Refusal> {
+        SlackField::ClientId
+            .check(&self.client_id)
+            .and_then(|()| SlackField::ClientSecret.check(self.client_secret.expose_secret()))
+            .and_then(|()| SlackField::SigningSecret.check(self.signing_secret.expose_secret()))
+            .err()
+    }
+}
+
 /// Both secrets sealed with `sealing`, fenced on its key id when `mode` is
 /// `Sealed` (the stored secrets key's) and on none when `Direct`. `None`
 /// when sealing fails.
@@ -142,6 +200,105 @@ pub fn plan_save(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    const ID: &str = "6123456789012.7234567890123";
+    const SECRET: &str = "3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8";
+    const SIGNING: &str = "b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05";
+
+    fn form(client_id: &str, client_secret: &str, signing_secret: &str) -> SlackAppForm {
+        let field = |name: &str, value: &str| (name.to_string(), value.to_string());
+        SlackAppForm::from_fields(&[
+            field("client_id", client_id),
+            field("client_secret", client_secret),
+            field("signing_secret", signing_secret),
+        ])
+    }
+
+    /// Each field's blank, malformed and valid cases, in form order; the
+    /// first failing field is the one named.
+    #[test]
+    fn a_save_is_refused_on_the_first_blank_or_malformed_field_in_form_order() {
+        use Refusal::{Blank, Malformed};
+        use SlackField::{ClientId, ClientSecret, SigningSecret};
+        #[rustfmt::skip]
+        let table: [(&str, &str, &str, Option<Refusal>); 14] = [
+            (ID,                    SECRET,     SIGNING,     None),
+            ("",                    SECRET,     SIGNING,     Some(Blank(ClientId))),
+            ("   ",                 SECRET,     SIGNING,     Some(Blank(ClientId))),
+            ("6123456789012",       SECRET,     SIGNING,     Some(Malformed(ClientId))),
+            ("6123456789012.",      SECRET,     SIGNING,     Some(Malformed(ClientId))),
+            (".7234567890123",      SECRET,     SIGNING,     Some(Malformed(ClientId))),
+            ("1.2.3",               SECRET,     SIGNING,     Some(Malformed(ClientId))),
+            ("6123 copy",           "",         "",          Some(Malformed(ClientId))),
+            (ID,                    "",         SIGNING,     Some(Blank(ClientSecret))),
+            (ID,                    "3f9c0a7e", SIGNING,     Some(Malformed(ClientSecret))),
+            (ID,                    &SECRET.to_uppercase(), SIGNING, Some(Malformed(ClientSecret))),
+            (ID,                    "x",        "",          Some(Malformed(ClientSecret))),
+            (ID,                    SECRET,     "",          Some(Blank(SigningSecret))),
+            (ID,                    SECRET,     "b7e1 d4c9", Some(Malformed(SigningSecret))),
+        ];
+        for (client_id, client_secret, signing_secret, expected) in table {
+            assert_eq!(
+                form(client_id, client_secret, signing_secret).refusal(),
+                expected,
+                "client ID {client_id:?}, row expecting {expected:?}"
+            );
+        }
+    }
+
+    fn any_field() -> impl Strategy<Value = SlackField> {
+        prop_oneof![
+            Just(SlackField::ClientId),
+            Just(SlackField::ClientSecret),
+            Just(SlackField::SigningSecret),
+        ]
+    }
+
+    /// The characters a field's value is made of.
+    fn in_alphabet(field: SlackField, c: char) -> bool {
+        match field {
+            SlackField::ClientId => c.is_ascii_digit() || c == '.',
+            SlackField::ClientSecret | SlackField::SigningSecret => {
+                matches!(c, '0'..='9' | 'a'..='f')
+            }
+        }
+    }
+
+    proptest! {
+        /// Surrounding whitespace never changes a value's verdict.
+        #[test]
+        fn a_value_is_judged_the_same_with_surrounding_whitespace(
+            field in any_field(),
+            value in "[0-9a-f.]{0,40}|\\PC{0,40}",
+            before in "[ \t\r\n]{0,4}",
+            after in "[ \t\r\n]{0,4}",
+        ) {
+            prop_assert_eq!(field.check(&format!("{before}{value}{after}")), field.check(&value));
+        }
+
+        /// Any 32 lowercase hex characters are a secret.
+        #[test]
+        fn any_32_lowercase_hex_is_accepted_as_a_secret(secret in "[0-9a-f]{32}") {
+            prop_assert_eq!(SlackField::ClientSecret.check(&secret), Ok(()));
+            prop_assert_eq!(SlackField::SigningSecret.check(&secret), Ok(()));
+            prop_assert_eq!(form(ID, &secret, &secret).refusal(), None);
+        }
+
+        /// A value holding a character outside its field's alphabet is
+        /// malformed (I-12), never blank.
+        #[test]
+        fn a_character_outside_the_alphabet_is_refused_as_malformed(
+            field in any_field(),
+            head in "[0-9a-f.]{0,20}",
+            foreign in any::<char>(),
+            tail in "[0-9a-f.]{0,20}",
+        ) {
+            prop_assume!(!in_alphabet(field, foreign) && !foreign.is_whitespace());
+            let value = format!("{head}{foreign}{tail}");
+            prop_assert_eq!(field.check(&value), Err(Refusal::Malformed(field)));
+        }
+    }
 
     /// Every (environment trio set, saved row) pair: the environment wins,
     /// then a saved app whose secrets both open, else none.

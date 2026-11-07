@@ -28,7 +28,7 @@
     {% if page.slack_form %}
     <form method="post" action="{{ slack_door }}" data-slack-app-form>
       <input type="hidden" name="_csrf" value="{{ csrf }}">
-      <label>Client ID <input type="text" name="client_id" value="" autocomplete="off"></label>
+      <label>Client ID <input type="text" name="client_id" value="{{ kept_client_id }}" autocomplete="off"></label>
       <label>Client secret <input type="password" name="client_secret" value="" autocomplete="off"></label>
       <label>Signing secret <input type="password" name="signing_secret" value="" autocomplete="off"></label>
       <button type="submit">Save Slack app</button>

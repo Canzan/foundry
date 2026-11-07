@@ -275,17 +275,17 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And the instance integrations activity reads "21 Oct 2026 · Priya Raman saved the Slack app (6123456789012.7234567890123)"
     And Canzan Labs' workspace integrations page offers Add to Slack
 
-  @pending @us-iis-03 @error
+  @us-iis-03 @error
   Scenario Outline: A blank or malformed value is refused and nothing is saved
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key
-    When Priya saves the Slack app with client ID "<client id>", client secret "<client secret>" and signing secret "<signing secret>"
+    When Priya saves the Slack app with client ID "<client_id>", client secret "<client_secret>" and signing secret "<signing_secret>"
     Then Priya reads "<words>"
-    And the form keeps the client ID "<client id>" and leaves both secrets empty
+    And the form keeps the client ID "<client_id>" and leaves both secrets empty
     And Slack is still not set up on this Foundry
 
     Examples:
-      | client id                        | client secret                    | signing secret                   | words                                                                                     |
+      | client_id                        | client_secret                    | signing_secret                   | words                                                                                     |
       |                                  | 3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8 | b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 | Enter the client ID from the Slack app's Basic Information.                               |
       | 6123456789012.7234567890123 copy | 3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8 | b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 | That is not a Slack client ID. Copy it again from the Slack app's Basic Information.      |
       | 6123456789012.7234567890123      |                                  | b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 | Enter the client secret from the Slack app's Basic Information.                           |
