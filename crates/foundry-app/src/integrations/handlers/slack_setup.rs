@@ -3,11 +3,10 @@
 
 use super::workspace::workspace_page;
 use super::{
-    internal_error, refusal, render, Caller, LOG_TARGET, NOT_CONNECTED, OTHER_SLACK_WORKSPACE,
-    WORKSPACE_PATH,
+    internal_error, refusal, reinstall, render, Caller, CONNECT_ATTEMPTS, LOG_TARGET,
+    NOT_CONNECTED, OTHER_SLACK_WORKSPACE, WORKSPACE_PATH,
 };
 use crate::csrf::ensure_csrf_cookie;
-use crate::integrations::keys::KeyMode;
 use crate::integrations::slack::{InstallState, SlackEvent};
 use crate::integrations::store_capabilities::{ConnectionHealth, StoreCapabilities};
 use crate::integrations::{credential_slot, slack, SlackOffer};
@@ -22,10 +21,6 @@ use foundry_services::integrations::SlackInstall;
 use foundry_store::integrations::ConnectionWriteOutcome;
 use serde::Deserialize;
 use tower_sessions::Session;
-
-/// A connection write the seal fence refused is sealed and tried once more,
-/// after a reload (ADR-IIS-004 rule 2).
-const CONNECT_ATTEMPTS: usize = 2;
 
 #[derive(Template)]
 #[template(path = "integrations/slack_setup.html")]
@@ -200,8 +195,7 @@ async fn connect(state: &AppState, caller: &Caller, code: &str) -> Result<(), No
         let sealed = secrets
             .seal(&grant.access_token, &credential_slot(connection_id))
             .map_err(|_| "seal")?;
-        let sealed_under = (integrations.key_mode() == KeyMode::Sealed)
-            .then(|| secrets.current_key_id().to_string());
+        let sealed_under = integrations.sealed_under();
         match caller
             .services
             .connect_slack(
@@ -214,12 +208,7 @@ async fn connect(state: &AppState, caller: &Caller, code: &str) -> Result<(), No
             )
             .await
         {
-            Ok(ConnectionWriteOutcome::StaleKey) => {
-                let store = StoreCapabilities::new(state.store.clone());
-                state
-                    .integrations
-                    .install(integrations.reboot(&*store).await);
-            }
+            Ok(ConnectionWriteOutcome::StaleKey) => reinstall(state, &integrations).await,
             Ok(ConnectionWriteOutcome::StaleRow) => return Err("stale_row".into()),
             Ok(ConnectionWriteOutcome::OtherWorkspace { connected_label }) => {
                 return Err(NotConnected::OtherWorkspace {

@@ -1254,8 +1254,9 @@ Component placement (no new crate):
   - handlers.
 
   Generate, Move and Replace build a plan (the values to re-seal, the new wrapped key, the canary,
-  the activity line), and the store applies it in one transaction, with the closure shape of
-  `reseal_credentials`.
+  the activity line), and the store applies it in one transaction, handing every stored sealed
+  value to the plan's re-seal closure (`reseal_sealed_values`, called by `store_secrets_key` and
+  `rotate_instance_key`).
 - **Driving ports split by effect.** `GET` page handlers read only. Each `POST` calls exactly one
   write use-case.
 - **Contract shapes.**

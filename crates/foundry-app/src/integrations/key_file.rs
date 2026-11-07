@@ -21,6 +21,7 @@
 
 use super::keys::{InstanceKeySource, KeyFileRead};
 use foundry_auth::secret_box::{SecretsKey, INSTANCE_KEY_SETTING};
+use secrecy::zeroize::Zeroizing;
 use secrecy::{ExposeSecret as _, SecretString};
 use std::fs::{File, OpenOptions};
 use std::io::{ErrorKind, Read as _, Write as _};
@@ -273,7 +274,10 @@ fn write_temp(temp: &Path) -> std::io::Result<u32> {
         .create_new(true)
         .mode(PRIVATE_MODE)
         .open(temp)?;
-    file.write_all(format!("{}\n", generated.text.expose_secret()).as_bytes())?;
+    let mut line = key_buffer();
+    line.push_str(generated.text.expose_secret());
+    line.push('\n');
+    file.write_all(line.as_bytes())?;
     file.sync_all()?;
     Ok(file.metadata()?.uid())
 }
@@ -290,6 +294,13 @@ fn sync_dir(dir: &Path) {
     }
 }
 
+/// A buffer for the key file's text, zeroed on drop and sized past
+/// [`MAX_FILE_BYTES`] so neither a read nor a write reallocates it (which
+/// would leave a copy of the key behind).
+fn key_buffer() -> Zeroizing<String> {
+    Zeroizing::new(String::with_capacity(MAX_FILE_BYTES as usize + 1))
+}
+
 /// The key in the regular file at `path`, and the file's permission bits;
 /// the problem otherwise (never the content).
 fn read_key(path: &Path) -> Result<(SecretsKey, u32), &'static str> {
@@ -297,13 +308,13 @@ fn read_key(path: &Path) -> Result<(SecretsKey, u32), &'static str> {
     if !meta.file_type().is_file() {
         return Err("not a regular file");
     }
-    let mut text = String::new();
+    let mut text = key_buffer();
     File::open(path)
         .map_err(|_| "cannot open")?
         .take(MAX_FILE_BYTES)
         .read_to_string(&mut text)
         .map_err(|_| "cannot read")?;
-    let line = SecretString::from(text.trim().to_string());
+    let line = SecretString::from(text.trim());
     let key = SecretsKey::parse(&line, INSTANCE_KEY_SETTING).map_err(|_| "does not parse")?;
     Ok((key, meta.permissions().mode() & 0o777))
 }

@@ -32,9 +32,10 @@ were chosen by the user on 2026-11-05
 
      Slack save itself holds it exclusive (rule 1).
    - **Lock order.** The advisory lock is always taken first, before any row lock. That includes
-     every `SELECT … FOR UPDATE`, such as `reseal_credentials`'s lock over
-     `integration_connections` (`keys.rs`), which is called only from within a transaction that
-     already holds the exclusive lock.
+     every `SELECT … FOR UPDATE`, such as `reseal_sealed_values`'s lock over
+     `integration_connections` and `instance_slack_app` (`instance.rs`), which `store_secrets_key`
+     and `rotate_instance_key` call only from within a transaction that already holds the
+     exclusive lock.
      - A connect write takes the shared lock before touching its connection row.
      - No path takes a row lock and then the advisory lock, so the two cannot deadlock.
      - The dispatcher's own advisory lock is a different key and never nests with this one.

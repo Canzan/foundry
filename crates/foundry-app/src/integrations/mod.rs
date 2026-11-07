@@ -235,6 +235,7 @@ impl Integrations {
         now: time::OffsetDateTime,
     ) -> Result<Self, SlackClientError> {
         let snapshot = store.instance_snapshot().await;
+        let mut rewrap_tried = false;
         // With an operator key, the key file's state does not enter the mode.
         // Without one, it is made only over a database holding nothing an
         // earlier key sealed (ADR-IIS-002 r3).
@@ -249,10 +250,17 @@ impl Integrations {
                 None => operator,
             });
             if superseded {
-                rewrap_file_key(&settings, store, snapshot.as_ref().ok(), now).await;
+                rewrap_tried = rewrap_file_key(&settings, store, snapshot.as_ref().ok(), now).await;
             }
             KeyFile::Unwritable
         } else {
+            // Decided over the snapshot read above, not under the instance
+            // lock (a TOCTOU window): a value another server seals under
+            // another key and commits between that read and the file's link
+            // is not seen, and the file is made over it anyway. That value
+            // then names a key this server does not hold, which the probe
+            // reports as it does any key not held. The window is one boot
+            // wide, on a database that held nothing sealed.
             let may_make = snapshot.as_ref().is_ok_and(|snapshot| {
                 snapshot.secrets_key.is_none() && sealed_values(snapshot).is_empty()
             });
@@ -270,17 +278,28 @@ impl Integrations {
             key_file,
             ..Self::try_new(settings)?
         };
-        if let Some(check) = integrations.key_check() {
-            if let Err(err) = store.record_key_check(&check).await {
-                tracing::warn!(error = %err, "secrets probe: recording the key check failed");
-            }
-        }
-        Ok(integrations.reboot(store).await)
+        let recorded = match integrations.key_check() {
+            Some(check) => match store.record_key_check(&check).await {
+                Ok(()) => Some(check),
+                Err(err) => {
+                    tracing::warn!(error = %err, "secrets probe: recording the key check failed");
+                    None
+                }
+            },
+            None => None,
+        };
+        let judged = match snapshot {
+            Ok(snapshot) if !rewrap_tried => Ok(with_key_check(snapshot, recorded)),
+            // A re-wrap moved the stored row on (or lost to a sibling's), and
+            // a failed read gets its second chance: read the rows again.
+            _ => store.instance_snapshot().await,
+        };
+        Ok(integrations.rebuilt(judged))
     }
 
-    /// The boot's rebuild over the stored rows as they are now: what boot
-    /// ends with, and what the serving replica installs after an instance
-    /// write commits.
+    /// The rebuild over the stored rows as they are now: what the serving
+    /// replica installs after an instance write commits, or after the seal
+    /// fence found a newer key. Boot rebuilds over the rows it already read.
     pub async fn reboot(&self, store: &dyn store_capabilities::KeyProbe) -> Self {
         self.rebuilt(store.instance_snapshot().await)
     }
@@ -497,6 +516,14 @@ impl Integrations {
         self.credentials().sealing()
     }
 
+    /// The key id a connection write's seal fence compares (ADR-IIS-004
+    /// rule 2): the sealing secrets key's in `Sealed` mode, none otherwise.
+    pub fn sealed_under(&self) -> Option<String> {
+        self.sealing_box()
+            .filter(|_| self.key_mode() == KeyMode::Sealed)
+            .map(|sealing| sealing.current_key_id().to_string())
+    }
+
     /// The client for admin- and lead-supplied addresses (ADR-EIP-006).
     pub fn outbound(&self) -> &OutboundHttp {
         self.outbound
@@ -699,18 +726,18 @@ async fn rewrap_file_key(
     store: &dyn store_capabilities::KeyProbe,
     snapshot: Option<&InstanceSnapshot>,
     now: time::OffsetDateTime,
-) {
+) -> bool {
     use foundry_store::integrations::{KeyWrapper, RewrapOutcome};
     let Some((instance, stored)) = settings.secrets.as_ref().zip(
         snapshot
             .and_then(|snapshot| snapshot.secrets_key.as_ref())
             .filter(|stored| stored.wrapped_by == KeyWrapper::File),
     ) else {
-        return;
+        return false;
     };
     let path = key_file::key_path(&settings.data_dir).display().to_string();
     let Some((_, Some(rewrap))) = keys::plan_rewrap(instance, stored, Some(path)) else {
-        return;
+        return false;
     };
     match store.rewrap_secrets_key(&rewrap, now).await {
         Ok(RewrapOutcome::Rewrapped { version }) => tracing::info!(
@@ -720,6 +747,23 @@ async fn rewrap_file_key(
         Ok(RewrapOutcome::AlreadyRewrapped) => {}
         Err(err) => tracing::warn!(error = %err, "re-wrapping the secrets key failed"),
     }
+    true
+}
+
+/// `snapshot` as the store holds it once boot's `recorded` key check is in:
+/// the insert keeps a check already stored for that key id (`ON CONFLICT DO
+/// NOTHING`) and bumps no version, so boot needs no second read for it.
+fn with_key_check(mut snapshot: InstanceSnapshot, recorded: Option<KeyCheck>) -> InstanceSnapshot {
+    if let Some(check) = recorded {
+        if !snapshot
+            .key_checks
+            .iter()
+            .any(|stored| stored.key_id == check.key_id)
+        {
+            snapshot.key_checks.push(check);
+        }
+    }
+    snapshot
 }
 
 fn sealed_values(snapshot: &InstanceSnapshot) -> Vec<Vec<u8>> {

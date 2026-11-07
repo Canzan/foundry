@@ -6,14 +6,12 @@ use super::route_form::{FormAnswer, RouteDoor, RouteForm};
 use super::routes::{managed_route, refused_page, test_notice};
 use super::workspace::workspace_page;
 use super::{
-    refusal, Caller, ADDRESS_REFUSED, BOT_IN_ROOM, LOG_TARGET, MATRIX_NOT_CONNECTED,
-    MATRIX_TOKEN_REFUSED, MATRIX_UNREACHABLE, WORKSPACE_PATH,
+    refusal, reinstall, Caller, ADDRESS_REFUSED, BOT_IN_ROOM, CONNECT_ATTEMPTS, LOG_TARGET,
+    MATRIX_NOT_CONNECTED, MATRIX_TOKEN_REFUSED, MATRIX_UNREACHABLE, WORKSPACE_PATH,
 };
 use crate::bootstrap::resource_not_found_page;
-use crate::integrations::keys::KeyMode;
 use crate::integrations::matrix::{ConnectRefusal, MatrixBot, RoomFacts, RoomRefusal};
 use crate::integrations::no_connection::NoConnectionCause;
-use crate::integrations::store_capabilities::StoreCapabilities;
 use crate::integrations::{credential_slot, matrix};
 use crate::AppState;
 use axum::extract::State;
@@ -26,10 +24,6 @@ use foundry_integrations::{
 use foundry_services::integrations::{ManagedRoute, MatrixLogin, RouteDraft};
 use foundry_store::integrations::ConnectionWriteOutcome;
 use tower_sessions::Session;
-
-/// A connection write the seal fence refused is sealed and tried once more,
-/// after a reload (ADR-IIS-004 rule 2).
-const CONNECT_ATTEMPTS: usize = 2;
 
 /// After a Matrix route's delete: the bot leaves its room when no other
 /// route of the workspace uses it. A leave that fails goes to the log; the
@@ -142,8 +136,7 @@ async fn save_matrix(
         let sealed = secrets
             .seal(&token, &credential_slot(connection_id))
             .map_err(|_| MATRIX_NOT_CONNECTED.to_string())?;
-        let sealed_under = (integrations.key_mode() == KeyMode::Sealed)
-            .then(|| secrets.current_key_id().to_string());
+        let sealed_under = integrations.sealed_under();
         match caller
             .services
             .connect_matrix(
@@ -159,12 +152,7 @@ async fn save_matrix(
             Ok(ConnectionWriteOutcome::Connected | ConnectionWriteOutcome::Reconnected) => {
                 return Ok(())
             }
-            Ok(ConnectionWriteOutcome::StaleKey) => {
-                let store = StoreCapabilities::new(state.store.clone());
-                state
-                    .integrations
-                    .install(integrations.reboot(&*store).await);
-            }
+            Ok(ConnectionWriteOutcome::StaleKey) => reinstall(state, &integrations).await,
             _ => break,
         }
     }

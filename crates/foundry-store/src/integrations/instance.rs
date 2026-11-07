@@ -316,19 +316,14 @@ impl Store {
             0 => (Activity::SecretsKeyGenerated, None),
             n => (Activity::CredentialsMoved, Some(count_of(n))),
         };
-        record_activity(
-            &mut tx,
-            &ActivityLine {
-                actor: key.created_by,
-                activity,
-                client_id: None,
-                count,
-                at,
-            },
-        )
-        .await?;
-        let version = bump_version(&mut tx).await?;
-        tx.commit().await?;
+        let line = ActivityLine {
+            actor: key.created_by,
+            activity,
+            client_id: None,
+            count,
+            at,
+        };
+        let version = commit_recorded(tx, &line).await?;
         Ok(SecretsKeyOutcome::Stored { resealed, version })
     }
 
@@ -348,19 +343,14 @@ impl Store {
             tx.rollback().await?;
             return Ok(RewrapOutcome::AlreadyRewrapped);
         }
-        record_activity(
-            &mut tx,
-            &ActivityLine {
-                actor: None,
-                activity: Activity::SecretsKeyRewrapped,
-                client_id: None,
-                count: None,
-                at,
-            },
-        )
-        .await?;
-        let version = bump_version(&mut tx).await?;
-        tx.commit().await?;
+        let line = ActivityLine {
+            actor: None,
+            activity: Activity::SecretsKeyRewrapped,
+            client_id: None,
+            count: None,
+            at,
+        };
+        let version = commit_recorded(tx, &line).await?;
         Ok(RewrapOutcome::Rewrapped { version })
     }
 
@@ -447,19 +437,14 @@ impl Store {
         } else {
             Activity::SlackAppSaved
         };
-        record_activity(
-            &mut tx,
-            &ActivityLine {
-                actor: Some(app.saved_by),
-                activity,
-                client_id: Some(&app.client_id),
-                count: None,
-                at: app.saved_at,
-            },
-        )
-        .await?;
-        let version = bump_version(&mut tx).await?;
-        tx.commit().await?;
+        let line = ActivityLine {
+            actor: Some(app.saved_by),
+            activity,
+            client_id: Some(&app.client_id),
+            count: None,
+            at: app.saved_at,
+        };
+        let version = commit_recorded(tx, &line).await?;
         Ok(SlackSaveOutcome::Saved { version })
     }
 
@@ -785,6 +770,15 @@ async fn reseal_sealed_values<E>(
         }
     }
     Ok(Ok(resealed))
+}
+
+/// An instance write's end: record `line`, bump the version and commit; the
+/// new version.
+async fn commit_recorded(mut tx: Tx<'_>, line: &ActivityLine<'_>) -> Result<i64, StoreError> {
+    record_activity(&mut tx, line).await?;
+    let version = bump_version(&mut tx).await?;
+    tx.commit().await?;
+    Ok(version)
 }
 
 async fn record_activity(tx: &mut Tx<'_>, line: &ActivityLine<'_>) -> Result<(), sqlx::Error> {

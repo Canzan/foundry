@@ -251,6 +251,21 @@ impl Caller {
 /// A signed-out visitor goes to sign in, as from any page that needs a
 /// session (the shipped `redirect_to("/sign-in")`: 303, `Location: /sign-in`).
 /// The uniform not-found (SC-6) is for signed-in people without the right.
+/// A connection write the seal fence refused is sealed and tried once more,
+/// after a reload (ADR-IIS-004 rule 2).
+const CONNECT_ATTEMPTS: usize = 2;
+
+/// This server's integrations rebuilt from `integrations` over the stored
+/// rows as they are now, and installed: the serving server's rebuild after
+/// its own instance write, or after the seal fence found a newer key.
+async fn reinstall(state: &AppState, integrations: &crate::integrations::Integrations) {
+    let store =
+        crate::integrations::store_capabilities::StoreCapabilities::new(state.store.clone());
+    state
+        .integrations
+        .install(integrations.reboot(&*store).await);
+}
+
 pub(super) fn sign_in() -> Response {
     Redirect::to("/sign-in").into_response()
 }

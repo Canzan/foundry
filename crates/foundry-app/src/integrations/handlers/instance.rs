@@ -25,7 +25,7 @@
 //! sealing key, and this server's integrations are rebuilt and installed
 //! before it answers I-10 with I-6 (ADR-IIS-003).
 
-use super::render;
+use super::{reinstall, render};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyFile, KeyMode, NoKeyReason};
@@ -418,11 +418,7 @@ pub async fn generate_secrets_key(
     session: Session,
     headers: HeaderMap,
 ) -> Response {
-    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
-        return resource_not_found_page();
-    };
-    let notice = store_secrets_key(&state, user.user_id, KeyOffer::Generate).await;
-    answer(&state, &user, &headers, notice, String::new()).await
+    key_door(&state, &session, &headers, KeyOffer::Generate).await
 }
 
 /// `POST /admin/instance/integrations/secrets-key/move`: Move.
@@ -431,11 +427,22 @@ pub async fn move_to_secrets_key(
     session: Session,
     headers: HeaderMap,
 ) -> Response {
-    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+    key_door(&state, &session, &headers, KeyOffer::Move).await
+}
+
+/// Generate's and Move's door: the uniform 404 past the guard, else `door`
+/// applied and the page answered.
+async fn key_door(
+    state: &AppState,
+    session: &Session,
+    headers: &HeaderMap,
+    door: KeyOffer,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(state, session).await else {
         return resource_not_found_page();
     };
-    let notice = store_secrets_key(&state, user.user_id, KeyOffer::Move).await;
-    answer(&state, &user, &headers, notice, String::new()).await
+    let notice = store_secrets_key(state, user.user_id, door).await;
+    answer(state, &user, headers, notice, String::new()).await
 }
 
 /// Generate or Move (one use-case, ADR-IIS-001 decision 5) where `door`
@@ -491,9 +498,7 @@ async fn store_secrets_key(state: &AppState, actor: Uuid, door: KeyOffer) -> Opt
             return None;
         }
     };
-    state
-        .integrations
-        .install(integrations.reboot(&*store).await);
+    reinstall(state, &integrations).await;
     notice
 }
 
@@ -566,9 +571,7 @@ async fn save_slack(state: &AppState, actor: Uuid, form: &SlackAppForm) -> Optio
             return Attempted::Answered(None);
         };
         let outcome = store.save_slack_app(&plan).await;
-        state
-            .integrations
-            .install(integrations.reboot(&**store).await);
+        reinstall(state, &integrations).await;
         match outcome {
             Ok(SlackSaveOutcome::Saved { .. }) if integrations.settings().slack.is_some() => {
                 Attempted::Answered(Some(SLACK_SAVED_ENVIRONMENT_WINS))
