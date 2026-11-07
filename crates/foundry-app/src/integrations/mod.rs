@@ -161,6 +161,8 @@ pub struct Integrations {
     slack: Option<Arc<SlackApp>>,
     /// The saved app's facts, when it is the app in effect.
     saved_slack: Option<slack_app::SavedAppFacts>,
+    /// The saved app as the held keys open it (I-13 when it does not).
+    saved_app: slack_app::SavedApp,
     /// The key file as boot found it (consulted only without an operator key).
     key_file: KeyFile,
     /// Built on first use, so a test-support build reaches a test host
@@ -250,6 +252,7 @@ impl Integrations {
         let mut integrations = Self::assembled_from(self.settings.clone(), self.slack.clone());
         integrations.key_file = self.key_file;
         integrations.saved_slack = self.saved_slack.clone();
+        integrations.saved_app = self.saved_app;
         integrations.probed(snapshot, self.keyring.secrets_key())
     }
 
@@ -265,6 +268,7 @@ impl Integrations {
             settings,
             slack,
             saved_slack: None,
+            saved_app: slack_app::SavedApp::Absent,
             key_file: KeyFile::Unwritable,
             outbound: std::sync::OnceLock::new(),
             secrets: SecretsCheck::default(),
@@ -287,11 +291,12 @@ impl Integrations {
                 applied_version = Some(snapshot.version);
                 let (keyring, secrets) = self.probe(&snapshot, key_file, held);
                 let saved = snapshot.slack_app.map(|app| {
-                    let opened = slack_app::open_saved(
+                    let (state, opened) = slack_app::open_saved(
                         &keyring.credentials(self.settings.secrets.as_ref()),
                         &app,
+                        &self.settings.slack_urls,
                     );
-                    (app, opened)
+                    (app, state, opened)
                 });
                 (keyring, secrets, Some(saved))
             }
@@ -321,22 +326,26 @@ impl Integrations {
         integrations
     }
 
-    /// The Slack app in effect over the stored `saved` app (opened, when
-    /// both its secrets open): the environment's, else the saved one, else
-    /// none. A saved app whose client cannot be built is not in effect.
+    /// The Slack app in effect over the stored `saved` app (as the held keys
+    /// open it, with its settings when both secrets open): the
+    /// environment's, else the saved one, else none. A saved app whose
+    /// client cannot be built is not in effect.
     fn with_saved_slack(
         self,
-        saved: Option<(SavedSlackApp, Option<config::SlackSettings>)>,
+        saved: Option<(
+            SavedSlackApp,
+            slack_app::SavedApp,
+            Option<config::SlackSettings>,
+        )>,
     ) -> Self {
         let environment = self.settings.slack.is_some();
-        let opened = match &saved {
-            None => slack_app::SavedApp::Absent,
-            Some((_, Some(_))) => slack_app::SavedApp::Opens,
-            Some((_, None)) => slack_app::SavedApp::DoesNotOpen,
-        };
-        let (slack, saved_slack) = match (slack_app::app_in_effect(environment, opened), saved) {
-            (slack_app::AppInEffect::Environment, _) => return self,
-            (slack_app::AppInEffect::Saved, Some((app, Some(settings)))) => {
+        let saved_app = saved
+            .as_ref()
+            .map_or(slack_app::SavedApp::Absent, |(_, state, _)| *state);
+        let in_effect = slack_app::app_in_effect(environment, saved_app);
+        let (slack, saved_slack) = match (in_effect, saved) {
+            (slack_app::AppInEffect::Environment, _) => (self.slack.clone(), None),
+            (slack_app::AppInEffect::Saved, Some((app, _, Some(settings)))) => {
                 match SlackApp::build(&settings) {
                     Ok(built) => (Some(Arc::new(built)), Some(app.into())),
                     Err(err) => {
@@ -350,8 +359,15 @@ impl Integrations {
         Self {
             slack,
             saved_slack,
+            saved_app,
             ..self
         }
+    }
+
+    /// The saved Slack app as the held keys open it: absent, opening, or
+    /// saved but unreadable here (I-13).
+    pub fn saved_app(&self) -> slack_app::SavedApp {
+        self.saved_app
     }
 
     /// The saved Slack app's facts, when it is the app in effect (I-6).

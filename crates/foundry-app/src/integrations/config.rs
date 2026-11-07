@@ -172,12 +172,42 @@ pub struct SlackSettings {
     pub authorize_url: String,
 }
 
+/// Where this Foundry reaches Slack's API and sends admins for approval:
+/// Slack's own addresses, or the `SLACK_API_BASE_URL` / `SLACK_AUTHORIZE_URL`
+/// test seams. They apply to whichever Slack app is in effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SlackUrls {
+    pub api_base_url: String,
+    pub authorize_url: String,
+}
+
+impl SlackUrls {
+    fn read(get: &impl Fn(&str) -> Option<String>) -> Self {
+        Self {
+            api_base_url: get(SLACK_API_BASE_URL)
+                .unwrap_or_else(|| DEFAULT_SLACK_API_BASE_URL.to_string())
+                .trim_end_matches('/')
+                .to_string(),
+            authorize_url: get(SLACK_AUTHORIZE_URL)
+                .unwrap_or_else(|| DEFAULT_SLACK_AUTHORIZE_URL.to_string()),
+        }
+    }
+}
+
+impl Default for SlackUrls {
+    fn default() -> Self {
+        Self::read(&|_| None)
+    }
+}
+
 /// Every integration setting, read once.
 pub struct IntegrationSettings {
     /// `FOUNDRY_PUBLIC_URL`, without a trailing slash: Slack's return and
     /// events addresses are built from it.
     pub public_url: String,
     pub slack: Option<SlackSettings>,
+    /// Slack's addresses, for the environment's or the saved app.
+    pub slack_urls: SlackUrls,
     /// Whether `FOUNDRY_PUBLIC_URL` was unset and `public_url` is the
     /// process's own fallback address (I-29).
     pub public_url_fell_back: bool,
@@ -215,10 +245,12 @@ impl IntegrationSettings {
             .trim_end_matches('/')
             .to_string();
         let (key_setting, secrets) = secrets(&get)?;
+        let slack_urls = SlackUrls::read(&get);
         Ok(Self {
             public_url,
             public_url_fell_back,
-            slack: slack_settings(&get)?,
+            slack: slack_settings(&get, &slack_urls)?,
+            slack_urls,
             secrets,
             key_setting,
             data_dir: get(DATA_DIR).map_or_else(|| PathBuf::from(DEFAULT_DATA_DIR), PathBuf::from),
@@ -234,6 +266,7 @@ impl IntegrationSettings {
             public_url: public_url.trim_end_matches('/').to_string(),
             public_url_fell_back: false,
             slack: None,
+            slack_urls: SlackUrls::default(),
             secrets: None,
             key_setting: None,
             data_dir: PathBuf::from(DEFAULT_DATA_DIR),
@@ -246,6 +279,7 @@ impl IntegrationSettings {
 
 fn slack_settings(
     get: &impl Fn(&str) -> Option<String>,
+    urls: &SlackUrls,
 ) -> Result<Option<SlackSettings>, ConfigError> {
     let (client_id, client_secret, signing_secret) = match (
         get(SLACK_CLIENT_ID),
@@ -274,12 +308,8 @@ fn slack_settings(
         client_id,
         client_secret: SecretString::from(client_secret),
         signing_secret: SecretString::from(signing_secret),
-        api_base_url: get(SLACK_API_BASE_URL)
-            .unwrap_or_else(|| DEFAULT_SLACK_API_BASE_URL.to_string())
-            .trim_end_matches('/')
-            .to_string(),
-        authorize_url: get(SLACK_AUTHORIZE_URL)
-            .unwrap_or_else(|| DEFAULT_SLACK_AUTHORIZE_URL.to_string()),
+        api_base_url: urls.api_base_url.clone(),
+        authorize_url: urls.authorize_url.clone(),
     }))
 }
 

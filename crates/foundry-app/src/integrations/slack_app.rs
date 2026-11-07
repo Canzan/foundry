@@ -4,7 +4,7 @@
 //! `SLACK_*` are set, else the saved app when both its secrets open, else
 //! none ([`app_in_effect`], pure and total).
 
-use super::config::{SlackSettings, DEFAULT_SLACK_API_BASE_URL, DEFAULT_SLACK_AUTHORIZE_URL};
+use super::config::{SlackSettings, SlackUrls};
 use super::keys::{CredentialBox, KeyMode};
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
 use foundry_store::integrations::{SavedSlackApp, SlackAppSave};
@@ -34,6 +34,16 @@ pub enum SavedApp {
     Opens,
     /// A secret opens under no held key (I-13): not in effect.
     DoesNotOpen,
+}
+
+impl SavedApp {
+    /// A saved app by whether each of its two secrets opens.
+    pub fn opened(client_secret: bool, signing_secret: bool) -> Self {
+        match (client_secret, signing_secret) {
+            (true, true) => Self::Opens,
+            _ => Self::DoesNotOpen,
+        }
+    }
 }
 
 /// Which Slack app is in effect on this server.
@@ -73,19 +83,30 @@ impl From<SavedSlackApp> for SavedAppFacts {
     }
 }
 
-/// The saved app opened under `credentials`: its settings when both secrets
-/// open (Slack's default addresses), else `None`.
-pub fn open_saved(credentials: &CredentialBox<'_>, app: &SavedSlackApp) -> Option<SlackSettings> {
+/// The saved app opened under `credentials`: whether both secrets open,
+/// and when they do its settings, reaching Slack at `urls` (the same
+/// addresses the environment's app would use).
+pub fn open_saved(
+    credentials: &CredentialBox<'_>,
+    app: &SavedSlackApp,
+    urls: &SlackUrls,
+) -> (SavedApp, Option<SlackSettings>) {
     let open = |sealed: &[u8], slot: SecretSlot| {
         credentials.open(&SealedSecret::from_bytes(sealed.to_vec()), &slot)
     };
-    Some(SlackSettings {
-        client_id: app.client_id.clone(),
-        client_secret: open(&app.sealed_client_secret, client_secret_slot())?,
-        signing_secret: open(&app.sealed_signing_secret, signing_secret_slot())?,
-        api_base_url: DEFAULT_SLACK_API_BASE_URL.to_string(),
-        authorize_url: DEFAULT_SLACK_AUTHORIZE_URL.to_string(),
-    })
+    let client_secret = open(&app.sealed_client_secret, client_secret_slot());
+    let signing_secret = open(&app.sealed_signing_secret, signing_secret_slot());
+    let state = SavedApp::opened(client_secret.is_some(), signing_secret.is_some());
+    let settings = client_secret
+        .zip(signing_secret)
+        .map(|(client_secret, signing_secret)| SlackSettings {
+            client_id: app.client_id.clone(),
+            client_secret,
+            signing_secret,
+            api_base_url: urls.api_base_url.clone(),
+            authorize_url: urls.authorize_url.clone(),
+        });
+    (state, settings)
 }
 
 /// The app as the form submitted it (each value trimmed).
@@ -300,22 +321,30 @@ mod tests {
         }
     }
 
-    /// Every (environment trio set, saved row) pair: the environment wins,
+    /// Every (environment trio set, saved row) pair, the saved row by
+    /// whether its client and signing secrets open: the environment wins,
     /// then a saved app whose secrets both open, else none.
     #[test]
     fn the_app_in_effect_is_the_environments_then_a_saved_app_that_opens() {
         use AppInEffect as E;
-        use SavedApp as S;
         #[rustfmt::skip]
         let table = [
-            (true,  S::Absent,      E::Environment),
-            (true,  S::Opens,       E::Environment),
-            (true,  S::DoesNotOpen, E::Environment),
-            (false, S::Absent,      E::None),
-            (false, S::Opens,       E::Saved),
-            (false, S::DoesNotOpen, E::None),
+            // environment, saved (client secret opens, signing secret opens)
+            (true,  None,                E::Environment),
+            (true,  Some((true,  true)),  E::Environment),
+            (true,  Some((false, true)),  E::Environment),
+            (true,  Some((true,  false)), E::Environment),
+            (true,  Some((false, false)), E::Environment),
+            (false, None,                E::None),
+            (false, Some((true,  true)),  E::Saved),
+            (false, Some((false, true)),  E::None),
+            (false, Some((true,  false)), E::None),
+            (false, Some((false, false)), E::None),
         ];
         for (environment, saved, expected) in table {
+            let saved = saved.map_or(SavedApp::Absent, |(client, signing)| {
+                SavedApp::opened(client, signing)
+            });
             assert_eq!(
                 app_in_effect(environment, saved),
                 expected,

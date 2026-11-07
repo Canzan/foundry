@@ -22,7 +22,7 @@ use super::render;
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyMode, NoKeyReason};
-use crate::integrations::slack_app::{plan_save, Refusal, SlackAppForm, SlackField};
+use crate::integrations::slack_app::{plan_save, Refusal, SavedApp, SlackAppForm, SlackField};
 use crate::integrations::store_capabilities::{InstanceKeyWrites, KeyProbe, StoreCapabilities};
 use crate::integrations::{slack, Integrations};
 use crate::AppState;
@@ -89,6 +89,11 @@ const NOT_A_SIGNING_SECRET: &str =
     "That is not a Slack signing secret. Copy it again from the Slack app's Basic Information.";
 /// I-10.
 const SLACK_APP_SAVED: &str = "Saved. Workspace admins can now choose Add to Slack.";
+/// I-17: saved while the environment's app is in effect.
+const SLACK_SAVED_ENVIRONMENT_WINS: &str = "Saved. The app in Foundry's environment stays in effect until SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from it and Foundry restarts; then this one is used.";
+/// I-13: a saved app no held key opens.
+const SLACK_SAVED_UNREADABLE: &str =
+    "Slack: saved, but this Foundry cannot read it (see the secrets key above).";
 /// I-6, with the saved app's client ID, who saved it and when.
 const SLACK_SAVED_HERE: &str = "Slack: set up here · app {client_id} · saved by {name} · {date}";
 /// I-6's secret lines: set, never shown.
@@ -120,6 +125,8 @@ pub struct PageFacts {
     pub environment_slack: Option<String>,
     /// The saved app, when it is the one in effect.
     pub saved_slack: Option<SavedSlack>,
+    /// A saved app is stored that no held key opens (I-13).
+    pub saved_unreadable: bool,
     pub addresses: SlackAddresses,
 }
 
@@ -198,9 +205,12 @@ pub struct PageState {
     pub slack: Option<SlackSetup>,
     /// I-6: the saved app in effect.
     pub saved_slack: Option<SavedSlackLines>,
+    /// I-13: a saved app this Foundry cannot read.
+    pub saved_unreadable: Option<&'static str>,
     /// I-7: the environment's app in effect.
     pub environment_slack: Option<String>,
-    /// The Slack app form: under I-5, or under I-7 where credentials seal.
+    /// The Slack app form: wherever credentials seal and no saved app is in
+    /// effect (under I-5, I-7, or no Slack line in Direct mode).
     pub slack_form: bool,
 }
 
@@ -234,7 +244,7 @@ pub fn page_state(facts: &PageFacts) -> PageState {
         } else {
             MATRIX_NEEDS_KEY
         },
-        slack_form: slack.is_some() || (environment_slack.is_some() && facts.mode.seals()),
+        slack_form: facts.mode.seals() && (environment_slack.is_some() || !facts.slack_app),
         slack,
         environment_slack,
         saved_slack: facts.saved_slack.as_ref().map(|app| SavedSlackLines {
@@ -245,6 +255,7 @@ pub fn page_state(facts: &PageFacts) -> PageState {
             client_secret: CLIENT_SECRET_SET,
             signing_secret: SIGNING_SECRET_SET,
         }),
+        saved_unreadable: facts.saved_unreadable.then_some(SLACK_SAVED_UNREADABLE),
     }
 }
 
@@ -288,6 +299,7 @@ fn facts_of(integrations: &Integrations, direct_seals: usize, saver: Option<Stri
             saved_by: saver.unwrap_or_else(|| "Foundry".to_string()),
             saved_at: app.saved_at,
         }),
+        saved_unreadable: integrations.saved_app() == SavedApp::DoesNotOpen,
         addresses: SlackAddresses {
             manifest: slack::manifest(integrations),
             redirect_url: integrations.slack_return_url(),
@@ -465,6 +477,9 @@ async fn save_slack(state: &AppState, actor: Uuid, form: &SlackAppForm) -> Optio
             .integrations
             .install(integrations.reboot(&*store).await);
         match outcome {
+            Ok(SlackSaveOutcome::Saved { .. }) if integrations.settings().slack.is_some() => {
+                return Some(SLACK_SAVED_ENVIRONMENT_WINS)
+            }
             Ok(SlackSaveOutcome::Saved { .. }) => return Some(SLACK_APP_SAVED),
             Ok(SlackSaveOutcome::StaleKey) => continue,
             Err(err) => {
@@ -577,6 +592,7 @@ mod tests {
             slack_app: false,
             environment_slack: None,
             saved_slack: None,
+            saved_unreadable: false,
             addresses: addresses(None),
         }
     }
@@ -694,7 +710,7 @@ mod tests {
             (AwaitingSecretsKey,                     true,  Some(i7), false),
             (AwaitingSecretsKey,                     false, None,     false),
             (Direct,                                 true,  Some(i7), true),
-            (Direct,                                 false, None,     false),
+            (Direct,                                 false, None,     true),
             (Sealed,                                 true,  Some(i7), true),
             (Sealed,                                 false, None,     true),
             (Unopenable,                             true,  Some(i7), false),

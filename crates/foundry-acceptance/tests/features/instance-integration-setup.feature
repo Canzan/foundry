@@ -143,7 +143,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
       | generate |
       | move     |
 
-  @pending @us-iis-01 @kpi-iis-2 @error
+  @us-iis-01 @kpi-iis-2 @error
   Scenario: A saved Slack app this Foundry cannot read is not in effect anywhere
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     And Priya has saved the Slack app 6123456789012.7234567890123
@@ -300,7 +300,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya reads "This Foundry has no secrets key yet. Foundry needs one to store Slack and Matrix credentials."
     And Slack is still not set up on this Foundry
 
-  @pending @us-iis-03 @kpi-iis-1
+  @us-iis-03 @kpi-iis-1
   Scenario: Slack's event check and Add to Slack use the saved app
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key
@@ -309,7 +309,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Slack's confirmation of Foundry's events address succeeds
     And Add to Slack on Canzan Labs' workspace integrations page sends Priya to Slack's approval for client ID 6123456789012.7234567890123
 
-  @pending @us-iis-03 @kpi-iis-1
+  @us-iis-03 @kpi-iis-1
   Scenario: Add to Slack through the saved app exchanges Slack's code with the saved client secret
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key
@@ -317,7 +317,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya connects Canzan Labs to Slack with this Foundry's app
     Then the workspace integrations page reads "Connected to Canzan Labs"
 
-  @pending @us-iis-03 @error
+  @us-iis-03 @error
   Scenario: An event signed with a secret Foundry was never given is refused
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key
@@ -387,7 +387,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya reads "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it."
     And the instance integrations activity reads "21 Oct 2026 · Priya Raman generated the secrets key"
 
-  @pending @us-iis-06 @kpi-iis-5
+  @us-iis-06 @kpi-iis-5
   Scenario: While the environment sets the Slack app, a saved app is kept but not used
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     And Foundry's environment sets the Slack app 6123456789012.7234567890123
@@ -395,7 +395,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya reads "Saved. The app in Foundry's environment stays in effect until SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from it and Foundry restarts; then this one is used."
     And Add to Slack on Canzan Labs' workspace integrations page sends Priya to Slack's approval for client ID 6123456789012.7234567890123
 
-  @pending @us-iis-06 @kpi-iis-5
+  @us-iis-06 @kpi-iis-5
   Scenario: The saved app takes over when the environment's is removed
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     And Foundry's environment sets the Slack app 6123456789012.7234567890123

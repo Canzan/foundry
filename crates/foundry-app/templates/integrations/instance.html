@@ -14,7 +14,7 @@
     </form>
     {% endif %}
   </section>
-  {% if page.slack.is_some() || page.environment_slack.is_some() %}
+  {% if page.slack.is_some() || page.environment_slack.is_some() || page.slack_form %}
   <section data-integration="slack">
     <h2>Slack</h2>
     {% if let Some(line) = page.environment_slack %}<p data-slack-line>{{ line }}</p>{% endif %}
@@ -34,6 +34,12 @@
       <button type="submit">Save Slack app</button>
     </form>
     {% endif %}
+  </section>
+  {% endif %}
+  {% if let Some(line) = page.saved_unreadable %}
+  <section data-integration="slack">
+    <h2>Slack</h2>
+    <p data-slack-line>{{ line }}</p>
   </section>
   {% endif %}
   {% if let Some(saved) = page.saved_slack %}
