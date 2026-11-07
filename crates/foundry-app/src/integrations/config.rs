@@ -33,12 +33,12 @@ pub const GIVE_UP_SECONDS: &str = "FOUNDRY_INTEGRATIONS_GIVE_UP_SECONDS";
 /// `off` stops this process's delivery worker (another process sends).
 pub const WORKER: &str = "FOUNDRY_INTEGRATIONS_WORKER";
 
-/// Where Foundry keeps the files it makes (ADR-IIS-002).
-pub const DATA_DIR: &str = "FOUNDRY_DATA_DIR";
 /// How often a replica checks for instance integration changes (ADR-IIS-004).
 pub const RELOAD_MS: &str = "FOUNDRY_INTEGRATIONS_RELOAD_MS";
 
-pub const DEFAULT_DATA_DIR: &str = "/var/lib/foundry";
+/// The data directory's setting and default live with the one adapter that
+/// reads it (check-arch `integrations-key-file-seam`).
+pub use super::key_file::{DATA_DIR, DEFAULT_DATA_DIR};
 pub const DEFAULT_RELOAD_MS: u64 = 5_000;
 pub const DEFAULT_POLL_MS: u64 = 1_000;
 pub const DEFAULT_LEASE_SECONDS: u64 = 45;

@@ -670,6 +670,10 @@ pub struct EipState {
     /// The room of the scenario's last Matrix route (whose history tells
     /// when Foundry has recorded the homeserver's answer).
     pub matrix_destination: Option<String>,
+    /// The scenario's own `FOUNDRY_DATA_DIR` when its spec names none, made
+    /// on first use and removed with the scenario: a scenario with no key
+    /// setting never reaches the real `/var/lib/foundry` (ADR-IIS-002).
+    pub data_dir: std::sync::OnceLock<tempfile::TempDir>,
     /// The scenario's route registry: each destination (as the scenario names
     /// it) → the project its last saved route was created in.
     pub route_projects: HashMap<String, String>,
@@ -1252,6 +1256,13 @@ pub fn instance_env(world: &FoundryWorld) -> Vec<(&'static str, String)> {
         }
     }
     env.extend(spec.extra_env.iter().cloned());
+    if !env.iter().any(|(name, _)| *name == "FOUNDRY_DATA_DIR") {
+        let dir = world
+            .eip
+            .data_dir
+            .get_or_init(|| tempfile::tempdir().expect("the scenario's temp data directory"));
+        env.push(("FOUNDRY_DATA_DIR", dir.path().display().to_string()));
+    }
     env
 }
 
@@ -1290,7 +1301,7 @@ fn scenario_settings(
 /// its own delivery worker on (each replica is an instance, as production
 /// wires one); the in-process app then runs no worker of its own.
 pub async fn rewire(world: &mut FoundryWorld) {
-    use foundry_app::integrations::{keys::NoKeyFile, store_capabilities, Integrations};
+    use foundry_app::integrations::{key_file::InstanceKeyFile, store_capabilities, Integrations};
     let harness = tm::harness(world);
     // Subprocess and replica scenarios: the in-process app runs no delivery
     // worker of its own on the shared schema.
@@ -1303,7 +1314,8 @@ pub async fn rewire(world: &mut FoundryWorld) {
     // The one boot function `main.rs` starts with (ADR-IIS-001 decision 9):
     // the key mode and the secrets probe over the stored rows.
     let store = store_capabilities::StoreCapabilities::new(harness.app.state.store.clone());
-    let integrations = Integrations::boot(settings, &*store, &NoKeyFile)
+    let key_file = InstanceKeyFile::of(&settings);
+    let integrations = Integrations::boot(settings, &*store, &key_file)
         .await
         .expect("the Slack app's client builds");
     harness.app.state.integrations.install(integrations);

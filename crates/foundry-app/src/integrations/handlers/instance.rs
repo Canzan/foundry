@@ -52,9 +52,6 @@ pub const SECRETS_KEY_PATH: &str = "/admin/instance/integrations/secrets-key";
 pub const MOVE_PATH: &str = "/admin/instance/integrations/secrets-key/move";
 pub const SLACK_APP_PATH: &str = "/admin/instance/integrations/slack";
 
-/// The instance key file's name in `FOUNDRY_DATA_DIR`.
-const KEY_FILE_NAME: &str = "instance.key";
-
 /// I-25, operator-set.
 const KEY_BY_OPERATOR: &str = "Instance key: set by the operator.";
 /// I-25, made by Foundry.
@@ -322,7 +319,9 @@ fn facts_of(integrations: &Integrations, direct_seals: usize, saver: Option<Stri
     PageFacts {
         mode: integrations.key_mode(),
         operator_key: settings.key_setting.is_some(),
-        key_file: settings.data_dir.join(KEY_FILE_NAME).display().to_string(),
+        key_file: crate::integrations::key_file::key_path(&settings.data_dir)
+            .display()
+            .to_string(),
         saved_direct: direct_seals > 0,
         unopenable_values: integrations.secrets_check().degraded(),
         slack_app: integrations.slack().is_some(),

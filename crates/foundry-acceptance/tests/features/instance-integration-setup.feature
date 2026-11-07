@@ -152,7 +152,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya reads "Slack: saved, but this Foundry cannot read it (see the secrets key above)."
     And the workspace integrations page reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once."
 
-  @pending @us-iis-01 @us-iis-08 @kpi-iis-2 @error
+  @us-iis-01 @us-iis-08 @kpi-iis-2 @error
   Scenario: Without a writable data directory the board serves and the page says why
     Given this Foundry starts with no instance key setting and a data directory it cannot write
     When Priya opens the instance integrations page
@@ -163,7 +163,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya still opens Identity Platform's board
     And this Foundry still answers that it is ready
 
-  @pending @us-iis-01 @us-iis-08 @kpi-iis-2 @error
+  @us-iis-01 @us-iis-08 @kpi-iis-2 @error
   Scenario: A key file Foundry cannot read is named, kept, and never replaced
     Given this Foundry starts with no instance key setting and an instance key file it cannot read
     When Priya opens the instance integrations page
@@ -230,7 +230,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Canzan Labs' saved Slack connection still opens
     And the instance integrations activity reads "21 Oct 2026 · Priya Raman generated the secrets key" exactly once
 
-  @pending @us-iis-02 @us-iis-08 @error
+  @us-iis-02 @us-iis-08 @error
   Scenario Outline: A generate request changes nothing where generating does not apply
     Given this Foundry starts with <setting>
     When Priya posts a generate request anyway
@@ -462,7 +462,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And the instance integrations activity reads "21 Oct 2026 · Foundry re-sealed the secrets key under the operator's instance key"
     And Canzan Labs' saved Slack connection still opens
 
-  @pending @us-iis-08 @kpi-iis-2 @error
+  @us-iis-08 @kpi-iis-2 @error
   Scenario Outline: Empty or matching key settings are read as the operator meant
     Given this Foundry starts with <setting>
     When Priya opens the instance integrations page

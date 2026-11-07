@@ -13,6 +13,7 @@
 
 pub mod config;
 pub mod handlers;
+pub mod key_file;
 pub mod keys;
 pub mod matrix;
 pub mod no_connection;

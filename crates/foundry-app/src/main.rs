@@ -322,16 +322,18 @@ async fn main() -> anyhow::Result<()> {
     // (Slack is simply not offered, K-20). The secrets probe (ADR-EIP-004
     // decision 4) then decides whether this replica starts degraded, inside
     // the one boot function the acceptance harness shares (ADR-IIS-001
-    // decision 9). No key file adapter yet (ADR-IIS-002): `NoKeyFile`.
+    // decision 9), with the instance key file of `FOUNDRY_DATA_DIR` as its key
+    // source (ADR-IIS-002), read only when no operator key is set.
     let (integrations, secrets_check) =
         match foundry_app::integrations::config::IntegrationSettings::from_env(&public_url) {
             Ok(settings) => {
                 use foundry_app::integrations::{
-                    keys::NoKeyFile, store_capabilities, Integrations,
+                    key_file::InstanceKeyFile, store_capabilities, Integrations,
                 };
                 let probe_store = store_capabilities::StoreCapabilities::new(store.clone());
+                let key_file = InstanceKeyFile::of(&settings);
                 let integrations =
-                    match Integrations::boot(settings, &*probe_store, &NoKeyFile).await {
+                    match Integrations::boot(settings, &*probe_store, &key_file).await {
                         Ok(integrations) => integrations,
                         Err(err) => {
                             tracing::error!(

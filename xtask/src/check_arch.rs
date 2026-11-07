@@ -131,6 +131,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_integrations_seal_fence(root));
     violations.extend(check_integrations_test_seam(root));
     violations.extend(check_integrations_outbound_client_seam(root));
+    violations.extend(check_integrations_key_file_seam(root));
     violations.extend(check_project_lifecycle_live_reads(root));
     violations.extend(check_store_natural_key_scoped(root));
     violations.extend(check_api_openapi_operations(root));
@@ -4088,6 +4089,12 @@ mod tests {
             (
                 "crates/foundry-integrations/Cargo.toml",
                 "[package]\nname = \"foundry-integrations\"\n\n[dependencies]\n",
+            ),
+            // `check_integrations_key_file_seam` fails closed on a missing
+            // key file adapter, so the clean tree carries one.
+            (
+                "crates/foundry-app/src/integrations/key_file.rs",
+                "pub struct InstanceKeyFile;\n",
             ),
             // `check_integrations_outbound_client_seam` fails closed on a
             // missing OutboundHttp or Slack client, so the clean tree carries
@@ -15544,6 +15551,112 @@ fn check_integrations_outbound_client_seam(root: &Path) -> Vec<String> {
     violations
 }
 
+const KEY_FILE_SEAM_ID: &str = "integrations-key-file-seam";
+const KEY_FILE_SEAM_REFERENCE: &str = "instance-integration-setup ADR-IIS-002 Enforcement";
+/// Where the rule looks: foundry-app's sources.
+const KEY_FILE_SEAM_CRATE: &str = "crates/foundry-app/src";
+/// The one adapter that knows the data directory and touches the key file.
+const KEY_FILE_ADAPTER: &str = "crates/foundry-app/src/integrations/key_file.rs";
+/// The one settings reader, which reads the setting by its constant only.
+const KEY_FILE_SETTINGS_READER: &str = "crates/foundry-app/src/integrations/config.rs";
+const KEY_FILE_SETTING: &str = "FOUNDRY_DATA_DIR";
+const KEY_FILE_NAME: &str = "instance.key";
+/// The setting's constant and the settings field holding the directory.
+const KEY_FILE_SETTING_CONST: &str = "DATA_DIR";
+const KEY_FILE_DIR_FIELD: &str = "data_dir";
+/// Filesystem calls, as they read lexically.
+const KEY_FILE_FS_CALLS: [&str; 4] = ["fs::", "File::", "OpenOptions", "hard_link"];
+
+/// Rule `integrations-key-file-seam` (ADR-IIS-002 r6): in foundry-app's
+/// sources, outside the key file adapter, (a) no string literal is the
+/// `FOUNDRY_DATA_DIR` setting or the key file's name (`instance.key…`);
+/// (b) no file but the settings reader names the setting's constant; (c) no
+/// file naming the data directory field makes a filesystem call. Fails closed
+/// when the adapter is missing. Comments are ignored; lexical limit: in a
+/// file naming the field every filesystem call counts, whatever its path.
+fn check_integrations_key_file_seam(root: &Path) -> Vec<String> {
+    let fail =
+        |problem: String| format!("{KEY_FILE_SEAM_ID}: {problem} ({KEY_FILE_SEAM_REFERENCE}).");
+    if !root.join(KEY_FILE_ADAPTER).is_file() {
+        return vec![fail(format!("{KEY_FILE_ADAPTER} is missing"))];
+    }
+    let mut violations = Vec::new();
+    let (sources, unreadable) = files_under(&root.join(KEY_FILE_SEAM_CRATE), "rs", &|_| false);
+    violations.extend(cannot_list(
+        root,
+        &unreadable,
+        KEY_FILE_SEAM_ID,
+        KEY_FILE_SEAM_REFERENCE,
+    ));
+    for file in sources {
+        let file_rel = rel(root, &file);
+        if file_rel == KEY_FILE_ADAPTER {
+            continue;
+        }
+        let Ok(contents) = std::fs::read_to_string(&file) else {
+            violations.push(fail(format!("cannot read {file_rel}")));
+            continue;
+        };
+        violations.extend(key_file_reaches(&file_rel, &contents).into_iter().map(
+            |(line, what)| {
+                fail(format!(
+                    "{file_rel}:{line} {what} — only {KEY_FILE_ADAPTER} may know the \
+                         data directory or touch the instance key file"
+                ))
+            },
+        ));
+    }
+    violations
+}
+
+/// The 1-based lines of one file reaching the data directory or the key
+/// file, each with what it does.
+fn key_file_reaches(file_rel: &str, contents: &str) -> BTreeSet<(usize, &'static str)> {
+    let source = RustSource::scan(contents);
+    let code = &source.code;
+    let mut lines: BTreeSet<(usize, &'static str)> = source
+        .literals
+        .iter()
+        .filter(|literal| {
+            literal.text == KEY_FILE_SETTING || literal.text.starts_with(KEY_FILE_NAME)
+        })
+        .map(|literal| {
+            (
+                literal.line,
+                "names the data directory setting or the key file",
+            )
+        })
+        .collect();
+    if file_rel != KEY_FILE_SETTINGS_READER {
+        lines.extend(
+            word_positions(code, KEY_FILE_SETTING_CONST)
+                .map(|at| (line_at(code, at), "reads the data directory setting")),
+        );
+    }
+    if word_positions(code, KEY_FILE_DIR_FIELD).next().is_some() {
+        for call in KEY_FILE_FS_CALLS {
+            // A whole-word start: `KeyFile::` is no filesystem call.
+            let starts_word = |at: usize| {
+                !code[..at]
+                    .chars()
+                    .next_back()
+                    .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+            };
+            lines.extend(
+                code.match_indices(call)
+                    .filter(|&(at, _)| starts_word(at))
+                    .map(|(at, _)| {
+                        (
+                            line_at(code, at),
+                            "touches the filesystem beside the data directory",
+                        )
+                    }),
+            );
+        }
+    }
+    lines
+}
+
 /// The builder statement starting at `at`, whitespace removed: up to its
 /// `;`, or the end of the innermost `fn` body around it.
 fn builder_statement(code: &str, at: usize) -> String {
@@ -16790,5 +16903,79 @@ cc = "1"
             violations.is_empty(),
             "the integrations module: {violations:?}"
         );
+    }
+
+    // --- `integrations-key-file-seam` (instance-integration-setup 05-01) -------
+
+    const KEY_FILE_HANDLER: &str = "crates/foundry-app/src/integrations/handlers/instance.rs";
+
+    fn key_file_tree(extra: &[(&str, &str)]) -> tempfile::TempDir {
+        let mut files: Vec<(&str, &str)> = vec![
+            (
+                KEY_FILE_ADAPTER,
+                "pub const DATA_DIR: &str = \"FOUNDRY_DATA_DIR\";\n\
+                 const FILE_NAME: &str = \"instance.key\";\n\
+                 fn make(dir: &Path) { std::fs::hard_link(a, dir.join(FILE_NAME)); }\n",
+            ),
+            (
+                KEY_FILE_SETTINGS_READER,
+                "pub use super::key_file::DATA_DIR;\nfn read() { let data_dir = get(DATA_DIR); }\n",
+            ),
+            (
+                KEY_FILE_HANDLER,
+                "fn facts(s: &Settings) -> String { key_file::key_path(&s.data_dir).display() }\n\
+                 fn mode(f: KeyFile) -> bool { f == KeyFile::Held }\n",
+            ),
+            (
+                "crates/foundry-app/src/attachments.rs",
+                "fn read() { let f = std::fs::read(path); }\n",
+            ),
+        ];
+        files.extend_from_slice(extra);
+        stage(&files)
+    }
+
+    #[test]
+    fn key_file_seam_passes_on_the_tree() {
+        let violations = check_integrations_key_file_seam(&workspace_root());
+        assert!(violations.is_empty(), "{violations:?}");
+        let violations = check_integrations_key_file_seam(key_file_tree(&[]).path());
+        assert!(violations.is_empty(), "{violations:?}");
+        let missing = check_integrations_key_file_seam(stage(&[]).path());
+        assert!(
+            refuses_only(&missing, "integrations-key-file-seam: ", KEY_FILE_ADAPTER),
+            "a missing adapter fails closed: {missing:?}"
+        );
+    }
+
+    #[test]
+    fn key_file_seam_refuses_a_data_directory_read_in_a_handler() {
+        for (form, body) in [
+            (
+                "the setting by name",
+                "fn facts() {}\nfn h() {}\nfn show() { let dir = std::env::var(\"FOUNDRY_DATA_DIR\"); }\n",
+            ),
+            (
+                "the setting by its constant",
+                "fn facts() {}\nfn h() {}\nfn show() { let dir = std::env::var(config::DATA_DIR); }\n",
+            ),
+            (
+                "the key file by name",
+                "fn facts() {}\nfn h() {}\nfn show(d: &Path) { let p = d.join(\"instance.key\"); }\n",
+            ),
+            (
+                "a read beside the settings field",
+                "fn facts() {}\nfn h() {}\nfn show(s: &Settings) { std::fs::read(key_file::key_path(&s.data_dir)); }\n",
+            ),
+        ] {
+            let tree = key_file_tree(&[(KEY_FILE_HANDLER, body)]);
+            let violations = check_integrations_key_file_seam(tree.path());
+            let at = format!("{KEY_FILE_HANDLER}:3");
+            assert!(
+                !violations.is_empty()
+                    && violations.iter().all(|v| v.starts_with("integrations-key-file-seam: ") && v.contains(&at)),
+                "{form}: {violations:?}"
+            );
+        }
     }
 }
