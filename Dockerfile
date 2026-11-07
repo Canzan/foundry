@@ -97,6 +97,12 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARG
     && ! grep -q "foundry-test-seam:integrations-outbound-v1" /usr/local/bin/foundry \
     && ! grep -q "foundry-test-seam:integrations-secrets-key-v1" /usr/local/bin/foundry
 
+# Foundry's data directory (instance-integration-setup DEVOPS D1): where Foundry
+# makes its own key file when no operator key is set. The distroless runtime
+# has no shell to `mkdir`, so the builder makes it empty and the runtime COPY
+# below gives it the nonroot owner and mode 0700.
+RUN mkdir /foundry-data
+
 FROM gcr.io/distroless/cc-debian12 AS runtime
 WORKDIR /app
 
@@ -120,6 +126,14 @@ COPY --from=builder /usr/local/bin/foundry /app/foundry
 # catch it either: there CARGO_MANIFEST_DIR resolves to a real directory on the
 # build host, so the /static scenarios pass green against a broken image.
 COPY --from=builder /work/crates/foundry-app/static /app/static
+
+# FOUNDRY_DATA_DIR defaults to /var/lib/foundry. Private to the nonroot user
+# (65532), and a VOLUME, so a named volume mounted here is populated from the
+# image and inherits that owner; a host bind mount is not, and must be chowned
+# to 65532 by the operator. The acceptance scenario "The image gives Foundry a
+# private data directory it keeps as a volume" checks the built image.
+COPY --from=builder --chown=65532:65532 --chmod=0700 /foundry-data /var/lib/foundry
+VOLUME /var/lib/foundry
 
 USER nonroot:nonroot
 # 3000 = main HTTP listener (FOUNDRY_PORT); 9090 = sidecar Prometheus

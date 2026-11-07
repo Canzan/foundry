@@ -1,9 +1,11 @@
 //! US-01 step definitions — docker-compose harness.
 //!
-//! All three @docker-compose scenarios are wired here. The @manual
+//! All four @docker-compose scenarios are wired here. The @manual
 //! scenario carries no steps (the test runner skips it via tag filter).
 
-use crate::support::compose_harness::{read_compose_yml, ComposeStack};
+use crate::support::compose_harness::{
+    image_directory, image_volumes, read_compose_yml, ComposeStack, ImageDirectory,
+};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use std::time::Duration;
@@ -173,43 +175,98 @@ async fn no_host_binds(_world: &mut FoundryWorld) {
     }
 }
 
-#[then(regex = r"^the only persistent volume is a named volume backing postgres$")]
-async fn only_named_volume(_world: &mut FoundryWorld) {
+#[then(
+    regex = r"^the only persistent volumes are two named volumes, one backing postgres data and one backing Foundry data$"
+)]
+async fn two_named_volumes(_world: &mut FoundryWorld) {
     let yml = read_compose_yml().expect("read docker-compose.yml");
     let doc: serde_yaml_ng::Value =
         serde_yaml_ng::from_str(&yml).expect("parse docker-compose.yml");
-    let top_volumes = doc.get("volumes");
-    let names: Vec<String> = top_volumes
+    let mut names: Vec<String> = doc
+        .get("volumes")
         .and_then(|v| v.as_mapping())
         .map(|m| {
             m.iter()
-                .filter_map(|(k, _)| k.as_str().map(|s| s.to_string()))
+                .filter_map(|(k, _)| k.as_str().map(str::to_string))
                 .collect()
         })
         .unwrap_or_default();
+    names.sort();
     assert_eq!(
         names.len(),
-        1,
-        "expected exactly one named volume, got: {names:?}"
+        2,
+        "expected exactly two named volumes, got: {names:?}"
     );
-    let only = &names[0];
-    let postgres = doc
-        .get("services")
-        .and_then(|s| s.get("postgres"))
-        .and_then(|p| p.get("volumes"))
-        .and_then(|v| v.as_sequence())
-        .expect("postgres.volumes present");
-    let backs_postgres = postgres.iter().any(|entry| match entry {
-        serde_yaml_ng::Value::String(s) => s.split(':').next() == Some(only.as_str()),
-        serde_yaml_ng::Value::Mapping(m) => {
-            m.get(serde_yaml_ng::Value::String("source".into()))
-                .and_then(|s| s.as_str())
-                == Some(only.as_str())
-        }
-        _ => false,
-    });
+    let postgres = named_volume_at(&doc, "postgres", "/var/lib/postgresql/data");
+    let foundry = named_volume_at(&doc, "foundry", "/var/lib/foundry");
+    let mut backing: Vec<String> = [postgres, foundry].into_iter().flatten().collect();
+    backing.sort();
+    assert_eq!(
+        backing, names,
+        "the named volumes must back postgres at /var/lib/postgresql/data and foundry at \
+         /var/lib/foundry, one each"
+    );
+}
+
+/// The named volume `service` mounts at `target`, if any (short or long form).
+fn named_volume_at(doc: &serde_yaml_ng::Value, service: &str, target: &str) -> Option<String> {
+    let key = |k: &str| serde_yaml_ng::Value::String(k.into());
+    doc.get("services")?
+        .get(service)?
+        .get("volumes")?
+        .as_sequence()?
+        .iter()
+        .find_map(|entry| match entry {
+            serde_yaml_ng::Value::String(s) => {
+                let mut parts = s.split(':');
+                let source = parts.next()?;
+                (parts.next() == Some(target)).then(|| source.to_string())
+            }
+            serde_yaml_ng::Value::Mapping(m) => {
+                let is_volume = m.get(key("type")).and_then(|t| t.as_str()) == Some("volume");
+                let at_target = m.get(key("target")).and_then(|t| t.as_str()) == Some(target);
+                (is_volume && at_target)
+                    .then(|| {
+                        m.get(key("source"))
+                            .and_then(|s| s.as_str())
+                            .map(str::to_string)
+                    })
+                    .flatten()
+            }
+            _ => None,
+        })
+}
+
+// Scenario 4 — the image's data directory -------------------------------
+
+#[when(regex = r"^the operator inspects the built Foundry image$")]
+async fn inspect_built_image(_world: &mut FoundryWorld) {
+    // No side effect: the Then steps read the shared acceptance image,
+    // which the runner builds once before the @docker-compose lane.
+}
+
+#[then(regex = r"^the image's `([^`]+)` is a directory owned by (\d+):(\d+) with mode ([0-7]{4})$")]
+async fn image_directory_shape(
+    _world: &mut FoundryWorld,
+    path: String,
+    uid: u64,
+    gid: u64,
+    mode: String,
+) {
+    let mode = u32::from_str_radix(&mode, 8).expect("octal mode");
+    let found = image_directory(&path).expect("read the directory out of the built image");
+    assert_eq!(
+        found,
+        ImageDirectory { uid, gid, mode },
+        "{path} in the built image (mode shown in decimal: expected {mode:o} octal)"
+    );
+}
+
+#[then(regex = r"^the image declares `([^`]+)` as a volume$")]
+async fn image_declares_volume(_world: &mut FoundryWorld, path: String) {
+    let volumes = image_volumes().expect("inspect the built image");
     assert!(
-        backs_postgres,
-        "named volume {only:?} does not back the postgres service"
+        volumes.contains(&path),
+        "{path} is not under Config.Volumes of the built image: {volumes:?}"
     );
 }

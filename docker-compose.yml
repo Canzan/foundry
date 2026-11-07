@@ -50,6 +50,12 @@ services:
       # deployment. MACHINE_TOKEN_PUBLIC_KEYS is comma-separated (newest first).
       MACHINE_TOKEN_PUBLIC_KEYS: "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAwtFPs8Jcuncc+E7dXqG/oolI3P6Hamrpd8zVKPvRmg0=\n-----END PUBLIC KEY-----"
       MACHINE_TOKEN_SIGNING_KEY: "-----BEGIN PRIVATE KEY-----\nMC4CAQAwBQYDK2VwBCIEIK82aJdks5jZYdUK6HN6tiWmq7nU4yrILbQSibZdvMYK\n-----END PRIVATE KEY-----"
+    volumes:
+      # Foundry's data directory (FOUNDRY_DATA_DIR): Foundry keeps the key file
+      # it makes for itself here when no FOUNDRY_INSTANCE_KEY is set. Scaled
+      # replicas share it, so they share one key. `docker compose down -v`
+      # deletes it along with the database volume: back up both first.
+      - foundry-data:/var/lib/foundry
     depends_on:
       postgres:
         condition: service_healthy
@@ -82,3 +88,4 @@ services:
 
 volumes:
   foundry-pg-data:
+  foundry-data:

@@ -349,3 +349,80 @@ pub fn remove_shared_image() {
         .stderr(Stdio::null())
         .status();
 }
+
+/// Owner and permission bits of one directory inside the [`SHARED_IMAGE`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImageDirectory {
+    pub uid: u64,
+    pub gid: u64,
+    pub mode: u32,
+}
+
+/// Read `path`'s owner and mode from the built [`SHARED_IMAGE`], as a
+/// container made from it sees them: `docker create`, then `docker cp -a`
+/// streams the directory as a tar whose first entry is the directory itself.
+/// The container (and the anonymous volume a `VOLUME` gives it) is removed
+/// again before returning. Tests the image, not the Dockerfile's text.
+pub fn image_directory(path: &str) -> anyhow::Result<ImageDirectory> {
+    let created = Command::new("docker")
+        .args(["create", SHARED_IMAGE])
+        .output()?;
+    if !created.status.success() {
+        anyhow::bail!(
+            "docker create {SHARED_IMAGE} failed: {}",
+            String::from_utf8_lossy(&created.stderr)
+        );
+    }
+    let container = String::from_utf8_lossy(&created.stdout).trim().to_string();
+    let copied = Command::new("docker")
+        .args(["cp", "-a", &format!("{container}:{path}"), "-"])
+        .output();
+    let _ = Command::new("docker")
+        .args(["rm", "-v", &container])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    let copied = copied?;
+    if !copied.status.success() {
+        anyhow::bail!(
+            "docker cp -a {path} out of {SHARED_IMAGE} failed: {}",
+            String::from_utf8_lossy(&copied.stderr)
+        );
+    }
+    let mut archive = tar::Archive::new(copied.stdout.as_slice());
+    let first = archive
+        .entries()?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("docker cp -a {path} streamed an empty archive"))??;
+    let header = first.header();
+    if !header.entry_type().is_dir() {
+        anyhow::bail!("{path} in {SHARED_IMAGE} is not a directory");
+    }
+    Ok(ImageDirectory {
+        uid: header.uid()?,
+        gid: header.gid()?,
+        mode: header.mode()? & 0o7777,
+    })
+}
+
+/// The paths the built [`SHARED_IMAGE`] declares under `Config.Volumes`.
+pub fn image_volumes() -> anyhow::Result<Vec<String>> {
+    let out = Command::new("docker")
+        .args([
+            "image",
+            "inspect",
+            "--format",
+            "{{json .Config.Volumes}}",
+            SHARED_IMAGE,
+        ])
+        .output()?;
+    if !out.status.success() {
+        anyhow::bail!(
+            "docker image inspect {SHARED_IMAGE} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+    let volumes: Option<serde_json::Map<String, serde_json::Value>> =
+        serde_json::from_slice(&out.stdout)?;
+    Ok(volumes.unwrap_or_default().keys().cloned().collect())
+}

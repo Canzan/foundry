@@ -4,8 +4,8 @@
 #
 # Scope note: this feature exercises the docker-compose harness, NOT the
 # in-process HTTP driver used by US-05..US-08. Driver design in driver.md
-# section 4 (Postgres provisioning) and section 7 (time budget). Two
-# scenarios are marked @docker-compose (slow; ~30-60s each); the third is
+# section 4 (Postgres provisioning) and section 7 (time budget). The
+# @docker-compose scenarios are slow (~30-60s each); the last is
 # marked @manual because verifying "an operator who has never seen Foundry
 # completes install in under 30 minutes" requires a human-in-the-loop.
 
@@ -38,7 +38,13 @@ Feature: An operator stands up a healthy Foundry instance from a fresh machine
   Scenario: The compose file uses no host-bind volumes for the app container
     When the operator inspects the foundry service definition in `docker-compose.yml`
     Then the foundry service declares zero host-bind mounts under `volumes`
-    And the only persistent volume is a named volume backing postgres
+    And the only persistent volumes are two named volumes, one backing postgres data and one backing Foundry data
+
+  @real-io
+  Scenario: The image gives Foundry a private data directory it keeps as a volume
+    When the operator inspects the built Foundry image
+    Then the image's `/var/lib/foundry` is a directory owned by 65532:65532 with mode 0700
+    And the image declares `/var/lib/foundry` as a volume
 
   @manual @us-01 @demo
   Scenario: An evaluating operator reaches the admin claim form within 30 minutes
