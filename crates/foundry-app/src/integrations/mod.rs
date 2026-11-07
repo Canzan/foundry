@@ -30,7 +30,7 @@ use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
 use foundry_integrations::ChannelKind;
 use foundry_services::integrations::{DestinationCatalogs, UnreadableConnections};
 use foundry_store::integrations::{InstanceSnapshot, KeyCheck, SealedConnection};
-use keys::{CredentialBox, InstanceKeySource, KeyFile, KeyFileRead, Keyring};
+use keys::{CredentialBox, InstanceKeySource, KeyFile, KeyFileRead, KeyMode, Keyring};
 use outbound::OutboundHttp;
 use project_emails::ProjectMail;
 use secrecy::{ExposeSecret, SecretString};
@@ -334,6 +334,18 @@ impl Integrations {
 
     pub fn settings(&self) -> &IntegrationSettings {
         &self.settings
+    }
+
+    /// The key mode the instance integrations page follows.
+    pub fn key_mode(&self) -> KeyMode {
+        self.keyring.mode()
+    }
+
+    /// Whether some stored value is sealed directly under a held instance
+    /// key (I-2e, not I-2e0). In `Direct` no secrets key is stored, so a held
+    /// key opening a stored value is a direct seal; other modes have none to move.
+    pub fn holds_direct_seals(&self) -> bool {
+        self.keyring.mode() == KeyMode::Direct && self.keyring.opens_stored()
     }
 
     /// What a workspace whose `unreadable` connections these are is offered

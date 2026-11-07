@@ -1,0 +1,21 @@
+{% extends "app_shell.html" %}
+{% block title %}Integrations for this Foundry{% endblock %}
+{% block app_content %}
+<main data-instance-integrations>
+  <h1>Integrations for this Foundry</h1>
+  <section data-instance-key>
+    <p data-instance-key-line>{{ page.instance_key }}</p>
+    {% if let Some(line) = page.secrets_key %}<p data-secrets-key-line>{{ line }}</p>{% endif %}
+    {% if let Some(offer) = page.offer %}
+    <form method="post" action="{{ offer.door() }}">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <button type="submit">{{ offer.label() }}</button>
+    </form>
+    {% endif %}
+  </section>
+  <section data-integration="matrix">
+    <h2>Matrix</h2>
+    <p data-matrix-line>{{ page.matrix }}</p>
+  </section>
+</main>
+{% endblock %}

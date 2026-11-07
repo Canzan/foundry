@@ -373,7 +373,10 @@ pub async fn submit_grant(
 /// user is not an `instance_admins` row (ADR-002). A session-store ERROR fails
 /// closed identically but is logged so an operator can tell a broken store from
 /// ordinary non-admin traffic (mirrors `admin_tokens::resolve_admin`).
-async fn require_instance_admin(state: &AppState, session: &Session) -> Option<SessionUser> {
+pub(crate) async fn require_instance_admin(
+    state: &AppState,
+    session: &Session,
+) -> Option<SessionUser> {
     let user = match session.get::<SessionUser>(SESSION_KEY_USER_ID).await {
         Ok(maybe_user) => maybe_user?,
         Err(err) => {

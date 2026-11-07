@@ -2,6 +2,9 @@
 //! 2 and 4). Every door answers the uniform 404 to a caller without the right
 //! (SC-6), decided by the use-case before anything else.
 //!
+//! - `GET /admin/instance/integrations`: the instance integrations page
+//!   (instance admins, US-IIS-01): where the instance key comes from (I-25),
+//!   the secrets key's state with Generate or Move, and Matrix's line.
 //! - `GET /workspace/integrations`: the Slack connection (K-1), what is
 //!   missing (K-2, K-20) or Add to Slack, and the activity list (R-4).
 //! - `POST /workspace/integrations/matrix`: connects Matrix (admins,
@@ -72,12 +75,14 @@
 //! nothing; Disconnect and Matrix's Replace token stay open as repairs, and
 //! the Slack disconnect question carries R-13 in place of its last sentence.
 
+mod instance;
 mod matrix_setup;
 mod route_form;
 mod routes;
 mod slack_setup;
 mod workspace;
 
+pub use instance::{show_instance, INSTANCE_PATH};
 pub use matrix_setup::connect_matrix;
 pub use routes::{
     create_route, delete_route, edit_route, pause_route, preview_route, resume_route, send_test,

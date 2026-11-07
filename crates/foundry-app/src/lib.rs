@@ -838,6 +838,12 @@ pub fn build_router(state: AppState) -> Router {
         // integrations page (Manage). All under csrf_middleware + session_layer;
         // every refusal is the uniform 404. Slack's return is a GET whose
         // session-held `state` is its request-forgery defence (ADR-EIP-005).
+        // instance-integration-setup (US-IIS-01): the instance integrations
+        // page, behind `require_instance_admin` (the uniform 404 otherwise).
+        .route(
+            integrations::handlers::INSTANCE_PATH,
+            get(integrations::handlers::show_instance),
+        )
         .route(
             integrations::handlers::WORKSPACE_PATH,
             get(integrations::handlers::show_workspace),

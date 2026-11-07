@@ -61,7 +61,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
   # ------------------------------------------------------------------ US-IIS-01
 
-  @pending @us-iis-01 @driving_port @kpi-iis-2
+  @us-iis-01 @driving_port @kpi-iis-2
   Scenario: Without a secrets key the page says integrations need one
     Given this Foundry starts with its instance key set by the operator
     When Priya opens the instance integrations page
@@ -103,7 +103,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya reads "Slack: set in Foundry's environment, app 6123456789012.7234567890123. To manage it here, enter the same app below; it takes over once SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from the environment."
     And the page shows no key and no Slack secret
 
-  @pending @us-iis-01 @us-iis-06 @kpi-iis-2
+  @us-iis-01 @us-iis-06 @kpi-iis-2
   Scenario: An instance on the legacy setting with nothing saved yet can move at once, and Matrix is ready
     Given this Foundry starts with the legacy FOUNDRY_SECRETS_KEY setting
     When Priya opens the instance integrations page
@@ -173,7 +173,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya is offered no way to enter the Slack app
     And the instance key file is unchanged
 
-  @pending @us-iis-01 @kpi-iis-g2
+  @us-iis-01 @kpi-iis-g2
   Scenario: The instance admin dashboard links to the integrations page
     When Priya follows "Integrations" on the instance admin dashboard
     Then Priya is on the instance integrations page
