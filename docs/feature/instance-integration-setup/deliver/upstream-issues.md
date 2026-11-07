@@ -85,3 +85,38 @@ Found while planning the roadmap (2026-11-06). None blocks a step; each has a pl
     `probe_failures_total` updates from the reload are in no step's criteria; pick up in 06-0x.
 25. **"Reload never touches the key file" holds by construction** (no `InstanceKeySource` in
     `Reload`/`rebuilt`), not by a test.
+26. **03-01 out-of-plan edit and choices.** `integrations/mod.rs`: `holds_direct_seals()` became
+    `Integrations::direct_seals(&InstanceSnapshot)`, with a shared `sealed_values` helper. The
+    page now takes one REPEATABLE READ snapshot per view so the direct-seal count is live.
+    Item 20 resolved: the Slack form shows under I-7 and I-5 wherever credentials can be sealed
+    (Direct or Sealed). Two of the three scenarios passed before the change (restart-based).
+27. **Workspace connections do not bump the config version.** A Matrix/Slack connection made
+    after boot is not seen by a replica's mode decision until a restart or another bump. The
+    page works around it with a per-view snapshot; check that Direct-vs-Awaiting on other
+    replicas (and 05-0x Move gating) does not depend on that stale decision.
+28. **For DESIGN/DISTILL: I-7 "below" points at no form** in No-instance-key, Awaiting and
+    Unopenable modes, where I-7 still shows because the environment's app is in effect.
+29. **For DISTILL: outline placeholders with spaces never substitute.** cucumber-rs 0.21.1 only
+    fills `<([^>\s]+)>`. 03-02 renamed `<client id>`, `<client secret>`, `<signing secret>` to
+    snake case (values, assertions and copy unchanged). No other outline has the problem.
+30. **03-02 log has an extra GREEN pair.** The trace reads RED PASS, GREEN PASS, GREEN FAIL,
+    GREEN PASS, COMMIT PASS: GREEN PASS was logged before the first lane result, which failed
+    on item 29. Expect des-verify-integrity to show it; the final GREEN is genuine.
+31. **03-03 out-of-plan edit and a changed unit-test row.** `integrations/config.rs` gains
+    `IntegrationSettings::slack_urls`, read on its own, so `SLACK_API_BASE_URL` /
+    `SLACK_AUTHORIZE_URL` apply to whichever app is in effect (closes item 20's seam note).
+    03-01's crafter-written row `(Direct, false, None, false)` in
+    `the_environments_app_is_named_in_every_mode` became `true` (form shows in Direct with no
+    app), matching item 26 and the I-13 scenario. Adversarial review to confirm.
+32. **Uncovered combination.** I-13 also shows when the environment's app wins and the saved
+    app does not open; no scenario covers it.
+33. **03-04 out-of-plan edits.** `foundry-services/src/lib.rs` passes `sealed_under` through;
+    `sealed_under: None` added to `NewConnection` literals in `foundry-store/tests/eip_store.rs`,
+    `foundry-app/tests/eip_contract_shapes.rs`, `eip_phase5_doors.rs` and
+    `foundry-services/tests/eip_integrations_use_cases.rs` (no assertion changed).
+34. **Doctor rotation does not take the exclusive instance lock.** `keys.rs::reseal_credentials`
+    is on the seal-fence allow-list, but ADR-IIS-004 rule 1 wants the lock. Owner: the step
+    doing doctor rotation (05-0x).
+35. **Gaps left by 03-04.** The handler's retry-once after a reload has no test of its own; the
+    seal-fence rule reads string literals only, so a `format!`-split write could slip past;
+    an absent seam file passes the marker check (an absent seam cannot ship).
