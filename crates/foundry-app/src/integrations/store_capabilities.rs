@@ -18,14 +18,17 @@
 //!   its one write, the current instance key's check value;
 //! - [`InstanceKeyWrites`]: the instance page's Generate (one write
 //!   use-case, `store_secrets_key`), its Slack app save (`save_slack_app`),
-//!   its activity read and the saver's name.
+//!   its activity read and the saver's name;
+//! - [`IntegrationsReload`]: each replica's reload task (ADR-IIS-004 r4, r8):
+//!   the config version, the snapshot, and its one write, its own replica
+//!   state row.
 
 use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
     DispatchOutcome, EmailSendFacts, InstanceActivityRow, InstanceSnapshot, KeyCheck,
     LostConnection, NewDelivery, NewSecretsKey, PendingDelivery, Pruned, Pruning, RecordOutcome,
-    RetentionView, SealedSlot, SecretsKeyOutcome, SlackAppSave, SlackSaveOutcome,
+    ReplicaState, RetentionView, SealedSlot, SecretsKeyOutcome, SlackAppSave, SlackSaveOutcome,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -78,6 +81,9 @@ pub trait DeliverySweeps: Send + Sync {
         read_before: OffsetDateTime,
         plan: RetentionPlanner<'_>,
     ) -> Result<Pruned, StoreError>;
+
+    /// Delete the replica state rows that last beat before `stale_before`.
+    async fn prune_replica_states(&self, stale_before: OffsetDateTime) -> Result<u64, StoreError>;
 }
 
 #[async_trait]
@@ -158,6 +164,18 @@ pub trait KeyProbe: Send + Sync {
     async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError>;
 }
 
+/// A replica's reload task (ADR-IIS-004 r4, r8): reads, and one write, its
+/// own replica state row. Never the key file, never another row.
+#[async_trait]
+pub trait IntegrationsReload: Send + Sync {
+    /// The config version, polled every reload period.
+    async fn config_version(&self) -> Result<i64, StoreError>;
+    /// The stored instance rows and their version, read in one snapshot.
+    async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError>;
+    /// Upsert this replica's state row.
+    async fn beat_replica_state(&self, state: &ReplicaState) -> Result<(), StoreError>;
+}
+
 /// The instance integrations page's writes and its activity (ADR-IIS-001
 /// decision 5).
 #[async_trait]
@@ -232,6 +250,10 @@ impl DeliverySweeps for StoreCapabilities {
         self.0
             .prune_deliveries(read_before, |view| plan(view))
             .await
+    }
+
+    async fn prune_replica_states(&self, stale_before: OffsetDateTime) -> Result<u64, StoreError> {
+        self.0.prune_replica_states(stale_before).await
     }
 }
 
@@ -331,6 +353,21 @@ impl KeyProbe for StoreCapabilities {
 
     async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError> {
         self.0.instance_snapshot().await
+    }
+}
+
+#[async_trait]
+impl IntegrationsReload for StoreCapabilities {
+    async fn config_version(&self) -> Result<i64, StoreError> {
+        self.0.config_version().await
+    }
+
+    async fn instance_snapshot(&self) -> Result<InstanceSnapshot, StoreError> {
+        self.0.instance_snapshot().await
+    }
+
+    async fn beat_replica_state(&self, state: &ReplicaState) -> Result<(), StoreError> {
+        self.0.beat_replica_state(state).await
     }
 }
 

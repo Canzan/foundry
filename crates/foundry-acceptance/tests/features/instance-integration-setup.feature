@@ -47,7 +47,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
   # ------------------------------------------------------------ walking skeleton
 
   # US-IIS-01 -> 02 -> 03 with an operator-set instance key (DISCUSS D15).
-  @pending @walking_skeleton @driving_port @iis-replica @us-iis-01 @us-iis-02 @us-iis-03 @kpi-iis-1 @kpi-iis-2
+  @walking_skeleton @driving_port @iis-replica @us-iis-01 @us-iis-02 @us-iis-03 @kpi-iis-1 @kpi-iis-2
   Scenario: An instance admin turns on Matrix and then Slack, and every replica offers them without a restart
     Given this Foundry runs as two replicas with its instance key set by the operator
     When Priya opens the instance integrations page
@@ -201,7 +201,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
   # ------------------------------------------------------------------ US-IIS-02
 
-  @pending @iis-replica @us-iis-02 @kpi-iis-1 @error
+  @iis-replica @us-iis-02 @kpi-iis-1 @error
   Scenario: Two generate requests at the same moment store one key that both replicas use
     Given this Foundry runs as two replicas with its instance key set by the operator
     And Foundry's environment sets the Slack app 6123456789012.7234567890123

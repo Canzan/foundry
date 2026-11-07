@@ -69,6 +69,8 @@ const IDLE_POLL: Duration = Duration::from_millis(250);
 const DISPATCHER_ROLE: &str = "dispatcher";
 /// How often (on the clock) a worker runs the retention sweep.
 const RETENTION_SWEEP_EVERY: time::Duration = time::Duration::hours(1);
+/// How long a replica state row outlives its last beat (ADR-IIS-004 r8).
+const REPLICA_STATE_RETENTION: time::Duration = time::Duration::hours(1);
 /// Where a member changes what they get (K-12).
 const SETTINGS_PATH: &str = "/account/settings";
 
@@ -228,7 +230,7 @@ impl IntegrationsWorker {
     /// Housekeeping and sending run side by side in this one task, so a post
     /// a vendor never answers (held until the call times out) delays neither
     /// dispatch nor the give-up sweep, and stopping the task stops both.
-    async fn run(self) {
+    pub(crate) async fn run(self) {
         let worker = &self;
         tokio::join!(
             worker.every_poll(|integrations| async move { worker.keep_house(&integrations).await }),
@@ -296,6 +298,10 @@ impl Retention {
         }
         let plan = |view: &RetentionView| pruning_of(view, now);
         self.sweeps.prune(now - RETENTION, &plan).await?;
+        // ADR-IIS-004 r8: replica state rows older than an hour of the clock.
+        self.sweeps
+            .prune_replica_states(now - REPLICA_STATE_RETENTION)
+            .await?;
         *self.last_swept.lock().unwrap_or_else(|p| p.into_inner()) = Some(now);
         Ok(())
     }
@@ -917,5 +923,80 @@ fn delivery_result(settled: Settlement) -> DeliveryResult {
             final_reason: ReasonCode::GaveUp24h.wire_name().to_string(),
             vendor_reason: Some(vendor_reason.wire_name().to_string()),
         },
+    }
+}
+
+#[cfg(test)]
+mod retention_tests {
+    use super::*;
+    use crate::integrations::store_capabilities::{ExpiryPlanner, RetentionPlanner};
+    use async_trait::async_trait;
+    use foundry_store::integrations::{DeliveryTally, Pruned};
+    use foundry_store::StoreError;
+
+    /// The sweeps port, recording where each replica-state prune cut off.
+    #[derive(Default)]
+    struct RecordedSweeps {
+        replica_states_before: Mutex<Vec<OffsetDateTime>>,
+    }
+
+    #[async_trait]
+    impl DeliverySweeps for RecordedSweeps {
+        async fn expire(
+            &self,
+            _now: OffsetDateTime,
+            _final_reason: &str,
+            _plan: ExpiryPlanner<'_>,
+        ) -> Result<Vec<DeliveryTally>, StoreError> {
+            Ok(Vec::new())
+        }
+
+        async fn prune(
+            &self,
+            _read_before: OffsetDateTime,
+            _plan: RetentionPlanner<'_>,
+        ) -> Result<Pruned, StoreError> {
+            Ok(Pruned::default())
+        }
+
+        async fn prune_replica_states(
+            &self,
+            stale_before: OffsetDateTime,
+        ) -> Result<u64, StoreError> {
+            self.replica_states_before
+                .lock()
+                .expect("recorder")
+                .push(stale_before);
+            Ok(0)
+        }
+    }
+
+    /// Replica state rows older than an hour of the clock the tick is given
+    /// are pruned, once per sweep period of that clock.
+    #[tokio::test]
+    async fn retention_prunes_replica_states_an_hour_before_the_clock() {
+        let sweeps = Arc::new(RecordedSweeps::default());
+        let retention = Retention {
+            sweeps: sweeps.clone(),
+            last_swept: Mutex::new(None),
+        };
+        let now = OffsetDateTime::from_unix_timestamp(1_800_000_000).expect("a time");
+        let later = now + time::Duration::minutes(30);
+        let next = now + time::Duration::hours(1);
+        for at in [now, later, next] {
+            retention.tick(at).await.expect("the sweep runs");
+        }
+        let cut_offs = sweeps
+            .replica_states_before
+            .lock()
+            .expect("recorder")
+            .clone();
+        assert_eq!(
+            cut_offs,
+            vec![
+                now - time::Duration::hours(1),
+                next - time::Duration::hours(1)
+            ]
+        );
     }
 }

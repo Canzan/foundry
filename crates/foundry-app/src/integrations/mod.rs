@@ -18,6 +18,7 @@ pub mod matrix;
 pub mod no_connection;
 pub mod outbound;
 pub mod project_emails;
+pub mod reload;
 #[cfg(feature = "test-support")]
 pub mod secrets_key_seam;
 pub mod slack;
@@ -76,8 +77,10 @@ pub(crate) fn chat_kind(wire: &str) -> ChannelKind {
 /// connection's admins are told through it; ADR-EIP-007 decision 4: members'
 /// project emails go through its first `smtp` or `email_api` provider, none
 /// and they are off, K-13) and `SESSION_SECRET` (decision 5: every project
-/// email's signed stop link), then spawn the delivery worker (ADR-EIP-002).
-/// `main.rs` and the acceptance harness both start delivery here.
+/// email's signed stop link), then spawn the delivery worker (ADR-EIP-002)
+/// and, beside it in the same task, this replica's reload (ADR-IIS-004 r4):
+/// stopping the task stops both. `main.rs` and the acceptance harness both
+/// start delivery and reload here.
 pub fn start(state: &crate::AppState) -> tokio::task::JoinHandle<()> {
     let integrations = &state.integrations;
     integrations
@@ -89,12 +92,16 @@ pub fn start(state: &crate::AppState) -> tokio::task::JoinHandle<()> {
     integrations
         .project_mail()
         .sign_stop_links_with(state.session_secret.clone());
-    worker::IntegrationsWorker::new(
-        store_capabilities::StoreCapabilities::new(state.store.clone()),
+    let capabilities = store_capabilities::StoreCapabilities::new(state.store.clone());
+    let worker = worker::IntegrationsWorker::new(
+        capabilities.clone(),
         integrations.clone(),
         state.clock.clone(),
-    )
-    .spawn()
+    );
+    let reload = reload::Reload::new(capabilities, integrations.clone(), state.clock.clone());
+    tokio::spawn(async move {
+        tokio::join!(worker.run(), reload.run());
+    })
 }
 
 /// The plaintext every key's check value seals (`integration_key_checks`).
@@ -161,6 +168,9 @@ pub struct Integrations {
     outbound: std::sync::OnceLock<OutboundHttp>,
     secrets: SecretsCheck,
     keyring: Keyring,
+    /// The config version of the stored rows these were judged over; `None`
+    /// before any were read, or when the read failed.
+    applied_version: Option<i64>,
 }
 
 impl Integrations {
@@ -215,17 +225,32 @@ impl Integrations {
             key_file,
             ..Self::try_new(settings)?
         };
-        Ok(integrations.probed(store).await)
+        if let Some(check) = integrations.key_check() {
+            if let Err(err) = store.record_key_check(&check).await {
+                tracing::warn!(error = %err, "secrets probe: recording the key check failed");
+            }
+        }
+        Ok(integrations.reboot(store).await)
     }
 
-    /// The same boot over the stored rows as they are now, from these
-    /// integrations' settings, Slack app and key file: what the serving
-    /// replica installs after an instance write commits.
+    /// The boot's rebuild over the stored rows as they are now: what boot
+    /// ends with, and what the serving replica installs after an instance
+    /// write commits.
     pub async fn reboot(&self, store: &dyn store_capabilities::KeyProbe) -> Self {
+        self.rebuilt(store.instance_snapshot().await)
+    }
+
+    /// The one rebuild every path shares (ADR-IIS-001 decision 9, ADR-IIS-004
+    /// r4): boot, the serving replica's apply and every replica's reload.
+    /// From these integrations' settings, held keys, Slack app and key file
+    /// (never read again), over `snapshot`: the key mode resolved, keeping
+    /// the held secrets key while its stored id is unchanged (r6), the stored
+    /// key ids judged, the verdict logged.
+    pub fn rebuilt(&self, snapshot: Result<InstanceSnapshot, foundry_store::StoreError>) -> Self {
         let mut integrations = Self::assembled_from(self.settings.clone(), self.slack.clone());
         integrations.key_file = self.key_file;
         integrations.saved_slack = self.saved_slack.clone();
-        integrations.probed(store).await
+        integrations.probed(snapshot, self.keyring.secrets_key())
     }
 
     fn assembled_from(settings: Arc<IntegrationSettings>, slack: Option<Arc<SlackApp>>) -> Self {
@@ -244,22 +269,23 @@ impl Integrations {
             outbound: std::sync::OnceLock::new(),
             secrets: SecretsCheck::default(),
             keyring,
+            applied_version: None,
         }
     }
 
-    /// The boot's probe (ADR-IIS-001 decision 9): the current instance key's
-    /// check value recorded, the stored rows read, the key mode resolved and
-    /// the stored key ids judged, the verdict logged.
-    async fn probed(self, store: &dyn store_capabilities::KeyProbe) -> Self {
+    /// The boot's probe (ADR-IIS-001 decision 9) over the stored rows read:
+    /// the key mode resolved and the stored key ids judged, the verdict logged.
+    fn probed(
+        self,
+        snapshot: Result<InstanceSnapshot, foundry_store::StoreError>,
+        held: Option<&Arc<SecretBox>>,
+    ) -> Self {
         let key_file = self.key_file;
-        if let Some(check) = self.key_check() {
-            if let Err(err) = store.record_key_check(&check).await {
-                tracing::warn!(error = %err, "secrets probe: recording the key check failed");
-            }
-        }
-        let (keyring, secrets, saved) = match store.instance_snapshot().await {
+        let mut applied_version = None;
+        let (keyring, secrets, saved) = match snapshot {
             Ok(snapshot) => {
-                let (keyring, secrets) = self.probe(&snapshot, key_file);
+                applied_version = Some(snapshot.version);
+                let (keyring, secrets) = self.probe(&snapshot, key_file, held);
                 let saved = snapshot.slack_app.map(|app| {
                     let opened = slack_app::open_saved(
                         &keyring.credentials(self.settings.secrets.as_ref()),
@@ -281,7 +307,12 @@ impl Integrations {
                 )
             }
         };
-        let integrations = Self { keyring, ..self }.with_secrets_check(secrets);
+        let integrations = Self {
+            keyring,
+            applied_version,
+            ..self
+        }
+        .with_secrets_check(secrets);
         let integrations = match saved {
             Some(saved) => integrations.with_saved_slack(saved),
             None => integrations,
@@ -329,13 +360,25 @@ impl Integrations {
     }
 
     /// The key mode and the probe's verdict over `snapshot`.
-    fn probe(&self, snapshot: &InstanceSnapshot, key_file: KeyFile) -> (Keyring, SecretsCheck) {
+    fn probe(
+        &self,
+        snapshot: &InstanceSnapshot,
+        key_file: KeyFile,
+        held: Option<&Arc<SecretBox>>,
+    ) -> (Keyring, SecretsCheck) {
         let mut sealed = snapshot.sealed_credentials.clone();
         if let Some(app) = &snapshot.slack_app {
             sealed.push(app.sealed_client_secret.clone());
             sealed.push(app.sealed_signing_secret.clone());
         }
-        let keyring = self.keyring_over(snapshot.secrets_key.as_ref(), &key_ids(&sealed), key_file);
+        let keyring = Keyring::resolve_holding(
+            held,
+            self.settings.secrets.as_ref(),
+            self.settings.key_setting,
+            key_file,
+            snapshot.secrets_key.as_ref(),
+            &key_ids(&sealed),
+        );
         let credentials = keyring.credentials(self.settings.secrets.as_ref());
         let verdict = judge(&credentials, &sealed, &snapshot.key_checks);
         (keyring, verdict)
@@ -417,6 +460,12 @@ impl Integrations {
 
     pub fn settings(&self) -> &IntegrationSettings {
         &self.settings
+    }
+
+    /// The config version these integrations were judged over (ADR-IIS-004
+    /// r8: a replica's `applied_version`).
+    pub fn applied_version(&self) -> Option<i64> {
+        self.applied_version
     }
 
     /// The key mode the instance integrations page follows.
@@ -669,6 +718,21 @@ impl IntegrationsHandle {
             Ok(guard) => guard.clone(),
             Err(poisoned) => poisoned.into_inner().clone(),
         }
+    }
+
+    /// Replace the integrations with `next` only if they are still `seen`
+    /// (what `next` was rebuilt from): a reload never undoes an install that
+    /// landed while it read. Whether `next` was installed.
+    pub fn install_over(&self, seen: &Arc<Integrations>, next: Integrations) -> bool {
+        let mut guard = match self.current.write() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if !Arc::ptr_eq(&guard, seen) {
+            return false;
+        }
+        *guard = Arc::new(next);
+        true
     }
 
     /// Replace the integrations every later request reads.

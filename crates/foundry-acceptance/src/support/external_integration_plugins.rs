@@ -1326,7 +1326,9 @@ pub async fn rewire(world: &mut FoundryWorld) {
         .use_transport(project_transport);
     if let Some(replicas) = &world.eip.replicas {
         let public_url = replicas.base_url();
-        replicas.install_integrations(|| scenario_settings(world, true, &public_url, "a replica"));
+        replicas
+            .install_integrations(|| scenario_settings(world, true, &public_url, "a replica"))
+            .await;
     }
 }
 

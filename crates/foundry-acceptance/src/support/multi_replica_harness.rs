@@ -511,23 +511,26 @@ impl MultiReplicaHarness {
     }
 
     /// Give every replica the same integration settings, the way the
-    /// composition root gives one instance its settings at boot (`main.rs`:
-    /// `IntegrationsHandle::new(Integrations::new(settings))`). Each replica's
-    /// delivery worker, built by `spawn_app` as `main.rs` builds it, reads
-    /// that replica's handle, so it starts delivering once the settings run
-    /// one — with this replica's own identity and the harness's Clock.
-    /// Replicas keep integrations off until a scenario calls this.
-    /// `settings` builds one replica's settings (each holds its own secrets
-    /// box, as each instance reads its own environment).
-    pub fn install_integrations(
+    /// composition root gives one instance its settings at boot: through the
+    /// one shared boot function (`main.rs`: `Integrations::boot`), over the
+    /// stored instance rows. Each replica's delivery worker and reload task,
+    /// started by `spawn_app` as `main.rs` starts them, read that replica's
+    /// handle, so later instance writes reach it through its own reload
+    /// (ADR-IIS-004 r4), never through this call. Replicas keep integrations
+    /// off until a scenario calls this. `settings` builds one replica's
+    /// settings (each holds its own secrets box, as each instance reads its
+    /// own environment).
+    pub async fn install_integrations(
         &self,
         settings: impl Fn() -> foundry_app::integrations::config::IntegrationSettings,
     ) {
+        use foundry_app::integrations::{keys::NoKeyFile, store_capabilities, Integrations};
         for replica in &self.replicas {
-            replica
-                .state
-                .integrations
-                .install(foundry_app::integrations::Integrations::new(settings()));
+            let store = store_capabilities::StoreCapabilities::new(replica.state.store.clone());
+            let integrations = Integrations::boot(settings(), &*store, &NoKeyFile)
+                .await
+                .expect("the Slack app's client builds");
+            replica.state.integrations.install(integrations);
         }
     }
 

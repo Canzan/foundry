@@ -18,6 +18,7 @@ use foundry_auth::secret_box::{
 use foundry_store::integrations::{KeyCheck, KeyWrapper, NewSecretsKey, StoredSecretsKey};
 use secrecy::SecretString;
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use uuid::Uuid;
 
 /// Why this server holds no instance key (I-27 / I-31).
@@ -193,7 +194,9 @@ fn unwrap_secrets_key(instance: &SecretBox, stored: &StoredSecretsKey) -> Option
 
 /// The unwrapped secrets key (when any) and the mode. No `Debug`.
 pub struct Keyring {
-    secrets_key: Option<SecretBox>,
+    /// Shared with the keyring a reload rebuilds, when the stored key id is
+    /// unchanged (ADR-IIS-004 r6).
+    secrets_key: Option<Arc<SecretBox>>,
     mode: KeyMode,
     opens_stored: bool,
 }
@@ -209,12 +212,32 @@ impl Keyring {
         stored: Option<&StoredSecretsKey>,
         stored_key_ids: &BTreeSet<String>,
     ) -> Self {
+        Self::resolve_holding(None, instance, operator, key_file, stored, stored_key_ids)
+    }
+
+    /// [`Self::resolve`], keeping the `held` secrets key without unwrapping
+    /// when the stored key id is still its id (ADR-IIS-004 r6): a re-wrap
+    /// under an instance key this replica lacks never blinds it.
+    pub fn resolve_holding(
+        held_secrets_key: Option<&Arc<SecretBox>>,
+        instance: Option<&SecretBox>,
+        operator: Option<KeySetting>,
+        key_file: KeyFile,
+        stored: Option<&StoredSecretsKey>,
+        stored_key_ids: &BTreeSet<String>,
+    ) -> Self {
         let held = |key_id: &String| {
             instance.is_some_and(|keys| keys.key_ids().iter().any(|id| id.to_string() == *key_id))
         };
-        let secrets_key = instance
-            .zip(stored)
-            .and_then(|(keys, row)| unwrap_secrets_key(keys, row));
+        let kept = held_secrets_key.zip(stored).and_then(|(keys, row)| {
+            (keys.current_key_id().to_string() == row.key_id).then(|| keys.clone())
+        });
+        let secrets_key = kept.or_else(|| {
+            instance
+                .zip(stored)
+                .and_then(|(keys, row)| unwrap_secrets_key(keys, row))
+                .map(Arc::new)
+        });
         let stored_key = match (stored, &secrets_key) {
             (None, _) => StoredKey::Absent,
             (Some(_), Some(_)) => StoredKey::Unwraps,
@@ -242,6 +265,11 @@ impl Keyring {
         self.mode
     }
 
+    /// The unwrapped secrets key, for the next rebuild to keep.
+    pub fn secrets_key(&self) -> Option<&Arc<SecretBox>> {
+        self.secrets_key.as_ref()
+    }
+
     /// Whether a held key opens some stored sealed value (by key id).
     pub fn opens_stored(&self) -> bool {
         self.opens_stored
@@ -250,7 +278,7 @@ impl Keyring {
     /// The credential box over the held `instance` keys.
     pub fn credentials<'a>(&'a self, instance: Option<&'a SecretBox>) -> CredentialBox<'a> {
         CredentialBox {
-            secrets_key: self.secrets_key.as_ref(),
+            secrets_key: self.secrets_key.as_deref(),
             instance,
             mode: self.mode,
         }
