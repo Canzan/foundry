@@ -15038,9 +15038,9 @@ const SEAL_FENCE_CANARY_COLUMN: &str = "sealed_canary";
 /// The fenced store functions, by file and fn: the connection save and
 /// reconnect (shared lock and fence), the Slack app save (exclusive lock and
 /// fence), Generate and Move's key insert and re-seal, the secrets key's
-/// re-wrap at boot and in rotation (exclusive lock), and
-/// `doctor rotate-secrets`' re-seal.
-const SEAL_FENCED_WRITERS: [(&str, &str); 6] = [
+/// re-wrap at boot and in rotation (exclusive lock). `doctor rotate-secrets`
+/// re-seals through `reseal_sealed_values` under the exclusive lock.
+const SEAL_FENCED_WRITERS: [(&str, &str); 5] = [
     (
         "crates/foundry-store/src/integrations/connections.rs",
         "upsert_connection",
@@ -15060,10 +15060,6 @@ const SEAL_FENCED_WRITERS: [(&str, &str); 6] = [
     (
         "crates/foundry-store/src/integrations/instance.rs",
         "reseal_sealed_values",
-    ),
-    (
-        "crates/foundry-store/src/integrations/keys.rs",
-        "reseal_credentials",
     ),
 ];
 

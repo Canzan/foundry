@@ -5,7 +5,7 @@
   <h1>Integrations for this Foundry</h1>
   {% if let Some(notice) = notice %}<p data-instance-notice role="status">{{ notice }}</p>{% endif %}
   <section data-instance-key>
-    <p data-instance-key-line>{{ page.instance_key }}</p>
+    {% if let Some(line) = page.instance_key %}<p data-instance-key-line>{{ line }}</p>{% endif %}
     {% if let Some(line) = page.secrets_key %}<p data-secrets-key-line>{{ line }}</p>{% endif %}
     {% if let Some(offer) = page.offer %}
     <form method="post" action="{{ offer.door() }}">

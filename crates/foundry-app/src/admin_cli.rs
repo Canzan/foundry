@@ -798,6 +798,10 @@ async fn rotate_secrets(
             );
             4
         }
+        Ok(RotateOutcome::KeyChanged) => {
+            eprintln!("{ROTATE}: the stored secrets key changed while rotating; nothing changed");
+            3
+        }
         Err(err) => {
             eprintln!("{ROTATE}: the rotation failed; nothing changed: {err}");
             3

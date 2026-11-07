@@ -225,6 +225,19 @@ pub struct IntegrationSettings {
     pub outbound: OutboundAllow,
 }
 
+/// A setting's value through `lookup`: a blank value counts as unset (the
+/// one rule every integrations setting, the public URL included, follows).
+fn setting(lookup: &impl Fn(&str) -> Option<String>, name: &str) -> Option<String> {
+    lookup(name).filter(|value| !value.trim().is_empty())
+}
+
+/// `FOUNDRY_PUBLIC_URL` read through `lookup`, or `fallback` (I-29's
+/// address) when it is unset or blank: what the composition root hands
+/// every reader.
+pub fn public_url_or(lookup: impl Fn(&str) -> Option<String>, fallback: &str) -> String {
+    setting(&lookup, PUBLIC_URL).unwrap_or_else(|| fallback.to_string())
+}
+
 impl IntegrationSettings {
     /// Read from the process environment; `default_public_url` stands in for
     /// an unset `FOUNDRY_PUBLIC_URL`.
@@ -237,7 +250,7 @@ impl IntegrationSettings {
         lookup: impl Fn(&str) -> Option<String>,
         default_public_url: &str,
     ) -> Result<Self, ConfigError> {
-        let get = |name: &str| lookup(name).filter(|v| !v.trim().is_empty());
+        let get = |name: &str| setting(&lookup, name);
         let configured_public_url = get(PUBLIC_URL);
         let public_url_fell_back = configured_public_url.is_none();
         let public_url = configured_public_url
@@ -554,5 +567,27 @@ mod tests {
             read_err(&[(RELOAD_MS, "soon")]),
             ConfigError::NotANumber { setting: RELOAD_MS }
         );
+    }
+
+    /// The composition root's public URL reads blank as unset, as the
+    /// settings do: never "use , which Slack cannot reach" (item 48).
+    #[test]
+    fn a_blank_public_url_falls_back_like_an_unset_one() {
+        for (value, expected) in [
+            (None, FALLBACK_URL),
+            (Some(""), FALLBACK_URL),
+            (Some(" \t"), FALLBACK_URL),
+            (Some("https://foundry.example"), "https://foundry.example"),
+        ] {
+            let lookup = |name: &str| {
+                (name == PUBLIC_URL)
+                    .then_some(value)
+                    .flatten()
+                    .map(str::to_string)
+            };
+            assert_eq!(public_url_or(lookup, FALLBACK_URL), expected, "{value:?}");
+            let read = IntegrationSettings::from_lookup(lookup, FALLBACK_URL).unwrap();
+            assert_eq!(read.public_url, expected, "{value:?}: one rule");
+        }
     }
 }

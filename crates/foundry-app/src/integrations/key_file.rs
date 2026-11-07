@@ -10,8 +10,11 @@
 //! `O_CREAT|O_EXCL|O_WRONLY` with mode 0600 at open, the key written and
 //! `fsync`ed, then `link(2)`ed to `instance.key` (`EEXIST`: another server
 //! won), the directory `fsync`ed, the temp file removed and whichever file
-//! exists read back. A filesystem without hard links (`EPERM`, `ENOTSUP`)
-//! cannot hold the file (I-27). No file is made over a database that already
+//! exists read back. A temp file gone before its link (`ENOENT`) reads a
+//! sibling's file when one appeared, else is made once more. Only temp files
+//! older than [`STALE_TEMP`] are leftovers: a sibling server on the same
+//! volume may be mid-way through its own. A filesystem without hard links
+//! (`EPERM`, `ENOTSUP`) cannot hold the file (I-27). No file is made over a database that already
 //! holds what an earlier key sealed (r3). An existing `instance.key` is never
 //! overwritten, chmod-ed or removed. No key, and no file content, is ever
 //! logged.
@@ -35,6 +38,14 @@ const TEMP_PREFIX: &str = "instance.key.tmp.";
 const PRIVATE_MODE: u32 = 0o600;
 /// A key file is one line of 43 characters; anything far larger is not one.
 const MAX_FILE_BYTES: u64 = 1024;
+/// A temp file lives from its open to just after its link: one write and one
+/// `fsync`. One untouched this long was left by a start that crashed; a
+/// younger one may be a sibling server's in flight, and leaving a leftover a
+/// while longer costs nothing (it is never read).
+const STALE_TEMP: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+/// Tries at making the file: the first, and one more when its temp file was
+/// gone before its link.
+const MAKE_TRIES: usize = 2;
 
 /// The key file's path in `data_dir`, as the page names it.
 pub fn key_path(data_dir: &Path) -> PathBuf {
@@ -97,14 +108,24 @@ impl InstanceKeyFile {
         }
     }
 
-    /// Temp files a crashed start left behind; `instance.key` itself is never
+    /// Temp files a crashed start left behind: older than [`STALE_TEMP`]
+    /// (one dated ahead of this clock is not). `instance.key` itself is never
     /// touched. A directory that cannot be listed has none to remove.
     fn remove_leftovers(&self) {
         let Ok(entries) = std::fs::read_dir(&self.dir) else {
             return;
         };
+        let now = std::time::SystemTime::now();
+        let stale = |entry: &std::fs::DirEntry| {
+            entry
+                .metadata()
+                .and_then(|meta| meta.modified())
+                .ok()
+                .and_then(|written| now.duration_since(written).ok())
+                .is_some_and(|age| age >= STALE_TEMP)
+        };
         for entry in entries.flatten() {
-            if entry.file_name().to_string_lossy().starts_with(TEMP_PREFIX) {
+            if entry.file_name().to_string_lossy().starts_with(TEMP_PREFIX) && stale(&entry) {
                 let _ = std::fs::remove_file(entry.path());
             }
         }
@@ -150,12 +171,28 @@ impl InstanceKeyFile {
     }
 
     /// Make the file once. A directory that cannot take it is `Unwritable`
-    /// (I-27); losing the race to another server reads the winner's file.
+    /// (I-27); losing the race to another server reads the winner's file. A
+    /// temp file gone before its link reads a sibling's file when one is
+    /// there, else is made once more.
     fn create(&self) -> KeyFileRead {
+        for _ in 0..MAKE_TRIES {
+            match self.attempt() {
+                Attempt::Read(read) => return read,
+                Attempt::TempGone if std::fs::symlink_metadata(self.path()).is_ok() => {
+                    return self.read_existing()
+                }
+                Attempt::TempGone => {}
+            }
+        }
+        unwritable(ErrorKind::NotFound)
+    }
+
+    /// One try at making the file.
+    fn attempt(&self) -> Attempt {
         let temp = self
             .dir
             .join(format!("{TEMP_PREFIX}{}", uuid::Uuid::new_v4().simple()));
-        let made = write_temp(&temp).and_then(|uid| {
+        let made = write_temp(&temp).map_err(Failed::Temp).and_then(|uid| {
             let linked = (self.link)(&temp, &self.path());
             let _ = std::fs::remove_file(&temp);
             match linked {
@@ -165,20 +202,16 @@ impl InstanceKeyFile {
                 }
                 Err(err) if err.kind() == ErrorKind::AlreadyExists => Ok(None),
                 // EPERM, ENOTSUP and the rest: this filesystem cannot hold it.
-                Err(err) => Err(err),
+                Err(err) => Err(Failed::Link(err)),
             }
         });
         match made {
-            Ok(Some(uid)) => self.read_created(uid),
-            Ok(None) => self.read_existing(),
-            Err(err) => {
+            Ok(Some(uid)) => Attempt::Read(self.read_created(uid)),
+            Ok(None) => Attempt::Read(self.read_existing()),
+            Err(Failed::Link(err)) if err.kind() == ErrorKind::NotFound => Attempt::TempGone,
+            Err(Failed::Link(err) | Failed::Temp(err)) => {
                 let _ = std::fs::remove_file(&temp);
-                tracing::warn!(
-                    event = "integrations.key_file.unwritable",
-                    error_kind = ?err.kind(),
-                    "the instance key file cannot be made"
-                );
-                KeyFileRead::Unwritable
+                Attempt::Read(unwritable(err.kind()))
             }
         }
     }
@@ -199,6 +232,30 @@ impl InstanceKeyFile {
             }
         }
     }
+}
+
+/// One try at making the file: read through, or our temp file was gone
+/// before its link.
+enum Attempt {
+    Read(KeyFileRead),
+    TempGone,
+}
+
+/// Where a try failed: writing the temp file (a missing directory is
+/// `ENOENT` there, never retried) or linking it.
+enum Failed {
+    Temp(std::io::Error),
+    Link(std::io::Error),
+}
+
+/// I-27, logged by kind only.
+fn unwritable(kind: ErrorKind) -> KeyFileRead {
+    tracing::warn!(
+        event = "integrations.key_file.unwritable",
+        error_kind = ?kind,
+        "the instance key file cannot be made"
+    );
+    KeyFileRead::Unwritable
 }
 
 impl InstanceKeySource for InstanceKeyFile {
@@ -351,13 +408,121 @@ mod tests {
         assert_eq!(dir.names(), vec![FILE_NAME.to_string()]);
     }
 
+    /// A temp file last written `age` ago.
+    fn plant_temp(dir: &Dir, name: &str, age: std::time::Duration) -> PathBuf {
+        let temp = dir.0.join(format!("{TEMP_PREFIX}{name}"));
+        std::fs::write(&temp, b"partial").unwrap();
+        let written = std::time::SystemTime::now() - age;
+        File::options()
+            .write(true)
+            .open(&temp)
+            .and_then(|f| f.set_modified(written))
+            .expect("age the temp file");
+        temp
+    }
+
+    const AN_HOUR: std::time::Duration = std::time::Duration::from_secs(3600);
+
     #[test]
     fn a_leftover_temp_file_is_removed_and_the_file_made() {
         let dir = Dir::new();
-        let leftover = dir.0.join(format!("{TEMP_PREFIX}crashed"));
-        std::fs::write(&leftover, b"partial").unwrap();
+        plant_temp(&dir, "crashed", AN_HOUR);
         held_id(InstanceKeyFile::in_dir(&dir.0).key_file(true));
         assert_eq!(dir.names(), vec![FILE_NAME.to_string()]);
+    }
+
+    /// H1: a sibling server sharing the volume is mid-way through making the
+    /// file; its fresh temp file is not this server's to remove.
+    #[test]
+    fn a_siblings_temp_file_in_flight_is_not_removed() {
+        let dir = Dir::new();
+        let sibling = plant_temp(&dir, "sibling", std::time::Duration::ZERO);
+        held_id(InstanceKeyFile::in_dir(&dir.0).key_file(true));
+        assert!(sibling.exists(), "the sibling's temp file is left alone");
+        let ahead = plant_temp(&dir, "clock-ahead", std::time::Duration::ZERO);
+        File::options()
+            .write(true)
+            .open(&ahead)
+            .and_then(|f| f.set_modified(std::time::SystemTime::now() + AN_HOUR))
+            .unwrap();
+        held_id(InstanceKeyFile::in_dir(&dir.0).key_file(false));
+        assert!(
+            ahead.exists(),
+            "a temp file from a clock ahead is not stale"
+        );
+        assert!(sibling.exists());
+    }
+
+    /// Losing the race at `link` (`EEXIST`): the winner's file is read.
+    #[test]
+    fn losing_the_link_race_reads_the_winners_file() {
+        let dir = Dir::new();
+        let file = InstanceKeyFile {
+            link: |_, to| {
+                let winner = SecretsKey::generate().unwrap();
+                std::fs::write(to, format!("{}\n", winner.text.expose_secret()))?;
+                Err(ErrorKind::AlreadyExists.into())
+            },
+            ..InstanceKeyFile::in_dir(&dir.0)
+        };
+        let id = held_id(file.key_file(true));
+        let (winner, _) = read_key(&dir.file()).expect("the winner's file");
+        assert_eq!(id, winner.key_id().to_string());
+        assert_eq!(dir.names(), vec![FILE_NAME.to_string()], "our temp removed");
+    }
+
+    /// Our temp file gone before its `link` (`ENOENT`): made once more.
+    #[test]
+    fn a_temp_file_gone_before_its_link_is_made_once_more() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static LINKS: AtomicUsize = AtomicUsize::new(0);
+        let dir = Dir::new();
+        let file = InstanceKeyFile {
+            link: |from, to| {
+                if LINKS.fetch_add(1, Ordering::SeqCst) == 0 {
+                    std::fs::remove_file(from)?;
+                }
+                std::fs::hard_link(from, to)
+            },
+            ..InstanceKeyFile::in_dir(&dir.0)
+        };
+        let id = held_id(file.key_file(true));
+        assert_eq!(LINKS.load(Ordering::SeqCst), 2, "one retry");
+        let (made, mode) = read_key(&dir.file()).expect("the file made on retry");
+        assert_eq!((id, mode), (made.key_id().to_string(), PRIVATE_MODE));
+        assert_eq!(dir.names(), vec![FILE_NAME.to_string()]);
+    }
+
+    /// `ENOENT` at `link` while a sibling's file appeared: the sibling's is
+    /// read; `ENOENT` every time: one retry, then I-27.
+    #[test]
+    fn a_link_that_finds_no_temp_file_reads_a_siblings_file_or_gives_up() {
+        let dir = Dir::new();
+        let file = InstanceKeyFile {
+            link: |_, to| {
+                let winner = SecretsKey::generate().unwrap();
+                std::fs::write(to, format!("{}\n", winner.text.expose_secret()))?;
+                Err(ErrorKind::NotFound.into())
+            },
+            ..InstanceKeyFile::in_dir(&dir.0)
+        };
+        let id = held_id(file.key_file(true));
+        let (winner, _) = read_key(&dir.file()).expect("the sibling's file");
+        assert_eq!(id, winner.key_id().to_string());
+
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static LINKS: AtomicUsize = AtomicUsize::new(0);
+        let dir = Dir::new();
+        let file = InstanceKeyFile {
+            link: |_, _| {
+                LINKS.fetch_add(1, Ordering::SeqCst);
+                Err(ErrorKind::NotFound.into())
+            },
+            ..InstanceKeyFile::in_dir(&dir.0)
+        };
+        assert_eq!(state(&file.key_file(true)), "unwritable");
+        assert_eq!(LINKS.load(Ordering::SeqCst), 2, "one retry, no more");
+        assert!(dir.names().is_empty(), "no file and no temp file");
     }
 
     #[test]
@@ -461,7 +626,7 @@ mod tests {
         assert!(dir.names().is_empty(), "no key file minted");
 
         let leftover = Dir::new();
-        std::fs::write(leftover.0.join(format!("{TEMP_PREFIX}crashed")), b"partial").unwrap();
+        plant_temp(&leftover, "crashed", AN_HOUR);
         let read = InstanceKeyFile::in_dir(&leftover.0).key_file(false);
         assert_eq!(state(&read), "withheld");
         assert!(leftover.names().is_empty(), "the leftover is still removed");

@@ -118,8 +118,10 @@ async fn main() -> anyhow::Result<()> {
     // serve).
     let metrics_handle =
         metrics_server::install_recorder().context("install Prometheus recorder")?;
-    let public_url: String =
-        std::env::var("FOUNDRY_PUBLIC_URL").unwrap_or_else(|_| format!("http://localhost:{port}"));
+    let public_url: String = foundry_app::integrations::config::public_url_or(
+        |name| std::env::var(name).ok(),
+        &format!("http://localhost:{port}"),
+    );
     let database_url: String = std::env::var("DATABASE_URL").context("DATABASE_URL is required")?;
 
     let store = Store::connect(&database_url)

@@ -531,6 +531,20 @@ impl Integrations {
         self.applied_version
     }
 
+    /// What the instance key file gave at boot (never read again).
+    pub fn key_file(&self) -> KeyFile {
+        self.key_file
+    }
+
+    /// Whether these integrations were judged over an older config version
+    /// than `current`.
+    fn judged_before(&self, current: &Self) -> bool {
+        matches!(
+            (self.applied_version, current.applied_version),
+            (Some(next), Some(now)) if next < now
+        )
+    }
+
     /// The key mode the instance integrations page follows.
     pub fn key_mode(&self) -> KeyMode {
         self.keyring.mode()
@@ -849,24 +863,37 @@ impl IntegrationsHandle {
     /// (what `next` was rebuilt from): a reload never undoes an install that
     /// landed while it read. Whether `next` was installed.
     pub fn install_over(&self, seen: &Arc<Integrations>, next: Integrations) -> bool {
+        self.swap(next, |current| Arc::ptr_eq(current, seen))
+    }
+
+    /// Replace the integrations every later request reads: the serving
+    /// server's rebuild after its own write. Whether `next` was installed.
+    pub fn install(&self, next: Integrations) -> bool {
+        self.swap(next, |_| true)
+    }
+
+    /// The one install (ADR-IIS-004 r4): `next` replaces the current
+    /// integrations when `may_replace` them and it was judged over no older
+    /// config version than they were (a rebuild over no snapshot has no
+    /// version and is never refused for one); the installed integrations
+    /// then set the secrets alert inputs.
+    fn swap(
+        &self,
+        next: Integrations,
+        may_replace: impl FnOnce(&Arc<Integrations>) -> bool,
+    ) -> bool {
         let mut guard = match self.current.write() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        if !Arc::ptr_eq(&guard, seen) {
+        if !may_replace(&guard) || next.judged_before(&guard) {
             return false;
         }
+        // Under the lock, so two racing installs set the inputs in the
+        // order they installed.
+        reload::raise_alert_inputs(&next);
         *guard = Arc::new(next);
         true
-    }
-
-    /// Replace the integrations every later request reads.
-    pub fn install(&self, integrations: Integrations) {
-        let next = Arc::new(integrations);
-        match self.current.write() {
-            Ok(mut guard) => *guard = next,
-            Err(poisoned) => *poisoned.into_inner() = next,
-        }
     }
 }
 
@@ -901,6 +928,89 @@ mod tests {
             .expect("the secrets key parses")
         });
         Integrations::new(settings)
+    }
+
+    /// `instance(false, true)` rebuilt over config `version`, holding
+    /// `sealed` values.
+    fn judged_over(version: i64, sealed: Vec<Vec<u8>>) -> Integrations {
+        instance(false, true).rebuilt(Ok(InstanceSnapshot {
+            version,
+            secrets_key: None,
+            slack_app: None,
+            key_checks: Vec::new(),
+            sealed_credentials: sealed,
+        }))
+    }
+
+    /// A value sealed under a key this instance does not hold (I-4).
+    fn sealed_elsewhere() -> Vec<u8> {
+        let other = foundry_auth::secret_box::SecretsKey::generate().unwrap();
+        SecretBox::new(other.key, Vec::new())
+            .seal(
+                &SecretString::from("xoxb-a-bot-token"),
+                &foundry_auth::secret_box::SecretSlot::new(
+                    "integration_connections",
+                    "1",
+                    "credential",
+                ),
+            )
+            .expect("seal")
+            .as_bytes()
+            .to_vec()
+    }
+
+    /// H4: the serving server's post-write rebuild read before a reload
+    /// installed a newer version never undoes it; the same version installs
+    /// (a connection write bumps none, item 27).
+    #[test]
+    fn a_stale_post_write_rebuild_never_replaces_a_newer_install() {
+        let handle = IntegrationsHandle::new(judged_over(4, Vec::new()));
+        let seen = handle.current();
+        assert!(
+            handle.install_over(&seen, judged_over(6, Vec::new())),
+            "the reload"
+        );
+        handle.install(judged_over(5, Vec::new()));
+        assert_eq!(handle.current().applied_version(), Some(6), "older refused");
+        let reload_saw = handle.current();
+        handle.install(judged_over(6, vec![sealed_elsewhere()]));
+        assert!(
+            handle.current().secrets_check().degraded(),
+            "the same version installs"
+        );
+        assert!(
+            !handle.install_over(&handle.current(), judged_over(5, Vec::new())),
+            "no install goes back a version"
+        );
+        assert!(!handle.install_over(&reload_saw, judged_over(7, Vec::new())));
+        assert_eq!(handle.current().applied_version(), Some(6));
+    }
+
+    /// H4: every install sets the secrets alert inputs, the post-write one
+    /// included: a write that degrades the instance raises the gauge, one
+    /// that heals it lowers it.
+    #[test]
+    fn a_post_write_install_moves_the_degraded_gauge() {
+        let recorder = metrics_exporter_prometheus::PrometheusBuilder::new().build_recorder();
+        let rendered = recorder.handle();
+        let gauge = || {
+            rendered
+                .render()
+                .lines()
+                .find(|line| line.starts_with(reload::SECRETS_DEGRADED))
+                .map(str::to_string)
+        };
+        let degraded = format!("{} 1", reload::SECRETS_DEGRADED);
+        let healed = format!("{} 0", reload::SECRETS_DEGRADED);
+        metrics::with_local_recorder(&recorder, || {
+            let handle = IntegrationsHandle::new(judged_over(1, Vec::new()));
+            handle.install(judged_over(2, vec![sealed_elsewhere()]));
+            assert_eq!(gauge(), Some(degraded.clone()), "degraded by the write");
+            handle.install(judged_over(3, Vec::new()));
+            assert_eq!(gauge(), Some(healed.clone()), "healed by the write");
+            handle.install(judged_over(2, vec![sealed_elsewhere()]));
+            assert_eq!(gauge(), Some(healed), "a refused install sets nothing");
+        });
     }
 
     /// Every (Slack app, secrets key, unreadable Slack, unreadable Matrix):

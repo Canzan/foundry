@@ -28,7 +28,7 @@
 use super::render;
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
-use crate::integrations::keys::{plan_generate, KeyMode, NoKeyReason};
+use crate::integrations::keys::{plan_generate, KeyFile, KeyMode, NoKeyReason};
 use crate::integrations::slack_app::{plan_save, Refusal, SavedApp, SlackAppForm, SlackField};
 use crate::integrations::store_capabilities::{
     InstanceKeyWrites, KeyProbe, ResealRefused, StoreCapabilities,
@@ -117,6 +117,9 @@ const CLIENT_SECRET_SET: &str = "Client secret: set";
 const SIGNING_SECRET_SET: &str = "Signing secret: set";
 /// How many times a save is tried when the seal fence finds a newer key.
 const SAVE_ATTEMPTS: usize = 2;
+/// What a save the fence turned back on every try answers: no copy line of
+/// its own (upstream item 47 M1), so the closest existing one, nothing saved.
+const SAVE_TURNED_BACK: &str = super::NOT_CONNECTED;
 /// How many activity lines the page lists.
 const ACTIVITY_LINES: i64 = 20;
 /// I-9.
@@ -131,6 +134,8 @@ pub struct PageFacts {
     pub operator_key: bool,
     /// The instance key file's path, as the page names it.
     pub key_file: String,
+    /// What the key file gave at boot: no file was made when `Withheld`.
+    pub key_file_read: KeyFile,
     /// The key file the stored secrets key was re-wrapped from (I-30).
     pub rewrapped_from: Option<String>,
     /// Some stored credential is sealed directly under a held instance key.
@@ -230,8 +235,9 @@ pub fn stored_notice(moved: usize) -> String {
 /// What the page shows and offers. Never a key, a key id or a secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PageState {
-    /// I-25, or I-27 / I-31 in its place.
-    pub instance_key: String,
+    /// I-25, or I-27 / I-31 in its place; none when no key file was made
+    /// (`Withheld`): the mode's own line says what is wrong.
+    pub instance_key: Option<String>,
     /// I-2, I-2e, I-2e0, I-3, I-4 or I-26; none without an instance key.
     pub secrets_key: Option<&'static str>,
     pub offer: Option<KeyOffer>,
@@ -305,17 +311,18 @@ fn slack_setup(facts: &PageFacts) -> Option<SlackSetup> {
     })
 }
 
-fn instance_key_line(facts: &PageFacts) -> String {
+fn instance_key_line(facts: &PageFacts) -> Option<String> {
     let words = match facts.mode {
         KeyMode::NoInstanceKey(NoKeyReason::Unwritable) => KEY_UNWRITABLE,
         KeyMode::NoInstanceKey(NoKeyReason::Unreadable) => KEY_UNREADABLE,
         _ => match (facts.operator_key, &facts.rewrapped_from) {
-            (true, Some(path)) => return KEY_REPLACED_FILE.replace("{path}", path),
+            (true, Some(path)) => return Some(KEY_REPLACED_FILE.replace("{path}", path)),
             (true, None) => KEY_BY_OPERATOR,
+            (false, _) if facts.key_file_read == KeyFile::Withheld => return None,
             (false, _) => KEY_IN_FILE,
         },
     };
-    words.replace("{path}", &facts.key_file)
+    Some(words.replace("{path}", &facts.key_file))
 }
 
 /// The facts of the integrations in effect on this server, with
@@ -329,6 +336,7 @@ fn facts_of(integrations: &Integrations, direct_seals: usize, saver: Option<Stri
         key_file: crate::integrations::key_file::key_path(&settings.data_dir)
             .display()
             .to_string(),
+        key_file_read: integrations.key_file(),
         rewrapped_from: integrations.rewrapped_from().map(str::to_string),
         saved_direct: direct_seals > 0,
         unopenable_values: integrations.secrets_check().degraded(),
@@ -465,18 +473,9 @@ async fn store_secrets_key(state: &AppState, actor: Uuid, door: KeyOffer) -> Opt
             .ok_or(ResealRefused)
     };
     let now = state.clock.now();
-    let outcome = match door {
-        KeyOffer::Generate => {
-            store
-                .store_secrets_key(&plan.key, &plan.canary, now, &reseal)
-                .await
-        }
-        KeyOffer::Move => {
-            store
-                .move_to_secrets_key(&plan.key, &plan.canary, now, &reseal)
-                .await
-        }
-    };
+    let outcome = store
+        .store_secrets_key(&plan.key, &plan.canary, now, &reseal)
+        .await;
     let notice = match outcome {
         Ok(SecretsKeyOutcome::Stored { resealed, .. }) => Some(stored_notice(resealed)),
         Ok(SecretsKeyOutcome::AlreadyStored { .. }) => None,
@@ -550,11 +549,11 @@ fn refused(refusal: Refusal) -> &'static str {
 /// the seal fence finds a newer sealing key, the integrations are rebuilt
 /// and the save tried once more.
 async fn save_slack(state: &AppState, actor: Uuid, form: &SlackAppForm) -> Option<&'static str> {
-    let store = StoreCapabilities::new(state.store.clone());
-    for _ in 0..SAVE_ATTEMPTS {
+    let store = &StoreCapabilities::new(state.store.clone());
+    retried(|| async move {
         let integrations = state.integrations.current();
         let Some(sealing) = integrations.sealing_box() else {
-            return Some(NO_SECRETS_KEY);
+            return Attempted::Answered(Some(NO_SECRETS_KEY));
         };
         let Some(plan) = plan_save(
             sealing,
@@ -564,25 +563,48 @@ async fn save_slack(state: &AppState, actor: Uuid, form: &SlackAppForm) -> Optio
             state.clock.now(),
         ) else {
             tracing::warn!(probe = "secrets", "sealing the Slack app failed");
-            return None;
+            return Attempted::Answered(None);
         };
         let outcome = store.save_slack_app(&plan).await;
         state
             .integrations
-            .install(integrations.reboot(&*store).await);
+            .install(integrations.reboot(&**store).await);
         match outcome {
             Ok(SlackSaveOutcome::Saved { .. }) if integrations.settings().slack.is_some() => {
-                return Some(SLACK_SAVED_ENVIRONMENT_WINS)
+                Attempted::Answered(Some(SLACK_SAVED_ENVIRONMENT_WINS))
             }
-            Ok(SlackSaveOutcome::Saved { .. }) => return Some(SLACK_APP_SAVED),
-            Ok(SlackSaveOutcome::StaleKey) => continue,
+            Ok(SlackSaveOutcome::Saved { .. }) => Attempted::Answered(Some(SLACK_APP_SAVED)),
+            Ok(SlackSaveOutcome::StaleKey) => Attempted::StaleKey,
             Err(err) => {
                 tracing::warn!(error = %err, "saving the Slack app failed");
-                return None;
+                Attempted::Answered(None)
             }
         }
+    })
+    .await
+}
+
+/// One try at a fenced save: its answer, or the fence found a newer
+/// sealing key.
+enum Attempted {
+    Answered(Option<&'static str>),
+    StaleKey,
+}
+
+/// `attempt` up to [`SAVE_ATTEMPTS`] times while the fence finds a newer
+/// sealing key; the first answer otherwise, and [`SAVE_TURNED_BACK`] when
+/// every try was turned back.
+async fn retried<F, Fut>(mut attempt: F) -> Option<&'static str>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Attempted>,
+{
+    for _ in 0..SAVE_ATTEMPTS {
+        if let Attempted::Answered(answer) = attempt().await {
+            return answer;
+        }
     }
-    None
+    Some(SAVE_TURNED_BACK)
 }
 
 /// Who saved the app in effect, by name.
@@ -681,6 +703,7 @@ mod tests {
             mode,
             operator_key,
             key_file: FILE.to_string(),
+            key_file_read: KeyFile::Held,
             rewrapped_from: None,
             saved_direct,
             unopenable_values: false,
@@ -705,41 +728,62 @@ mod tests {
         KEY_IN_FILE.replace("{path}", FILE)
     }
 
-    /// Facts in (mode, operator key, direct seals), then the page expected.
+    /// Facts in (mode, operator key, key file, direct seals), then the page
+    /// expected.
     type Row = (
         KeyMode,
         bool,
+        KeyFile,
         bool,
-        String,
+        Option<String>,
         Option<&'static str>,
         Option<KeyOffer>,
         &'static str,
     );
 
     /// Every mode, with the key from the operator and from the file, and with
-    /// or without direct seals: the page's lines and its one offer.
+    /// or without direct seals: the page's lines and its one offer. With no
+    /// key file made (Withheld, ADR-IIS-002 r3) there is no key-file line:
+    /// I-25 would claim a file that does not exist (item 39).
     #[test]
     fn the_page_follows_the_mode() {
+        use KeyFile::{Held, Unreadable, Unwritable, Withheld};
         use KeyMode::*;
-        let unwritable = KEY_UNWRITABLE.replace("{path}", FILE);
-        let unreadable = KEY_UNREADABLE.replace("{path}", FILE);
-        let op = KEY_BY_OPERATOR.to_string();
+        let unwritable = Some(KEY_UNWRITABLE.replace("{path}", FILE));
+        let unreadable = Some(KEY_UNREADABLE.replace("{path}", FILE));
+        let op = Some(KEY_BY_OPERATOR.to_string());
+        let file = Some(file_line());
         #[rustfmt::skip]
         let table: Vec<Row> = vec![
-            (NoInstanceKey(NoKeyReason::Unwritable), false, false, unwritable, None, None, MATRIX_NEEDS_KEY),
-            (NoInstanceKey(NoKeyReason::Unreadable), false, false, unreadable, None, None, MATRIX_NEEDS_KEY),
-            (AwaitingSecretsKey, true, false, op.clone(), Some(NO_SECRETS_KEY), Some(KeyOffer::Generate), MATRIX_NEEDS_KEY),
-            (AwaitingSecretsKey, false, false, file_line(), Some(NO_SECRETS_KEY), Some(KeyOffer::Generate), MATRIX_NEEDS_KEY),
-            (Direct, true, false, op.clone(), Some(DIRECT_NOTHING_SAVED), Some(KeyOffer::Move), MATRIX_READY),
-            (Direct, true, true, op.clone(), Some(DIRECT_SAVED), Some(KeyOffer::Move), MATRIX_READY),
-            (Direct, false, true, file_line(), Some(DIRECT_SAVED), Some(KeyOffer::Move), MATRIX_READY),
-            (Sealed, true, false, op.clone(), Some(SECRETS_KEY_SET), None, MATRIX_READY),
-            (Sealed, false, true, file_line(), Some(SECRETS_KEY_SET), None, MATRIX_READY),
-            (Unopenable, true, false, op.clone(), Some(SECRETS_KEY_UNOPENABLE), None, MATRIX_NEEDS_KEY),
-            (Unopenable, false, true, file_line(), Some(SECRETS_KEY_UNOPENABLE), None, MATRIX_NEEDS_KEY),
+            (NoInstanceKey(NoKeyReason::Unwritable), false, Unwritable, false, unwritable, None, None, MATRIX_NEEDS_KEY),
+            (NoInstanceKey(NoKeyReason::Unreadable), false, Unreadable, false, unreadable, None, None, MATRIX_NEEDS_KEY),
+            (AwaitingSecretsKey, true, Unwritable, false, op.clone(), Some(NO_SECRETS_KEY), Some(KeyOffer::Generate), MATRIX_NEEDS_KEY),
+            (AwaitingSecretsKey, false, Held, false, file.clone(), Some(NO_SECRETS_KEY), Some(KeyOffer::Generate), MATRIX_NEEDS_KEY),
+            (AwaitingSecretsKey, false, Withheld, false, None, Some(NO_SECRETS_KEY), Some(KeyOffer::Generate), MATRIX_NEEDS_KEY),
+            (Direct, true, Unwritable, false, op.clone(), Some(DIRECT_NOTHING_SAVED), Some(KeyOffer::Move), MATRIX_READY),
+            (Direct, true, Unwritable, true, op.clone(), Some(DIRECT_SAVED), Some(KeyOffer::Move), MATRIX_READY),
+            (Direct, false, Held, true, file.clone(), Some(DIRECT_SAVED), Some(KeyOffer::Move), MATRIX_READY),
+            (Sealed, true, Unwritable, false, op.clone(), Some(SECRETS_KEY_SET), None, MATRIX_READY),
+            (Sealed, false, Held, true, file.clone(), Some(SECRETS_KEY_SET), None, MATRIX_READY),
+            (Unopenable, true, Unwritable, false, op.clone(), Some(SECRETS_KEY_UNOPENABLE), None, MATRIX_NEEDS_KEY),
+            (Unopenable, false, Held, true, file.clone(), Some(SECRETS_KEY_UNOPENABLE), None, MATRIX_NEEDS_KEY),
+            (Unopenable, false, Withheld, false, None, Some(SECRETS_KEY_UNOPENABLE), None, MATRIX_NEEDS_KEY),
         ];
-        for (mode, operator_key, saved_direct, instance_key, secrets_key, offer, matrix) in table {
-            let facts = facts(mode, operator_key, saved_direct);
+        for (
+            mode,
+            operator_key,
+            key_file,
+            saved_direct,
+            instance_key,
+            secrets_key,
+            offer,
+            matrix,
+        ) in table
+        {
+            let facts = PageFacts {
+                key_file_read: key_file,
+                ..facts(mode, operator_key, saved_direct)
+            };
             let page = page_state(&facts);
             assert_eq!(
                 (page.instance_key, page.secrets_key, page.offer, page.matrix),
@@ -924,6 +968,35 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// M1 / item 35: a save the fence turns back as often as it is tried
+    /// answers a visible refusal, never nothing; a save the fence turns back
+    /// once is tried once more and answers that try.
+    #[tokio::test]
+    async fn a_save_turned_back_by_a_newer_key_every_try_still_answers() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let tries = &AtomicUsize::new(0);
+        let answer = retried(|| async move {
+            tries.fetch_add(1, Ordering::SeqCst);
+            Attempted::StaleKey
+        })
+        .await;
+        assert_eq!(tries.load(Ordering::SeqCst), SAVE_ATTEMPTS);
+        assert_eq!(answer, Some(SAVE_TURNED_BACK));
+
+        let tries = &AtomicUsize::new(0);
+        let answer = retried(|| async move {
+            match tries.fetch_add(1, Ordering::SeqCst) {
+                0 => Attempted::StaleKey,
+                _ => Attempted::Answered(Some(SLACK_APP_SAVED)),
+            }
+        })
+        .await;
+        assert_eq!(
+            (tries.load(Ordering::SeqCst), answer),
+            (2, Some(SLACK_APP_SAVED))
+        );
     }
 
     #[test]

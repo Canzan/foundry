@@ -1,8 +1,8 @@
-//! The credential keys' check values and `doctor rotate-secrets` (DDR-9,
-//! ADR-EIP-004 decision 4, C-11).
+//! The credential keys' check values (DDR-9, ADR-EIP-004 decision 4).
+//! `doctor rotate-secrets` re-seals under the exclusive instance lock in
+//! `Store::rotate_instance_key`.
 
 use crate::{Store, StoreError};
-use uuid::Uuid;
 
 /// One key's check value (`integration_key_checks`, DDR-9): a fixed canary
 /// sealed under the key `key_id` names, so the boot probe can prove a
@@ -12,16 +12,6 @@ use uuid::Uuid;
 pub struct KeyCheck {
     pub key_id: String,
     pub sealed_canary: Vec<u8>,
-}
-
-/// What `doctor rotate-secrets` did (C-11), or why it changed nothing.
-#[derive(Debug, PartialEq, Eq)]
-pub enum ResealOutcome<E> {
-    /// Every stored credential was sealed again and the canary written.
-    Resealed { credentials: usize },
-    /// The caller could not re-seal a credential: the transaction was rolled
-    /// back, so nothing changed.
-    Refused(E),
 }
 
 impl Store {
@@ -64,50 +54,5 @@ impl Store {
         .execute(&self.pool)
         .await?;
         Ok(())
-    }
-
-    /// `doctor rotate-secrets` (C-11, ADR-EIP-004 decision 5): in one
-    /// transaction, replace every stored sealed credential with what `reseal`
-    /// makes of it (given the row id the value is bound to) and write
-    /// `canary` as its key's check value. A refusal from `reseal` rolls the
-    /// whole transaction back. The store never sees a plaintext.
-    pub async fn reseal_credentials<E>(
-        &self,
-        mut reseal: impl FnMut(Uuid, &[u8]) -> Result<Vec<u8>, E>,
-        canary: &KeyCheck,
-    ) -> Result<ResealOutcome<E>, StoreError> {
-        let mut tx = self.pool.begin().await?;
-        let rows: Vec<(Uuid, Vec<u8>)> = sqlx::query_as(
-            "SELECT id, sealed_credential FROM integration_connections
-              WHERE sealed_credential IS NOT NULL ORDER BY id FOR UPDATE",
-        )
-        .fetch_all(&mut *tx)
-        .await?;
-        for (id, sealed) in &rows {
-            let resealed = match reseal(*id, sealed) {
-                Ok(resealed) => resealed,
-                Err(why) => {
-                    tx.rollback().await?;
-                    return Ok(ResealOutcome::Refused(why));
-                }
-            };
-            sqlx::query("UPDATE integration_connections SET sealed_credential = $2 WHERE id = $1")
-                .bind(id)
-                .bind(resealed)
-                .execute(&mut *tx)
-                .await?;
-        }
-        sqlx::query(
-            "INSERT INTO integration_key_checks (key_id, sealed_canary) VALUES ($1, $2)
-             ON CONFLICT (key_id) DO UPDATE SET sealed_canary = EXCLUDED.sealed_canary",
-        )
-        .bind(&canary.key_id)
-        .bind(&canary.sealed_canary)
-        .execute(&mut *tx)
-        .await?;
-        tx.commit().await?;
-        Ok(ResealOutcome::Resealed {
-            credentials: rows.len(),
-        })
     }
 }

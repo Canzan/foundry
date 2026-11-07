@@ -8,7 +8,8 @@
 //! row: at boot (its first tick), on every applied reload and every 10 s of
 //! the injected clock. A sealed value under a key id this replica does not
 //! hold wakes it at once, at most once per second of the injected clock.
-//! Boot and every applied reload set the secrets alert inputs through
+//! Boot and every install (an applied reload, the serving server's rebuild
+//! after its own write) set the secrets alert inputs through
 //! [`raise_alert_inputs`] (DEVOPS D5, task 8).
 
 use super::keys::KeyMode;
@@ -163,11 +164,7 @@ impl Reload {
         }
         let snapshot = self.store.instance_snapshot().await?;
         let next = seen.rebuilt(Ok(snapshot));
-        let installed = self.integrations.install_over(&seen, next);
-        if installed {
-            raise_alert_inputs(&self.integrations.current());
-        }
-        Ok(installed)
+        Ok(self.integrations.install_over(&seen, next))
     }
 
     async fn beat(&mut self, now: OffsetDateTime) {

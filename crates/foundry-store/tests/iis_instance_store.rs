@@ -362,7 +362,8 @@ async fn generate_stores_the_key_canary_activity_and_version_only() {
 }
 
 /// Move: every sealed value is handed to the caller and what it returns is
-/// stored; values it keeps stay as they were; the line counts the re-sealed.
+/// stored; values it keeps stay as they were; the outcome and the line count
+/// re-sealed credentials (I-22): each connection one, the saved app one.
 #[tokio::test]
 async fn move_reseals_every_sealed_value_in_the_same_transaction() {
     let pg = postgres().await;
@@ -399,11 +400,11 @@ async fn move_reseals_every_sealed_value_in_the_same_transaction() {
         matches!(
             outcome,
             SecretsKeyOutcome::Stored {
-                resealed: 3,
+                resealed: 2,
                 version: 2
             }
         ),
-        "{outcome:?}"
+        "one connection and the app: {outcome:?}"
     );
     let mut connections = vec![
         SealedSlot::Connection(slack),
@@ -443,7 +444,7 @@ async fn move_reseals_every_sealed_value_in_the_same_transaction() {
     assert_eq!(app.sealed_signing_secret, b"sk:sealed-signing-secret");
     assert_eq!(
         activity(&pool).await.last(),
-        Some(&(None, "credentials_moved".to_string(), None, Some(3)))
+        Some(&(None, "credentials_moved".to_string(), None, Some(2)))
     );
 }
 
@@ -558,6 +559,36 @@ fn rewrap_of(from_key_id: &str, to_key_id: &str) -> SecretsKeyRewrap {
         wrapped_by: KeyWrapper::Operator,
         rewrapped_from_path: Some("/var/lib/foundry/instance.key".to_string()),
     }
+}
+
+/// Rotation whose re-wrap names a key the stored one is not wrapped under:
+/// the compare-and-set matches no row, so the rotation is refused and
+/// nothing changes (no re-seal, canary or version bump without the re-wrap).
+#[tokio::test]
+async fn rotation_whose_rewrap_matches_no_row_changes_nothing() {
+    let pg = postgres().await;
+    let pool = pg.migrated().await;
+    let store = Store::from_pool(pool.clone());
+    let ws = workspace(&pool).await;
+    connection(&pool, ws, "slack", b"ik-1:direct").await;
+    store
+        .store_secrets_key(&new_key("sk-a", None), &canary("sk-a"), at(0), |_, _| {
+            Ok::<_, String>(None)
+        })
+        .await
+        .expect("generate");
+    let before = dump(&pool).await;
+
+    let outcome = store
+        .rotate_instance_key(
+            |_| Ok::<_, String>(Some(rewrap_of("ik-elsewhere", "op-2"))),
+            |_, sealed| Ok(Some([b"sk-a:".as_slice(), sealed].concat())),
+            &canary("op-2"),
+        )
+        .await
+        .expect("rotate");
+    assert_eq!(outcome, RotateOutcome::KeyChanged);
+    assert_eq!(dump(&pool).await, before, "nothing changed");
 }
 
 /// Replicas racing the re-wrap off the key file: exactly one wins, records

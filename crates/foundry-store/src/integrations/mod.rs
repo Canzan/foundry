@@ -81,7 +81,7 @@ pub use instance::{
     SlackSaveOutcome, StoredSecretsKey, INSTANCE_INTEGRATIONS_LOCK,
 };
 pub(crate) use instance::{PROBE_0033_SQL, PROBE_0033_TABLES};
-pub use keys::{KeyCheck, ResealOutcome};
+pub use keys::KeyCheck;
 pub use metrics::{DeliveryTally, IntegrationBacklog, IntegrationCensus};
 pub use recording::{DeliveryResult, LostConnection, RecordOutcome};
 pub use routes::{

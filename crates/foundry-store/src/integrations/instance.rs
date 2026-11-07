@@ -126,6 +126,9 @@ pub enum RotateOutcome<E> {
     /// The caller could not re-wrap the key or re-seal a value: the
     /// transaction was rolled back, so nothing changed.
     Refused(E),
+    /// The re-wrap matched no row (the stored key is not the one it was made
+    /// from): the transaction was rolled back, so nothing changed.
+    KeyChanged,
 }
 
 /// One stored sealed value, as a re-seal closure is handed it.
@@ -284,40 +287,15 @@ impl Store {
     /// exclusive lock, store `key` unless a secrets key is stored, hand every
     /// stored sealed value to `reseal` and store what it returns (`None`
     /// keeps the value as it is), write `canary`, record one line ("moved n"
-    /// for n re-sealed values, else "generated") and bump the version. A
-    /// refusal from `reseal` rolls everything back.
+    /// for n re-sealed credentials, else "generated") and bump the version.
+    /// `resealed` and the line count credentials (I-22): each connection one,
+    /// the saved Slack app one. A refusal from `reseal` rolls everything back.
     pub async fn store_secrets_key<E>(
         &self,
         key: &NewSecretsKey,
         canary: &KeyCheck,
         at: OffsetDateTime,
-        reseal: impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
-    ) -> Result<SecretsKeyOutcome<E>, StoreError> {
-        self.store_secrets_key_tallied(key, canary, at, reseal, Tally::Values)
-            .await
-    }
-
-    /// [`Self::store_secrets_key`] as the instance admin's Move answers it
-    /// (I-22, I-18): `resealed` and the "moved n" line count credentials,
-    /// each connection one and the saved Slack app one, not sealed values.
-    pub async fn move_to_secrets_key<E>(
-        &self,
-        key: &NewSecretsKey,
-        canary: &KeyCheck,
-        at: OffsetDateTime,
-        reseal: impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
-    ) -> Result<SecretsKeyOutcome<E>, StoreError> {
-        self.store_secrets_key_tallied(key, canary, at, reseal, Tally::Credentials)
-            .await
-    }
-
-    async fn store_secrets_key_tallied<E>(
-        &self,
-        key: &NewSecretsKey,
-        canary: &KeyCheck,
-        at: OffsetDateTime,
         mut reseal: impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
-        tally: Tally,
     ) -> Result<SecretsKeyOutcome<E>, StoreError> {
         let mut tx = self.pool.begin().await?;
         lock_exclusive(&mut tx).await?;
@@ -327,7 +305,7 @@ impl Store {
         }
         insert_secrets_key(&mut tx, key, at).await?;
         let resealed = match reseal_sealed_values(&mut tx, &mut reseal).await? {
-            Ok(resealed) => resealed.counted(tally),
+            Ok(resealed) => resealed.credentials(),
             Err(why) => {
                 tx.rollback().await?;
                 return Ok(SecretsKeyOutcome::Refused(why));
@@ -409,10 +387,13 @@ impl Store {
             }
         };
         if let Some(plan) = &plan {
-            update_wrapped_key(&mut tx, plan).await?;
+            if !update_wrapped_key(&mut tx, plan).await? {
+                tx.rollback().await?;
+                return Ok(RotateOutcome::KeyChanged);
+            }
         }
         let resealed = match reseal_sealed_values(&mut tx, &mut reseal).await? {
-            Ok(resealed) => resealed.counted(Tally::Credentials),
+            Ok(resealed) => resealed.credentials(),
             Err(why) => {
                 tx.rollback().await?;
                 return Ok(RotateOutcome::Refused(why));
@@ -728,18 +709,6 @@ async fn insert_secrets_key(
     Ok(())
 }
 
-/// Hand every stored sealed value (connections, then the saved Slack app) to
-/// `reseal`, row-locked, and store each value it returns. The outer error is
-/// the database's; the inner, the caller's refusal (the caller rolls back).
-/// How a Generate or Move counts what it re-sealed.
-#[derive(Debug, Clone, Copy)]
-enum Tally {
-    /// Every sealed value: a connection's credential, each Slack app secret.
-    Values,
-    /// Every credential: a connection, and the saved Slack app once.
-    Credentials,
-}
-
 /// What a re-seal changed.
 #[derive(Debug, Default)]
 struct Resealed {
@@ -748,14 +717,16 @@ struct Resealed {
 }
 
 impl Resealed {
-    fn counted(&self, tally: Tally) -> usize {
-        match tally {
-            Tally::Values => self.connections + self.app_secrets,
-            Tally::Credentials => self.connections + usize::from(self.app_secrets > 0),
-        }
+    /// The credentials re-sealed (I-22): each connection one, the saved
+    /// Slack app one however many of its secrets were.
+    fn credentials(&self) -> usize {
+        self.connections + usize::from(self.app_secrets > 0)
     }
 }
 
+/// Hand every stored sealed value (connections, then the saved Slack app) to
+/// `reseal`, row-locked, and store each value it returns. The outer error is
+/// the database's; the inner, the caller's refusal (the caller rolls back).
 async fn reseal_sealed_values<E>(
     tx: &mut Tx<'_>,
     reseal: &mut impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,

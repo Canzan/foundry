@@ -188,18 +188,9 @@ pub trait IntegrationsReload: Send + Sync {
 #[async_trait]
 pub trait InstanceKeyWrites: Send + Sync {
     /// Create-if-absent the secrets key, re-seal through `reseal`, write the
-    /// canary and the activity line, bump the version: one transaction.
+    /// canary and the activity line, bump the version: one transaction. The
+    /// outcome and the "moved n" line count credentials (I-22).
     async fn store_secrets_key(
-        &self,
-        key: &NewSecretsKey,
-        canary: &KeyCheck,
-        at: OffsetDateTime,
-        reseal: Resealer<'_>,
-    ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError>;
-
-    /// [`Self::store_secrets_key`] for Move: the outcome and the "moved n"
-    /// line count credentials (a connection, the saved Slack app), I-22.
-    async fn move_to_secrets_key(
         &self,
         key: &NewSecretsKey,
         canary: &KeyCheck,
@@ -407,18 +398,6 @@ impl InstanceKeyWrites for StoreCapabilities {
     ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError> {
         self.0
             .store_secrets_key(key, canary, at, |slot, sealed| reseal(slot, sealed))
-            .await
-    }
-
-    async fn move_to_secrets_key(
-        &self,
-        key: &NewSecretsKey,
-        canary: &KeyCheck,
-        at: OffsetDateTime,
-        reseal: Resealer<'_>,
-    ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError> {
-        self.0
-            .move_to_secrets_key(key, canary, at, |slot, sealed| reseal(slot, sealed))
             .await
     }
 
