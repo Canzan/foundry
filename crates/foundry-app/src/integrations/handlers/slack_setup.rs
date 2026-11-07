@@ -7,6 +7,7 @@ use super::{
     WORKSPACE_PATH,
 };
 use crate::csrf::ensure_csrf_cookie;
+use crate::integrations::keys::KeyMode;
 use crate::integrations::slack::{InstallState, SlackEvent};
 use crate::integrations::store_capabilities::{ConnectionHealth, StoreCapabilities};
 use crate::integrations::{credential_slot, slack, SlackOffer};
@@ -21,6 +22,10 @@ use foundry_services::integrations::SlackInstall;
 use foundry_store::integrations::ConnectionWriteOutcome;
 use serde::Deserialize;
 use tower_sessions::Session;
+
+/// A connection write the seal fence refused is sealed and tried once more,
+/// after a reload (ADR-IIS-004 rule 2).
+const CONNECT_ATTEMPTS: usize = 2;
 
 #[derive(Template)]
 #[template(path = "integrations/slack_setup.html")]
@@ -152,7 +157,8 @@ impl From<&'static str> for NotConnected {
 
 /// Exchange the code, read the domain, seal the token for its row, save;
 /// only while the workspace is offered Slack (not over a connection this
-/// Foundry cannot read, DD-2).
+/// Foundry cannot read, DD-2). When the seal fence finds a newer sealing key,
+/// the integrations are rebuilt and the token sealed and saved once more.
 async fn connect(state: &AppState, caller: &Caller, code: &str) -> Result<(), NotConnected> {
     let principal = &caller.principal();
     let unreadable = caller
@@ -160,7 +166,7 @@ async fn connect(state: &AppState, caller: &Caller, code: &str) -> Result<(), No
         .await
         .map_err(|_| "connection_row")?;
     let integrations = state.integrations.current();
-    let (Some(app), Some(secrets), SlackOffer::Ready) = (
+    let (Some(app), Some(_), SlackOffer::Ready) = (
         integrations.slack(),
         integrations.sealing_box(),
         integrations.slack_offer(unreadable),
@@ -180,9 +186,6 @@ async fn connect(state: &AppState, caller: &Caller, code: &str) -> Result<(), No
         .slack_connection_id(principal)
         .await
         .map_err(|_| "connection_row")?;
-    let sealed = secrets
-        .seal(&grant.access_token, &credential_slot(connection_id))
-        .map_err(|_| "seal")?;
     let approved = grant.team_name.clone();
     let install = SlackInstall {
         team_id: grant.team_id,
@@ -191,21 +194,44 @@ async fn connect(state: &AppState, caller: &Caller, code: &str) -> Result<(), No
         app_id: grant.app_id,
         bot_user_id: grant.bot_user_id,
     };
-    match caller
-        .services
-        .connect_slack(principal, install, connection_id, sealed, state.clock.now())
-        .await
-    {
-        Ok(ConnectionWriteOutcome::StaleRow) => Err("stale_row".into()),
-        Ok(ConnectionWriteOutcome::OtherWorkspace { connected_label }) => {
-            Err(NotConnected::OtherWorkspace {
-                approved,
-                connected: connected_label,
-            })
+    for _ in 0..CONNECT_ATTEMPTS {
+        let integrations = state.integrations.current();
+        let secrets = integrations.sealing_box().ok_or("slack_not_offered")?;
+        let sealed = secrets
+            .seal(&grant.access_token, &credential_slot(connection_id))
+            .map_err(|_| "seal")?;
+        let sealed_under = (integrations.key_mode() == KeyMode::Sealed)
+            .then(|| secrets.current_key_id().to_string());
+        match caller
+            .services
+            .connect_slack(
+                principal,
+                install.clone(),
+                connection_id,
+                sealed,
+                sealed_under,
+                state.clock.now(),
+            )
+            .await
+        {
+            Ok(ConnectionWriteOutcome::StaleKey) => {
+                let store = StoreCapabilities::new(state.store.clone());
+                state
+                    .integrations
+                    .install(integrations.reboot(&*store).await);
+            }
+            Ok(ConnectionWriteOutcome::StaleRow) => return Err("stale_row".into()),
+            Ok(ConnectionWriteOutcome::OtherWorkspace { connected_label }) => {
+                return Err(NotConnected::OtherWorkspace {
+                    approved,
+                    connected: connected_label,
+                })
+            }
+            Ok(_) => return Ok(()),
+            Err(_) => return Err("store".into()),
         }
-        Ok(_) => Ok(()),
-        Err(_) => Err("store".into()),
     }
+    Err("stale_key".into())
 }
 
 /// `POST /integrations/slack/events`: Slack's Events API. The signature's

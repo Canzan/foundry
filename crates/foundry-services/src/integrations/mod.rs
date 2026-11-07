@@ -469,13 +469,15 @@ async fn connection_row_id(
         .unwrap_or_else(Uuid::now_v7))
 }
 
-/// Save the workspace's Matrix connection and its audit record (admins).
+/// Save the workspace's Matrix connection and its audit record (admins);
+/// `sealed` was sealed under the key `sealed_under` names (the seal fence).
 pub(crate) async fn connect_matrix(
     records: &impl IntegrationRecords,
     principal: &Principal,
     login: MatrixLogin,
     connection_id: Uuid,
     sealed: SealedSecret,
+    sealed_under: Option<String>,
     now: OffsetDateTime,
 ) -> Result<ConnectionWriteOutcome, IntegrationError> {
     require_admin(records, principal).await?;
@@ -489,19 +491,22 @@ pub(crate) async fn connect_matrix(
         label: login.host,
         detail: Some(login.bot_user_id),
         sealed_credential: sealed.as_bytes().to_vec(),
+        sealed_under,
         connected_by: principal.user_id(),
         connected_at: now,
     };
     Ok(records.upsert_connection(&connection).await?)
 }
 
-/// Save the workspace's Slack connection and its audit record.
+/// Save the workspace's Slack connection and its audit record; `sealed` was
+/// sealed under the key `sealed_under` names (the seal fence).
 pub(crate) async fn connect_slack(
     records: &impl IntegrationRecords,
     principal: &Principal,
     install: SlackInstall,
     connection_id: Uuid,
     sealed: SealedSecret,
+    sealed_under: Option<String>,
     now: OffsetDateTime,
 ) -> Result<ConnectionWriteOutcome, IntegrationError> {
     require_admin(records, principal).await?;
@@ -515,6 +520,7 @@ pub(crate) async fn connect_slack(
         label: install.team_name,
         detail: Some(install.domain),
         sealed_credential: sealed.as_bytes().to_vec(),
+        sealed_under,
         connected_by: principal.user_id(),
         connected_at: now,
     };

@@ -10,8 +10,10 @@ use super::{
     MATRIX_TOKEN_REFUSED, MATRIX_UNREACHABLE, WORKSPACE_PATH,
 };
 use crate::bootstrap::resource_not_found_page;
+use crate::integrations::keys::KeyMode;
 use crate::integrations::matrix::{ConnectRefusal, MatrixBot, RoomFacts, RoomRefusal};
 use crate::integrations::no_connection::NoConnectionCause;
+use crate::integrations::store_capabilities::StoreCapabilities;
 use crate::integrations::{credential_slot, matrix};
 use crate::AppState;
 use axum::extract::State;
@@ -24,6 +26,10 @@ use foundry_integrations::{
 use foundry_services::integrations::{ManagedRoute, MatrixLogin, RouteDraft};
 use foundry_store::integrations::ConnectionWriteOutcome;
 use tower_sessions::Session;
+
+/// A connection write the seal fence refused is sealed and tried once more,
+/// after a reload (ADR-IIS-004 rule 2).
+const CONNECT_ATTEMPTS: usize = 2;
 
 /// After a Matrix route's delete: the bot leaves its room when no other
 /// route of the workspace uses it. A leave that fails goes to the log; the
@@ -90,7 +96,9 @@ pub async fn connect_matrix(
 }
 
 /// Check the bot's token at the homeserver, seal it for its row and save
-/// the connection; else the words that say why nothing was saved.
+/// the connection; else the words that say why nothing was saved. When the
+/// seal fence finds a newer sealing key, the integrations are rebuilt and
+/// the token sealed and saved once more.
 async fn save_matrix(
     state: &AppState,
     caller: &Caller,
@@ -99,9 +107,9 @@ async fn save_matrix(
 ) -> Result<(), String> {
     let integrations = state.integrations.current();
     let unreachable = || MATRIX_UNREACHABLE.replace("{homeserver}", entered);
-    let Some(secrets) = integrations.sealing_box() else {
+    if integrations.sealing_box().is_none() {
         return Err(MATRIX_NOT_CONNECTED.to_string());
-    };
+    }
     let Some((homeserver, host)) = matrix::homeserver_address(entered) else {
         return Err(ADDRESS_REFUSED.to_string());
     };
@@ -121,22 +129,46 @@ async fn save_matrix(
         .matrix_connection_id(&principal)
         .await
         .map_err(|_| MATRIX_NOT_CONNECTED.to_string())?;
-    let sealed = secrets
-        .seal(&token, &credential_slot(connection_id))
-        .map_err(|_| MATRIX_NOT_CONNECTED.to_string())?;
     let login = MatrixLogin {
         homeserver,
         host,
         bot_user_id,
     };
-    match caller
-        .services
-        .connect_matrix(&principal, login, connection_id, sealed, state.clock.now())
-        .await
-    {
-        Ok(ConnectionWriteOutcome::Connected | ConnectionWriteOutcome::Reconnected) => Ok(()),
-        _ => Err(MATRIX_NOT_CONNECTED.to_string()),
+    for _ in 0..CONNECT_ATTEMPTS {
+        let integrations = state.integrations.current();
+        let secrets = integrations
+            .sealing_box()
+            .ok_or_else(|| MATRIX_NOT_CONNECTED.to_string())?;
+        let sealed = secrets
+            .seal(&token, &credential_slot(connection_id))
+            .map_err(|_| MATRIX_NOT_CONNECTED.to_string())?;
+        let sealed_under = (integrations.key_mode() == KeyMode::Sealed)
+            .then(|| secrets.current_key_id().to_string());
+        match caller
+            .services
+            .connect_matrix(
+                &principal,
+                login.clone(),
+                connection_id,
+                sealed,
+                sealed_under,
+                state.clock.now(),
+            )
+            .await
+        {
+            Ok(ConnectionWriteOutcome::Connected | ConnectionWriteOutcome::Reconnected) => {
+                return Ok(())
+            }
+            Ok(ConnectionWriteOutcome::StaleKey) => {
+                let store = StoreCapabilities::new(state.store.clone());
+                state
+                    .integrations
+                    .install(integrations.reboot(&*store).await);
+            }
+            _ => break,
+        }
     }
+    Err(MATRIX_NOT_CONNECTED.to_string())
 }
 
 /// Save a Matrix route: bring the bot into the room, read the room, and save

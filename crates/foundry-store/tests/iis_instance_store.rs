@@ -1,6 +1,6 @@
 //! instance-integration-setup — store tests for migration 0033 and the
 //! instance integrations store (ADR-IIS-001 r2 and r5, ADR-IIS-003 r1,
-//! ADR-IIS-004 r1, r3, r4 and r8, ADR-IIS-005).
+//! ADR-IIS-004 r1, r2, r3, r4 and r8, ADR-IIS-005).
 //!
 //! Bounded-change tests, example-based against real Postgres: each one dumps
 //! every table a write could reach, applies one store call, and names exactly
@@ -10,8 +10,8 @@
 //! byte strings.
 
 use foundry_store::integrations::{
-    KeyCheck, KeyWrapper, NewSecretsKey, ReplicaState, SealedSlot, SecretsKeyOutcome, SlackAppSave,
-    SlackSaveOutcome,
+    ConnectionWriteOutcome, KeyCheck, KeyWrapper, NewConnection, NewSecretsKey, ReplicaState,
+    SealedSlot, SecretsKeyOutcome, SlackAppSave, SlackSaveOutcome, INSTANCE_INTEGRATIONS_LOCK,
 };
 use foundry_store::{run_migrations, run_migrations_from_dir, Store};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -619,6 +619,122 @@ async fn slack_save_fences_on_the_sealing_key() {
         activity(&pool).await.last().map(|line| line.1.as_str()),
         Some("slack_app_replaced")
     );
+}
+
+// ---------------------------------------------------------------------------
+// Connection writes: the seal fence (ADR-IIS-004 r2)
+// ---------------------------------------------------------------------------
+
+/// A Slack connection for the workspace `ws`, sealed under `sealed_under`.
+fn slack_connection(ws: Id, by: Id, sealed_under: Option<&str>) -> NewConnection {
+    NewConnection {
+        id: Id::now_v7(),
+        workspace_id: ws,
+        kind: "slack".to_string(),
+        external_id: "T1".to_string(),
+        app_id: Some("A1".to_string()),
+        bot_user_id: Some("U1".to_string()),
+        label: "Canzan Labs".to_string(),
+        detail: Some("canzan-labs".to_string()),
+        sealed_credential: b"sealed-bot-token".to_vec(),
+        sealed_under: sealed_under.map(str::to_string),
+        connected_by: by,
+        connected_at: at(5),
+    }
+}
+
+/// A connection write sealed under anything but the sealing key — a key id
+/// while none is stored, then no key id or the instance key's once one is —
+/// is refused in its transaction and changes nothing; sealed under the
+/// stored secrets key, it writes the connection and its audit row only.
+#[tokio::test]
+async fn connection_write_fences_on_the_sealing_key() {
+    let pg = postgres().await;
+    let pool = pg.migrated().await;
+    let store = Store::from_pool(pool.clone());
+    let (ws, ana) = (workspace(&pool).await, admin(&pool).await);
+
+    let before = dump(&pool).await;
+    let outcome = store
+        .upsert_connection(&slack_connection(ws, ana, Some("sk-1")))
+        .await
+        .expect("stale connect");
+    assert_eq!(
+        outcome,
+        ConnectionWriteOutcome::StaleKey,
+        "no key stored yet"
+    );
+    assert_eq!(dump(&pool).await, before);
+
+    store
+        .store_secrets_key(&new_key("sk-1", None), &canary("sk-1"), at(0), reseal_all)
+        .await
+        .expect("generate");
+    let before = dump(&pool).await;
+    for stale in [None, Some("ik-1")] {
+        let outcome = store
+            .upsert_connection(&slack_connection(ws, ana, stale))
+            .await
+            .expect("stale connect");
+        assert_eq!(
+            outcome,
+            ConnectionWriteOutcome::StaleKey,
+            "sealed under {stale:?}"
+        );
+        assert_eq!(dump(&pool).await, before);
+    }
+
+    let connection = slack_connection(ws, ana, Some("sk-1"));
+    let outcome = store.upsert_connection(&connection).await.expect("connect");
+    assert_eq!(outcome, ConnectionWriteOutcome::Connected);
+    assert_eq!(
+        changed(&before, &dump(&pool).await),
+        BTreeSet::from(["integration_connections", "integration_audit_events"])
+    );
+    assert_eq!(
+        sealed_credentials(&pool).await,
+        BTreeMap::from([(connection.id, b"sealed-bot-token".to_vec())])
+    );
+}
+
+/// The connection write takes the instance-integrations lock shared: it
+/// waits while an instance-level write holds the lock exclusive, and goes
+/// on once that write ends.
+#[tokio::test]
+async fn connection_write_waits_for_an_instance_write() {
+    let pg = postgres().await;
+    let pool = pg.migrated().await;
+    let store = Store::from_pool(pool.clone());
+    let (ws, ana) = (workspace(&pool).await, admin(&pool).await);
+
+    let mut instance_write = pool.begin().await.expect("begin");
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock(
+                    hashtextextended($1 || '|' || current_setting('search_path'), 0))",
+    )
+    .bind(INSTANCE_INTEGRATIONS_LOCK)
+    .execute(&mut *instance_write)
+    .await
+    .expect("hold the lock exclusive");
+    let connect = tokio::spawn(async move {
+        store
+            .upsert_connection(&slack_connection(ws, ana, None))
+            .await
+    });
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !connect.is_finished(),
+        "the connection write waits for the lock"
+    );
+    assert!(sealed_credentials(&pool).await.is_empty());
+
+    instance_write.commit().await.expect("release the lock");
+    let outcome = tokio::time::timeout(Duration::from_secs(20), connect)
+        .await
+        .expect("the connection write goes on")
+        .expect("join")
+        .expect("connect");
+    assert_eq!(outcome, ConnectionWriteOutcome::Connected);
 }
 
 // ---------------------------------------------------------------------------

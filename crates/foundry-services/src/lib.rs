@@ -447,11 +447,20 @@ impl Services {
         install: integrations::SlackInstall,
         connection_id: uuid::Uuid,
         sealed: foundry_auth::secret_box::SealedSecret,
+        sealed_under: Option<String>,
         now: time::OffsetDateTime,
     ) -> Result<foundry_store::integrations::ConnectionWriteOutcome, integrations::IntegrationError>
     {
-        integrations::connect_slack(&*self.store, principal, install, connection_id, sealed, now)
-            .await
+        integrations::connect_slack(
+            &*self.store,
+            principal,
+            install,
+            connection_id,
+            sealed,
+            sealed_under,
+            now,
+        )
+        .await
     }
 
     /// external-integration-plugins — the row a new Matrix bot token is sealed for.
@@ -469,11 +478,20 @@ impl Services {
         login: integrations::MatrixLogin,
         connection_id: uuid::Uuid,
         sealed: foundry_auth::secret_box::SealedSecret,
+        sealed_under: Option<String>,
         now: time::OffsetDateTime,
     ) -> Result<foundry_store::integrations::ConnectionWriteOutcome, integrations::IntegrationError>
     {
-        integrations::connect_matrix(&*self.store, principal, login, connection_id, sealed, now)
-            .await
+        integrations::connect_matrix(
+            &*self.store,
+            principal,
+            login,
+            connection_id,
+            sealed,
+            sealed_under,
+            now,
+        )
+        .await
     }
 
     /// external-integration-plugins — what disconnecting the workspace's

@@ -72,6 +72,20 @@ pub struct StoredSecretsKey {
     pub created_at: OffsetDateTime,
 }
 
+#[cfg(feature = "test-support")]
+impl StoredSecretsKey {
+    /// The stored secrets key row the database `pool` reaches, for the
+    /// generated-key test seam (check-arch `integrations-test-seam`): it
+    /// takes a pool, not a `Store`, because no integrations file but the two
+    /// capability seams names `Store`.
+    pub async fn read_for_test_seam(pool: &sqlx::PgPool) -> Result<Option<Self>, StoreError> {
+        let mut tx = pool.begin().await?;
+        let stored = read_secrets_key(&mut tx).await?;
+        tx.rollback().await?;
+        Ok(stored)
+    }
+}
+
 /// One stored sealed value, as a re-seal closure is handed it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum SealedSlot {
@@ -491,6 +505,26 @@ async fn lock_exclusive(tx: &mut Tx<'_>) -> Result<(), sqlx::Error> {
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+/// The seal fence of a write that stores a sealed value but is no
+/// instance-level write (ADR-IIS-004 rule 2): take the instance-integrations
+/// lock shared, before any row lock, and say whether `sealed_under` is still
+/// the sealing key — the stored secrets key's id, or `None` when none is
+/// stored (`Direct` mode). `false` means the caller rolls back with a
+/// stale-key refusal.
+pub(super) async fn seal_fence_holds(
+    tx: &mut Tx<'_>,
+    sealed_under: Option<&str>,
+) -> Result<bool, sqlx::Error> {
+    sqlx::query(
+        "SELECT pg_advisory_xact_lock_shared(
+                    hashtextextended($1 || '|' || current_setting('search_path'), 0))",
+    )
+    .bind(INSTANCE_INTEGRATIONS_LOCK)
+    .execute(&mut **tx)
+    .await?;
+    Ok(stored_key_id(tx).await?.as_deref() == sealed_under)
 }
 
 async fn stored_key_id(tx: &mut Tx<'_>) -> Result<Option<String>, sqlx::Error> {

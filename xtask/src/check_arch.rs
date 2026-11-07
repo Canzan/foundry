@@ -128,6 +128,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_integrations_store_capability(root));
     violations.extend(check_integrations_secret_seam(root));
     violations.extend(check_integrations_instance_tables(root));
+    violations.extend(check_integrations_seal_fence(root));
     violations.extend(check_integrations_test_seam(root));
     violations.extend(check_integrations_outbound_client_seam(root));
     violations.extend(check_project_lifecycle_live_reads(root));
@@ -173,7 +174,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no production src outside foundry-store's integrations instance module names an instance integration table in SQL (integrations-instance-tables), every naming of the worker's claimant seam is gated on test-support, the seam carries its unique marker and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying that marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened and the secrets key unwrapped only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no production src outside foundry-store's integrations instance module names an instance integration table in SQL (integrations-instance-tables), no production src writes a sealed column outside the fenced store functions (integrations-seal-fence), every naming of the worker's claimant seam, the outbound seam or the generated-key seam is gated on test-support, the claimant and generated-key seams carry their unique markers and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying either marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -14874,6 +14875,10 @@ const SECRET_SEAM_MODULE: &str = "crates/foundry-app/src/integrations";
 /// The `doctor rotate-secrets` command, by file and fn.
 const SECRET_SEAM_ROTATION: (&str, &str) =
     ("crates/foundry-app/src/admin_cli.rs", "rotate_secrets");
+/// The stored secrets key's sealing slot, by its fn and its table name
+/// (instance-integration-setup ADR-IIS-001 decision 2).
+const SECRETS_KEY_SLOT_FN: &str = "secrets_key_slot";
+const SECRETS_KEY_SLOT_TABLE: &str = "integration_secrets_key";
 
 /// Rule 2 `integrations-secret-seam`: in every crate's `src`, a file naming
 /// `SealedSecret` or `SecretBox` calls `.open(` / `SecretBox::open` only under
@@ -14921,9 +14926,58 @@ fn check_integrations_secret_seam(root: &Path) -> Vec<String> {
                     .into_iter()
                     .map(|line| secret_opening_violation(&file_rel, line)),
             );
+            violations.extend(
+                secrets_key_unwrappings(&file_rel, &contents)
+                    .into_iter()
+                    .map(|line| secrets_key_unwrapping_violation(&file_rel, line)),
+            );
         }
     }
     violations
+}
+
+fn secrets_key_unwrapping_violation(file_rel: &str, line: usize) -> String {
+    format!(
+        "{SECRET_SEAM_ID}: {file_rel}:{line} unwraps the secrets key — only the \
+         integrations adapters and connect handlers ({SECRET_SEAM_MODULE}/) and the \
+         doctor rotation command may unwrap it ({SECRET_SEAM_REFERENCE}; \
+         instance-integration-setup ADR-IIS-001 Enforcement)."
+    )
+}
+
+/// The 1-based lines, outside the doctor rotation command, that reach the
+/// stored secrets key's wrapping (ADR-IIS-001 Enforcement): a naming of
+/// [`SECRETS_KEY_SLOT_FN`], or the slot's table name as a string literal in a
+/// file naming `SecretSlot`. SQL literals are out of scope: they hold more
+/// than the table name.
+fn secrets_key_unwrappings(file_rel: &str, contents: &str) -> BTreeSet<usize> {
+    let source = RustSource::scan(contents);
+    let code = &source.code;
+    let rotation: Vec<(usize, usize)> = fn_spans(code)
+        .into_iter()
+        .filter(|span| (file_rel, span.name.as_str()) == SECRET_SEAM_ROTATION)
+        .map(|span| span.body)
+        .collect();
+    let outside_rotation = |at: usize| {
+        !rotation
+            .iter()
+            .any(|&(start, end)| (start..end).contains(&at))
+    };
+    let mut lines: BTreeSet<usize> = word_positions(code, SECRETS_KEY_SLOT_FN)
+        .filter(|&at| outside_rotation(at))
+        .map(|at| line_at(code, at))
+        .collect();
+    if find_sql_word(code, "SecretSlot", 0).is_some() {
+        lines.extend(
+            source
+                .literals
+                .iter()
+                .filter(|literal| literal.text == SECRETS_KEY_SLOT_TABLE)
+                .filter(|literal| outside_rotation(literal.start))
+                .map(|literal| literal.line),
+        );
+    }
+    lines
 }
 
 fn secret_opening_violation(file_rel: &str, line: usize) -> String {
@@ -14963,6 +15017,164 @@ fn secret_openings(file_rel: &str, contents: &str) -> BTreeSet<usize> {
     lines
 }
 
+const SEAL_FENCE_ID: &str = "integrations-seal-fence";
+const SEAL_FENCE_REFERENCE: &str = "instance-integration-setup ADR-IIS-001 Enforcement, \
+     ADR-IIS-004 rule 2: a sealed column is written only by a fenced store function";
+/// The acceptance driver's planted rows are DISTILL waivers, as for
+/// `integrations-instance-tables`: the rule covers production `src` only.
+const SEAL_FENCE_SKIPPED_CRATE: &str = "foundry-acceptance";
+/// The one wrapped column; every other sealed column is named `sealed_*`.
+const SEAL_FENCE_WRAPPED_COLUMN: &str = "wrapped_key";
+/// `integration_key_checks.sealed_canary` seals a fixed canary, never a
+/// secret, and every replica of a rollout writes its key's (DDR-9).
+const SEAL_FENCE_CANARY_COLUMN: &str = "sealed_canary";
+/// The fenced store functions, by file and fn: the connection save and
+/// reconnect (shared lock and fence), the Slack app save (exclusive lock and
+/// fence), Generate and Move's key insert and re-seal (exclusive lock), and
+/// `doctor rotate-secrets`' re-seal.
+const SEAL_FENCED_WRITERS: [(&str, &str); 5] = [
+    (
+        "crates/foundry-store/src/integrations/connections.rs",
+        "upsert_connection",
+    ),
+    (
+        "crates/foundry-store/src/integrations/instance.rs",
+        "save_slack_app",
+    ),
+    (
+        "crates/foundry-store/src/integrations/instance.rs",
+        "insert_secrets_key",
+    ),
+    (
+        "crates/foundry-store/src/integrations/instance.rs",
+        "reseal_sealed_values",
+    ),
+    (
+        "crates/foundry-store/src/integrations/keys.rs",
+        "reseal_credentials",
+    ),
+];
+
+/// Rule `integrations-seal-fence` (ADR-IIS-001 Enforcement): in every
+/// crate's `src` but the acceptance driver's, a string literal holding an
+/// `INSERT INTO` or an `UPDATE … SET` that names a sealed column — `wrapped_key`
+/// or any `sealed_*` but `sealed_canary` — stands inside one of
+/// [`SEAL_FENCED_WRITERS`]. A column cleared (`= NULL`) is no seal. Lexical
+/// limit, failing closed: any naming of a sealed column in such a statement
+/// counts, a `WHERE` included. A missing `crates/` fails the rule.
+fn check_integrations_seal_fence(root: &Path) -> Vec<String> {
+    let crates_dir = root.join("crates");
+    let Ok(entries) = std::fs::read_dir(&crates_dir) else {
+        return vec![format!(
+            "{SEAL_FENCE_ID}: cannot list {} — no crate could be checked \
+             ({SEAL_FENCE_REFERENCE}).",
+            crates_dir.display()
+        )];
+    };
+    let mut src_dirs: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| !path.ends_with(SEAL_FENCE_SKIPPED_CRATE))
+        .map(|path| path.join("src"))
+        .filter(|src| src.is_dir())
+        .collect();
+    src_dirs.sort();
+    let mut violations = Vec::new();
+    for src in src_dirs {
+        let (sources, unreadable) = files_under(&src, "rs", &|_| false);
+        violations.extend(cannot_list(
+            root,
+            &unreadable,
+            SEAL_FENCE_ID,
+            SEAL_FENCE_REFERENCE,
+        ));
+        for file in sources {
+            let file_rel = rel(root, &file);
+            match std::fs::read_to_string(&file) {
+                Ok(contents) => violations.extend(unfenced_sealed_writes(&file_rel, &contents)),
+                Err(_) => violations.push(format!(
+                    "{SEAL_FENCE_ID}: cannot read {file_rel} ({SEAL_FENCE_REFERENCE})."
+                )),
+            }
+        }
+    }
+    violations
+}
+
+/// The violations in one file: each sealed-column write outside the fenced
+/// writers, at the line its column stands on.
+fn unfenced_sealed_writes(file_rel: &str, contents: &str) -> Vec<String> {
+    let source = RustSource::scan(contents);
+    let spans = fn_spans(&source.code);
+    source
+        .literals
+        .iter()
+        .filter_map(|literal| {
+            let offset = sealed_column_written(&literal.text)?;
+            let writer = innermost(&spans, literal.start).map(|span| span.name.as_str());
+            let fenced = writer.is_some_and(|name| SEAL_FENCED_WRITERS.contains(&(file_rel, name)));
+            (!fenced).then(|| {
+                format!(
+                    "{SEAL_FENCE_ID}: {}:{} writes a sealed column in {} — only the fenced \
+                     store functions may ({SEAL_FENCE_REFERENCE}).",
+                    file_rel,
+                    literal.line + offset,
+                    writer.map_or("no fn".to_string(), |name| format!("`{name}`")),
+                )
+            })
+        })
+        .collect()
+}
+
+/// The 0-based line offset of the first sealed column a write statement in
+/// `text` names, if it is one.
+fn sealed_column_written(text: &str) -> Option<usize> {
+    let code = strip_sql_comments(&unqualified_sql(text));
+    if !writes_rows(&code) {
+        return None;
+    }
+    let is_word_byte = |b: u8| b.is_ascii_alphanumeric() || b == b'_';
+    let bytes = code.as_bytes();
+    let sealed_words = code
+        .match_indices("sealed_")
+        .map(|(at, _)| at)
+        .filter(|&at| {
+            let word_end = code[at..]
+                .bytes()
+                .position(|b| !is_word_byte(b))
+                .map_or(code.len(), |len| at + len);
+            !at.checked_sub(1).is_some_and(|b| is_word_byte(bytes[b]))
+                && &code[at..word_end] != SEAL_FENCE_CANARY_COLUMN
+        });
+    let wrapped = word_positions(&code, SEAL_FENCE_WRAPPED_COLUMN);
+    sealed_words
+        .chain(wrapped)
+        .filter(|&at| !cleared(&code[at..]))
+        .min()
+        .map(|at| code[..at].matches('\n').count())
+}
+
+/// Whether the column at the head of `rest` is set to `NULL`.
+fn cleared(rest: &str) -> bool {
+    let mut words = rest.split_whitespace().skip(1);
+    words.next() == Some("=") && words.next().is_some_and(|value| value.starts_with("null"))
+}
+
+/// Whether lower-cased SQL `code` holds an `INSERT INTO`, or an `UPDATE`
+/// (not `FOR UPDATE`, a row lock) followed by `SET`.
+fn writes_rows(code: &str) -> bool {
+    let words: Vec<&str> = code
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|word| !word.is_empty())
+        .collect();
+    words.windows(2).any(|pair| pair == ["insert", "into"])
+        || words.iter().enumerate().any(|(i, word)| {
+            *word == "update"
+                && (i == 0 || words[i - 1] != "for")
+                && words[i + 1..].contains(&"set")
+        })
+}
+
 const TEST_SEAM_ID: &str = "integrations-test-seam";
 const TEST_SEAM_REFERENCE: &str = "external-integration-plugins DIST-22, DEVOPS C-13";
 /// Where the seam may be named: foundry-app's sources.
@@ -14974,10 +15186,17 @@ const TEST_SEAM_MODULE: &str = "claimant_seam";
 const TEST_SEAM_MARKER: &str = "CLAIMANT_SEAM_MARKER";
 /// Every test-support seam module of foundry-app, by what it is: the
 /// worker's claimant seam (01-11) and the outbound seam (U-D1, 04-01).
-const TEST_SEAMS: [(&str, &str); 2] = [
+/// and the generated-key seam (instance-integration-setup DISTILL D6, 03-04).
+const TEST_SEAMS: [(&str, &str); 3] = [
     (TEST_SEAM_MODULE, "the claimant seam"),
     ("outbound_seam", "the outbound seam"),
+    (KEY_SEAM_MODULE, "the generated-key seam"),
 ];
+/// The generated-key seam: a module file of its own, gated where
+/// `integrations/mod.rs` declares it, with its marker at the file's top.
+const KEY_SEAM_FILE: &str = "crates/foundry-app/src/integrations/secrets_key_seam.rs";
+const KEY_SEAM_MODULE: &str = "secrets_key_seam";
+const KEY_SEAM_MARKER: &str = "SECRETS_KEY_SEAM_MARKER";
 const TEST_SEAM_GATE: &str = "#[cfg(feature = \"test-support\")]";
 /// The one cargo build the Dockerfile may run, once its `--locked`,
 /// `--release` and `--target` flags are set aside.
@@ -14995,15 +15214,20 @@ const TEST_SEAM_BINARY: &str = "/usr/local/bin/foundry";
 /// the crates. Comments and string literals are ignored when finding namings.
 fn check_integrations_test_seam(root: &Path) -> Vec<String> {
     let mut violations = test_seam_ungated(root);
-    let marker = test_seam_marker(root)
-        .map_err(|problem| {
-            violations.push(format!(
+    let mut markers = Vec::new();
+    let claimant = test_seam_marker(root).map(|marker| (marker, "the claimant seam"));
+    let key_seam =
+        key_seam_marker(root).map(|found| found.map(|marker| (marker, "the generated-key seam")));
+    for found in std::iter::once(claimant).chain(key_seam) {
+        match found {
+            Ok(marker) => markers.push(marker),
+            Err(problem) => violations.push(format!(
                 "{TEST_SEAM_ID}: {problem} ({TEST_SEAM_REFERENCE})."
-            ))
-        })
-        .ok();
+            )),
+        }
+    }
     violations.extend(
-        test_seam_dockerfile(root, marker.as_deref())
+        test_seam_dockerfile(root, &markers)
             .into_iter()
             .map(|problem| format!("{TEST_SEAM_ID}: {problem} ({TEST_SEAM_REFERENCE}).")),
     );
@@ -15121,8 +15345,54 @@ fn seam_module_body(code: &str) -> Option<(usize, usize)> {
     Some((open, matching_brace(code.as_bytes(), open)?))
 }
 
-/// (b) The Dockerfile's build line and, after it, the marker guard.
-fn test_seam_dockerfile(root: &Path, marker: Option<&str>) -> Vec<String> {
+/// (c) for the generated-key seam: `None` when its file is absent (a seam
+/// that is not there cannot ship; naming it ungated is (a)'s), else the
+/// marker its file declares at top level, if exactly one non-empty marker no
+/// other crate source carries.
+fn key_seam_marker(root: &Path) -> Option<Result<String, String>> {
+    let contents = std::fs::read_to_string(root.join(KEY_SEAM_FILE)).ok()?;
+    let source = RustSource::scan(&contents);
+    let code = &source.code;
+    let Some(declared) =
+        word_positions(code, KEY_SEAM_MARKER).find(|&at| code[..at].trim_end().ends_with("const"))
+    else {
+        return Some(Err(format!(
+            "the generated-key seam {KEY_SEAM_FILE} declares no `const {KEY_SEAM_MARKER}`"
+        )));
+    };
+    let statement_end = code[declared..]
+        .find(';')
+        .map_or(code.len(), |offset| declared + offset);
+    let Some(marker) = source
+        .literals
+        .iter()
+        .find(|literal| literal.start > declared)
+        .filter(|literal| literal.end <= statement_end)
+        .map(|literal| literal.text.clone())
+        .filter(|text| !text.is_empty())
+    else {
+        return Some(Err(format!(
+            "{KEY_SEAM_MARKER} in {KEY_SEAM_FILE} is not a non-empty string"
+        )));
+    };
+    let (sources, _) = files_under(&root.join("crates"), "rs", &|_| false);
+    let elsewhere: Vec<String> = sources
+        .iter()
+        .filter(|file| **file != root.join(KEY_SEAM_FILE))
+        .filter(|file| std::fs::read_to_string(file).is_ok_and(|text| text.contains(&marker)))
+        .map(|file| rel(root, file))
+        .collect();
+    if !elsewhere.is_empty() || contents.matches(&marker).count() != 1 {
+        return Some(Err(format!(
+            "the generated-key seam's marker {marker:?} is not unique (also in {elsewhere:?} \
+             or repeated in {KEY_SEAM_FILE})"
+        )));
+    }
+    Some(Ok(marker))
+}
+
+/// (b) The Dockerfile's build line and, after it, each seam marker's guard.
+fn test_seam_dockerfile(root: &Path, markers: &[(String, &str)]) -> Vec<String> {
     let Ok(source) = std::fs::read_to_string(root.join("Dockerfile")) else {
         return vec!["cannot read Dockerfile — its foundry build could not be checked".to_string()];
     };
@@ -15148,13 +15418,15 @@ fn test_seam_dockerfile(root: &Path, marker: Option<&str>) -> Vec<String> {
             builds.len()
         ));
     }
-    if let (Some(marker), Some(&build)) = (marker, builds.first()) {
-        let guard = format!("! grep -q \"{marker}\" {TEST_SEAM_BINARY}");
-        if !joined[build..].contains(&guard) {
-            problems.push(format!(
-                "the Dockerfile does not run `{guard}` after its foundry build — an image \
-                 carrying the claimant seam would ship"
-            ));
+    if let Some(&build) = builds.first() {
+        for (marker, seam) in markers {
+            let guard = format!("! grep -q \"{marker}\" {TEST_SEAM_BINARY}");
+            if !joined[build..].contains(&guard) {
+                problems.push(format!(
+                    "the Dockerfile does not run `{guard}` after its foundry build — an image \
+                     carrying {seam} would ship"
+                ));
+            }
         }
     }
     problems
@@ -16287,5 +16559,236 @@ cc = "1"
         assert_eq!(test_seam_marker(tree.path()), Ok(MARKER.to_string()));
         let violations = check_integrations_test_seam(tree.path());
         assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    // --- instance-integration-setup 03-04: the generated-key seam ----------
+
+    const KEY_SEAM: &str = "crates/foundry-app/src/integrations/secrets_key_seam.rs";
+    const KEY_SEAM_DECLARED: &str = "crates/foundry-app/src/integrations/mod.rs";
+    const KEY_SEAM_BODY: &str = concat!(
+        "pub const SECRETS_KEY_SEAM_MARKER: &str = \"generated-key-marker-for-the-gold-tree\";\n",
+        "pub async fn generated_secrets_key() {}\n",
+    );
+    const KEY_SEAM_GATED: &str = "#[cfg(feature = \"test-support\")]\npub mod secrets_key_seam;\n";
+
+    fn key_seam_build() -> String {
+        format!(
+            "{} \\\n    && ! grep -q \"generated-key-marker-for-the-gold-tree\" /usr/local/bin/foundry\n",
+            CLEAN_BUILD.trim_end()
+        )
+    }
+
+    #[test]
+    fn key_seam_passes_when_gated_marked_and_refused() {
+        let build = key_seam_build();
+        let tree = seam_tree(
+            CLEAN_SEAM,
+            &build,
+            &[
+                (KEY_SEAM, KEY_SEAM_BODY),
+                (KEY_SEAM_DECLARED, KEY_SEAM_GATED),
+            ],
+        );
+        let violations = check_integrations_test_seam(tree.path());
+        assert!(violations.is_empty(), "{violations:?}");
+    }
+
+    #[test]
+    fn key_seam_refuses_an_unguarded_build_an_unmarked_seam_and_an_ungated_module() {
+        let build = key_seam_build();
+        let unmarked = KEY_SEAM_BODY.replace("SECRETS_KEY_SEAM_MARKER", "SOME_OTHER_NAME");
+        let empty = KEY_SEAM_BODY.replace("\"generated-key-marker-for-the-gold-tree\"", "\"\"");
+        for (form, dockerfile, seam, declared, named) in [
+            (
+                "a Dockerfile without the generated-key guard",
+                CLEAN_BUILD,
+                KEY_SEAM_BODY,
+                KEY_SEAM_GATED,
+                "carrying the generated-key seam would ship",
+            ),
+            (
+                "a seam without its marker",
+                build.as_str(),
+                unmarked.as_str(),
+                KEY_SEAM_GATED,
+                "declares no `const SECRETS_KEY_SEAM_MARKER`",
+            ),
+            (
+                "an empty marker",
+                build.as_str(),
+                empty.as_str(),
+                KEY_SEAM_GATED,
+                "is not a non-empty string",
+            ),
+            (
+                "the module declared ungated",
+                build.as_str(),
+                KEY_SEAM_BODY,
+                "pub mod secrets_key_seam;\n",
+                "integrations/mod.rs:1 names the generated-key seam outside",
+            ),
+        ] {
+            let tree = seam_tree(
+                CLEAN_SEAM,
+                dockerfile,
+                &[(KEY_SEAM, seam), (KEY_SEAM_DECLARED, declared)],
+            );
+            let violations = check_integrations_test_seam(tree.path());
+            assert!(
+                refuses_only(&violations, "integrations-test-seam: ", named),
+                "{form}: {violations:?}"
+            );
+        }
+        let repeated = seam_tree(
+            CLEAN_SEAM,
+            &build,
+            &[
+                (KEY_SEAM, KEY_SEAM_BODY),
+                (KEY_SEAM_DECLARED, KEY_SEAM_GATED),
+                (
+                    "crates/foundry-store/src/lib.rs",
+                    "const X: &str = \"generated-key-marker-for-the-gold-tree\";\n",
+                ),
+            ],
+        );
+        let violations = check_integrations_test_seam(repeated.path());
+        assert!(
+            refuses_only(&violations, "integrations-test-seam: ", "is not unique"),
+            "the marker in another crate: {violations:?}"
+        );
+    }
+
+    // --- instance-integration-setup 03-04: `integrations-seal-fence` --------
+
+    const FENCED_CONNECTIONS: &str = "crates/foundry-store/src/integrations/connections.rs";
+    const FENCED_INSTANCE: &str = "crates/foundry-store/src/integrations/instance.rs";
+
+    /// Every fenced writer, plus an unlisted fn that only clears a sealed
+    /// column and row-locks over one: none is a seal.
+    fn fence_tree(extra: &[(&'static str, &'static str)]) -> tempfile::TempDir {
+        let mut files = vec![
+            (
+                FENCED_CONNECTIONS,
+                concat!(
+                    "async fn upsert_connection() {\n",
+                    "    q(\"INSERT INTO integration_connections (id, sealed_credential) VALUES ($1, $2)\");\n",
+                    "}\n",
+                    "async fn disconnect_connection() {\n",
+                    "    q(\"SELECT id, sealed_credential FROM integration_connections FOR UPDATE\");\n",
+                    "    q(\"UPDATE integration_connections SET state = 'disconnected',\n",
+                    "        sealed_credential = NULL WHERE id = $1\");\n",
+                    "}\n",
+                ),
+            ),
+            (
+                FENCED_INSTANCE,
+                concat!(
+                    "async fn save_slack_app() {\n",
+                    "    q(\"INSERT INTO instance_slack_app (id, sealed_client_secret) VALUES (1, $1)\");\n",
+                    "}\n",
+                    "async fn insert_secrets_key() {\n",
+                    "    q(\"INSERT INTO integration_secrets_key (id, wrapped_key) VALUES (1, $1)\");\n",
+                    "}\n",
+                    "async fn store_secrets_key() {\n",
+                    "    q(\"INSERT INTO integration_key_checks (key_id, sealed_canary) VALUES ($1, $2)\");\n",
+                    "}\n",
+                ),
+            ),
+        ];
+        files.extend_from_slice(extra);
+        stage(&files)
+    }
+
+    #[test]
+    fn seal_fence_passes_on_the_tree() {
+        let violations = check_integrations_seal_fence(&workspace_root());
+        assert!(violations.is_empty(), "{violations:?}");
+        let violations = check_integrations_seal_fence(fence_tree(&[]).path());
+        assert!(violations.is_empty(), "{violations:?}");
+        let missing = check_integrations_seal_fence(stage(&[]).path());
+        assert!(
+            refuses_only(&missing, "integrations-seal-fence: ", "crates"),
+            "{missing:?}"
+        );
+    }
+
+    #[test]
+    fn seal_fence_refuses_an_unfenced_sealed_write() {
+        for (form, file, body, named) in [
+            (
+                "a connection write beside the fenced one",
+                "crates/foundry-store/src/integrations/routes.rs",
+                "async fn quick_connect() {\n    q(\"UPDATE integration_connections\n        SET sealed_credential = $2 WHERE id = $1\");\n}\n",
+                "routes.rs:3 writes a sealed column in `quick_connect`",
+            ),
+            (
+                "an unfenced pending-app insert",
+                "crates/foundry-store/src/integrations/pending.rs",
+                "async fn insert_pending() {\n    q(\"INSERT INTO instance_slack_app_pending (id, sealed_client_secret) VALUES ($1, $2)\");\n}\n",
+                "pending.rs:2 writes a sealed column in `insert_pending`",
+            ),
+            (
+                "a re-wrap outside the store",
+                "crates/foundry-services/src/integrations.rs",
+                "fn rewrap() {\n    q(\"UPDATE integration_secrets_key SET wrapped_key = $1\");\n}\n",
+                "integrations.rs:2 writes a sealed column in `rewrap`",
+            ),
+            (
+                "a sealed write outside any fn",
+                "crates/foundry-app/src/admin_cli.rs",
+                "const SQL: &str = \"INSERT INTO integration_connections (sealed_credential) VALUES ($1)\";\n",
+                "admin_cli.rs:1 writes a sealed column in no fn",
+            ),
+        ] {
+            let tree = fence_tree(&[(file, body)]);
+            let violations = check_integrations_seal_fence(tree.path());
+            assert!(
+                refuses_only(&violations, "integrations-seal-fence: ", named),
+                "{form}: {violations:?}"
+            );
+        }
+    }
+
+    // --- instance-integration-setup 03-04: `integrations-secret-seam` --------
+    // extended to unwrapping the secrets key (ADR-IIS-001 Enforcement)
+
+    #[test]
+    fn secret_seam_refuses_unwrapping_the_secrets_key_outside_the_seam() {
+        for (form, file, body, named) in [
+            (
+                "the slot fn in a use-case",
+                "crates/foundry-services/src/integrations.rs",
+                "fn unwrap(b: &Keys) {\n    let text = b.unseal(&wrapped, &secrets_key_slot());\n}\n",
+                "crates/foundry-services/src/integrations.rs:2 unwraps the secrets key",
+            ),
+            (
+                "the slot rebuilt in a view",
+                VIEW_MODULE,
+                "use foundry_auth::secret_box::SecretSlot;\nfn render() {\n    let slot = SecretSlot::new(\"integration_secrets_key\", \"1\", \"wrapped_key\");\n}\n",
+                "crates/foundry-app/src/views.rs:3 unwraps the secrets key",
+            ),
+            (
+                "the doctor file outside its rotation command",
+                "crates/foundry-app/src/admin_cli.rs",
+                "fn rotate_secrets() { let s = secrets_key_slot(); }\nfn show() { let s = secrets_key_slot(); }\n",
+                "crates/foundry-app/src/admin_cli.rs:2 unwraps the secrets key",
+            ),
+        ] {
+            let tree = secret_tree(&[(file, body)]);
+            let violations = check_integrations_secret_seam(tree.path());
+            assert!(
+                refuses_only(&violations, "integrations-secret-seam: ", named),
+                "{form}: {violations:?}"
+            );
+        }
+        let inside = secret_tree(&[(
+            "crates/foundry-app/src/integrations/keys.rs",
+            "fn secrets_key_slot() -> SecretSlot {\n    SecretSlot::new(\"integration_secrets_key\", \"1\", \"wrapped_key\")\n}\n",
+        )]);
+        let violations = check_integrations_secret_seam(inside.path());
+        assert!(
+            violations.is_empty(),
+            "the integrations module: {violations:?}"
+        );
     }
 }

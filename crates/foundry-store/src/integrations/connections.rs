@@ -1,6 +1,7 @@
 //! A workspace's connections: connect, disconnect, the workspace page's reads
 //! and the sealed credential's reads (ADR-EIP-005 decision 4, US-EIP-07, R-9).
 
+use super::instance::seal_fence_holds;
 use super::routes::CancelCandidate;
 use super::StoredKind;
 use crate::project_lifecycle::lock_live_project;
@@ -82,7 +83,9 @@ const DISCONNECT_PREVIEW_SQL: &str = "
 
 /// A connection as the connect use-case saves it (ADR-EIP-005 decision 4).
 /// `sealed_credential` was sealed for the row `id` (row-bound AAD), so the
-/// write refuses a different row.
+/// write refuses a different row, and under the key `sealed_under` names: the
+/// stored secrets key's id, or `None` when none is stored (`Direct` mode), so
+/// the write refuses a key that is no longer the sealing key.
 pub struct NewConnection {
     pub id: Uuid,
     pub workspace_id: Uuid,
@@ -93,6 +96,7 @@ pub struct NewConnection {
     pub label: String,
     pub detail: Option<String>,
     pub sealed_credential: Vec<u8>,
+    pub sealed_under: Option<String>,
     pub connected_by: Uuid,
     pub connected_at: OffsetDateTime,
 }
@@ -111,6 +115,10 @@ pub enum ConnectionWriteOutcome {
     /// `connected_label`; nothing was written (US-EIP-06: reconnecting to a
     /// different Slack workspace changes nothing).
     OtherWorkspace { connected_label: String },
+    /// The credential was sealed under a key that is no longer the sealing
+    /// key (the seal fence, ADR-IIS-004 rule 2): nothing was written; reload
+    /// and retry once.
+    StaleKey,
 }
 
 /// A workspace's connection as its pages show it. Never the credential.
@@ -192,12 +200,19 @@ impl Store {
 
     /// Save a connection and its audit record in one transaction: insert the
     /// workspace's first connection of the kind, or replace the existing row
-    /// in place when it is the row the credential was sealed for.
+    /// in place when it is the row the credential was sealed for. The seal
+    /// fence comes first, before the row lock: under the shared
+    /// instance-integrations lock, a credential sealed under a key that is no
+    /// longer the sealing key is refused.
     pub async fn upsert_connection(
         &self,
         connection: &NewConnection,
     ) -> Result<ConnectionWriteOutcome, StoreError> {
         let mut tx = self.pool.begin().await?;
+        if !seal_fence_holds(&mut tx, connection.sealed_under.as_deref()).await? {
+            tx.rollback().await?;
+            return Ok(ConnectionWriteOutcome::StaleKey);
+        }
         let existing: Option<(Uuid, String, String, String)> = sqlx::query_as(
             "SELECT id, external_id, label, state FROM integration_connections
               WHERE workspace_id = $1 AND kind = $2 FOR UPDATE",

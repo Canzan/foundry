@@ -1171,6 +1171,7 @@ mod routes {
                 label: "Canzan Labs".into(),
                 detail: Some("canzanlabs.slack.com".into()),
                 sealed_credential: sealed.as_bytes().to_vec(),
+                sealed_under: None,
                 connected_by: lena,
                 connected_at: time::OffsetDateTime::now_utc(),
             })

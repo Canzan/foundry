@@ -80,10 +80,12 @@ ARG FOUNDRY_STAMP_DATE=
 # compiles xtask for the build host, sharing the cache mounts below. An xtask
 # test (`dockerfile_checks_the_description_before_building_foundry`) fails if
 # this line goes missing or moves after the foundry build.
-# The last line refuses an image whose binary carries the test-support claimant
-# seam's marker (external-integration-plugins DEVOPS C-13), however features
-# resolved; check-arch `integrations-test-seam` keeps the build line exactly
-# `-p foundry-app --bin foundry` and this line naming the seam's marker.
+# The last lines refuse an image whose binary carries a test-support seam's
+# marker: the claimant seam's and the outbound seam's (external-integration-
+# plugins DEVOPS C-13) and the generated-key seam's (instance-integration-setup
+# DEVOPS task 1), however features resolved; check-arch `integrations-test-seam`
+# keeps the build line exactly `-p foundry-app --bin foundry` and these lines
+# naming the claimant and generated-key seams' markers.
 RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARGETARCH} \
     --mount=type=cache,target=/work/target,id=cargo-target-${TARGETARCH} \
     triple="$(cat /rust-target)" \
@@ -92,7 +94,8 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARG
     && cargo build --locked --release --target "$triple" -p foundry-app --bin foundry \
     && cp "/work/target/$triple/release/foundry" /usr/local/bin/foundry \
     && ! grep -q "foundry-test-seam:integrations-claimant-v1" /usr/local/bin/foundry \
-    && ! grep -q "foundry-test-seam:integrations-outbound-v1" /usr/local/bin/foundry
+    && ! grep -q "foundry-test-seam:integrations-outbound-v1" /usr/local/bin/foundry \
+    && ! grep -q "foundry-test-seam:integrations-secrets-key-v1" /usr/local/bin/foundry
 
 FROM gcr.io/distroless/cc-debian12 AS runtime
 WORKDIR /app

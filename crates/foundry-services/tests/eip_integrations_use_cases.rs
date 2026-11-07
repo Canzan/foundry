@@ -201,6 +201,7 @@ impl Labs {
                 label: label.into(),
                 detail: None,
                 sealed_credential: vec![0x01, 0x02, 0x03],
+                sealed_under: None,
                 connected_by: self.priya,
                 connected_at: OffsetDateTime::now_utc(),
             })

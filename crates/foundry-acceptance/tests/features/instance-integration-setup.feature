@@ -210,7 +210,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya connects Canzan Labs to Slack with this Foundry's app
     Then within 60 seconds Canzan Labs' Slack connection opens on every replica
 
-  @pending @us-iis-02 @us-iis-03 @kpi-iis-g1
+  @us-iis-02 @us-iis-03 @kpi-iis-g1
   Scenario: A database dump alone opens nothing
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key
@@ -219,7 +219,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When the database's contents are read without the instance key
     Then neither the secrets key, the instance key, the Slack app's secrets nor Canzan Labs' Slack token can be recovered from them
 
-  @pending @us-iis-02 @error
+  @us-iis-02 @error
   Scenario: A later generate does not replace the key
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key

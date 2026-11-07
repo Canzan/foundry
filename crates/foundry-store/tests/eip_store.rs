@@ -2665,6 +2665,7 @@ async fn reconnect_keeps_its_slack_team() {
         label: label.to_string(),
         detail: Some("canzan.slack.com".to_string()),
         sealed_credential: vec![7, 7, 7],
+        sealed_under: None,
         connected_by: lab.lena,
         connected_at: OffsetDateTime::now_utc(),
     };
@@ -2899,6 +2900,7 @@ async fn disconnect_forgets_the_credential_and_queues_nothing() {
             label: "Canzan Personal".to_string(),
             detail: None,
             sealed_credential: vec![9],
+            sealed_under: None,
             connected_by: lab.lena,
             connected_at: OffsetDateTime::now_utc(),
         })
@@ -3007,6 +3009,7 @@ async fn a_matrix_connection_is_read_with_its_homeserver_and_bot() {
             label: "matrix.canzan.dev".to_string(),
             detail: Some("@foundry:canzan.dev".to_string()),
             sealed_credential: vec![4, 2],
+            sealed_under: None,
             connected_by: lab.lena,
             connected_at: OffsetDateTime::now_utc(),
         })
@@ -3113,6 +3116,7 @@ async fn a_matrix_room_two_routes_share_stays_routed_until_the_last_is_deleted()
             label: "matrix.canzan.dev".to_string(),
             detail: Some("@foundry:canzan.dev".to_string()),
             sealed_credential: vec![4, 2],
+            sealed_under: None,
             connected_by: lab.lena,
             connected_at: OffsetDateTime::now_utc(),
         })
@@ -3363,6 +3367,7 @@ async fn the_probe_reads_every_stored_credential() {
             label: "matrix.canzan.dev".to_string(),
             detail: Some("@foundry:canzan.dev".to_string()),
             sealed_credential: vec![9, 8, 7],
+            sealed_under: None,
             connected_by: lab.lena,
             connected_at: OffsetDateTime::now_utc(),
         })
@@ -3498,6 +3503,7 @@ async fn a_credential_sealed_for_another_row_is_refused_as_stale() {
             label: "Canzan Labs".to_string(),
             detail: None,
             sealed_credential: vec![4, 4, 4],
+            sealed_under: None,
             connected_by: lab.lena,
             connected_at: OffsetDateTime::now_utc(),
         })
