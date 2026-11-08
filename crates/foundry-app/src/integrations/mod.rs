@@ -1089,4 +1089,432 @@ mod tests {
             assert_eq!(integrations.matrix_offer(unreadable), matrix_offer, "Matrix: {case}");
         }
     }
+
+    /// The integrations of an instance holding the test key under
+    /// `setting` (none when `None`), its worker on or off.
+    fn keyed(setting: Option<config::KeySetting>, worker: bool) -> Integrations {
+        let mut settings = IntegrationSettings::off("https://foundry.example.org");
+        settings.key_setting = setting;
+        settings.secrets = setting.map(|_| {
+            SecretBox::from_settings(
+                &SecretString::from("ZWlwLXBoYXNlNS1yb3RhdGVkLW5ldy1rZXktMzJieXQ"),
+                None,
+            )
+            .expect("the secrets key parses")
+        });
+        settings.worker.enabled = worker;
+        Integrations::new(settings)
+    }
+
+    /// A value sealed under `keys` for connection `connection_id`.
+    fn sealed_for(keys: &SecretBox, connection_id: uuid::Uuid, token: &str) -> Vec<u8> {
+        keys.seal(
+            &SecretString::from(token.to_string()),
+            &credential_slot(connection_id),
+        )
+        .expect("seal")
+        .as_bytes()
+        .to_vec()
+    }
+
+    fn held(integrations: &Integrations) -> &SecretBox {
+        integrations
+            .settings()
+            .secrets
+            .as_ref()
+            .expect("a held key")
+    }
+
+    /// The probe proves a held key by its check value: a check that opens to
+    /// the canary proves it, one that opens to anything else does not, and a
+    /// key no check names is proved by holding it. A value under a key not
+    /// held is missing.
+    #[test]
+    fn the_probe_proves_a_held_key_only_by_a_check_that_opens_to_the_canary() {
+        let integrations = instance(false, true);
+        let keys = held(&integrations);
+        let id = keys.current_key_id().to_string();
+        let mine = sealed_for(keys, uuid::Uuid::now_v7(), "xoxb-mine");
+        let good = integrations.key_check().expect("a check value");
+        let wrong = KeyCheck {
+            key_id: id.clone(),
+            sealed_canary: keys
+                .seal(&SecretString::from("not the canary"), &key_check_slot(&id))
+                .expect("seal")
+                .as_bytes()
+                .to_vec(),
+        };
+        let other = KeyCheck {
+            key_id: "another-key".to_string(),
+            sealed_canary: b"opaque".to_vec(),
+        };
+        let missing = |sealed: &[Vec<u8>], checks: &[KeyCheck]| {
+            integrations
+                .check_secrets(sealed, checks)
+                .missing_key_ids
+                .into_iter()
+                .collect::<Vec<_>>()
+        };
+        let none: Vec<String> = Vec::new();
+        assert_eq!(
+            missing(std::slice::from_ref(&mine), &[]),
+            none,
+            "held, no check"
+        );
+        assert_eq!(
+            missing(std::slice::from_ref(&mine), &[good, other]),
+            none,
+            "its check opens"
+        );
+        assert_eq!(
+            missing(std::slice::from_ref(&mine), &[wrong]),
+            vec![id],
+            "its check opens to something else"
+        );
+        let elsewhere = sealed_elsewhere();
+        let elsewhere_id = SealedSecret::from_bytes(elsewhere.clone())
+            .key_id()
+            .to_string();
+        assert_eq!(missing(&[elsewhere], &[]), vec![elsewhere_id], "not held");
+    }
+
+    /// DD-2: every credential opens only with a held key and a probe that
+    /// found nothing missing.
+    #[test]
+    fn every_credential_opens_only_with_a_key_and_nothing_missing() {
+        assert!(
+            judged_over(1, Vec::new()).every_credential_opens(),
+            "a key, nothing missing"
+        );
+        assert!(
+            !judged_over(1, vec![sealed_elsewhere()]).every_credential_opens(),
+            "a key, something missing"
+        );
+        assert!(!instance(false, false).every_credential_opens(), "no key");
+    }
+
+    /// ADR-IIS-001 decision 4: the worker runs when it is on and this server
+    /// seals or opens a stored credential.
+    #[test]
+    fn the_worker_runs_only_when_on_and_able_to_seal_or_open() {
+        let with = |enabled: bool, key: bool| {
+            keyed(key.then_some(config::KeySetting::LegacySecretsKey), enabled).runs_worker()
+        };
+        assert!(with(true, true), "on, sealing directly, nothing stored");
+        assert!(!with(false, true), "off");
+        assert!(!with(true, false), "on, no key");
+    }
+
+    /// A credential opens for its own row only; one that does not open under
+    /// a key id this server lacks nudges the reload, one under a held key
+    /// (another row's) does not.
+    #[test]
+    fn a_credential_under_a_key_not_held_nudges_the_reload() {
+        use futures::FutureExt as _;
+        let integrations = instance(false, true);
+        let keys = held(&integrations);
+        let row = uuid::Uuid::now_v7();
+        let nudged = || {
+            integrations
+                .reload_nudge()
+                .notified()
+                .now_or_never()
+                .is_some()
+        };
+
+        let opened = integrations.open_credential(row, sealed_for(keys, row, "xoxb-row"));
+        assert_eq!(
+            opened.map(|t| t.expose_secret().to_string()),
+            Some("xoxb-row".to_string())
+        );
+        assert!(!nudged(), "opened");
+
+        let another_row = sealed_for(keys, uuid::Uuid::now_v7(), "xoxb-other");
+        assert!(integrations.open_credential(row, another_row).is_none());
+        assert!(!nudged(), "a held key that does not open this row");
+
+        assert!(integrations
+            .open_credential(row, sealed_elsewhere())
+            .is_none());
+        assert!(nudged(), "a key id not held");
+    }
+
+    /// I-2e: direct seals are counted by the held key ids that seal stored
+    /// values, and only in `Direct` mode.
+    #[test]
+    fn direct_seals_count_the_held_key_ids_that_seal_stored_values() {
+        let integrations = instance(false, true);
+        assert_eq!(integrations.key_mode(), KeyMode::Direct);
+        let keys = held(&integrations);
+        let snapshot = |sealed: Vec<Vec<u8>>| InstanceSnapshot {
+            version: 1,
+            secrets_key: None,
+            slack_app: None,
+            key_checks: Vec::new(),
+            sealed_credentials: sealed,
+        };
+        assert_eq!(integrations.direct_seals(&snapshot(Vec::new())), 0);
+        let two = vec![
+            sealed_for(keys, uuid::Uuid::now_v7(), "a"),
+            sealed_for(keys, uuid::Uuid::now_v7(), "b"),
+            sealed_elsewhere(),
+        ];
+        assert_eq!(
+            integrations.direct_seals(&snapshot(two.clone())),
+            1,
+            "one held key id"
+        );
+        let awaiting = keyed(Some(config::KeySetting::InstanceKey), false);
+        assert_eq!(awaiting.key_mode(), KeyMode::AwaitingSecretsKey);
+        assert_eq!(awaiting.direct_seals(&snapshot(two)), 0, "not Direct");
+    }
+
+    /// A fresh key's text and parsed key.
+    fn fresh() -> (SecretString, foundry_auth::secret_box::SecretsKey) {
+        let generated = foundry_auth::secret_box::SecretsKey::generate().unwrap();
+        (generated.text, generated.key)
+    }
+
+    fn parsed(text: &SecretString) -> foundry_auth::secret_box::SecretsKey {
+        foundry_auth::secret_box::SecretsKey::parse(
+            text,
+            foundry_auth::secret_box::INSTANCE_KEY_SETTING,
+        )
+        .expect("parse")
+    }
+
+    /// The stored secrets key `secrets` wrapped under `wrapper`.
+    fn stored_under(
+        secrets: &SecretString,
+        wrapper: &SecretBox,
+        by: foundry_store::integrations::KeyWrapper,
+        from_path: Option<&str>,
+    ) -> foundry_store::integrations::StoredSecretsKey {
+        foundry_store::integrations::StoredSecretsKey {
+            key_id: parsed(secrets).key_id().to_string(),
+            wrapped_key: wrapper
+                .seal(secrets, &keys::secrets_key_slot())
+                .expect("wrap")
+                .as_bytes()
+                .to_vec(),
+            wrapped_by_key_id: wrapper.current_key_id().to_string(),
+            wrapped_by: by,
+            rewrapped_from_path: from_path.map(str::to_string),
+            created_by: None,
+            created_at: time::OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    fn with_secrets_key(stored: foundry_store::integrations::StoredSecretsKey) -> InstanceSnapshot {
+        InstanceSnapshot {
+            version: 2,
+            secrets_key: Some(stored),
+            slack_app: None,
+            key_checks: Vec::new(),
+            sealed_credentials: Vec::new(),
+        }
+    }
+
+    /// ADR-IIS-004 r6 and rule 2: a replica keeps the secrets key it holds
+    /// while the stored id is unchanged, even re-wrapped under an instance
+    /// key it lacks; the seal fence names that key. A changed id is judged
+    /// afresh.
+    #[test]
+    fn a_held_secrets_key_survives_a_rewrap_under_a_key_this_replica_lacks() {
+        let (operator_text, _) = fresh();
+        let (secrets, _) = fresh();
+        let mut settings = IntegrationSettings::off("https://foundry.example.org");
+        settings.key_setting = Some(config::KeySetting::InstanceKey);
+        settings.secrets = Some(SecretBox::new(parsed(&operator_text), Vec::new()));
+        let operator = SecretBox::new(parsed(&operator_text), Vec::new());
+        let elsewhere = SecretBox::new(fresh().1, Vec::new());
+        let by = foundry_store::integrations::KeyWrapper::Operator;
+
+        let sealed = Integrations::new(settings).rebuilt(Ok(with_secrets_key(stored_under(
+            &secrets, &operator, by, None,
+        ))));
+        let id = parsed(&secrets).key_id().to_string();
+        assert_eq!(sealed.key_mode(), KeyMode::Sealed);
+        assert_eq!(sealed.sealed_under(), Some(id.clone()));
+
+        let rewrapped = sealed.rebuilt(Ok(with_secrets_key(stored_under(
+            &secrets, &elsewhere, by, None,
+        ))));
+        assert_eq!(rewrapped.key_mode(), KeyMode::Sealed, "kept under its id");
+        assert_eq!(rewrapped.sealed_under(), Some(id));
+
+        let (replaced, _) = fresh();
+        let replaced = rewrapped.rebuilt(Ok(with_secrets_key(stored_under(
+            &replaced, &elsewhere, by, None,
+        ))));
+        assert_eq!(
+            replaced.key_mode(),
+            KeyMode::Unopenable,
+            "a new id, not unwrapped"
+        );
+        assert_eq!(replaced.sealed_under(), None);
+    }
+
+    /// Boot's store: `first` until a re-wrap lands, `after` from then on;
+    /// every read and re-wrap counted.
+    struct RewrapStore {
+        first: InstanceSnapshot,
+        after: InstanceSnapshot,
+        reads: std::sync::atomic::AtomicUsize,
+        rewraps: std::sync::Mutex<Vec<foundry_store::integrations::SecretsKeyRewrap>>,
+    }
+
+    #[async_trait::async_trait]
+    impl store_capabilities::KeyProbe for RewrapStore {
+        async fn record_key_check(
+            &self,
+            _check: &KeyCheck,
+        ) -> Result<(), foundry_store::StoreError> {
+            Ok(())
+        }
+        async fn instance_snapshot(&self) -> Result<InstanceSnapshot, foundry_store::StoreError> {
+            self.reads.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let rewrapped = !self.rewraps.lock().unwrap().is_empty();
+            Ok(if rewrapped {
+                self.after.clone()
+            } else {
+                self.first.clone()
+            })
+        }
+        async fn rewrap_secrets_key(
+            &self,
+            rewrap: &foundry_store::integrations::SecretsKeyRewrap,
+            _at: time::OffsetDateTime,
+        ) -> Result<foundry_store::integrations::RewrapOutcome, foundry_store::StoreError> {
+            self.rewraps.lock().unwrap().push(rewrap.clone());
+            Ok(foundry_store::integrations::RewrapOutcome::Rewrapped { version: 3 })
+        }
+    }
+
+    /// The key file's key, as boot reads it.
+    struct HeldFile(SecretString);
+
+    impl InstanceKeySource for HeldFile {
+        fn key_file(&self, _may_make: bool) -> KeyFileRead {
+            KeyFileRead::Held(Box::new(parsed(&self.0)))
+        }
+    }
+
+    /// ADR-IIS-002 r5 and I-30 through the boot: with an operator key and
+    /// the key file that wrapped the stored secrets key, the key is re-wrapped
+    /// under the operator's key once, the rows read again, and the file it
+    /// left named. A secrets key already under the operator's key is not
+    /// re-wrapped and the rows are read once.
+    #[tokio::test]
+    async fn boot_rewraps_a_file_wrapped_secrets_key_under_the_operator_key() {
+        use foundry_store::integrations::KeyWrapper;
+        let (file_text, _) = fresh();
+        let (operator_text, _) = fresh();
+        let (secrets, _) = fresh();
+        let file = SecretBox::new(parsed(&file_text), Vec::new());
+        let operator = SecretBox::new(parsed(&operator_text), Vec::new());
+        let path = key_file::key_path(std::path::Path::new("/srv/foundry-data"))
+            .display()
+            .to_string();
+        let settings = || {
+            let mut settings = IntegrationSettings::off("https://foundry.example.org");
+            settings.data_dir = "/srv/foundry-data".into();
+            settings.key_setting = Some(config::KeySetting::InstanceKey);
+            settings.secrets = Some(SecretBox::new(parsed(&operator_text), Vec::new()));
+            settings
+        };
+        let at = time::OffsetDateTime::UNIX_EPOCH;
+
+        let store = RewrapStore {
+            first: with_secrets_key(stored_under(&secrets, &file, KeyWrapper::File, None)),
+            after: with_secrets_key(stored_under(
+                &secrets,
+                &operator,
+                KeyWrapper::Operator,
+                Some(&path),
+            )),
+            reads: Default::default(),
+            rewraps: Default::default(),
+        };
+        let booted = Integrations::boot(settings(), &store, &HeldFile(file_text.clone()), at)
+            .await
+            .expect("boot");
+        let rewraps = store.rewraps.lock().unwrap().clone();
+        assert_eq!(rewraps.len(), 1, "one re-wrap");
+        assert_eq!(rewraps[0].from_key_id, file.current_key_id().to_string());
+        assert_eq!(
+            rewraps[0].wrapped_by_key_id,
+            operator.current_key_id().to_string()
+        );
+        assert_eq!(
+            rewraps[0].rewrapped_from_path.as_deref(),
+            Some(path.as_str())
+        );
+        assert_eq!(
+            store.reads.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "read again"
+        );
+        assert_eq!(booted.key_mode(), KeyMode::Sealed);
+        assert_eq!(booted.rewrapped_from(), Some(path.as_str()), "I-30");
+
+        let settled = RewrapStore {
+            first: store.after.clone(),
+            after: store.after.clone(),
+            reads: Default::default(),
+            rewraps: Default::default(),
+        };
+        let booted = Integrations::boot(settings(), &settled, &HeldFile(file_text), at)
+            .await
+            .expect("boot");
+        assert!(
+            settled.rewraps.lock().unwrap().is_empty(),
+            "nothing to re-wrap"
+        );
+        assert_eq!(
+            settled.reads.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "read once"
+        );
+        assert_eq!(booted.key_mode(), KeyMode::Sealed);
+    }
+
+    /// Boot's recorded check joins the snapshot unless one is stored for its
+    /// key id, which is kept (`ON CONFLICT DO NOTHING`).
+    #[test]
+    fn a_recorded_key_check_joins_the_snapshot_only_for_a_new_key_id() {
+        let check = |id: &str, canary: &[u8]| KeyCheck {
+            key_id: id.to_string(),
+            sealed_canary: canary.to_vec(),
+        };
+        let with = |checks: Vec<KeyCheck>, recorded: Option<KeyCheck>| {
+            let snapshot = InstanceSnapshot {
+                version: 1,
+                secrets_key: None,
+                slack_app: None,
+                key_checks: checks,
+                sealed_credentials: Vec::new(),
+            };
+            with_key_check(snapshot, recorded)
+                .key_checks
+                .into_iter()
+                .map(|c| (c.key_id, c.sealed_canary))
+                .collect::<Vec<_>>()
+        };
+        let pair = |id: &str, canary: &[u8]| (id.to_string(), canary.to_vec());
+        assert_eq!(
+            with(vec![check("a", b"stored")], Some(check("b", b"new"))),
+            vec![pair("a", b"stored"), pair("b", b"new")],
+            "a new key id joins"
+        );
+        assert_eq!(
+            with(vec![check("a", b"stored")], Some(check("a", b"new"))),
+            vec![pair("a", b"stored")],
+            "the stored one is kept"
+        );
+        assert_eq!(
+            with(vec![check("a", b"stored")], None),
+            vec![pair("a", b"stored")]
+        );
+    }
 }

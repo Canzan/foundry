@@ -8,9 +8,12 @@ excluded.
 
 ## Verdict
 
-**WARN — 264 caught, 83 missed: 76.1%.** Every survivor is listed below with a
-disposition. Item 41 (key_file.rs) moved from 60.5% to 89.5%. The three B2
-proofs are each killed by a named test.
+**PASS — 315 caught, 32 missed: 90.8%** (second pass). The first pass ended
+at WARN, 264 caught and 83 missed (76.1%); the feature requires 80%, so a
+second pass added unit tests to mod.rs, reload.rs, handlers/instance.rs and
+slack_app.rs and re-ran cargo-mutants on those files and keys.rs. Every
+survivor is listed below with a disposition. Item 41 (key_file.rs) moved from
+60.5% to 89.5%. The three B2 proofs are each killed by a named test.
 
 ## Per file
 
@@ -18,18 +21,18 @@ proofs are each killed by a named test.
 |---|---:|---:|---:|---:|---:|
 | foundry-app/src/admin_cli.rs | 8 | 0 | 0 | 0 | 100% |
 | foundry-app/src/integrations/config.rs | 17 | 0 | 8 | 0 | 100% |
-| foundry-app/src/integrations/handlers/instance.rs | 42 | 18 | 8 | 0 | 70.0% |
+| foundry-app/src/integrations/handlers/instance.rs | 48 | 12 | 8 | 0 | 80.0% (pass 1: 42 / 18) |
 | foundry-app/src/integrations/key_file.rs | 34 | 4 | 15 | 0 | 89.5% |
-| foundry-app/src/integrations/keys.rs | 46 | 3 | 16 | 0 | 93.9% |
-| foundry-app/src/integrations/mod.rs | 38 | 42 | 26 | 0 | 47.5% |
-| foundry-app/src/integrations/reload.rs | 12 | 7 | 6 | 0 | 63.2% |
+| foundry-app/src/integrations/keys.rs | 49 | 0 | 16 | 0 | 100% (pass 1: 46 / 3) |
+| foundry-app/src/integrations/mod.rs | 71 | 9 | 26 | 0 | 88.8% (pass 1: 38 / 42) |
+| foundry-app/src/integrations/reload.rs | 19 | 0 | 6 | 0 | 100% (pass 1: 12 / 7) |
 | foundry-app/src/integrations/secrets_key_seam.rs | 0 | 4 | 0 | 0 | 0% |
 | foundry-app/src/integrations/slack.rs | 2 | 0 | 0 | 0 | 100% |
-| foundry-app/src/integrations/slack_app.rs | 11 | 2 | 10 | 0 | 84.6% |
+| foundry-app/src/integrations/slack_app.rs | 13 | 0 | 10 | 0 | 100% (pass 1: 11 / 2) |
 | foundry-auth/src/secret_box.rs | 3 | 0 | 6 | 0 | 100% (with foundry-app lib tests; 1 caught, 2 missed on foundry-auth lib alone) |
 | foundry-store/src/integrations/connections.rs | 1 | 0 | 1 | 0 | 100% |
 | foundry-store/src/integrations/instance.rs | 50 | 3 | 18 | 0 | 94.3% |
-| **Total** | **264** | **83** | **114** | **0** | **76.1%** |
+| **Total** | **315** | **32** | **114** | **0** | **90.8%** (pass 1: 264 / 83, 76.1%) |
 
 key_file.rs before this pass (same command, run 1): 23 caught, 15 missed,
 15 unviable — 60.5%.
@@ -59,6 +62,25 @@ timeout 1800 cargo mutants --in-diff ~/mut/feature.diff -p foundry-auth \
   --file crates/foundry-auth/src/secret_box.rs --test-package foundry-auth,foundry-app \
   --jobs 2 --timeout 300 --output ~/mut/auth_app -- --lib
 ```
+
+Second pass (same flags, same test command; the diff regenerated on the Mac
+against the working tree, `git diff 9aa38d9^ -- <files>`, since the files'
+test modules grew; production lines are unchanged, and cargo-mutants does not
+mutate `#[cfg(test)]` code):
+
+```bash
+cargo mutants --in-diff <diff> -p foundry-app --file .../mod.rs          # 1946 s
+cargo mutants --in-diff <diff> -p foundry-app --file .../keys.rs         # 1117 s
+cargo mutants --in-diff <diff> -p foundry-app --file .../reload.rs --file .../slack_app.rs   # 729 s
+cargo mutants --in-diff <diff> -p foundry-app --file .../handlers/instance.rs                # 1811 s
+# after one more mod.rs test (with_key_check), a targeted re-run:
+cargo mutants --in-diff <diff> -p foundry-app --file .../mod.rs --re with_key_check  # 10 mutants: 6 caught, 2 missed, 2 unviable
+```
+
+The mod.rs row is the full run (69 caught, 11 missed) with the two
+`with_key_check` mutants (758:12, 761:41) moved to caught by the targeted
+re-run; its two misses there are the `with_saved_slack` fields already
+counted missed.
 
 `rest` = admin_cli.rs, config.rs, reload.rs, secrets_key_seam.rs, slack.rs,
 slack_app.rs. TMPDIR is moved off the VM's 12 GB tmpfs `/tmp`: the first run
@@ -126,51 +148,25 @@ here).
 
 `parse_list` 116:9 -> `Ok(vec![])` and 119:29 `delete !` survive the foundry-auth lib tests but are killed by `integrations::config::tests::retired_keys_are_held_under_either_previous_name` (foundry-app) in the `auth_app` run (9 mutants: 3 caught, 6 unviable). The total counts them caught.
 
-### keys.rs (3)
+### mod.rs (9)
 
 | Mutant | Disposition |
 |---|---|
-| 303:48 `==` -> `!=` in `Keyring::resolve_holding` | accepted: the held-secrets-key id comparison (r6, keep the held key while the stored id is unchanged); only a reload over a changed stored id reaches it, which no unit test builds. |
-| 340:9 `Keyring::secrets_key -> None` | accepted: the held secrets key carried into a rebuild; observable only across a rebuild with a stored secrets key. |
-| 400:9 `CredentialBox::holds_a_key -> false` | accepted: feeds `runs_worker` / `every_credential_opens` (mod.rs), themselves unreached by the unit tests. |
+| 419:13 delete arm `(AppInEffect::Environment, _)` in `with_saved_slack` | accepted: needs a saved Slack app row sealed under a held key plus an environment app; no unit test builds one. |
+| 420:13 delete arm `(AppInEffect::Saved, Some(...))` | accepted: same. |
+| 432:13 delete field `slack` in `with_saved_slack` | accepted: same. |
+| 434:13 delete field `saved_app` in `with_saved_slack` | accepted: same. |
+| 452:9 `saved_slack -> None` | accepted: same. |
+| 494:9 `log_secrets_verdict -> ()`; 494:12, 494:40 `delete !`; 494:37 `&&` -> `\|\|` | accepted: an info line only (no key mode, alert or result depends on it). |
 
-### mod.rs (42)
+### handlers/instance.rs (12)
 
-All accepted: `Integrations` assembly and accessors whose effects the lib unit
-tests and the three integration tests do not read. Grouped by function:
-
-- `Integrations::boot`: 244:17 delete arm `KeyFileRead::Held(key)` (operator key with a held file); 292:29 guard `!rewrap_tried` -> `true`, -> `false`, `delete !`.
-- `rewrap_file_key` (boot's r5 re-wrap): 730:5 -> `true`, -> `false`; 734:48 `==` -> `!=`.
-- `Integrations::probed` 389:13 delete field `rewrapped_from`; `rewrapped_from` 441:9 -> `None`, `Some("")`, `Some("xyzzy")` (I-30 line).
-- `with_saved_slack` 419:13, 420:13 delete arms; 432:13 delete field `slack`; 434:13 delete field `saved_app`; `saved_slack` 452:9 -> `None`.
-- `log_secrets_verdict` 494:9 -> `()`, 494:12 / 494:40 `delete !`, 494:37 `&&` -> `||` (log only).
-- `sealed_under` 522:9 -> `None`; `check_secrets` 548:9 -> `Default`; `direct_seals` 584:9 -> `0`, `1`, 584:32 `!=` -> `==`.
-- `every_credential_opens` 620:9 -> `true`, `false`, 620:42 `&&` -> `||`, 620:45 `delete !`.
-- `runs_worker` 650:9 -> `true`, `false`, 650:38 `&&` -> `||`, 650:70 `||` -> `&&`.
-- `open_credential` 658:9 -> `Some(Default)`, 661:29 `&&` -> `||`, 661:32 `delete !`.
-- `reload_nudge` 669:9 -> `Arc::new(Default)`.
-- `with_key_check` 758:12 `delete !`, 761:41 `==` -> `!=`.
-- `proves_key` 802:5 -> `false`, 805:42 `==` -> `!=`, 812:66 `==` -> `!=`.
-
-The `proves_key`, `every_credential_opens`, `open_credential` and
-`rewrap_file_key` groups carry the most risk: they decide whether a held key
-is trusted and whether a credential is opened. They are the first candidates
-for unit tests.
-
-### handlers/instance.rs (18)
-
-All accepted: handler bodies and copy helpers the lib tests do not drive.
-`facts_of` 341:36 `>` -> `==`, `>=`, 350:52 `==` -> `!=`; `show_instance`
-409:5, `move_to_secrets_key` 430:5, `save_slack_app` 513:5 -> `Default`;
-`refused` 542:5 -> `""`, `"xyzzy"`; `save_slack` 557:5 -> `None`, `Some("")`,
-`Some("xyzzy")`, 576:51 guard -> `true`, `false`; `saver_name` 615:5 -> `None`,
-`Some("")`, `Some("xyzzy")`; `direct_seals` 631:5 -> `0`, `1`.
-
-### reload.rs (7)
-
-All accepted: the reload loop's timing. `Reload::run` 108:9 -> `()`;
-`nudge_due` 129:9 -> `true`, `false`; `tick` 152:59 `>=` -> `<`;
-`replica_state` 196:33 `==` -> `!=`; `key_mode_name` 203:5 -> `""`, `"xyzzy"`.
+All accepted: axum handler bodies and their store reads, reached only
+through a running app (the acceptance lane), not by the unit tests:
+`show_instance` 409:5, `move_to_secrets_key` 430:5, `save_slack_app` 513:5
+-> `Default`; `save_slack` 557:5 -> `None`, `Some("xyzzy")`, 576:51 guard ->
+`true`, `false`; `saver_name` 615:5 -> `None`, `Some("")`, `Some("xyzzy")`;
+`direct_seals` (the handler's store read) 631:5 -> `0`, `1`.
 
 ### secrets_key_seam.rs (4)
 
@@ -178,11 +174,29 @@ All accepted: the acceptance-only test seam (`test-support` builds only).
 `generated_secrets_key` 26:5 -> `None`, `Some("")`, `Some("xyzzy")`;
 43:31 `==` -> `!=`.
 
-### slack_app.rs (2)
+### Killed in the second pass
 
-Accepted: `plan_save` 205:5 -> `None`; 215:29 `==` -> `!=`.
+| Mutants | Killed by |
+|---|---|
+| mod.rs `proves_key` 802:5 -> `false`, 805:42 and 812:66 `==` -> `!=`; `check_secrets` 548:9 -> `Default` | `integrations::tests::the_probe_proves_a_held_key_only_by_a_check_that_opens_to_the_canary` |
+| mod.rs `every_credential_opens` 620 (-> `true`, `false`, `&&` -> `\|\|`, `delete !`); keys.rs `CredentialBox::holds_a_key` 400:9 -> `false` | `every_credential_opens_only_with_a_key_and_nothing_missing` |
+| mod.rs `runs_worker` 650 (-> `true`, `false`, `&&` -> `\|\|`, `\|\|` -> `&&`) | `the_worker_runs_only_when_on_and_able_to_seal_or_open` |
+| mod.rs `open_credential` 658:9 -> `Some(Default)`, 661:29 `&&` -> `\|\|`, 661:32 `delete !`; `reload_nudge` 669:9 | `a_credential_under_a_key_not_held_nudges_the_reload` |
+| mod.rs `direct_seals` 584 (-> `0`, `1`, `!=` -> `==`) | `direct_seals_count_the_held_key_ids_that_seal_stored_values` |
+| mod.rs `rewrap_file_key` 730:5 -> `true`, `false`, 734:48 `==` -> `!=`; `boot` 244:17 delete arm `Held`, 292:29 guard -> `true`, `false`, `delete !`; `probed` 389:13; `rewrapped_from` 441:9 (x3) | `boot_rewraps_a_file_wrapped_secrets_key_under_the_operator_key` |
+| mod.rs `sealed_under` 522:9 -> `None`; keys.rs `resolve_holding` 303:48 `==` -> `!=`, `Keyring::secrets_key` 340:9 -> `None` | `a_held_secrets_key_survives_a_rewrap_under_a_key_this_replica_lacks` |
+| mod.rs `with_key_check` 758:12 `delete !`, 761:41 `==` -> `!=` | `a_recorded_key_check_joins_the_snapshot_only_for_a_new_key_id` |
+| reload.rs `Reload::run` 108:9 -> `()` | `integrations::reload::tests::the_reload_task_ticks_when_it_runs` |
+| reload.rs `nudge_due` 129:9 -> `true`, `false` | `a_nudge_is_due_once_a_second` |
+| reload.rs `tick` 152:59 `>=` -> `<` | `a_tick_with_nothing_to_apply_beats_every_ten_seconds` |
+| reload.rs `replica_state` 196:33, `key_mode_name` 203:5 (x2) | `a_replica_state_names_its_key_mode` |
+| slack_app.rs `plan_save` 205:5 -> `None`, 215:29 `==` -> `!=` | `integrations::slack_app::tests::a_save_seals_both_secrets_fenced_only_when_sealed` |
+| handlers/instance.rs `facts_of` 341:36 (`>` -> `==`, `>=`), 350:52 `==` -> `!=` | `the_page_facts_follow_the_integrations_in_effect` |
+| handlers/instance.rs `refused` 542:5 -> `""`, `"xyzzy"` | `a_refused_save_names_its_field` |
 
-## Tests added (crates/foundry-app/src/integrations/key_file.rs, `mod tests`)
+## Tests added
+
+Pass 1, crates/foundry-app/src/integrations/key_file.rs `mod tests`:
 
 - `only_a_file_readable_beyond_its_owner_is_warned_about`
 - `only_temp_files_ten_minutes_old_are_leftovers`
@@ -200,12 +214,37 @@ tests only). Run 3 of key_file, on the final tests, gives the key_file numbers
 above (34 caught, 4 missed, 15 unviable, 755 s), with every kill named in this
 report; the release `integrations::` lib tests then passed 10 of 10 runs.
 
-No production code changed; no seam added (the existing `link` field seam was enough).
+Pass 2:
+
+- crates/foundry-app/src/integrations/mod.rs `mod tests`:
+  `the_probe_proves_a_held_key_only_by_a_check_that_opens_to_the_canary`,
+  `every_credential_opens_only_with_a_key_and_nothing_missing`,
+  `the_worker_runs_only_when_on_and_able_to_seal_or_open`,
+  `a_credential_under_a_key_not_held_nudges_the_reload`,
+  `direct_seals_count_the_held_key_ids_that_seal_stored_values`,
+  `a_held_secrets_key_survives_a_rewrap_under_a_key_this_replica_lacks`,
+  `boot_rewraps_a_file_wrapped_secrets_key_under_the_operator_key`
+  (store double `RewrapStore` counting reads and re-wraps, key source
+  `HeldFile`), `a_recorded_key_check_joins_the_snapshot_only_for_a_new_key_id`.
+- crates/foundry-app/src/integrations/reload.rs `mod tests`:
+  `a_replica_state_names_its_key_mode`,
+  `a_tick_with_nothing_to_apply_beats_every_ten_seconds`,
+  `a_nudge_is_due_once_a_second`, `the_reload_task_ticks_when_it_runs`
+  (store double `Beats`, `MockClock`).
+- crates/foundry-app/src/integrations/handlers/instance.rs `mod tests`:
+  `the_page_facts_follow_the_integrations_in_effect`,
+  `a_refused_save_names_its_field`.
+- crates/foundry-app/src/integrations/slack_app.rs `mod tests`:
+  `a_save_seals_both_secrets_fenced_only_when_sealed`.
+
+None of the pass 2 tests capture logs. No production code changed in either
+pass; no seam added (the existing `link` field seam was enough).
 
 ## Gates
 
-- `cargo test -p foundry-app --lib --test iis_reload --test iis_admin_cli_rotate --test eip_phase5_doors`: 186, 15, 1 and 2 passed, 0 failed.
+- Pass 1: `cargo test -p foundry-app --lib --test iis_reload --test iis_admin_cli_rotate --test eip_phase5_doors`: 186, 15, 1 and 2 passed, 0 failed.
+- Pass 2: the foundry-app lib suite with every new test is the unmutated baseline of each pass 2 run (green); `cargo test --release -p foundry-app --lib integrations::` passed 10 of 10 runs (85 passed each).
 - foundry-store (`--lib --test iis_instance_store --test eip_store`) and foundry-auth (`--lib`): green as the unmutated baselines of their runs.
-- `cargo xtask smoke`: `xtask smoke :: all gates green`.
+- `cargo xtask smoke` (pass 1 and again after pass 2): `xtask smoke :: all gates green`.
 - No production code changed, so the instance-integration-setup lane and `cargo xtask ci` were not required and not run.
 - Tree after the runs: only the key_file.rs tests and this report are changed by this pass (cargo-mutants worked on copies under `~/mut/tmp`; the hand-seeded VM files were restored from copies).

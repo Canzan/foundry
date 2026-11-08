@@ -270,4 +270,129 @@ mod tests {
             assert_eq!(nudge_allowed(last, now), allowed, "{last:?} -> {now}");
         }
     }
+
+    /// The integrations an instance with no key and nothing stored serves,
+    /// judged over config version 1.
+    fn judged() -> Integrations {
+        let settings =
+            super::super::config::IntegrationSettings::off("https://foundry.example.org");
+        Integrations::new(settings).rebuilt(Ok(snapshot()))
+    }
+
+    fn snapshot() -> foundry_store::integrations::InstanceSnapshot {
+        foundry_store::integrations::InstanceSnapshot {
+            version: 1,
+            secrets_key: None,
+            slack_app: None,
+            key_checks: Vec::new(),
+            sealed_credentials: Vec::new(),
+        }
+    }
+
+    /// A store at config version 1 recording every beat.
+    #[derive(Default)]
+    struct Beats(std::sync::Mutex<Vec<ReplicaState>>);
+
+    #[async_trait::async_trait]
+    impl IntegrationsReload for Beats {
+        async fn config_version(&self) -> Result<i64, StoreError> {
+            Ok(1)
+        }
+        async fn instance_snapshot(
+            &self,
+        ) -> Result<foundry_store::integrations::InstanceSnapshot, StoreError> {
+            Ok(snapshot())
+        }
+        async fn beat_replica_state(&self, state: &ReplicaState) -> Result<(), StoreError> {
+            self.0.lock().unwrap().push(state.clone());
+            Ok(())
+        }
+    }
+
+    fn beats(store: &Beats) -> usize {
+        store.0.lock().unwrap().len()
+    }
+
+    /// The state row names the key mode, and opens the secrets key only in
+    /// `Sealed` mode; never a key or a key id.
+    #[test]
+    fn a_replica_state_names_its_key_mode() {
+        #[rustfmt::skip]
+        let names = [
+            (KeyMode::NoInstanceKey(NoKeyReason::Unwritable), "no_instance_key"),
+            (KeyMode::NoInstanceKey(NoKeyReason::Unreadable), "no_instance_key"),
+            (KeyMode::Direct,                                 "direct"),
+            (KeyMode::AwaitingSecretsKey,                     "awaiting_secrets_key"),
+            (KeyMode::Sealed,                                 "sealed"),
+            (KeyMode::Unopenable,                             "unopenable"),
+        ];
+        for (mode, name) in names {
+            assert_eq!(key_mode_name(mode), name, "{mode:?}");
+        }
+        let at = datetime!(2026-10-21 14:02 UTC);
+        let state = replica_state("replica-a", &judged(), at);
+        assert_eq!(
+            state,
+            ReplicaState {
+                replica: "replica-a".to_string(),
+                applied_version: 1,
+                key_mode: "no_instance_key".to_string(),
+                opens_secrets_key: false,
+                beat_at: at,
+            }
+        );
+    }
+
+    /// With nothing to apply, a tick beats on the first tick and then once
+    /// ten seconds have passed since the last beat.
+    #[tokio::test]
+    async fn a_tick_with_nothing_to_apply_beats_every_ten_seconds() {
+        let store = Arc::new(Beats::default());
+        let clock = crate::clock::MockClock::at(datetime!(2026-10-21 14:02 UTC));
+        let mut reload = Reload::new(
+            store.clone(),
+            IntegrationsHandle::new(judged()),
+            clock.clone(),
+        );
+        reload.tick().await;
+        assert_eq!(beats(&store), 1, "the first tick beats");
+        clock.advance(std::time::Duration::from_secs(9));
+        reload.tick().await;
+        assert_eq!(beats(&store), 1, "nine seconds on");
+        clock.advance(std::time::Duration::from_secs(1));
+        reload.tick().await;
+        assert_eq!(beats(&store), 2, "ten seconds on");
+    }
+
+    /// A nudge is due at once, then not again within a second.
+    #[test]
+    fn a_nudge_is_due_once_a_second() {
+        let clock = crate::clock::MockClock::at(datetime!(2026-10-21 14:02 UTC));
+        let mut reload = Reload::new(
+            Arc::new(Beats::default()),
+            IntegrationsHandle::new(judged()),
+            clock.clone(),
+        );
+        assert!(reload.nudge_due(), "the first");
+        assert!(!reload.nudge_due(), "at once again");
+        clock.advance(std::time::Duration::from_secs(1));
+        assert!(reload.nudge_due(), "a second later");
+    }
+
+    /// The reload task ticks as soon as it runs.
+    #[tokio::test]
+    async fn the_reload_task_ticks_when_it_runs() {
+        let store = Arc::new(Beats::default());
+        let clock = crate::clock::MockClock::at(datetime!(2026-10-21 14:02 UTC));
+        let reload = Reload::new(store.clone(), IntegrationsHandle::new(judged()), clock);
+        let task = tokio::spawn(reload.run());
+        let ticked = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+            while beats(&store) == 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await;
+        task.abort();
+        assert!(ticked.is_ok(), "no beat within ten seconds");
+    }
 }

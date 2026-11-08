@@ -1028,4 +1028,41 @@ mod tests {
         assert_eq!(KeyOffer::Move.label(), "Move to a secrets key");
         assert_eq!(KeyOffer::Move.door(), MOVE_PATH);
     }
+
+    /// The page's facts over the integrations in effect: "saved direct" only
+    /// with some direct seal, "saved unreadable" only for a saved app that
+    /// does not open.
+    #[test]
+    fn the_page_facts_follow_the_integrations_in_effect() {
+        let mut settings =
+            crate::integrations::config::IntegrationSettings::off("https://foundry.example.org");
+        settings.data_dir = "/data".into();
+        let integrations = Integrations::new(settings);
+        let none = facts_of(&integrations, 0, None);
+        assert!(!none.saved_direct, "no direct seal");
+        assert!(!none.saved_unreadable, "no saved app");
+        assert_eq!(none.key_file, FILE);
+        assert!(facts_of(&integrations, 1, None).saved_direct, "one");
+        assert!(facts_of(&integrations, 2, None).saved_direct, "two");
+    }
+
+    /// I-11 names the blank field, I-12 the malformed one.
+    #[test]
+    fn a_refused_save_names_its_field() {
+        use Refusal::{Blank, Malformed};
+        use SlackField::{ClientId, ClientSecret, SigningSecret};
+        #[rustfmt::skip]
+        let table = [
+            (Blank(ClientId),          ENTER_CLIENT_ID),
+            (Blank(ClientSecret),      ENTER_CLIENT_SECRET),
+            (Blank(SigningSecret),     ENTER_SIGNING_SECRET),
+            (Malformed(ClientId),      NOT_A_CLIENT_ID),
+            (Malformed(ClientSecret),  NOT_A_CLIENT_SECRET),
+            (Malformed(SigningSecret), NOT_A_SIGNING_SECRET),
+        ];
+        for (refusal, answer) in table {
+            assert!(!answer.is_empty());
+            assert_eq!(refused(refusal), answer);
+        }
+    }
 }

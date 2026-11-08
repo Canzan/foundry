@@ -352,4 +352,41 @@ mod tests {
             );
         }
     }
+
+    /// A save seals both secrets into their own slots, fenced on the sealing
+    /// key's id in `Sealed` mode and on none in `Direct`.
+    #[test]
+    fn a_save_seals_both_secrets_fenced_only_when_sealed() {
+        let generated = foundry_auth::secret_box::SecretsKey::generate().unwrap();
+        let sealing = SecretBox::new(generated.key, Vec::new());
+        let by = Uuid::now_v7();
+        let at = OffsetDateTime::UNIX_EPOCH;
+        let form = form(ID, SECRET, SIGNING);
+        let open = |sealed: &[u8], slot: SecretSlot| {
+            sealing
+                .open(
+                    &foundry_auth::secret_box::SealedSecret::from_bytes(sealed.to_vec()),
+                    &slot,
+                )
+                .map(|text| text.expose_secret().to_string())
+                .ok()
+        };
+        let sealed = plan_save(&sealing, KeyMode::Sealed, &form, by, at).expect("planned");
+        assert_eq!(sealed.client_id, ID);
+        assert_eq!(
+            open(&sealed.sealed_client_secret, client_secret_slot()),
+            Some(SECRET.to_string())
+        );
+        assert_eq!(
+            open(&sealed.sealed_signing_secret, signing_secret_slot()),
+            Some(SIGNING.to_string())
+        );
+        assert_eq!(
+            sealed.sealed_under,
+            Some(sealing.current_key_id().to_string())
+        );
+        assert_eq!((sealed.saved_by, sealed.saved_at), (by, at));
+        let direct = plan_save(&sealing, KeyMode::Direct, &form, by, at).expect("planned");
+        assert_eq!(direct.sealed_under, None);
+    }
 }
