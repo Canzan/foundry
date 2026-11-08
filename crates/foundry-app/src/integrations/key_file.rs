@@ -656,6 +656,125 @@ mod tests {
         );
     }
 
+    /// What `probe` returns, and every line it logged.
+    fn logged(probe: impl FnOnce() -> KeyFileRead) -> (KeyFileRead, String) {
+        #[derive(Clone, Default)]
+        struct Buf(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+        impl std::io::Write for Buf {
+            fn write(&mut self, b: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().expect("buf").extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+        let buf = Buf::default();
+        let sink = buf.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_writer(move || sink.clone())
+            .with_ansi(false)
+            .finish();
+        // A callsite a parallel test reached first, with no subscriber, may
+        // have cached "never"; re-judge every callsite with this one in place.
+        let read = tracing::subscriber::with_default(subscriber, || {
+            tracing::callsite::rebuild_interest_cache();
+            probe()
+        });
+        let out = String::from_utf8(buf.0.lock().expect("buf").clone()).expect("utf8");
+        (read, out)
+    }
+
+    /// An existing file is warned about only for bits beyond its owner's,
+    /// and never for an owner its data directory shares.
+    #[test]
+    fn only_a_file_readable_beyond_its_owner_is_warned_about() {
+        let generated = SecretsKey::generate().unwrap();
+        let bytes = format!("{}\n", generated.text.expose_secret()).into_bytes();
+        for (mode, warned) in [
+            (PRIVATE_MODE, false),
+            (0o400, false),
+            (0o640, true),
+            (0o604, true),
+        ] {
+            let dir = Dir::new();
+            dir.plant(&bytes, mode);
+            let (read, out) = logged(|| InstanceKeyFile::in_dir(&dir.0).key_file(true));
+            assert_eq!(state(&read), "held", "{mode:o}");
+            assert_eq!(
+                out.contains("integrations.key_file.wide_mode"),
+                warned,
+                "{mode:o}: {out}"
+            );
+            assert!(
+                !out.contains("integrations.key_file.other_owner"),
+                "{mode:o}: {out}"
+            );
+        }
+    }
+
+    /// ADR-IIS-002 r6: a temp file is a leftover only once it is ten minutes
+    /// old; a younger one may still be a sibling's in flight.
+    #[test]
+    fn only_temp_files_ten_minutes_old_are_leftovers() {
+        let dir = Dir::new();
+        let young = plant_temp(&dir, "nine-minutes", std::time::Duration::from_secs(9 * 60));
+        let old = plant_temp(
+            &dir,
+            "eleven-minutes",
+            std::time::Duration::from_secs(11 * 60),
+        );
+        held_id(InstanceKeyFile::in_dir(&dir.0).key_file(true));
+        assert!(young.exists(), "a nine-minute-old temp file is kept");
+        assert!(!old.exists(), "an eleven-minute-old temp file is removed");
+    }
+
+    /// A data directory whose key file cannot even be looked up for a
+    /// reason other than its absence (here a name too long for any
+    /// filesystem) is unreadable, never a place to make one.
+    #[test]
+    fn a_key_file_that_cannot_be_looked_up_is_unreadable() {
+        let dir = Dir::new();
+        let unnameable = dir.0.join("d".repeat(300));
+        let read = InstanceKeyFile::in_dir(&unnameable).key_file(true);
+        assert_eq!(state(&read), "unreadable");
+        assert!(dir.names().is_empty(), "nothing made");
+    }
+
+    /// The file this server just linked is checked before its key is used:
+    /// one that is not 0600 by then fails the check (I-27).
+    #[test]
+    fn a_made_file_that_fails_its_check_is_unwritable() {
+        let dir = Dir::new();
+        let file = InstanceKeyFile {
+            link: |from, to| {
+                std::fs::hard_link(from, to)?;
+                std::fs::set_permissions(to, std::fs::Permissions::from_mode(0o644))
+            },
+            ..InstanceKeyFile::in_dir(&dir.0)
+        };
+        assert_eq!(state(&file.key_file(true)), "unwritable");
+    }
+
+    /// I-27 from `link` (`EPERM`, `ENOTSUP`) is final: one try, no retry
+    /// (only a temp file gone, `ENOENT`, is made once more).
+    #[test]
+    fn a_link_the_filesystem_refuses_is_tried_once() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static LINKS: AtomicUsize = AtomicUsize::new(0);
+        let dir = Dir::new();
+        let file = InstanceKeyFile {
+            link: |_, _| {
+                LINKS.fetch_add(1, Ordering::SeqCst);
+                Err(ErrorKind::PermissionDenied.into())
+            },
+            ..InstanceKeyFile::in_dir(&dir.0)
+        };
+        assert_eq!(state(&file.key_file(true)), "unwritable");
+        assert_eq!(LINKS.load(Ordering::SeqCst), 1, "no retry");
+        assert!(dir.names().is_empty(), "no file and no temp file");
+    }
+
     /// The boot's store: one snapshot, whatever is asked.
     struct Stored(foundry_store::integrations::InstanceSnapshot);
 
