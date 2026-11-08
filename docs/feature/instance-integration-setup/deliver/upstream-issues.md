@@ -237,3 +237,12 @@ Found while planning the roadmap (2026-11-06). None blocks a step; each has a pl
     operator key and no file, `integrations.key_file.withheld` logs a misleading reason.
     Unit 649/649; lanes IIS 59/597, eip 181/1942, wayfinding 54/400; smoke and ci (Docker,
     2132 scenarios) all gates green.
+51. **Mutation gate (2026-11-07): PASS 90.8%** (315 caught / 32 missed / 114 unviable,
+    cargo-mutants 27.1.0 `--in-diff`, commits `3aecfd1` pass 1 at 76.1%, `ae73c5e` pass 2).
+    Item 41 closed (key_file 89.5%); B2 proofs a/b/c each killed by named tests
+    (deliver/mutation/mutation-report.md). Survivors: handlers/instance.rs axum bodies (12,
+    acceptance-only), secrets_key_seam.rs (4, acceptance seam), `with_saved_slack` (5),
+    `log_secrets_verdict` (4, log only), key_file (4: root-only / crash-only / equivalent),
+    store instance.rs (3).
+52. **des-verify-integrity (2026-11-07):** "All 18 steps have complete DES traces". It does
+    not detect the RED-before-run ordering in items 38 and 42; those stay recorded here.
