@@ -430,6 +430,94 @@ the fact were read in the web part and then passed downward as a plain value thr
 ###### Obligations
 
 
+### S2
+
+##### Covers
+
+P4
+
+```text
+A workspace admin who is not this Foundry's instance admin opens the Slack setup guide the workspace integrations page sends her to, on a Foundry whose Slack app nobody has entered yet.
+```
+
+```text
+She reads, in that reading order, that an instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin > Integrations; that no restart is needed and a workspace admin can then choose Add to Slack on the workspace integrations page; and then the footnote that an instance operator may instead set the three Slack settings in Foundry's environment and restart, where the environment takes precedence. Nothing she reads there tells her to restart Foundry, and nothing tells her to set those three settings on this Foundry.
+```
+
+```text
+Nobody who reads the Slack guide is told to restart Foundry or to edit settings: it names the one browser page where an instance admin enters the app, and keeps the operator's settings as an aside for the operator who still uses them.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: The Slack setup guide names the browser form and asks for no restart
+
+```text
+the three sentences were one paragraph instead of the guide's third and fourth steps and a footnote under them: what this row reads is the words a reader reads and the order she reads them in, not which list item or markup carries each one.
+```
+
+###### Obligations
+
+None.
+
+##### Covers
+
+P4
+
+```text
+An instance admin reads the Slack app manifest on the page for this Foundry's integrations, and the manifest the Slack setup guide shows.
+```
+
+```text
+The guide shows the same manifest as the page for this Foundry's integrations, so the Slack app anyone creates from either of them is the same app this Foundry expects.
+```
+
+```text
+Rewording the guide changes nothing about the Slack app already created from it: the manifest a reader copies is still this Foundry's own.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: With a secrets key the page shows what to paste into Slack
+
+```text
+both pages showed the same wrong manifest; what this row reads is that the two agree, and the same scenario separately reads this Foundry's own return and events addresses off that page.
+```
+
+###### Obligations
+
+None.
+
+##### Covers
+
+P6
+
+```text
+An instance operator follows the release notes and the Kubernetes deployment notes to set Slack and Matrix up on a Foundry she has just deployed.
+```
+
+```text
+Both documents send her to Integrations for this Foundry in the browser, where an instance admin generates the secrets key and enters the Slack app with no restart, and both present the Slack settings in Foundry's environment as the optional alternative rather than the way to do it.
+```
+
+```text
+An operator setting up a fresh Foundry is not told to put Slack secrets into the environment and restart; she can finish both integrations in the browser, and already can, because the earlier delivery of this Foundry's integrations setup reworded both documents and this one changes neither.
+```
+
+##### Disposition
+
+NotTested
+
+```text
+These are documents an operator reads, not pages this Foundry serves: no public address of this Foundry renders them and no declared check of this delivery reads them, and pinning their sentences in a test would freeze prose the product never promised word for word. Both documents already read this way.
+```
+
+examiner\, reading the release notes and the Kubernetes deployment notes as an operator of a freshly deployed Foundry
+
 ## Expectations
 
 ### Rows

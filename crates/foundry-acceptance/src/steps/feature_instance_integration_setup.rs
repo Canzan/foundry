@@ -25,7 +25,20 @@ use crate::support::instance_integration_setup::{
 };
 use crate::support::integrations_wayfinding::{self as iw, Offered};
 use crate::world::FoundryWorld;
+use cucumber::gherkin::Step;
 use cucumber::{given, then, when};
+
+/// The sentences a one-column table lists, in the order it lists them.
+fn sentences(step: &Step) -> Vec<String> {
+    step.table
+        .as_ref()
+        .expect("this step carries a table of sentences")
+        .rows
+        .iter()
+        .skip(1)
+        .map(|row| row[0].trim().to_string())
+        .collect()
+}
 
 // =========================================================================== instance
 
@@ -386,6 +399,29 @@ async fn tomas_opens_workspace(world: &mut FoundryWorld, who: String) {
 #[then(regex = r#"^(Tomás) reads "(.+)"$"#)]
 async fn tomas_reads(world: &mut FoundryWorld, who: String, words: String) {
     eip::then_reads(world, &who, &words);
+}
+
+// Tomás also reads the Slack setup guide (I-20): he is a workspace admin and
+// not this Foundry's instance admin, which is the reader the workspace page
+// sends there.
+#[when(regex = r"^(Tomás) opens the Slack setup page$")]
+async fn tomas_opens_slack_setup(world: &mut FoundryWorld, who: String) {
+    eip::when_open_door(
+        world,
+        &who,
+        eip::WorkspaceDoor::parse("the Slack setup page"),
+    )
+    .await;
+}
+
+#[then(regex = r"^(Tomás) reads these sentences in this order$")]
+async fn reads_in_order(world: &mut FoundryWorld, who: String, step: &Step) {
+    iis::then_reads_in_order(world, &who, &sentences(step));
+}
+
+#[then(regex = r#"^nothing (Tomás) reads there says "([^"]+)"$"#)]
+async fn reads_nothing_saying(world: &mut FoundryWorld, who: String, phrase: String) {
+    iis::then_reads_nothing_saying(world, &who, &phrase);
 }
 
 #[then(regex = r"^the links (Priya|Tomás|Lena) is offered read (.+)$")]

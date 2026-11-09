@@ -5,10 +5,10 @@
 #
 # Copy I-n is locked in docs/feature/instance-integration-setup/discuss/
 # user-stories.md. US-IIS-04 (I-19: the workspace pages and the route form send
-# an instance admin to the setup) is here, at the end of the file. The rest of
-# Deliverable B (US-IIS-05, 07 and I-20: Replace, Remove, the I-14 confirm,
-# Start over, the Slack guide) is not; where A shows a state B extends (I-26),
-# A's scenario checks the restore-only form.
+# an instance admin to the setup; I-20: what the Slack setup guide tells her to
+# do) is here, at the end of the file. The rest of Deliverable B (US-IIS-05, 07:
+# Replace, Remove, the I-14 confirm, Start over) is not; where A shows a state B
+# extends (I-26), A's scenario checks the restore-only form.
 #
 # Harness (DEVOPS D8, brief.md "For Acceptance Designer"): the production
 # router in process (InProcHarness), real Postgres, Slack as the in-process
@@ -633,6 +633,26 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya reads "This workspace has no chat connection yet."
     And the links Priya is offered read "Connect Slack or Matrix in workspace integrations" then "New route"
     And every link Priya is offered answers with its page
+
+  # The guide the page sends a workspace admin to tells her who sets Slack up
+  # and that nothing restarts: an instance admin enters the app in the browser,
+  # and the operator's settings survive only as a footnote after the steps, as
+  # the alternative that wins where it is used. Tomás is a workspace admin and
+  # not this Foundry's instance admin, so this is the reader the offer sends.
+  # The second absent phrase is the sentence this guide is replacing: a guide
+  # that gained the new sentences but kept the old instruction would still send
+  # her to an operator.
+  @us-iis-04 @kpi-iis-3
+  Scenario: The Slack setup guide names the browser form and asks for no restart
+    Given this Foundry starts with its instance key set by the operator
+    When Tomás opens the Slack setup page
+    Then Tomás reads these sentences in this order
+      | sentence                                                                                                                                                       |
+      | An instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin › Integrations.                                             |
+      | No restart is needed. A workspace admin can then choose Add to Slack on the workspace integrations page.                                                        |
+      | An instance operator may instead set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET in Foundry's environment and restart; the environment takes precedence. |
+    And nothing Tomás reads there says "Restart Foundry"
+    And nothing Tomás reads there says "SLACK_SIGNING_SECRET on this Foundry"
 
   # ------------------------------------------------------ alert inputs on reload
 

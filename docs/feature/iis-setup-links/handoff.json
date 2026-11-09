@@ -237,6 +237,47 @@
 "stimulus": "F255",
 "user_result": "F257"
 }
+],
+"S2": [
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F264",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: The Slack setup guide names the browser form and asks for no restart"
+},
+"expected": "F262",
+"stimulus": "F261",
+"user_result": "F263"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F268",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: With a secrets key the page shows what to paste into Slack"
+},
+"expected": "F266",
+"stimulus": "F265",
+"user_result": "F267"
+},
+{
+"covers": [
+"P6"
+],
+"disposition": {
+"kind": "NotTested",
+"owner": "examiner, reading the release notes and the Kubernetes deployment notes as an operator of a freshly deployed Foundry",
+"reason": "F272"
+},
+"expected": "F270",
+"stimulus": "F269",
+"user_result": "F271"
+}
 ]
 },
 "counters": {
@@ -244,7 +285,7 @@
 "C": 1,
 "D": 8,
 "E": 14,
-"F": 260,
+"F": 272,
 "K": 5,
 "L": 6,
 "P": 6,
@@ -1306,7 +1347,19 @@
 "F259": "the form agreed with the page about the words while disagreeing about the order of the two offers; the order is stated as part of the expected list in every row. The save refuses in place rather than answering plainly, and the reader takes that re-rendered form as the page it is, so the row is decided by its offers and not by how the refusal is answered.",
 "F26": "The Slack app manifest the setup page gives me is the same as before this change, so a Slack app I already created from it stays correct. Limitation: judging \"unchanged\" needs the previously published manifest to compare against; this handoff does not supply it.",
 "F260": "the offer pointed at a page that merely answers rather than at the instance integrations page; the landing step pins which page it is. The save refuses in place rather than answering plainly, and the reader takes that re-rendered form as the page it is, so the row is decided by its offers and not by how the refusal is answered.",
+"F261": "A workspace admin who is not this Foundry's instance admin opens the Slack setup guide the workspace integrations page sends her to, on a Foundry whose Slack app nobody has entered yet.",
+"F262": "She reads, in that reading order, that an instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin > Integrations; that no restart is needed and a workspace admin can then choose Add to Slack on the workspace integrations page; and then the footnote that an instance operator may instead set the three Slack settings in Foundry's environment and restart, where the environment takes precedence. Nothing she reads there tells her to restart Foundry, and nothing tells her to set those three settings on this Foundry.",
+"F263": "Nobody who reads the Slack guide is told to restart Foundry or to edit settings: it names the one browser page where an instance admin enters the app, and keeps the operator's settings as an aside for the operator who still uses them.",
+"F264": "the three sentences were one paragraph instead of the guide's third and fourth steps and a footnote under them: what this row reads is the words a reader reads and the order she reads them in, not which list item or markup carries each one.",
+"F265": "An instance admin reads the Slack app manifest on the page for this Foundry's integrations, and the manifest the Slack setup guide shows.",
+"F266": "The guide shows the same manifest as the page for this Foundry's integrations, so the Slack app anyone creates from either of them is the same app this Foundry expects.",
+"F267": "Rewording the guide changes nothing about the Slack app already created from it: the manifest a reader copies is still this Foundry's own.",
+"F268": "both pages showed the same wrong manifest; what this row reads is that the two agree, and the same scenario separately reads this Foundry's own return and events addresses off that page.",
+"F269": "An instance operator follows the release notes and the Kubernetes deployment notes to set Slack and Matrix up on a Foundry she has just deployed.",
 "F27": "On the workspace integrations page and the new-route form, the W-2, W-3, K-2 and K-19 wording reads exactly as it did before this change: a user who knew those sentences finds no word rewritten, only the new links around them. Limitation: this handoff supplies the identities but not the prior text of W-2, W-3, K-2 and K-19, so judging it needs that published prior wording.",
+"F270": "Both documents send her to Integrations for this Foundry in the browser, where an instance admin generates the secrets key and enters the Slack app with no restart, and both present the Slack settings in Foundry's environment as the optional alternative rather than the way to do it.",
+"F271": "An operator setting up a fresh Foundry is not told to put Slack secrets into the environment and restart; she can finish both integrations in the browser, and already can, because the earlier delivery of this Foundry's integrations setup reworded both documents and this one changes neither.",
+"F272": "These are documents an operator reads, not pages this Foundry serves: no public address of this Foundry renders them and no declared check of this delivery reads them, and pinning their sentences in a test would freeze prose the product never promised word for word. Both documents already read this way.",
 "F28": "An operator reading RELEASING.md R-1 and R-2 is told to set up Slack and Matrix in the browser under Instance admin › Integrations, and can finish both integrations by following only those browser instructions.",
 "F29": "deploy/k8s/README.md also describes setting Slack and Matrix up in the browser under Instance admin › Integrations, and both documents present the environment settings as an optional operator alternative rather than a required step.",
 "F3": "On GET /workspace/integrations, an instance admin who reads W-2 (Slack or Matrix) or W-3 sees it followed by any existing link (\"How to set up Slack\" for Slack W-2), then I-19 \"Set up integrations for this Foundry\", a link to /admin/instance/integrations. US-IW-02 AC 1 and KPI-IW-3 stay valid.",

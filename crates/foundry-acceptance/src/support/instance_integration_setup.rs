@@ -1021,6 +1021,53 @@ pub fn then_on_instance_page(world: &FoundryWorld, who: &str) {
     );
 }
 
+/// "<who> reads these sentences in this order" (I-20 on the Slack setup
+/// guide): every sentence the table lists is on the page in front of them, and
+/// each one comes after the one above it. Order is the observation, not a
+/// nicety: the operator's alternative is a footnote after the steps, and a
+/// guide that puts it first tells her to go to an operator again.
+pub fn then_reads_in_order(world: &FoundryWorld, who: &str, sentences: &[String]) {
+    let answer = answer(world);
+    answered(&answer, &format!("{who}'s page"));
+    let text = seen(world, &answer);
+    let mut read_so_far = 0usize;
+    for (nth, sentence) in sentences.iter().enumerate() {
+        match text[read_so_far..].find(sentence.as_str()) {
+            Some(at) => read_so_far += at + sentence.len(),
+            None => {
+                let where_instead = if text.contains(sentence.as_str()) {
+                    "it is on the page, but earlier than the sentence above it"
+                } else {
+                    "it is nowhere on the page"
+                };
+                panic!(
+                    "{who} reads {sentence:?} here, as the {}. of the sentences this page \
+                     promises its reader, after the ones above it; {where_instead}, so a reader \
+                     sent to this guide is not told this; make the page say it, in these words \
+                     and in this order; {}",
+                    nth + 1,
+                    tm::describe(&answer)
+                )
+            }
+        }
+    }
+}
+
+/// "nothing <who> reads there says <phrase>": the phrase is absent from the
+/// page in front of them. The same reading found the sentences the page does
+/// promise, which is what tells an absent phrase from a page nobody read.
+pub fn then_reads_nothing_saying(world: &FoundryWorld, who: &str, phrase: &str) {
+    let answer = answer(world);
+    answered(&answer, &format!("{who}'s page"));
+    let text = seen(world, &answer);
+    assert!(
+        !text.contains(phrase),
+        "nothing {who} reads here says {phrase:?}, because this page no longer asks its reader \
+         for that; remove the sentence that says it; {}",
+        tm::describe(&answer)
+    );
+}
+
 /// "the instance integrations page reads <words>" (Priya's view, now).
 pub async fn then_page_reads(world: &mut FoundryWorld, words: &str) {
     let page = instance_page(world, "Priya").await;
