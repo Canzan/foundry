@@ -56,6 +56,12 @@ P6 is half shipped and half owed. RELEASING.md R-1 and R-2 (lines 404-425) and d
 Claim-to-checker mapping. Every claim in this design is local, pure and finite, and each is covered by the checker that actually decides it. Totality and the exclusion of an unopenable or misordered offer: the repository's own checker, rustc, over the closed NoConnectionCause, SlackOffer and MatrixOffer enums, with words the only writer of fixes, so no other arm can add an href. The whole relation: exhaustive enumeration of all 112 (cause, connected, Viewer) rows in the module's finite table, which is complete rather than sampled. The link-to-guard agreement: the public oracle follows each offered link off the rendered page and observes its status, which is the real guarantor; a model of that agreement could only restate the assumption about require_instance_admin. No state-transition, temporal, fairness, concurrency or recovery claim exists, so no state model is selected: Quint, TLA+ and Agda would add a second encoding of the same finite table and no checking power. Observed on this host for the record, not as the reason: quint, agda and apalache-mc are absent and the java launcher is misconfigured (jenv points at an uninstalled 26 while Corretto 27 is installed); node and npm are present. The one gap no checker closes is a template writing an href literally instead of rendering fixes, recorded as a Bypass risk with its owner.
 ```
 
+#### D9
+
+```text
+Amendment to D2, accepted from the crafter. The observation splits by what each part actually depends on. NoConnectionCause owns one private in_the_workspace(manages_the_workspace) -> (String, Option<FixLink>); the public sentence(viewer_is_workspace_admin) -> String returns its first part, and words(Viewer) composes the same pair with Viewer::setup_offer. A door that renders a line consumes words and needs both viewer facts; a door that only says why it refused consumes sentence and needs only the workspace-admin fact it already holds. This is what keeps the no-added-query constraint true: the Matrix Send-test refusal would otherwise have had to read the instance-admin fact from the store on a path that discards it. D2's reason for the Viewer value object is untouched, because it was about agreement on argument position across the five call sites of words, line and project_lines; sentence carries one fact, for one caller, and creates no such agreement. Caller::viewer, which the earlier shape needed, has no caller and is deleted.
+```
+
 ### Constraints
 
 #### K1
@@ -238,14 +244,14 @@ Changed
 project_lines takes the Viewer, built where nav is already created at routes.rs:729, and project.html loops over fixes. The project page's words and links are unchanged.
 ```
 
-handler\, consumer of the words only
+handler\, consumer of the sentence only
 
-crates\/foundry\-app\/src\/integrations\/handlers\/matrix\_setup\.rs\:285
+crates\/foundry\-app\/src\/integrations\/handlers\/matrix\_setup\.rs\:288
 
 Changed
 
 ```text
-The Send-test refusal reads only ConnectionWords.words, so it must pass a Viewer. It takes the same two facts the refused page already resolves; its words do not depend on the instance-admin fact, and it offers no link.
+The Send-test refusal reads only the sentence, which depends on the workspace-admin fact alone, so it calls sentence(door.target.viewer_is_workspace_admin) and reads no instance-admin fact. It offers no link, and its K-19 and K-4 words are unchanged.
 ```
 
 handler and its template\, the workspace page
@@ -504,6 +510,10 @@ project\_lines
 
 fn project\_lines\(connections\: \&\[\(ChannelKind\, SharedConnection\)\]\, viewer\: Viewer\) \-\> Vec\<ConnectionWords\>
 
+NoConnectionCause\:\:sentence
+
+fn sentence\(self\, viewer\_is\_workspace\_admin\: bool\) \-\> String
+
 ### Laws
 
 #### L1
@@ -716,6 +726,40 @@ Tomas and Lena request the same path directly and get the uniform not-found page
 
 ```text
 Two outcomes of one shipped guard; the finite check follows the real link off the rendered page rather than asserting the guard in isolation.
+```
+
+##### Evidence
+
+None.
+
+#### L7
+
+```text
+The sentence projection agrees with the full observation: for every (cause, Viewer), words(viewer).words equals sentence(viewer.is_workspace_admin), so a door that reads only the sentence reads the same bytes the full render would, and the instance-admin fact changes only the offers.
+```
+
+Invariant
+
+Domain
+
+crates\/foundry\-app\/src\/integrations\/no\_connection\.rs
+
+##### Treatment
+
+Finite
+
+###### Cases
+
+```text
+Each of the 28 (cause, connected) rows times the four Viewer values, comparing words(viewer).words against sentence(viewer.is_workspace_admin)
+```
+
+```text
+NotConnected for a workspace admin and for a lead, where the sentence is the one that does depend on the workspace-admin fact (W-4 against K-4)
+```
+
+```text
+The same closed finite domain as the other laws; one pass over the existing table decides it, and the pair is built once in in_the_workspace, so no sampling could reach a case the table does not.
 ```
 
 ##### Evidence
@@ -1296,14 +1340,14 @@ Extend
 Same loop change as the route form, so one rendering shape serves every ConnectionWords consumer; no W-6, W-7 or K-4 line gains a link.
 ```
 
-cause
+sentence
 
-crates\/foundry\-app\/src\/integrations\/handlers\/matrix\_setup\.rs\:281
+crates\/foundry\-app\/src\/integrations\/handlers\/matrix\_setup\.rs\:288
 
 Extend
 
 ```text
-The Send-test refusal already reads its words from the same cause function; it keeps doing so through the Viewer and offers no link, so K-19 and K-4 stay word for word.
+The Send-test refusal already read its words from the same cause function and keeps doing so through the sentence projection, which needs only the fact the door already holds. It offers no link, so K-19 and K-4 stay word for word.
 ```
 
 ##### Impact

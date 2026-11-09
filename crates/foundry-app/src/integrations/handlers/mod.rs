@@ -234,22 +234,6 @@ impl Caller {
             .await
     }
 
-    /// The viewer a no-connection sentence's offers are decided for: the
-    /// workspace-admin fact the page's own view carries, and whether this
-    /// Foundry's setup is theirs to open, read fail-closed as the nav reads
-    /// it. A page that already holds its nav builds the viewer from that
-    /// instead, so the offer costs it no extra read.
-    async fn viewer(
-        &self,
-        state: &AppState,
-        is_workspace_admin: bool,
-    ) -> crate::integrations::no_connection::Viewer {
-        crate::integrations::no_connection::Viewer::new(
-            is_workspace_admin,
-            crate::nav::resolve_is_instance_admin(state, self.user.user_id).await,
-        )
-    }
-
     async fn nav(&self, state: &AppState, csrf: String) -> crate::nav::NavContext {
         let is_instance_admin =
             crate::nav::resolve_is_instance_admin(state, self.user.user_id).await;

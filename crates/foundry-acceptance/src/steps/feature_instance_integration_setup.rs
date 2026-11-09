@@ -382,10 +382,40 @@ async fn refused(world: &mut FoundryWorld, names: String) {
 
 // =========================================================================== the links a page offers (US-IIS-04)
 
-// Tomás reads the workspace integrations page as a workspace admin who is not
-// an instance admin. The eip and wayfinding drivers own the door and the page
-// reader; the eip step file names only Priya, Lena, Sam and Marco, so these
-// two phrases add his name and nothing else.
+// Tomás reads the workspace integrations page and a project's route form as a
+// workspace admin who is not an instance admin. The eip and wayfinding drivers
+// own the doors and the page reader; their step files name only Priya, Lena,
+// Sam and Marco, so these phrases add his name and nothing else.
+#[when(regex = r"^(Tomás) opens a new (Slack|Matrix) route for (Identity Platform)$")]
+async fn tomas_opens_new_route(
+    world: &mut FoundryWorld,
+    who: String,
+    kind: String,
+    project: String,
+) {
+    iw::when_open_new_route(world, &who, eip::Kind::parse(&kind), &project).await;
+}
+
+#[when(
+    regex = r"^(Tomás) (previews|saves|sends a test from) a new (Slack|Matrix) route for (Identity Platform)$"
+)]
+async fn tomas_posts_new_route(
+    world: &mut FoundryWorld,
+    who: String,
+    door: String,
+    kind: String,
+    project: String,
+) {
+    iw::when_post_new_route(
+        world,
+        &who,
+        iw::RouteDoor::parse(&door),
+        eip::Kind::parse(&kind),
+        &project,
+    )
+    .await;
+}
+
 #[when(regex = r"^(Tomás) opens the workspace integrations page$")]
 async fn tomas_opens_workspace(world: &mut FoundryWorld, who: String) {
     eip::when_open_door(

@@ -108,17 +108,10 @@ impl Viewer {
         Vec::from_iter(fix.filter(|_| self.is_workspace_admin))
     }
 
-    /// The ways out of a sentence only this Foundry's setup can clear (W-2,
-    /// W-3): the workspace's own `fix` where the viewer can open it, then
-    /// I-19 where this Foundry's setup is theirs. The link a viewer is
-    /// offered today keeps its place, so I-19 is always last (US-IIS-04).
-    fn offers_with_setup(self, fix: Option<FixLink>) -> Vec<FixLink> {
-        let mut offers = self.offers(fix);
-        offers.extend(
-            self.is_instance_admin
-                .then(|| FixLink::new(SET_UP_INTEGRATIONS, INSTANCE_PATH)),
-        );
-        offers
+    /// I-19, where this Foundry's own setup is this viewer's to open.
+    fn setup_offer(self) -> Option<FixLink> {
+        self.is_instance_admin
+            .then(|| FixLink::new(SET_UP_INTEGRATIONS, INSTANCE_PATH))
     }
 }
 
@@ -168,35 +161,51 @@ impl NoConnectionCause {
         matches!(self, Self::NotSetUp(_) | Self::NoSecretsKey(_))
     }
 
+    /// What this cause reads, and the workspace's own way out of it, for a
+    /// viewer who `manages_the_workspace` or does not: the two parts nothing
+    /// outside the workspace can change. A lead keeps K-4 for an unconnected
+    /// workspace, since only an admin can connect it.
+    fn in_the_workspace(self, manages_the_workspace: bool) -> (String, Option<FixLink>) {
+        let manages = manages_the_workspace;
+        match self {
+            Self::NotSetUp(ChannelKind::Matrix) | Self::NoSecretsKey(ChannelKind::Matrix) => {
+                (MATRIX_NOT_SET_UP.to_string(), None)
+            }
+            Self::NotSetUp(_) => (
+                SLACK_NOT_SET_UP.to_string(),
+                manages.then(|| FixLink::new(HOW_TO_SET_UP_SLACK, SETUP_PATH)),
+            ),
+            Self::NoSecretsKey(_) => (SLACK_NO_SECRETS_KEY.to_string(), None),
+            Self::Unreadable(kind) => (unavailable_words(kind), None),
+            Self::NotConnected(kind) if manages => (
+                NO_KIND_CONNECTION.replace("{kind}", kind.display_name()),
+                Some(FixLink::new(
+                    CONNECT_KIND.replace("{kind}", kind.display_name()),
+                    WORKSPACE_PATH,
+                )),
+            ),
+            Self::NotConnected(_) => (NO_CHAT_CONNECTION.to_string(), None),
+        }
+    }
+
+    /// The sentence alone, for a door that offers no way on: W-2, W-3, W-4,
+    /// K-4 and K-19 read the same whether or not this Foundry's setup is the
+    /// viewer's, since that fact only ever adds an offer. A page that shows no
+    /// offer therefore needs no instance-admin read (the Send-test refusal).
+    pub fn sentence(self, viewer_is_workspace_admin: bool) -> String {
+        self.in_the_workspace(viewer_is_workspace_admin).0
+    }
+
     /// What a `viewer` reads for this cause, and the ways out they are
     /// offered, in reading order: the workspace's own fix where one exists and
     /// is theirs, then I-19 for a cause only this Foundry's setup can clear.
-    /// A lead keeps K-4 for an unconnected workspace, since only an admin can
-    /// connect it.
     pub fn words(self, viewer: Viewer) -> ConnectionWords {
-        let (words, fixes) = match self {
-            Self::NotSetUp(ChannelKind::Matrix) | Self::NoSecretsKey(ChannelKind::Matrix) => (
-                MATRIX_NOT_SET_UP.to_string(),
-                viewer.offers_with_setup(None),
-            ),
-            Self::NotSetUp(_) => (
-                SLACK_NOT_SET_UP.to_string(),
-                viewer.offers_with_setup(Some(FixLink::new(HOW_TO_SET_UP_SLACK, SETUP_PATH))),
-            ),
-            Self::NoSecretsKey(_) => (
-                SLACK_NO_SECRETS_KEY.to_string(),
-                viewer.offers_with_setup(None),
-            ),
-            Self::Unreadable(kind) => (unavailable_words(kind), viewer.offers(None)),
-            Self::NotConnected(kind) if viewer.manages_the_workspace() => (
-                NO_KIND_CONNECTION.replace("{kind}", kind.display_name()),
-                viewer.offers(Some(FixLink::new(
-                    CONNECT_KIND.replace("{kind}", kind.display_name()),
-                    WORKSPACE_PATH,
-                ))),
-            ),
-            Self::NotConnected(_) => (NO_CHAT_CONNECTION.to_string(), viewer.offers(None)),
-        };
+        let (words, workspace_fix) = self.in_the_workspace(viewer.manages_the_workspace());
+        let mut fixes = Vec::from_iter(workspace_fix);
+        if self.awaits_this_foundry() {
+            // I-19 last, so the way out a viewer has today keeps its place.
+            fixes.extend(viewer.setup_offer());
+        }
         ConnectionWords { words, fixes }
     }
 }
@@ -246,8 +255,8 @@ impl SharedConnection {
                     WORKSPACE_PATH,
                 ))),
             ),
-            Self::Lost(lost) => (lost_words(kind, lost), viewer.offers(None)),
-            Self::Unreadable => (unavailable_words(kind), viewer.offers(None)),
+            Self::Lost(lost) => (lost_words(kind, lost), Vec::new()),
+            Self::Unreadable => (unavailable_words(kind), Vec::new()),
         };
         ConnectionWords { words, fixes }
     }
@@ -264,12 +273,12 @@ pub fn project_lines(
         let line = if viewer.manages_the_workspace() {
             ConnectionWords {
                 words: NO_CHAT_CONNECTION_YET.to_string(),
-                fixes: viewer.offers(Some(FixLink::new(CONNECT_SLACK_OR_MATRIX, WORKSPACE_PATH))),
+                fixes: vec![FixLink::new(CONNECT_SLACK_OR_MATRIX, WORKSPACE_PATH)],
             }
         } else {
             ConnectionWords {
                 words: NO_CHAT_CONNECTION.to_string(),
-                fixes: viewer.offers(None),
+                fixes: Vec::new(),
             }
         };
         return vec![line];

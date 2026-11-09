@@ -430,6 +430,38 @@ the fact were read in the web part and then passed downward as a plain value thr
 ###### Obligations
 
 
+##### Covers
+
+P3
+
+P5
+
+```text
+With this Foundry holding a secrets key and no Slack app, a workspace admin who is not this Foundry's instance admin opens a new Slack route for a project, asks that form for a preview, and saves it.
+```
+
+```text
+Each of the three answers reads the shipped sentence that Slack is not set up, offers how to set up Slack and nothing else anywhere on the page, and that single offer opens for him.
+```
+
+```text
+A workspace admin who meets a missing Slack setup while making a route is never sent to a setup page that would refuse him, on any of the form's doors.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: A workspace admin who is not an instance admin keeps the guide on a route form\, its preview and its save
+
+```text
+the setup were offered to this viewer on a page this row does not read; the workspace-page row for the same viewer reads that one. Within these three doors nothing weaker passes: treating every workspace admin as an instance admin shows the setup offer here and fails the list.
+```
+
+###### Obligations
+
+
+
 ### S2
 
 ##### Covers

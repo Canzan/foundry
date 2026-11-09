@@ -282,12 +282,10 @@ pub(super) async fn send_matrix_test(
         (None, Some(bot)) => bot,
         (cause, _) => {
             let cause = cause.unwrap_or(NoConnectionCause::NotConnected(ChannelKind::Matrix));
-            // The refusal reads the words only: this page offers no way on,
-            // so the viewer decides nothing here beyond them.
-            let viewer = caller
-                .viewer(state, door.target.viewer_is_workspace_admin)
-                .await;
-            let words = cause.words(viewer).words;
+            // The refusal offers no way on, and the sentence never depends
+            // on this Foundry's setup being the viewer's, so it is read
+            // without the instance-admin fact: no authorization read here.
+            let words = cause.sentence(door.target.viewer_is_workspace_admin);
             return refused_page(
                 state,
                 caller,

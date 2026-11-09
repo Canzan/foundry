@@ -236,6 +236,24 @@
 "expected": "F256",
 "stimulus": "F255",
 "user_result": "F257"
+},
+{
+"covers": [
+"P3",
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F91",
+"L3/F100"
+],
+"still_passes_if": "F285",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: A workspace admin who is not an instance admin keeps the guide on a route form, its preview and its save"
+},
+"expected": "F283",
+"stimulus": "F282",
+"user_result": "F284"
 }
 ],
 "S2": [
@@ -283,11 +301,11 @@
 "counters": {
 "B": 2,
 "C": 1,
-"D": 8,
+"D": 9,
 "E": 14,
-"F": 281,
+"F": 292,
 "K": 6,
-"L": 6,
+"L": 7,
 "P": 6,
 "S": 2,
 "T": 1,
@@ -466,6 +484,10 @@
 {
 "name": "project_lines",
 "signature": "fn project_lines(connections: &[(ChannelKind, SharedConnection)], viewer: Viewer) -> Vec<ConnectionWords>"
+},
+{
+"name": "NoConnectionCause::sentence",
+"signature": "fn sentence(self, viewer_is_workspace_admin: bool) -> String"
 }
 ],
 "decisions": [
@@ -500,6 +522,10 @@
 {
 "id": "D8",
 "text": "F37"
+},
+{
+"id": "D9",
+"text": "F286"
 }
 ],
 "equality": [
@@ -539,9 +565,9 @@
 },
 {
 "decision": "Changed",
-"kind": "handler, consumer of the words only",
-"locator": "crates/foundry-app/src/integrations/handlers/matrix_setup.rs:285",
-"reason": "F57"
+"kind": "handler, consumer of the sentence only",
+"locator": "crates/foundry-app/src/integrations/handlers/matrix_setup.rs:288",
+"reason": "F287"
 },
 {
 "decision": "Changed",
@@ -660,6 +686,21 @@
 ],
 "kind": "Finite",
 "reason": "F116"
+}
+},
+{
+"id": "L7",
+"kind": "Invariant",
+"layer": "Domain",
+"owner": "crates/foundry-app/src/integrations/no_connection.rs",
+"statement": "F288",
+"treatment": {
+"cases": [
+"F289",
+"F290"
+],
+"kind": "Finite",
+"reason": "F291"
 }
 }
 ],
@@ -937,9 +978,9 @@
 },
 {
 "decision": "Extend",
-"locator": "crates/foundry-app/src/integrations/handlers/matrix_setup.rs:281",
-"reason": "F199",
-"symbol": "cause"
+"locator": "crates/foundry-app/src/integrations/handlers/matrix_setup.rs:288",
+"reason": "F292",
+"symbol": "sentence"
 }
 ]
 },
@@ -1304,7 +1345,6 @@
 "F196": "Its single optional fix becomes a loop over the ordered fixes; the words and, for every shipped row, the single link are unchanged.",
 "F197": "The project page already renders a list of ConnectionWords; project_lines takes the Viewer, built where nav already exists, and the page's lines and links stay as they ship.",
 "F198": "Same loop change as the route form, so one rendering shape serves every ConnectionWords consumer; no W-6, W-7 or K-4 line gains a link.",
-"F199": "The Send-test refusal already reads its words from the same cause function; it keeps doing so through the Viewer and offers no link, so K-19 and K-4 stay word for word.",
 "F2": "An instance admin who reads W-2 or W-3 on the workspace integrations page or a new-route form can follow 'Set up integrations for this Foundry' to fix it in the browser, and the Slack setup guide no longer says to restart",
 "F20": "When I ask the new-route form for a preview, and when I create the route, the response I land on offers those same links with the same words for the same state. Ambiguity for the product owner: P2 names the preview and create posts but not what they render, so if a post answers with a redirect instead of the form, this claim can only be judged on the page that actually shows the form.",
 "F200": "The W-2 Slack, W-3 and W-2 Matrix arms render the words and loop over fixes; the literal setup anchor on this line is removed. The K-19 and Add-to-Slack arms are untouched.",
@@ -1395,7 +1435,18 @@
 "F28": "An operator reading RELEASING.md R-1 and R-2 is told to set up Slack and Matrix in the browser under Instance admin › Integrations, and can finish both integrations by following only those browser instructions.",
 "F280": "Same gap: the only Matrix line is the sealing sentence at line 97. Step 4 of the Integrations section gains the same Matrix sentence as R-2, so the two documents stay word-compatible and neither tells anyone to restart or to set an environment variable for Matrix.",
 "F281": "This arm already renders W-2 Slack and W-3; it keeps the words and stops holding the link decision, rendering the offer list instead. The literal setup anchor it used to carry goes away, so the page can no longer disagree with the route form.",
+"F282": "With this Foundry holding a secrets key and no Slack app, a workspace admin who is not this Foundry's instance admin opens a new Slack route for a project, asks that form for a preview, and saves it.",
+"F283": "Each of the three answers reads the shipped sentence that Slack is not set up, offers how to set up Slack and nothing else anywhere on the page, and that single offer opens for him.",
+"F284": "A workspace admin who meets a missing Slack setup while making a route is never sent to a setup page that would refuse him, on any of the form's doors.",
+"F285": "the setup were offered to this viewer on a page this row does not read; the workspace-page row for the same viewer reads that one. Within these three doors nothing weaker passes: treating every workspace admin as an instance admin shows the setup offer here and fails the list.",
+"F286": "Amendment to D2, accepted from the crafter. The observation splits by what each part actually depends on. NoConnectionCause owns one private in_the_workspace(manages_the_workspace) -> (String, Option<FixLink>); the public sentence(viewer_is_workspace_admin) -> String returns its first part, and words(Viewer) composes the same pair with Viewer::setup_offer. A door that renders a line consumes words and needs both viewer facts; a door that only says why it refused consumes sentence and needs only the workspace-admin fact it already holds. This is what keeps the no-added-query constraint true: the Matrix Send-test refusal would otherwise have had to read the instance-admin fact from the store on a path that discards it. D2's reason for the Viewer value object is untouched, because it was about agreement on argument position across the five call sites of words, line and project_lines; sentence carries one fact, for one caller, and creates no such agreement. Caller::viewer, which the earlier shape needed, has no caller and is deleted.",
+"F287": "The Send-test refusal reads only the sentence, which depends on the workspace-admin fact alone, so it calls sentence(door.target.viewer_is_workspace_admin) and reads no instance-admin fact. It offers no link, and its K-19 and K-4 words are unchanged.",
+"F288": "The sentence projection agrees with the full observation: for every (cause, Viewer), words(viewer).words equals sentence(viewer.is_workspace_admin), so a door that reads only the sentence reads the same bytes the full render would, and the instance-admin fact changes only the offers.",
+"F289": "Each of the 28 (cause, connected) rows times the four Viewer values, comparing words(viewer).words against sentence(viewer.is_workspace_admin)",
 "F29": "deploy/k8s/README.md also describes setting Slack and Matrix up in the browser under Instance admin › Integrations, and both documents present the environment settings as an optional operator alternative rather than a required step.",
+"F290": "NotConnected for a workspace admin and for a lead, where the sentence is the one that does depend on the workspace-admin fact (W-4 against K-4)",
+"F291": "The same closed finite domain as the other laws; one pass over the existing table decides it, and the pair is built once in in_the_workspace, so no sampling could reach a case the table does not.",
+"F292": "The Send-test refusal already read its words from the same cause function and keeps doing so through the sentence projection, which needs only the fact the door already holds. It offers no link, so K-19 and K-4 stay word for word.",
 "F3": "On GET /workspace/integrations, an instance admin who reads W-2 (Slack or Matrix) or W-3 sees it followed by any existing link (\"How to set up Slack\" for Slack W-2), then I-19 \"Set up integrations for this Foundry\", a link to /admin/instance/integrations. US-IW-02 AC 1 and KPI-IW-3 stay valid.",
 "F30": "Carrier replacement: ConnectionWords.fix (Option<FixLink>) becomes ConnectionWords.fixes (Vec<FixLink>), an ordered offer list owned by crates/foundry-app/src/integrations/no_connection.rs. One Option cannot represent the existing link followed by I-19, so the carrier changes rather than a second link field or a template-side precedence.",
 "F31": "New value object Viewer { is_workspace_admin, is_instance_admin } in no_connection.rs replaces the positional bool on NoConnectionCause::words, SharedConnection::line and project_lines. foundry-app builds it from the services fact (RouteTarget.viewer_is_workspace_admin, ProjectIntegrations.viewer_is_workspace_admin) and the app fact (NavContext.is_instance_admin); foundry-services never learns instance-admin, so ADR-IW-001's rejected alternative stands.",
@@ -1425,7 +1476,6 @@
 "F54": "words(bool) becomes words(Viewer) and ConnectionWords.fix becomes fixes; both are pub within foundry-app and have three in-crate call sites, all migrated in this change. CODING_STANDARDS forbids a compatibility shim, so the old shape is deleted.",
 "F55": "Builds the Viewer from target.viewer_is_workspace_admin and nav.is_instance_admin, which the page function already holds, and the template loops over fixes. This covers the form GET and the preview and save posts, which all render through this one page builder.",
 "F56": "project_lines takes the Viewer, built where nav is already created at routes.rs:729, and project.html loops over fixes. The project page's words and links are unchanged.",
-"F57": "The Send-test refusal reads only ConnectionWords.words, so it must pass a Viewer. It takes the same two facts the refused page already resolves; its words do not depend on the instance-admin fact, and it offers no link.",
 "F58": "The W-2 Slack, W-3 and W-2 Matrix arms render ConnectionWords from the same cause function; the hardcoded setup anchor in workspace.html:14 is removed in favour of the offer list.",
 "F59": "RouteTarget and ProjectIntegrations keep viewer_is_workspace_admin and gain nothing: the instance-admin fact stays in foundry-app, so no services signature, query or row changes.",
 "F6": "GET /workspace/integrations/slack/setup shows I-20: step 3 reads \"An instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin › Integrations.\", step 4 reads \"No restart is needed. A workspace admin can then choose Add to Slack on the workspace integrations page.\", with the footnote about SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET taking precedence; no step says \"Restart Foundry\", and the manifest is unchanged.",

@@ -539,6 +539,24 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And the links Tomás is offered read "How to set up Slack"
     And every link Tomás is offered answers with its page
 
+  # The same reader on the other door: a workspace admin who is not an
+  # instance admin reads the route form, its preview and its save, and the
+  # setup is not hers to be offered on any of the three.
+  @us-iis-04 @kpi-iis-g2
+  Scenario Outline: A workspace admin who is not an instance admin keeps the guide on a route form, its preview and its save
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    When Tomás <door> a new Slack route for Identity Platform
+    Then Tomás reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once."
+    And the links Tomás is offered read "How to set up Slack"
+    And every link Tomás is offered answers with its page
+
+    Examples:
+      | door     |
+      | opens    |
+      | previews |
+      | saves    |
+
   # The form, its preview and its save are three doors on one state: they read
   # the same sentence and offer the same links, in the same order.
   @us-iis-04 @kpi-iis-3
