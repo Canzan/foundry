@@ -500,15 +500,17 @@ fn write_private(path: &Path, bytes: &[u8]) {
     f.write_all(bytes).expect("write the file");
 }
 
-/// "Priya Raman is this Foundry's instance admin" (an `instance_admins` row,
-/// seeded as people are).
-pub async fn given_instance_admin(world: &mut FoundryWorld) {
-    let priya = tm::resolve_person(world, "Priya Raman").id;
+/// "<person> is this Foundry's instance admin" (an `instance_admins` row,
+/// seeded as people are). Someone who is an instance admin without being a
+/// workspace admin is a viewer of her own: she reaches a project's route form
+/// as its team's lead, never the workspace integrations page.
+pub async fn given_instance_admin(world: &mut FoundryWorld, person: &str) {
+    let who = tm::resolve_person(world, person).id;
     sqlx::query("INSERT INTO instance_admins (user_id) VALUES ($1) ON CONFLICT DO NOTHING")
-        .bind(priya)
+        .bind(who)
         .execute(&tm::pool(world))
         .await
-        .expect("seed Priya's instance_admins row");
+        .unwrap_or_else(|e| panic!("seed {person}'s instance_admins row: {e}"));
 }
 
 /// "this Foundry starts with <setting>".

@@ -23,14 +23,15 @@ use crate::support::instance_integration_setup::{
     self as iis, BadStart, Button, InstanceDoor, KeySetting, Offer, Refusal, Restart, Signer,
     WorkspaceOffer,
 };
+use crate::support::integrations_wayfinding::{self as iw, Offered};
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 
 // =========================================================================== instance
 
-#[given(regex = r"^Priya Raman is this Foundry's instance admin$")]
-async fn instance_admin(world: &mut FoundryWorld) {
-    iis::given_instance_admin(world).await;
+#[given(regex = r"^(Priya Raman|Lena Park) is this Foundry's instance admin$")]
+async fn instance_admin(world: &mut FoundryWorld, person: String) {
+    iis::given_instance_admin(world, &person).await;
 }
 
 #[given(
@@ -364,6 +365,42 @@ async fn second_degraded(world: &mut FoundryWorld) {
 )]
 async fn refused(world: &mut FoundryWorld, names: String) {
     iis::then_refused(world, Refusal::parse(&names));
+}
+
+// =========================================================================== the links a page offers (US-IIS-04)
+
+// Tomás reads the workspace integrations page as a workspace admin who is not
+// an instance admin. The eip and wayfinding drivers own the door and the page
+// reader; the eip step file names only Priya, Lena, Sam and Marco, so these
+// two phrases add his name and nothing else.
+#[when(regex = r"^(Tomás) opens the workspace integrations page$")]
+async fn tomas_opens_workspace(world: &mut FoundryWorld, who: String) {
+    eip::when_open_door(
+        world,
+        &who,
+        eip::WorkspaceDoor::parse("the workspace integrations page"),
+    )
+    .await;
+}
+
+#[then(regex = r#"^(Tomás) reads "(.+)"$"#)]
+async fn tomas_reads(world: &mut FoundryWorld, who: String, words: String) {
+    eip::then_reads(world, &who, &words);
+}
+
+#[then(regex = r"^the links (Priya|Tomás|Lena) is offered read (.+)$")]
+async fn page_links(world: &mut FoundryWorld, who: String, offered: String) {
+    iw::then_page_links(world, &who, Offered::parse(&offered));
+}
+
+#[then(regex = r"^every link (Priya|Tomás|Lena) is offered answers with its page$")]
+async fn every_link_opens(world: &mut FoundryWorld, who: String) {
+    iw::then_each_link_opens(world, &who).await;
+}
+
+#[then(regex = r#"^following "([^"]+)" lands (Priya|Lena) on the instance integrations page$"#)]
+async fn lands_on_instance_page(world: &mut FoundryWorld, link: String, who: String) {
+    iw::then_following_lands(world, &who, &link, "the instance integrations page").await;
 }
 
 // =========================================================================== KPI-IIS-G1

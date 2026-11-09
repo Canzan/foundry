@@ -16,6 +16,7 @@ use crate::support::external_integration_plugins::{
     self as eip, in_sidebar, link_hrefs, Kind, NEW_SECRETS_KEY, WORKSPACE_INTEGRATIONS,
 };
 use crate::support::html_assertions::{parse, select_all};
+use crate::support::instance_integration_setup::INSTANCE_INTEGRATIONS;
 use crate::support::team_membership::{self as tm, Answer};
 use crate::world::FoundryWorld;
 
@@ -241,6 +242,97 @@ pub async fn then_fix_offered(world: &mut FoundryWorld, who: &str, fix: Fix) {
     }
 }
 
+/// The words of the links a page offers, in reading order ("nothing at all"
+/// when it offers none). One value for the whole offer, so a scenario states
+/// the order and the absence of every other link in one place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Offered(pub Vec<String>);
+
+impl Offered {
+    pub fn parse(words: &str) -> Self {
+        let words = words.trim();
+        if words == "nothing at all" {
+            return Self(Vec::new());
+        }
+        Self(
+            words
+                .split(" then ")
+                .map(|w| w.trim().trim_matches('"').to_string())
+                .collect(),
+        )
+    }
+}
+
+/// Every link the page itself offers (the sidebar excluded), in reading
+/// order, as (words, address) pairs. Unlike [`workspace_links`] this keeps
+/// every address, so a link into the instance setup is read here too: a page
+/// that offers a viewer somewhere they cannot go has to show up.
+fn page_links(body: &str) -> Vec<(String, String)> {
+    let doc = parse(body);
+    select_all(&doc, "a[href]")
+        .into_iter()
+        .filter(|a| !in_sidebar(a))
+        .map(|a| {
+            (
+                a.text().collect::<String>().trim().to_string(),
+                a.value().attr("href").unwrap_or_default().to_string(),
+            )
+        })
+        .collect()
+}
+
+/// "the links <who> is offered read <offered>": the whole offer, in order.
+pub fn then_page_links(world: &FoundryWorld, who: &str, offered: Offered) {
+    let answer = answer(world);
+    answered(&answer, who);
+    let links = page_links(&answer.body);
+    let read: Vec<String> = links.iter().map(|(text, _)| text.clone()).collect();
+    assert_eq!(
+        read,
+        offered.0,
+        "the links {who} is offered read {:?}, in that order; the page offers {links:?}. \
+         A viewer is offered only the links they can open, and an offer to set this Foundry \
+         up comes after the links that ship today: render the words' offers, in order, and \
+         offer the instance setup only to an instance admin; {}",
+        offered.0,
+        tm::describe(&answer)
+    );
+}
+
+/// "every link <who> is offered answers with its page" (KPI-IW-G1 widened to
+/// every address on the page): each one is followed as that viewer.
+pub async fn then_each_link_opens(world: &mut FoundryWorld, who: &str) {
+    let answer = answer(world);
+    answered(&answer, who);
+    let links = page_links(&answer.body);
+    assert!(
+        !links.is_empty(),
+        "precondition: {who}'s page offers at least one link to follow; {}",
+        tm::describe(&answer)
+    );
+    for (text, href) in links {
+        let landed = eip::get(world, who, &href).await;
+        assert!(
+            landed.status.is_success(),
+            "{who} follows {text:?} to a page that answers; it answered {}. \
+             A page must offer only links its viewer can open, or the offer teaches them \
+             to distrust every other one: withhold the link from a viewer the page behind \
+             it refuses; {}",
+            landed.status,
+            tm::describe(&landed)
+        );
+    }
+}
+
+/// The pages a followed link lands on: this feature's own, then the ones the
+/// eip driver already names.
+fn landing_path(world: &FoundryWorld, page: &str) -> String {
+    match page.trim() {
+        "the instance integrations page" => INSTANCE_INTEGRATIONS.to_string(),
+        other => eip::page_path(world, other),
+    }
+}
+
 /// "following <link> lands <who> on <page>".
 pub async fn then_following_lands(world: &mut FoundryWorld, who: &str, link: &str, page: &str) {
     let answer = answer(world);
@@ -253,7 +345,7 @@ pub async fn then_following_lands(world: &mut FoundryWorld, who: &str, link: &st
         tm::describe(&answer)
     );
     let landed = eip::get(world, who, &hrefs[0]).await;
-    let want = eip::page_path(world, page);
+    let want = landing_path(world, page);
     assert!(
         landed.status.is_success() && landed.path == want,
         "following {link:?} lands {who} on {page} ({want}); {}",

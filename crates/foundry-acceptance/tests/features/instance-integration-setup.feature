@@ -4,9 +4,11 @@
 # in plaintext, and instances configured before this feature keep working.
 #
 # Copy I-n is locked in docs/feature/instance-integration-setup/discuss/
-# user-stories.md. Deliverable B (US-IIS-04, 05, 07: I-19, I-20, Replace,
-# Remove, the I-14 confirm, Start over) is not here; where A shows a state B
-# extends (I-26), A's scenario checks the restore-only form.
+# user-stories.md. US-IIS-04 (I-19: the workspace pages and the route form send
+# an instance admin to the setup) is here, at the end of the file. The rest of
+# Deliverable B (US-IIS-05, 07 and I-20: Replace, Remove, the I-14 confirm,
+# Start over, the Slack guide) is not; where A shows a state B extends (I-26),
+# A's scenario checks the restore-only form.
 #
 # Harness (DEVOPS D8, brief.md "For Acceptance Designer"): the production
 # router in process (InProcHarness), real Postgres, Slack as the in-process
@@ -493,6 +495,144 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya has connected Canzan Labs to Slack with this Foundry's app
     When everything Foundry shows, logs and stores is searched for the keys and the Slack secrets
     Then none of them appears in any page, page source, log line or activity line, and none is stored in plaintext
+
+  # ------------------------------------------------------------------ US-IIS-04
+
+  # An instance admin who meets "not set up" or "no secrets key" on a workspace
+  # page or a route form is offered the setup she can reach, after the links
+  # that ship today; everyone else is offered only what opens for them. The
+  # words of those sentences are the shipped ones, byte for byte.
+  #
+  # "The links <who> is offered" reads every link the page itself carries, in
+  # reading order, the sidebar excluded: an offer into the instance setup is a
+  # page link like any other, and a page that offers one to someone it refuses
+  # has to show up here. Every one of them is then followed as that viewer.
+
+  @us-iis-04 @driving_port @kpi-iis-3 @kpi-iis-g2
+  Scenario: An instance admin is sent from the workspace integrations page to this Foundry's setup
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    When Priya opens the workspace integrations page
+    Then Priya reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once."
+    And the links Priya is offered read "How to set up Slack" then "Set up integrations for this Foundry"
+    And every link Priya is offered answers with its page
+    And following "Set up integrations for this Foundry" lands Priya on the instance integrations page
+
+  # Without a secrets key the page says so for Slack (its app is in Foundry's
+  # environment) and for Matrix, and offers the setup beside each sentence.
+  @us-iis-04 @kpi-iis-3
+  Scenario: An instance admin is offered the setup beside every integration the page says is missing
+    Given this Foundry starts with its instance key set by the operator
+    And Foundry's environment sets the Slack app 6123456789012.7234567890123
+    When Priya opens the workspace integrations page
+    Then Priya reads "Slack cannot be connected on this Foundry yet: an instance operator needs to set the secrets key."
+    And Priya reads "Matrix is not set up on this Foundry yet. An instance operator sets it up once."
+    And the links Priya is offered read "Set up integrations for this Foundry" then "Set up integrations for this Foundry"
+    And every link Priya is offered answers with its page
+
+  @us-iis-04 @kpi-iis-g2
+  Scenario: A workspace admin who is not an instance admin keeps the guide and is offered nothing she cannot open
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    When Tomás opens the workspace integrations page
+    Then Tomás reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once."
+    And the links Tomás is offered read "How to set up Slack"
+    And every link Tomás is offered answers with its page
+
+  # The form, its preview and its save are three doors on one state: they read
+  # the same sentence and offer the same links, in the same order.
+  @us-iis-04 @kpi-iis-3
+  Scenario Outline: An instance admin is sent to the setup from a Slack route form, its preview and its save
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    When Priya <door> a new Slack route for Identity Platform
+    Then Priya reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once."
+    And the links Priya is offered read "How to set up Slack" then "Set up integrations for this Foundry"
+    And every link Priya is offered answers with its page
+
+    Examples:
+      | door     |
+      | opens    |
+      | previews |
+      | saves    |
+
+  @us-iis-04 @kpi-iis-3
+  Scenario Outline: An instance admin is sent to the setup from a Matrix route form, its preview and its save
+    Given this Foundry starts with its instance key set by the operator
+    When Priya <door> a new Matrix route for Identity Platform
+    Then Priya reads "Matrix is not set up on this Foundry yet. An instance operator sets it up once."
+    And the links Priya is offered read "Set up integrations for this Foundry"
+    And every link Priya is offered answers with its page
+    And following "Set up integrations for this Foundry" lands Priya on the instance integrations page
+
+    Examples:
+      | door     |
+      | opens    |
+      | previews |
+      | saves    |
+
+  @us-iis-04 @kpi-iis-3
+  Scenario: An instance admin is sent to the setup from a form that says Slack has no secrets key
+    Given this Foundry starts with its instance key set by the operator
+    And Foundry's environment sets the Slack app 6123456789012.7234567890123
+    When Priya opens a new Slack route for Identity Platform
+    Then Priya reads "Slack cannot be connected on this Foundry yet: an instance operator needs to set the secrets key."
+    And the links Priya is offered read "Set up integrations for this Foundry"
+    And every link Priya is offered answers with its page
+
+  # Lena leads Backend, so she opens Identity Platform's route form; she is not
+  # a workspace admin, so the Slack guide is not hers to open.
+  @us-iis-04 @kpi-iis-g2
+  Scenario: An instance admin who is not a workspace admin is offered the setup alone
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Lena Park is this Foundry's instance admin
+    When Lena opens a new Slack route for Identity Platform
+    Then Lena reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once."
+    And the links Lena is offered read "Set up integrations for this Foundry"
+    And every link Lena is offered answers with its page
+    And following "Set up integrations for this Foundry" lands Lena on the instance integrations page
+
+  @us-iis-04 @kpi-iis-g2 @error
+  Scenario: A lead who is neither admin is offered no way out of a form that says Slack is not set up
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    When Lena opens a new Slack route for Identity Platform
+    Then Lena reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once."
+    And the links Lena is offered read nothing at all
+
+  # The sentences that have no browser fix keep their words and gain no offer:
+  # a saved connection this Foundry cannot read, a workspace nobody connected,
+  # and the project page's own lines.
+  @us-iis-04 @error
+  Scenario: A connection this Foundry cannot read still names the key, and offers no setup
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Foundry's environment sets the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And this Foundry has since restarted with a different instance key set by the operator
+    When Priya opens a new Slack route for Identity Platform
+    Then Priya reads "Slack is unavailable: this Foundry cannot read its saved connection. An instance operator needs to check the secrets key."
+    And the links Priya is offered read nothing at all
+
+  @us-iis-04
+  Scenario: A workspace nobody connected still sends an instance admin to the workspace page, and nowhere else
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    When Priya opens a new Slack route for Identity Platform
+    Then Priya reads "This workspace has no Slack connection yet."
+    And the links Priya is offered read "Connect Slack in workspace integrations"
+    And every link Priya is offered answers with its page
+
+  @us-iis-04
+  Scenario: A project page reads to an instance admin exactly as it ships
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    When Priya opens Identity Platform's integrations page
+    Then Priya reads "This workspace has no chat connection yet."
+    And the links Priya is offered read "Connect Slack or Matrix in workspace integrations" then "New route"
+    And every link Priya is offered answers with its page
 
   # ------------------------------------------------------ alert inputs on reload
 
