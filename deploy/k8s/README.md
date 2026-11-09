@@ -106,7 +106,10 @@ operator: `FOUNDRY_INSTANCE_KEY` in `foundry-app-secrets`.
 3. Put it in the Secret as `FOUNDRY_INSTANCE_KEY` (leave
    `FOUNDRY_INSTANCE_KEY_PREVIOUS` empty), apply, roll.
 4. An instance admin opens `/admin/instance/integrations`, generates the
-   secrets key and enters the Slack app (RELEASING.md R-1, R-2).
+   secrets key and enters the Slack app (RELEASING.md R-1, R-2). Matrix
+   needs nothing more under Instance admin: once the secrets key exists,
+   Matrix is ready and a workspace admin connects that workspace's own
+   Matrix bot on the workspace integrations page.
 
 These manifests mount **no volume** at `FOUNDRY_DATA_DIR`
 (`/var/lib/foundry`). Without an operator key a pod would make its own

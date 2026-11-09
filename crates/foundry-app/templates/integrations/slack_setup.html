@@ -6,9 +6,10 @@
 <ol>
   <li>In Slack, create a new app from a manifest and choose the Slack workspace it belongs to.</li>
   <li>Paste the manifest below. It names this Foundry's Slack return address and Slack events address.</li>
-  <li>From the app's Basic Information, set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET on this Foundry, together with FOUNDRY_SECRETS_KEY.</li>
-  <li>Restart Foundry. A workspace admin can then choose Add to Slack on the workspace integrations page.</li>
+  <li>An instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin › Integrations.</li>
+  <li>No restart is needed. A workspace admin can then choose Add to Slack on the workspace integrations page.</li>
 </ol>
+<p>An instance operator may instead set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET in Foundry's environment and restart; the environment takes precedence.</p>
 <pre data-slack-manifest>{{ manifest }}</pre>
 <p><a href="/workspace/integrations">Back to integrations</a></p>
 {% endblock %}

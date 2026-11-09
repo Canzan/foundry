@@ -422,7 +422,9 @@ api.slack.com (Create New App, From a manifest). Enter its Client ID, Client Sec
 Secret on the same page and save; every replica picks it up without a restart. Then retry Event
 Subscriptions in the Slack app: "Verified" proves the inbound path. Each instance gets its own
 app. A Slack app set in the environment (the `SLACK_*` trio) stays in effect until all three are
-removed and Foundry restarts.
+removed and Foundry restarts. Matrix needs nothing more under Instance admin: once the secrets key
+exists, Matrix is ready and a workspace admin connects that workspace's own Matrix bot on the
+workspace integrations page.
 
 **R-5 Change the instance key** (the order matters):
 

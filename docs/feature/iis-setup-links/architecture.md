@@ -47,7 +47,7 @@ Liveness is not applicable: one synchronous render answers one request, the desi
 #### D7
 
 ```text
-P6 needs no edit: RELEASING.md R-1 and R-2 (lines 404-425) and deploy/k8s/README.md (lines 97-135) already describe an instance admin generating the secrets key and entering the Slack app at /admin/instance/integrations with no restart, and name the SLACK_* trio as the optional operator alternative. Deliverable A reworded them; this Request confirms them unchanged rather than rewriting shipped prose.
+P6 is half shipped and half owed. RELEASING.md R-1 and R-2 (lines 404-425) and deploy/k8s/README.md's Integrations step (lines 105-109) already describe an instance admin generating the secrets key and entering the Slack app at /admin/instance/integrations with no restart, and RELEASING.md:379 already marks the SLACK_* trio optional, so the Slack half needs no edit. The Matrix half is absent: each document mentions Matrix exactly once (RELEASING.md:363, deploy/k8s/README.md:97) and both times only to say that Slack and Matrix credentials are sealed under a secrets key, which is no browser instruction. Both documents are therefore Extend targets of S2: each gains one sentence saying that, once the secrets key exists, a workspace admin connects that workspace's own Matrix bot on the workspace integrations page, which is what the shipped instance page already says. Neither document's prose is pinned by a test; P6 is verified by review and EXAMINE.
 ```
 
 #### D8
@@ -86,6 +86,12 @@ No added query: the instance-admin fact is read from the NavContext every one of
 
 ```text
 Observation bound for the oracle: the offered-links observation must read every page link on the rendered body (sidebar excluded), including hrefs under /admin/instance/integrations. The shipped helper workspace_links in crates/foundry-acceptance/src/support/integrations_wayfinding.rs:202 keeps only hrefs starting with /workspace/integrations, so the existing no-way-to-fix-it-here assertion cannot falsify an I-19 shown to Lena or Tomas. Widening that observation is a precondition of P3 being falsifiable.
+```
+
+#### K6
+
+```text
+The Matrix sentence the two operator documents gain says only what the shipped instance integrations page already says: once this Foundry has a secrets key, Matrix is ready and a workspace admin connects that workspace's own Matrix bot on its workspace integrations page. It names no host, cluster, repository or environment variable, promises no Matrix setting under Instance admin beyond the secrets key, and adds no restart. Both documents say it the same way so they cannot drift apart. Prose only: it is verified by review and EXAMINE, never by a test that pins its wording.
 ```
 
 ### Reuse
@@ -280,26 +286,6 @@ UnchangedCompatible
 
 ```text
 No dependency, feature, binary or template-path change: the templates already exist and Askama discovers them by path.
-```
-
-operator documentation
-
-RELEASING\.md\:404
-
-UnchangedCompatible
-
-```text
-R-1 and R-2 already describe an instance admin generating the secrets key and entering the Slack app at /admin/instance/integrations with no restart, and name the SLACK_* trio as the optional alternative that wins while set. P6 is already satisfied by the shipped text.
-```
-
-operator documentation
-
-deploy\/k8s\/README\.md\:97
-
-UnchangedCompatible
-
-```text
-Lines 97-135 already send the operator to RELEASING.md R-1 and R-2 for browser setup and describe the SLACK_* trio as optional settings; nothing in it tells anyone to restart to set up Slack.
 ```
 
 ### Agreement
@@ -1260,14 +1246,14 @@ None.
 
 ##### Reuse
 
-how\_to\_set\_up\_slack
+slack\_no\_connection
 
-crates\/foundry\-app\/templates\/integrations\/workspace\.html\:14
+crates\/foundry\-app\/templates\/integrations\/workspace\.html\:13
 
 Extend
 
 ```text
-This arm already renders W-2 Slack and its setup link; it keeps the words and stops holding the link decision, rendering the offer list instead. The literal anchor on this line goes away, so the page can no longer disagree with the route form.
+This arm already renders W-2 Slack and W-3; it keeps the words and stops holding the link decision, rendering the offer list instead. The literal setup anchor it used to carry goes away, so the page can no longer disagree with the route form.
 ```
 
 no\_connection
@@ -1424,6 +1410,22 @@ Extend
 Steps 3 and 4 become the locked I-20 sentences and the footnote about the SLACK_* trio taking precedence is added; the manifest block is unchanged.
 ```
 
+RELEASING\.md
+
+Extend
+
+```text
+R-2 gains the Matrix browser sentence so P6's Matrix half is discharged; the Slack half and the optional SLACK_* trio row stay as they ship.
+```
+
+deploy\/k8s\/README\.md
+
+Extend
+
+```text
+Step 4 of the Integrations section gains the same Matrix browser sentence; nothing else in the guide changes.
+```
+
 crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature
 
 #### Verification
@@ -1497,6 +1499,26 @@ Reuse
 I-20 changes prose only; the manifest field and the handler that fills it are untouched, which is what AC 4 requires and what the shipped manifest-equality scenario already observes.
 ```
 
+R\-2
+
+RELEASING\.md\:419
+
+Extend
+
+```text
+R-2 already carries the Slack half of P6 in the browser (the manifest, the three credentials on /admin/instance/integrations, no restart) and RELEASING.md:379 already marks the SLACK_* trio optional, so the step is extended with the Matrix sentence rather than rewritten or replaced by a new section. The only Matrix mention today, RELEASING.md:363, is about sealing credentials under the secrets key and is not a browser instruction.
+```
+
+An instance admin opens
+
+deploy\/k8s\/README\.md\:108
+
+Extend
+
+```text
+Step 4 of the Integrations section already sends the instance admin to /admin/instance/integrations for the secrets key and the Slack app; it is extended with the Matrix sentence in the same step. Its one Matrix mention, deploy/k8s/README.md:97, is the same sealing sentence and no instruction.
+```
+
 ##### Impact
 
 template\, the rendered operator guide
@@ -1507,6 +1529,26 @@ Changed
 
 ```text
 Step 3 names the browser form under Instance admin > Integrations instead of the SLACK_* settings, step 4 replaces Restart Foundry with the no-restart sentence, and the footnote keeps the environment alternative with its precedence. No handler field, no struct and no other template is touched.
+```
+
+operator documentation\, the release runbook
+
+RELEASING\.md\:419
+
+Changed
+
+```text
+P6's Matrix half is missing: grep Matrix returns only RELEASING.md:363, the sealing sentence. R-2 gains the sentence that, once the secrets key exists, a workspace admin connects that workspace's own Matrix bot on the workspace integrations page, which is what the shipped instance page already says, so an operator can finish both integrations from the browser instructions alone.
+```
+
+operator documentation\, the Kubernetes deploy guide
+
+deploy\/k8s\/README\.md\:108
+
+Changed
+
+```text
+Same gap: the only Matrix line is the sealing sentence at line 97. Step 4 of the Integrations section gains the same Matrix sentence as R-2, so the two documents stay word-compatible and neither tells anyone to restart or to set an environment variable for Matrix.
 ```
 
 ##### Agreement

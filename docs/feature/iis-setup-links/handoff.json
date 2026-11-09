@@ -285,8 +285,8 @@
 "C": 1,
 "D": 8,
 "E": 14,
-"F": 272,
-"K": 5,
+"F": 281,
+"K": 6,
 "L": 6,
 "P": 6,
 "S": 2,
@@ -448,6 +448,10 @@
 {
 "id": "K5",
 "text": "F42"
+},
+{
+"id": "K6",
+"text": "F274"
 }
 ],
 "constructors": [
@@ -491,7 +495,7 @@
 },
 {
 "id": "D7",
-"text": "F36"
+"text": "F273"
 },
 {
 "id": "D8",
@@ -562,18 +566,6 @@
 "kind": "build and package metadata",
 "locator": "crates/foundry-app/Cargo.toml:1",
 "reason": "F61"
-},
-{
-"decision": "UnchangedCompatible",
-"kind": "operator documentation",
-"locator": "RELEASING.md:404",
-"reason": "F62"
-},
-{
-"decision": "UnchangedCompatible",
-"kind": "operator documentation",
-"locator": "deploy/k8s/README.md:97",
-"reason": "F63"
 }
 ],
 "laws": [
@@ -915,9 +907,9 @@
 "reuse": [
 {
 "decision": "Extend",
-"locator": "crates/foundry-app/templates/integrations/workspace.html:14",
-"reason": "F194",
-"symbol": "how_to_set_up_slack"
+"locator": "crates/foundry-app/templates/integrations/workspace.html:13",
+"reason": "F281",
+"symbol": "slack_no_connection"
 },
 {
 "decision": "Extend",
@@ -1024,6 +1016,18 @@
 "kind": "template, the rendered operator guide",
 "locator": "crates/foundry-app/templates/integrations/slack_setup.html:9",
 "reason": "F180"
+},
+{
+"decision": "Changed",
+"kind": "operator documentation, the release runbook",
+"locator": "RELEASING.md:419",
+"reason": "F279"
+},
+{
+"decision": "Changed",
+"kind": "operator documentation, the Kubernetes deploy guide",
+"locator": "deploy/k8s/README.md:108",
+"reason": "F280"
 }
 ],
 "not_applicable": [
@@ -1044,6 +1048,18 @@
 "locator": "crates/foundry-app/src/integrations/handlers/slack_setup.rs:29",
 "reason": "F179",
 "symbol": "manifest"
+},
+{
+"decision": "Extend",
+"locator": "RELEASING.md:419",
+"reason": "F277",
+"symbol": "R-2"
+},
+{
+"decision": "Extend",
+"locator": "deploy/k8s/README.md:108",
+"reason": "F278",
+"symbol": "An instance admin opens"
 }
 ]
 },
@@ -1057,6 +1073,16 @@
 "change": "Extend",
 "path": "crates/foundry-app/templates/integrations/slack_setup.html",
 "reason": "F174"
+},
+{
+"change": "Extend",
+"path": "RELEASING.md",
+"reason": "F275"
+},
+{
+"change": "Extend",
+"path": "deploy/k8s/README.md",
+"reason": "F276"
 }
 ],
 "verification": [
@@ -1274,7 +1300,6 @@
 "F191": "Any /admin/instance/integrations link among Tomas's or Lena's page links, read over every href on the body with the sidebar excluded; Set up integrations for this Foundry before How to set up Slack in Priya's list; a changed W-2, W-3, K-2 or K-19 word; an I-19 link that answers the uniform not-found page when followed; or a route-form preview or save that shows different words or links from the form GET for the same state and viewer.",
 "F192": "L2 move the carrier: replace ConnectionWords.fix (Option<FixLink>) with the ordered fixes (Vec<FixLink>) and change route_form.html, project.html, route_form.rs, routes.rs and matrix_setup.rs to the list shape, with no viewer parameter, no new words and no new link, so every list is still zero or one element long. This makes the follow-up change, appending I-19 for an instance admin, a single branch in one arm of words instead of a second link field plus template precedence.",
 "F193": "Every shipped W-2, W-3, W-4, W-6, W-7, K-4, K-10 and K-19 sentence and its single fix link, on the route form GET, the preview and save posts, the Send-test refusal and the project page.",
-"F194": "This arm already renders W-2 Slack and its setup link; it keeps the words and stops holding the link decision, rendering the offer list instead. The literal anchor on this line goes away, so the page can no longer disagree with the route form.",
 "F195": "The page struct already carries the rendered ConnectionWords for all three doors of a kind; it keeps that one field and gains only the Viewer the page builder passes into words. A separate field for I-19 would put the ordering decision in the template.",
 "F196": "Its single optional fix becomes a loop over the ordered fixes; the words and, for every shipped row, the single link are unchanged.",
 "F197": "The project page already renders a list of ConnectionWords; project_lines takes the Viewer, built where nav already exists, and the page's lines and links stay as they ship.",
@@ -1360,7 +1385,16 @@
 "F270": "Both documents send her to Integrations for this Foundry in the browser, where an instance admin generates the secrets key and enters the Slack app with no restart, and both present the Slack settings in Foundry's environment as the optional alternative rather than the way to do it.",
 "F271": "An operator setting up a fresh Foundry is not told to put Slack secrets into the environment and restart; she can finish both integrations in the browser, and already can, because the earlier delivery of this Foundry's integrations setup reworded both documents and this one changes neither.",
 "F272": "These are documents an operator reads, not pages this Foundry serves: no public address of this Foundry renders them and no declared check of this delivery reads them, and pinning their sentences in a test would freeze prose the product never promised word for word. Both documents already read this way.",
+"F273": "P6 is half shipped and half owed. RELEASING.md R-1 and R-2 (lines 404-425) and deploy/k8s/README.md's Integrations step (lines 105-109) already describe an instance admin generating the secrets key and entering the Slack app at /admin/instance/integrations with no restart, and RELEASING.md:379 already marks the SLACK_* trio optional, so the Slack half needs no edit. The Matrix half is absent: each document mentions Matrix exactly once (RELEASING.md:363, deploy/k8s/README.md:97) and both times only to say that Slack and Matrix credentials are sealed under a secrets key, which is no browser instruction. Both documents are therefore Extend targets of S2: each gains one sentence saying that, once the secrets key exists, a workspace admin connects that workspace's own Matrix bot on the workspace integrations page, which is what the shipped instance page already says. Neither document's prose is pinned by a test; P6 is verified by review and EXAMINE.",
+"F274": "The Matrix sentence the two operator documents gain says only what the shipped instance integrations page already says: once this Foundry has a secrets key, Matrix is ready and a workspace admin connects that workspace's own Matrix bot on its workspace integrations page. It names no host, cluster, repository or environment variable, promises no Matrix setting under Instance admin beyond the secrets key, and adds no restart. Both documents say it the same way so they cannot drift apart. Prose only: it is verified by review and EXAMINE, never by a test that pins its wording.",
+"F275": "R-2 gains the Matrix browser sentence so P6's Matrix half is discharged; the Slack half and the optional SLACK_* trio row stay as they ship.",
+"F276": "Step 4 of the Integrations section gains the same Matrix browser sentence; nothing else in the guide changes.",
+"F277": "R-2 already carries the Slack half of P6 in the browser (the manifest, the three credentials on /admin/instance/integrations, no restart) and RELEASING.md:379 already marks the SLACK_* trio optional, so the step is extended with the Matrix sentence rather than rewritten or replaced by a new section. The only Matrix mention today, RELEASING.md:363, is about sealing credentials under the secrets key and is not a browser instruction.",
+"F278": "Step 4 of the Integrations section already sends the instance admin to /admin/instance/integrations for the secrets key and the Slack app; it is extended with the Matrix sentence in the same step. Its one Matrix mention, deploy/k8s/README.md:97, is the same sealing sentence and no instruction.",
+"F279": "P6's Matrix half is missing: grep Matrix returns only RELEASING.md:363, the sealing sentence. R-2 gains the sentence that, once the secrets key exists, a workspace admin connects that workspace's own Matrix bot on the workspace integrations page, which is what the shipped instance page already says, so an operator can finish both integrations from the browser instructions alone.",
 "F28": "An operator reading RELEASING.md R-1 and R-2 is told to set up Slack and Matrix in the browser under Instance admin › Integrations, and can finish both integrations by following only those browser instructions.",
+"F280": "Same gap: the only Matrix line is the sealing sentence at line 97. Step 4 of the Integrations section gains the same Matrix sentence as R-2, so the two documents stay word-compatible and neither tells anyone to restart or to set an environment variable for Matrix.",
+"F281": "This arm already renders W-2 Slack and W-3; it keeps the words and stops holding the link decision, rendering the offer list instead. The literal setup anchor it used to carry goes away, so the page can no longer disagree with the route form.",
 "F29": "deploy/k8s/README.md also describes setting Slack and Matrix up in the browser under Instance admin › Integrations, and both documents present the environment settings as an optional operator alternative rather than a required step.",
 "F3": "On GET /workspace/integrations, an instance admin who reads W-2 (Slack or Matrix) or W-3 sees it followed by any existing link (\"How to set up Slack\" for Slack W-2), then I-19 \"Set up integrations for this Foundry\", a link to /admin/instance/integrations. US-IW-02 AC 1 and KPI-IW-3 stay valid.",
 "F30": "Carrier replacement: ConnectionWords.fix (Option<FixLink>) becomes ConnectionWords.fixes (Vec<FixLink>), an ordered offer list owned by crates/foundry-app/src/integrations/no_connection.rs. One Option cannot represent the existing link followed by I-19, so the carrier changes rather than a second link field or a template-side precedence.",
@@ -1369,7 +1403,6 @@
 "F33": "I-19 is appended only for the causes NotSetUp(Slack) (W-2 Slack), NotSetUp(Matrix) (W-2 Matrix) and NoSecretsKey(Slack) (W-3), and only when the viewer is an instance admin. Unreadable (K-19), NotConnected (W-4, K-4) and the project page's W-6 and W-7 lines gain no link. Its href is the existing INSTANCE_PATH constant, a relative path, so a standalone deploy needs no setting.",
 "F34": "Layers and carriers. Domain: NoConnectionCause (choice type) with states NotSetUp, NoSecretsKey, Unreadable, NotConnected per ChannelKind; operation words(Viewer); observation ConnectionWords (words plus ordered fixes); no decision, effect, error or per-process state carrier is added. Application: the three doors (workspace page, route form GET, routes preview and save posts) read the instance snapshot through state.integrations.current() and the viewer from NavContext, and render ConnectionWords; the outcome is a rendered page, not a refusal type. Adapter: Askama templates workspace.html, route_form.html, project.html render fixes in order; GET /admin/instance/integrations is guarded by require_instance_admin, which answers the uniform not-found page otherwise. Infrastructure: unchanged; nothing is stored, queued or recovered by this change.",
 "F35": "Liveness is not applicable: one synchronous render answers one request, the design adds no queue, retry, lease, replica handoff or progress obligation, and no promise names eventual progress. The only temporal fact in reach, that every replica picks up a saved Slack app without a restart, is Deliverable A's shipped reload seam and is unchanged here.",
-"F36": "P6 needs no edit: RELEASING.md R-1 and R-2 (lines 404-425) and deploy/k8s/README.md (lines 97-135) already describe an instance admin generating the secrets key and entering the Slack app at /admin/instance/integrations with no restart, and name the SLACK_* trio as the optional operator alternative. Deliverable A reworded them; this Request confirms them unchanged rather than rewriting shipped prose.",
 "F37": "Claim-to-checker mapping. Every claim in this design is local, pure and finite, and each is covered by the checker that actually decides it. Totality and the exclusion of an unopenable or misordered offer: the repository's own checker, rustc, over the closed NoConnectionCause, SlackOffer and MatrixOffer enums, with words the only writer of fixes, so no other arm can add an href. The whole relation: exhaustive enumeration of all 112 (cause, connected, Viewer) rows in the module's finite table, which is complete rather than sampled. The link-to-guard agreement: the public oracle follows each offered link off the rendered page and observes its status, which is the real guarantor; a model of that agreement could only restate the assumption about require_instance_admin. No state-transition, temporal, fairness, concurrency or recovery claim exists, so no state model is selected: Quint, TLA+ and Agda would add a second encoding of the same finite table and no checking power. Observed on this host for the record, not as the reason: quint, agda and apalache-mc are absent and the java launcher is misconfigured (jenv points at an uninstalled 26 while Corretto 27 is installed); node and npm are present. The one gap no checker closes is a template writing an href literally instead of rendering fixes, recorded as a Bypass risk with its owner.",
 "F38": "Locked copy, verbatim. I-19 label: Set up integrations for this Foundry, href /admin/instance/integrations, shown after any existing link. I-20 step 3: An instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin > Integrations. I-20 step 4: No restart is needed. A workspace admin can then choose Add to Slack on the workspace integrations page. I-20 footnote: An instance operator may instead set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET in Foundry's environment and restart; the environment takes precedence.",
 "F39": "Unchanged bytes. The shipped constants SLACK_NOT_SET_UP, MATRIX_NOT_SET_UP, SLACK_NO_SECRETS_KEY, HOW_TO_SET_UP_SLACK, NO_KIND_CONNECTION, CONNECT_KIND, NO_CHAT_CONNECTION, the K-19 words from unavailable_words, and the Slack app manifest keep their current text. No step of the Slack setup guide may say Restart Foundry.",
@@ -1398,8 +1431,6 @@
 "F6": "GET /workspace/integrations/slack/setup shows I-20: step 3 reads \"An instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin › Integrations.\", step 4 reads \"No restart is needed. A workspace admin can then choose Add to Slack on the workspace integrations page.\", with the footnote about SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET taking precedence; no step says \"Restart Foundry\", and the manifest is unchanged.",
 "F60": "then_fix_offered and workspace_links must observe an ordered list of page links over every href, not one link under the /workspace/integrations prefix, or P3 cannot fail when I-19 leaks. Owned by the acceptance designer.",
 "F61": "No dependency, feature, binary or template-path change: the templates already exist and Askama discovers them by path.",
-"F62": "R-1 and R-2 already describe an instance admin generating the secrets key and entering the Slack app at /admin/instance/integrations with no restart, and name the SLACK_* trio as the optional alternative that wins while set. P6 is already satisfied by the shipped text.",
-"F63": "Lines 97-135 already send the operator to RELEASING.md R-1 and R-2 for browser setup and describe the SLACK_* trio as optional settings; nothing in it tells anyone to restart to set up Slack.",
 "F64": "The producer replaces the single optional fix with the ordered list; it is the only writer of the shape.",
 "F65": "Its if-let over one fix becomes a loop over fixes in order; same words, same single link for every shipped row.",
 "F66": "Same loop change; the project page's lines and links are unchanged by it.",
