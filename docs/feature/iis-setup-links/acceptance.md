@@ -123,7 +123,7 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: An instance admin is sent to the setup from a Slack route form\, its preview and its save
 
 ```text
-the form agreed with the page about the words while disagreeing about the order of the two offers; the order is stated as part of the expected list in every row.
+the form agreed with the page about the words while disagreeing about the order of the two offers; the order is stated as part of the expected list in every row. The save refuses in place rather than answering plainly, and the reader takes that re-rendered form as the page it is, so the row is decided by its offers and not by how the refusal is answered.
 ```
 
 ###### Obligations
@@ -153,7 +153,7 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: An instance admin is sent to the setup from a Matrix route form\, its preview and its save
 
 ```text
-the offer pointed at a page that merely answers rather than at the instance integrations page; the landing step pins which page it is.
+the offer pointed at a page that merely answers rather than at the instance integrations page; the landing step pins which page it is. The save refuses in place rather than answering plainly, and the reader takes that re-rendered form as the page it is, so the row is decided by its offers and not by how the refusal is answered.
 ```
 
 ###### Obligations

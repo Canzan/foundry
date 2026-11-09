@@ -106,6 +106,30 @@ fn answered(answer: &Answer, who: &str) {
     );
 }
 
+/// The three doors of one state do not answer alike: the form answers, and a
+/// preview or a save that cannot be made re-renders the same form in place
+/// with its refusal. Both are a page in front of the reader, so the links on
+/// them are hers to read. A redirect with no page, the uniform not-found page
+/// and a failure are not, and say so rather than reading an empty page as an
+/// offer of nothing.
+fn page_in_front_of(answer: &Answer, who: &str) {
+    let refused_in_place = answer.status.as_u16() == 422;
+    let is_page = answer
+        .content_type
+        .as_deref()
+        .is_some_and(|kind| kind.starts_with("text/html"))
+        && !answer.body.trim().is_empty();
+    assert!(
+        (answer.status.is_success() || refused_in_place) && is_page,
+        "precondition: {who} has a page in front of her whose links can be read \
+         (one that answered, or a form re-rendered in place with its refusal); a \
+         redirect with no page, the not-found page and a failure are none, and \
+         reading no links off one of those would say she was offered nothing when \
+         nothing was ever looked at; {}",
+        tm::describe(answer)
+    );
+}
+
 // =========================================================================== instance
 
 /// "Foundry has since been given a new secrets key without the old one": the
@@ -284,7 +308,7 @@ fn page_links(body: &str) -> Vec<(String, String)> {
 /// "the links <who> is offered read <offered>": the whole offer, in order.
 pub fn then_page_links(world: &FoundryWorld, who: &str, offered: Offered) {
     let answer = answer(world);
-    answered(&answer, who);
+    page_in_front_of(&answer, who);
     let links = page_links(&answer.body);
     let read: Vec<String> = links.iter().map(|(text, _)| text.clone()).collect();
     assert_eq!(
@@ -303,7 +327,7 @@ pub fn then_page_links(world: &FoundryWorld, who: &str, offered: Offered) {
 /// every address on the page): each one is followed as that viewer.
 pub async fn then_each_link_opens(world: &mut FoundryWorld, who: &str) {
     let answer = answer(world);
-    answered(&answer, who);
+    page_in_front_of(&answer, who);
     let links = page_links(&answer.body);
     assert!(
         !links.is_empty(),
@@ -336,7 +360,7 @@ fn landing_path(world: &FoundryWorld, page: &str) -> String {
 /// "following <link> lands <who> on <page>".
 pub async fn then_following_lands(world: &mut FoundryWorld, who: &str, link: &str, page: &str) {
     let answer = answer(world);
-    answered(&answer, who);
+    page_in_front_of(&answer, who);
     let hrefs = link_hrefs(&answer.body, link);
     assert_eq!(
         hrefs.len(),
