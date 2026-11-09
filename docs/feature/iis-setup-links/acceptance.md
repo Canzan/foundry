@@ -700,4 +700,181 @@ None.
 
 ## Examination
 
-None.
+### E1
+
+met
+
+#### Observations
+
+```text
+Probe (candidate 1beed30): examine-foundry start secrets-key-no-slack; get Priya workspace/integrations -> HTTP/1.1 200 OK, title "Integrations". Slack section body: Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once. How to set up Slack Set up integrations for this Foundry. Page links in rendered order: "How to set up Slack -> /workspace/integrations/slack/setup" then "Set up integrations for this Foundry -> /admin/instance/integrations". Same order in state instance-key-no-secrets-key. get Priya admin/instance/integrations -> 200, title "Integrations for this Foundry". So the W-2 text, then the existing setup link, then the new words, and the new link opens the instance integrations page.
+
+```
+
+### E2
+
+met
+
+#### Observations
+
+```text
+Probe: in states instance-key-no-secrets-key and env-slack-no-secrets-key, get Priya workspace/integrations and get Priya "team/backend/project/identity-platform/integrations/routes/new?kind=matrix" both render: Matrix is not set up on this Foundry yet. An instance operator sets it up once. Set up integrations for this Foundry, with the single page link "Set up integrations for this Foundry -> /admin/instance/integrations". No earlier Matrix setup link exists in either door, so the new words follow the Matrix W-2 text directly.
+
+```
+
+```text
+Probe: start env-slack-no-secrets-key (the Slack app comes from the environment, SLACK_CLIENT_ID 6123456789012.7234567890123, and this Foundry has no secrets key) - the third instance-blocked Slack state, W-3. get Priya workspace/integrations -> 200 with: Slack cannot be connected on this Foundry yet: an instance operator needs to set the secrets key. Set up integrations for this Foundry; the only Slack link is "Set up integrations for this Foundry -> /admin/instance/integrations" (no "How to set up Slack", since the app is already set). The same sentence and the same single link appear on the Slack route form GET, on its preview post and on its save post (422 Unprocessable Entity) for Priya.
+
+```
+
+### E3
+
+met
+
+#### Observations
+
+```text
+Probe: state slack-app-saved (Priya generated the secrets key and saved the Slack app on the instance integrations page; no workspace connected) - the state in which a workspace admin performs the workspace integration action. get Priya workspace/integrations and get Tomás workspace/integrations -> 200 with the Slack section offering exactly "Add to Slack -> /workspace/integrations/slack/install" and the Matrix section still offering the pre-existing form "POST /workspace/integrations/matrix fields: homeserver [url]; access_token [password] buttons: Connect Matrix"; no "Set up integrations for this Foundry" link is added in this state. Both captures are byte-identical to the same page from the pre-change build, so the added links neither replace nor obstruct the action. Following Add to Slack answers 303 See Other onward to Slack's authorize endpoint with the saved client ID, the four bot scopes, this Foundry's return URL and a state token. post Priya workspace/integrations/matrix homeserver=https://matrix.example.org access_token=abc123 -> 200 on the integrations page with "Foundry could not reach https://matrix.example.org. Nothing was saved.", so the Matrix action still accepts and processes a submission. Boundary of public observation: the last step of Add to Slack happens at slack.com and a real Matrix homeserver is needed to finish Matrix, so the connected end state itself is outside this Foundry; what is observable is that the page, the action and the handoff are unchanged from the pre-change build.
+
+```
+
+### E4
+
+met
+
+#### Observations
+
+```text
+Probe: for every state and every integration kind, the words and the links on get team/backend/project/identity-platform/integrations/routes/new are the same as the workspace integrations page for the same kind, state and viewer, and the post of .../routes/preview and the post of .../routes render the same page again. Examples: Slack W-2 (instance-key-no-secrets-key) - all four doors read "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once." with How to set up Slack then Set up integrations for this Foundry for Priya, How to set up Slack only for Tomás, no link for Lena. Matrix W-2 - all four doors read the Matrix sentence with Set up integrations for this Foundry alone for Priya and nothing for Tomás or Lena. W-3 (env-slack-no-secrets-key) - all four doors read the secrets-key sentence with that single link for Priya. The save post answers 422 Unprocessable Entity and renders the form page with the identical sentence and identical links; the preview post answers 200 and adds only "Preview / Identity Platform has no issue to preview yet." No kind gains or loses a link between the two pages and no sentence is paraphrased.
+
+```
+
+```text
+Probe (candidate 1beed30): examine-foundry start secrets-key-no-slack; get Priya workspace/integrations -> HTTP/1.1 200 OK, title "Integrations". Slack section body: Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once. How to set up Slack Set up integrations for this Foundry. Page links in rendered order: "How to set up Slack -> /workspace/integrations/slack/setup" then "Set up integrations for this Foundry -> /admin/instance/integrations". Same order in state instance-key-no-secrets-key. get Priya admin/instance/integrations -> 200, title "Integrations for this Foundry". So the W-2 text, then the existing setup link, then the new words, and the new link opens the instance integrations page.
+
+```
+
+```text
+Probe: in states instance-key-no-secrets-key and env-slack-no-secrets-key, get Priya workspace/integrations and get Priya "team/backend/project/identity-platform/integrations/routes/new?kind=matrix" both render: Matrix is not set up on this Foundry yet. An instance operator sets it up once. Set up integrations for this Foundry, with the single page link "Set up integrations for this Foundry -> /admin/instance/integrations". No earlier Matrix setup link exists in either door, so the new words follow the Matrix W-2 text directly.
+
+```
+
+```text
+Probe: start env-slack-no-secrets-key (the Slack app comes from the environment, SLACK_CLIENT_ID 6123456789012.7234567890123, and this Foundry has no secrets key) - the third instance-blocked Slack state, W-3. get Priya workspace/integrations -> 200 with: Slack cannot be connected on this Foundry yet: an instance operator needs to set the secrets key. Set up integrations for this Foundry; the only Slack link is "Set up integrations for this Foundry -> /admin/instance/integrations" (no "How to set up Slack", since the app is already set). The same sentence and the same single link appear on the Slack route form GET, on its preview post and on its save post (422 Unprocessable Entity) for Priya.
+
+```
+
+### E5
+
+met
+
+#### Observations
+
+```text
+Probe: for every state and every integration kind, the words and the links on get team/backend/project/identity-platform/integrations/routes/new are the same as the workspace integrations page for the same kind, state and viewer, and the post of .../routes/preview and the post of .../routes render the same page again. Examples: Slack W-2 (instance-key-no-secrets-key) - all four doors read "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once." with How to set up Slack then Set up integrations for this Foundry for Priya, How to set up Slack only for Tomás, no link for Lena. Matrix W-2 - all four doors read the Matrix sentence with Set up integrations for this Foundry alone for Priya and nothing for Tomás or Lena. W-3 (env-slack-no-secrets-key) - all four doors read the secrets-key sentence with that single link for Priya. The save post answers 422 Unprocessable Entity and renders the form page with the identical sentence and identical links; the preview post answers 200 and adds only "Preview / Identity Platform has no issue to preview yet." No kind gains or loses a link between the two pages and no sentence is paraphrased.
+
+```
+
+```text
+Probe: start env-slack-no-secrets-key (the Slack app comes from the environment, SLACK_CLIENT_ID 6123456789012.7234567890123, and this Foundry has no secrets key) - the third instance-blocked Slack state, W-3. get Priya workspace/integrations -> 200 with: Slack cannot be connected on this Foundry yet: an instance operator needs to set the secrets key. Set up integrations for this Foundry; the only Slack link is "Set up integrations for this Foundry -> /admin/instance/integrations" (no "How to set up Slack", since the app is already set). The same sentence and the same single link appear on the Slack route form GET, on its preview post and on its save post (422 Unprocessable Entity) for Priya.
+
+```
+
+### E6
+
+met
+
+#### Observations
+
+```text
+Probe: over all four states (secrets-key-no-slack, instance-key-no-secrets-key, env-slack-no-secrets-key, slack-app-saved) and all four doors (get workspace/integrations; get routes/new for kind slack and kind matrix; post routes/preview; post routes) as Tomás, a workspace admin who is not an instance admin: the complete set of links ever offered to him is "How to set up Slack -> /workspace/integrations/slack/setup", "Connect Slack in workspace integrations -> /workspace/integrations", "Connect Matrix in workspace integrations -> /workspace/integrations" and "Add to Slack -> /workspace/integrations/slack/install". The words "Set up integrations for this Foundry" and the href /admin/instance/integrations occur in no body he is served, on any page, in any state.
+
+```
+
+### E7
+
+met
+
+#### Observations
+
+```text
+Probe: the same four states and four doors as Lena, a workspace member and team lead who is neither kind of admin: not one page link is rendered to her anywhere. get Lena workspace/integrations -> HTTP/1.1 404 Not Found, the uniform "Not found / The requested resource does not exist or is not available." Her route forms, previews and saves render the state sentence with no link at all, for example "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once." and "This workspace has no chat connection yet. Ask a workspace admin to connect Slack or Matrix." Neither "How to set up Slack" nor "Set up integrations for this Foundry" appears to her.
+
+```
+
+### E8
+
+met
+
+#### Observations
+
+```text
+Probe: every link read off a rendered page was followed as the viewer it was offered to. get Priya admin/instance/integrations -> 200 "Integrations for this Foundry". get Tomás workspace/integrations/slack/setup and get Priya the same -> 200 "Set up Slack". get Priya and get Tomás workspace/integrations (the target of "Connect Slack/Matrix in workspace integrations") -> 200 "Integrations". get Priya workspace/integrations/slack/install and get Tomás the same (the target of "Add to Slack") -> 303 See Other to https://slack.com/oauth/v2/authorize with client_id 6123456789012.7234567890123, scope chat:write,chat:write.public,channels:read,groups:read, redirect_uri https://foundry.example.org/workspace/integrations/slack/return and a state token. No followed link answered a permission denial, a sign-in prompt, the uniform not-found page or an error page. Lena, who is offered no link, gets 404 if she asks for workspace/integrations/slack/install directly.
+
+```
+
+### E9
+
+met
+
+#### Observations
+
+```text
+Probe: get Tomás workspace/integrations/slack/setup (and the same page as Priya), in all four states -> 200, title "Set up Slack". Step 3 reads: An instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin › Integrations. Step 4 reads: No restart is needed. A workspace admin can then choose Add to Slack on the workspace integrations page. Footnote: An instance operator may instead set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET in Foundry's environment and restart; the environment takes precedence. A search for "Restart Foundry" over all eight current captures of that page finds nothing, and no step names setting SLACK_CLIENT_ID on this Foundry as the way to finish. The pre-change build of the same page, captured with examine-foundry start <state> --before, reads instead: "From the app's Basic Information, set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET on this Foundry, together with FOUNDRY_SECRETS_KEY." and "Restart Foundry. A workspace admin can then choose Add to Slack on the workspace integrations page." - so the two steps and the footnote are exactly what changed.
+
+```
+
+### E10
+
+met
+
+#### Observations
+
+```text
+Probe: get Tomás workspace/integrations/slack/setup (and the same page as Priya), in all four states -> 200, title "Set up Slack". Step 3 reads: An instance admin enters the app's Client ID, Client Secret and Signing Secret under Instance admin › Integrations. Step 4 reads: No restart is needed. A workspace admin can then choose Add to Slack on the workspace integrations page. Footnote: An instance operator may instead set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET in Foundry's environment and restart; the environment takes precedence. A search for "Restart Foundry" over all eight current captures of that page finds nothing, and no step names setting SLACK_CLIENT_ID on this Foundry as the way to finish. The pre-change build of the same page, captured with examine-foundry start <state> --before, reads instead: "From the app's Basic Information, set SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET on this Foundry, together with FOUNDRY_SECRETS_KEY." and "Restart Foundry. A workspace admin can then choose Add to Slack on the workspace integrations page." - so the two steps and the footnote are exactly what changed.
+
+```
+
+### E11
+
+met
+
+#### Observations
+
+```text
+Probe: the JSON manifest block rendered on workspace/integrations/slack/setup was extracted from the pre-change build (examine-foundry start <state> --before) and from the current build in all four states; every one hashes to the same md5 b7cb7b8e5df9ceea35484a488551a465, so the manifest the setup page gives a user is character for character the one the pre-change page gave. The manifest the instance integrations page renders for Priya in state secrets-key-no-slack hashes to that same value, before and after, so both pages agree. In the states where no manifest is due (no secrets key yet, or the app already saved) the instance page renders no manifest block. A Slack app created from the earlier manifest therefore stays correct.
+
+```
+
+### E12
+
+met
+
+#### Observations
+
+```text
+Probe: all 96 page captures (4 states x 3 viewers x {workspace integrations, slack route form, matrix route form, slack preview, slack save, matrix preview, matrix save} plus the setup page twice and the instance page) were taken twice, once from the current build and once from the pre-change build via examine-foundry start <state> --before, and compared line by line after normalising the data path, the dates and the version footer. 70 of the 96 are byte-identical. Of the 26 that differ, 18 differ only by the appended words "Set up integrations for this Foundry" and the one added link line to /admin/instance/integrations - with those words and that line removed, those 18 are byte-identical too - and the remaining 8 are the Slack setup page, whose step 3, step 4 and new footnote are what P4 requires to change. So the W-2 Slack sentence, the W-2 Matrix sentence, the W-3 secrets-key sentence, "This workspace has no chat connection yet. Ask a workspace admin to connect Slack or Matrix." (K-2) and "This workspace has no Slack/Matrix connection yet. Connect Slack/Matrix in workspace integrations" (K-19) read today exactly as they read before this change, on the workspace integrations page and on the new-route form; only links were added around them.
+
+```
+
+### E13
+
+met
+
+#### Observations
+
+```text
+Read of the operator document RELEASING.md at the candidate. R-1: "An instance admin then opens /admin/instance/integrations and presses Generate to create the secrets key." R-2 "Create the instance's Slack app (once per instance): an instance admin opens /admin/instance/integrations, which renders the app manifest for this instance; paste it at api.slack.com (Create New App, From a manifest). Enter its Client ID, Client Secret and Signing Secret on the same page and save; every replica picks it up without a restart." and "Matrix needs nothing more under Instance admin: once the secrets key exists, Matrix is ready and a workspace admin connects that workspace's own Matrix bot on the workspace integrations page." The settings table marks SLACK_CLIENT_ID, SLACK_CLIENT_SECRET, SLACK_SIGNING_SECRET as "Optional: the Slack app entered in the UI is used otherwise. All three or none; all three win over the saved app". Both integrations can be finished by following only the browser instructions; the page is named by its URL /admin/instance/integrations rather than by the breadcrumb words "Instance admin › Integrations", which the rendered setup page does use.
+
+```
+
+### E14
+
+met
+
+#### Observations
+
+```text
+Read of the operator document deploy/k8s/README.md at the candidate, section "Integrations", step 4: "An instance admin opens /admin/instance/integrations, generates the secrets key and enters the Slack app (RELEASING.md R-1, R-2). Matrix needs nothing more under Instance admin: once the secrets key exists, Matrix is ready and a workspace admin connects that workspace's own Matrix bot on the workspace integrations page." The numbered steps require the operator to set only FOUNDRY_INSTANCE_KEY in the Secret; the SLACK_* trio is never a required step and appears only as a failure condition ("a partial Slack trio ... makes the new pod refuse to start"), its settings deferred to RELEASING.md where they are marked optional. Both documents therefore put browser setup first and the environment settings as the operator alternative.
+
+```
