@@ -13,7 +13,7 @@ use super::{
     PRIVATE_CHANNELS, ROOM_ENCRYPTED, SHARED_CHANNEL,
 };
 use crate::integrations::matrix::{MatrixBot, RoomRefusal};
-use crate::integrations::no_connection::{ConnectionWords, NoConnectionCause};
+use crate::integrations::no_connection::{ConnectionWords, NoConnectionCause, Viewer};
 use crate::integrations::{MatrixOffer, SlackOffer};
 use foundry_integrations::{
     ChannelKind, Destination, DestinationCatalog, DestinationRef, MessageLines,
@@ -414,6 +414,10 @@ impl RouteDoor {
             .filter(|c| c.shared_with_another_organisation)
             .map(|c| SHARED_CHANNEL.replace("{destination}", &c.label));
         let slack = self.kind != ChannelKind::Matrix;
+        // The two facts the offers are decided from, before `nav` moves into
+        // the page: the workspace-admin fact the door's view carries, and
+        // whether this Foundry's setup is the viewer's (US-IIS-04).
+        let viewer = Viewer::new(self.target.viewer_is_workspace_admin, nav.is_instance_admin);
         RouteFormPage {
             nav,
             csrf,
@@ -428,9 +432,7 @@ impl RouteDoor {
             shared_confirmed: form.shared_confirmed,
             preview: answer.preview,
             no_issue_yet: format!("{} has no issue to preview yet.", self.target.project_name),
-            no_connection: self
-                .cause()
-                .map(|cause| cause.words(self.target.viewer_is_workspace_admin)),
+            no_connection: self.cause().map(|cause| cause.words(viewer)),
             kind: self.kind.wire_name(),
             typed_room: !slack && self.editing.is_none(),
             send_test: slack,

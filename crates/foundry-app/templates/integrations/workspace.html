@@ -10,10 +10,8 @@
   {% else %}
   <p data-connection="slack">{% if let Some(line) = slack_line %}{{ line }}{% endif %}{% if reconnect %} <a class="button" href="/workspace/integrations/slack/install">Reconnect</a>{% endif %}{% if slack_line.is_some() %} <a href="/workspace/integrations/slack/disconnect">Disconnect Slack</a>{% endif %}</p>
   {% endif %}
-  {% if not_set_up %}
-  <p>{{ slack_not_set_up }} <a href="/workspace/integrations/slack/setup">{{ how_to_set_up_slack }}</a></p>
-  {% else if no_secrets_key %}
-  <p>{{ slack_no_secrets_key }}</p>
+  {% if let Some(refusal) = slack_no_connection %}
+  <p>{{ refusal.words }}{% for fix in refusal.fixes %} <a href="{{ fix.href }}">{{ fix.label }}</a>{% endfor %}</p>
   {% else if slack_line.is_none() %}
   <p><a class="button" href="/workspace/integrations/slack/install">Add to Slack</a></p>
   {% endif %}
@@ -32,8 +30,8 @@
     <p><label for="matrix-token">Bot access token</label> <input id="matrix-token" type="password" name="access_token" autocomplete="off" required>{% if let Some(line) = matrix %} <span data-token-saved>{{ line.token_saved }}</span>{% endif %}</p>
     <p><button type="submit">{% if matrix.is_some() %}Replace token{% else %}Connect Matrix{% endif %}</button></p>
   </form>
-  {% else if matrix_not_set_up %}
-  <p>{{ matrix_not_set_up_words }}</p>
+  {% else if let Some(refusal) = matrix_no_connection %}
+  <p>{{ refusal.words }}{% for fix in refusal.fixes %} <a href="{{ fix.href }}">{{ fix.label }}</a>{% endfor %}</p>
   {% endif %}
 </section>
 <section>

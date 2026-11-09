@@ -282,7 +282,12 @@ pub(super) async fn send_matrix_test(
         (None, Some(bot)) => bot,
         (cause, _) => {
             let cause = cause.unwrap_or(NoConnectionCause::NotConnected(ChannelKind::Matrix));
-            let words = cause.words(door.target.viewer_is_workspace_admin).words;
+            // The refusal reads the words only: this page offers no way on,
+            // so the viewer decides nothing here beyond them.
+            let viewer = caller
+                .viewer(state, door.target.viewer_is_workspace_admin)
+                .await;
+            let words = cause.words(viewer).words;
             return refused_page(
                 state,
                 caller,

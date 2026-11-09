@@ -12,7 +12,9 @@ use super::{
 use crate::bootstrap::resource_not_found_page;
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::chat_kind;
-use crate::integrations::no_connection::{project_lines, ConnectionWords, SharedConnection};
+use crate::integrations::no_connection::{
+    project_lines, ConnectionWords, SharedConnection, Viewer,
+};
 use crate::AppState;
 use askama::Template;
 use axum::extract::{Path, Query, State};
@@ -725,12 +727,14 @@ async fn project_answer(
     });
     let base = base_path(team_slug, project_slug);
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let nav = caller.nav(state, csrf.clone()).await;
+    let viewer = Viewer::new(viewer_is_workspace_admin, nav.is_instance_admin);
     let page = ProjectPage {
-        nav: caller.nav(state, csrf.clone()).await,
+        nav,
         csrf,
         notice,
         project_name,
-        connection_lines: project_lines(&shared, viewer_is_workspace_admin),
+        connection_lines: project_lines(&shared, viewer),
         new_route_path: format!("{base}/routes/new?kind=slack"),
         test_path: format!("{base}/routes/test"),
         routes: routes

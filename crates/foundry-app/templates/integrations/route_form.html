@@ -17,7 +17,7 @@
 </section>
 {% endif %}
 {% if let Some(refusal) = no_connection %}
-<p data-no-connection>{{ refusal.words }}{% if let Some(fix) = refusal.fix %} <a href="{{ fix.href }}">{{ fix.label }}</a>{% endif %}</p>
+<p data-no-connection>{{ refusal.words }}{% for fix in refusal.fixes %} <a href="{{ fix.href }}">{{ fix.label }}</a>{% endfor %}</p>
 {% else %}
 <form method="post" action="{{ action_path }}">
   <input type="hidden" name="_csrf" value="{{ csrf }}">

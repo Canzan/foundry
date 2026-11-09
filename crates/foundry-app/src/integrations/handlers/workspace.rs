@@ -6,9 +6,7 @@ use super::{
     LOG_TARGET, MATRIX_CONNECT_PATH, MATRIX_DISCONNECT_PATH, WORKSPACE_PATH,
 };
 use crate::csrf::ensure_csrf_cookie;
-use crate::integrations::no_connection::{
-    HOW_TO_SET_UP_SLACK, MATRIX_NOT_SET_UP, SLACK_NOT_SET_UP, SLACK_NO_SECRETS_KEY,
-};
+use crate::integrations::no_connection::{ConnectionWords, NoConnectionCause, Viewer};
 use crate::integrations::{MatrixOffer, SlackOffer};
 use crate::AppState;
 use askama::Template;
@@ -28,13 +26,9 @@ struct WorkspacePage {
     slack_line: Option<String>,
     /// K-10: the connection was lost; offer to reconnect it.
     reconnect: bool,
-    not_set_up: bool,
-    no_secrets_key: bool,
-    /// W-2 and W-3 as the route form words them (one source per string).
-    slack_not_set_up: &'static str,
-    how_to_set_up_slack: &'static str,
-    slack_no_secrets_key: &'static str,
-    matrix_not_set_up_words: &'static str,
+    /// W-2 or W-3 for Slack, and the ways on it offers, as every door words
+    /// them: the one source for the sentence and its links (ADR-IW-001).
+    slack_no_connection: Option<ConnectionWords>,
     /// K-19: the saved connection cannot be read by this Foundry (DD-2);
     /// Disconnect is offered beside it, as a repair.
     unavailable: bool,
@@ -46,8 +40,9 @@ struct WorkspacePage {
     /// Matrix's connect form (Connect Matrix, or Replace token): the secrets
     /// key is set, so a token can be sealed.
     matrix_offered: bool,
-    /// K-18: no secrets key and no Matrix connection this Foundry cannot read.
-    matrix_not_set_up: bool,
+    /// K-18 / W-2 Matrix: no secrets key, so no bot token can be sealed; the
+    /// same sentence and offers the route form shows.
+    matrix_no_connection: Option<ConnectionWords>,
     /// K-19 for Matrix: the saved connection cannot be read by this Foundry
     /// (DD-2); Disconnect and, with a key, Replace token beside it.
     matrix_unavailable: bool,
@@ -264,22 +259,32 @@ pub(super) async fn workspace_page(
     let reconnect = slack_lost.is_some();
     let slack = slack.or_else(|| slack_lost.map(|lost| lost_words(ChannelKind::Slack, &lost)));
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let nav = caller.nav(state, csrf.clone()).await;
+    // The services view above answers only a workspace admin, so the
+    // workspace's own links are this viewer's; whether this Foundry's setup
+    // is too is the nav's fact, fail-closed (US-IIS-04).
+    let viewer = Viewer::new(true, nav.is_instance_admin);
+    // W-2 and W-3 only: a connection the workspace can make, has lost, or
+    // this Foundry cannot read keeps the page's own arms below.
+    let no_connection = |cause: Option<NoConnectionCause>| {
+        cause
+            .filter(|cause| cause.awaits_this_foundry())
+            .map(|cause| cause.words(viewer))
+    };
+    let slack_no_connection = no_connection(NoConnectionCause::of_slack(offer, slack.is_some()));
+    let matrix_no_connection =
+        no_connection(NoConnectionCause::of_matrix(matrix_offer, matrix.is_some()));
     let page = WorkspacePage {
-        nav: caller.nav(state, csrf.clone()).await,
+        nav,
         csrf,
         matrix_offered: integrations.sealing_box().is_some(),
-        matrix_not_set_up: matrix_offer == MatrixOffer::NoSecretsKey,
+        matrix_no_connection,
         matrix_unavailable: matrix_offer == MatrixOffer::Unavailable,
         matrix,
         matrix_connect_path: MATRIX_CONNECT_PATH,
         matrix_disconnect_path: MATRIX_DISCONNECT_PATH,
         notice: notice.map(str::to_string),
-        not_set_up: offer == SlackOffer::NotSetUp,
-        no_secrets_key: offer == SlackOffer::NoSecretsKey,
-        slack_not_set_up: SLACK_NOT_SET_UP,
-        how_to_set_up_slack: HOW_TO_SET_UP_SLACK,
-        slack_no_secrets_key: SLACK_NO_SECRETS_KEY,
-        matrix_not_set_up_words: MATRIX_NOT_SET_UP,
+        slack_no_connection,
         unavailable: offer == SlackOffer::Unavailable,
         slack_unavailable_words: unavailable_words(ChannelKind::Slack),
         matrix_unavailable_words: unavailable_words(ChannelKind::Matrix),
