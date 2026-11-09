@@ -4,6 +4,7 @@
 #
 #     scripts/examine-foundry states | viewers
 #     scripts/examine-foundry start secrets-key-no-slack
+#     scripts/examine-foundry start secrets-key-no-slack --before
 #     scripts/examine-foundry get Priya workspace/integrations
 #     scripts/examine-foundry post Priya admin/instance/integrations/secrets-key
 #     scripts/examine-foundry stop
@@ -23,8 +24,16 @@
 # the script finds the repo from the file it was started from, and the real home
 # from the password database.
 #
+# `--before` boots the release binary built from the commit named in
+# .nwave/examine-baseline instead of the checkout, from its own clone and target
+# directory in the VM, so a page can be compared before and after a change.
+#
 # To add a state: add a line to `states_table` and a `seed_<name>` function (dashes
 # become underscores) that runs after the shared people, team and project exist.
+# A state whose server needs settings of its own also gets `env_<name>`, which
+# prints them as KEY=VALUE lines (for example SLACK_API_BASE_URL and
+# SLACK_AUTHORIZE_URL for a Slack double that a future slack-connected state
+# starts before the server boots).
 set -euo pipefail
 
 PROG=examine-foundry
@@ -35,8 +44,16 @@ PASSWORD=examine-foundry-password
 PORT=18480
 METRICS_PORT=18481
 PG_PORT=18482
+# The baseline's own clone and target directory, relative to the VM home; the
+# probe never builds the baseline in the checkout or in the synced tree.
+BEFORE_TREE=examine-foundry-before/repo
 PG_IMAGE=postgres:16-alpine
 PG_NAME=foundry-examine-pg
+# Well-formed fake Slack app values (a client ID is digits.digits, each secret
+# 32 lowercase hex): the planted values of the instance-integration-setup stories.
+SLACK_ID=6123456789012.7234567890123
+SLACK_SECRET=3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8
+SLACK_SIGNING=b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05
 
 die() {
   printf '%s: %s\n' "$PROG" "$*" >&2
@@ -45,7 +62,7 @@ die() {
 
 usage() {
   cat <<'USAGE'
-usage: examine-foundry start <state>
+usage: examine-foundry start <state> [--before]
        examine-foundry get <viewer> <path>
        examine-foundry post <viewer> <path> [key=value ...]
        examine-foundry stop
@@ -57,6 +74,8 @@ states_table() {
   cat <<'STATES'
 secrets-key-no-slack	This Foundry made its own instance key file and Priya generated the secrets key; no Slack app is saved and no workspace is connected to Slack or Matrix.
 instance-key-no-secrets-key	This Foundry made its own instance key file and has no secrets key yet; nothing is set up for Slack or Matrix.
+env-slack-no-secrets-key	Foundry's environment sets the Slack app (SLACK_CLIENT_ID 6123456789012.7234567890123 and its two secrets); this Foundry made its own instance key file and has no secrets key; nothing is connected.
+slack-app-saved	This Foundry made its own instance key file, Priya generated the secrets key and saved the Slack app with client ID 6123456789012.7234567890123 on the instance integrations page; no workspace is connected.
 STATES
 }
 
@@ -155,16 +174,34 @@ vm_up() {
 }
 
 host_start() {
-  local state="$1" log
+  local state="$1" before="$2" log build tree
   vm_up
   log="$TMPDIR_HOST/examine-foundry-build.log"
-  if ! (cd "$ROOT" && timeout 3600 scripts/test-in-lima.sh bash -c \
-    'CARGO_BUILD_JOBS=4 cargo build --release -p foundry-app --bin foundry') >"$log" 2>&1; then
+  if [ -n "$before" ]; then
+    # Synced first, so the VM's history holds the baseline commit.
+    build=(bash scripts/examine-foundry __vm build-before "$before" foundry)
+    tree="$BEFORE_TREE"
+  else
+    build=(bash -c 'CARGO_BUILD_JOBS=4 cargo build --release -p foundry-app --bin foundry')
+    tree=foundry
+  fi
+  if ! (cd "$ROOT" && timeout 3600 scripts/test-in-lima.sh "${build[@]}") >"$log" 2>&1; then
     tail -n 20 "$log" >&2
     die "building the release foundry binary in $VM failed (log: $log)"
   fi
-  # The synced tree, relative to the VM home.
-  in_vm 900 lock __vm start "$state" foundry
+  # The tree is relative to the VM home.
+  in_vm 900 lock __vm start "$state" "$tree"
+}
+
+# The commit .nwave/examine-baseline names.
+baseline_commit() {
+  local file="$ROOT/.nwave/examine-baseline" commit
+  [ -f "$file" ] || die "no .nwave/examine-baseline names the commit --before builds"
+  commit=$(tr -d ' \t\r\n' <"$file")
+  case "$commit" in
+    "" | *[!0-9a-f]*) die ".nwave/examine-baseline holds no commit id" ;;
+  esac
+  printf '%s\n' "$commit"
 }
 
 host_main() {
@@ -174,12 +211,17 @@ host_main() {
     states) print_table states_table ;;
     viewers) print_table viewers_table ;;
     start)
-      [ "$#" -eq 1 ] || die "usage: examine-foundry start <state> (see: examine-foundry states)"
+      local before=
+      if [ "$#" -eq 2 ] && [ "$2" = --before ]; then
+        before=$(baseline_commit)
+      elif [ "$#" -ne 1 ]; then
+        die "usage: examine-foundry start <state> [--before] (see: examine-foundry states)"
+      fi
       state_known "$1" || die "no state named $1 (see: examine-foundry states)"
       if [ "$(uname -s)" = Linux ]; then
-        local_start "$1"
+        local_start "$1" "$before"
       else
-        host_start "$1"
+        host_start "$1" "$before"
       fi
       ;;
     get | post)
@@ -224,9 +266,16 @@ local_start() {
   fi
   (
     flock -w 900 9 || die "another test run holds ~/test.lock"
-    (cd "$ROOT" && timeout 3600 cargo build --release -p foundry-app --bin foundry) >&2 ||
-      die "building the release foundry binary failed"
-    timeout 900 bash "$SELF" __vm start "$1" "$ROOT" 9>&-
+    local tree="$ROOT"
+    if [ -n "$2" ]; then
+      timeout 3600 bash "$SELF" __vm build-before "$2" "$ROOT" >&2 9>&- ||
+        die "building the release foundry binary at $2 failed"
+      tree="$HOME/$BEFORE_TREE"
+    else
+      (cd "$ROOT" && timeout 3600 cargo build --release -p foundry-app --bin foundry) >&2 ||
+        die "building the release foundry binary failed"
+    fi
+    timeout 900 bash "$SELF" __vm start "$1" "$tree" 9>&-
   ) 9>"$HOME/test.lock"
 }
 
@@ -238,6 +287,25 @@ vm_dirs() {
   JARS="$STATE_DIR/jars"
   BASE="http://127.0.0.1:$PORT"
   DATABASE_URL="postgres://postgres:examine@127.0.0.1:$PG_PORT/foundry"
+}
+
+# Check out COMMIT in the baseline clone (made from SOURCE, the synced tree or
+# this checkout) and build its release binary there. Runs under ~/test.lock.
+vm_build_before() {
+  local commit="$1" source="$2" clone="$HOME/$BEFORE_TREE"
+  case "$source" in /*) ;; *) source="$HOME/$source" ;; esac
+  git -C "$source" cat-file -e "$commit^{commit}" 2>/dev/null ||
+    die "commit $commit is not in the history of $source"
+  if [ ! -d "$clone/.git" ]; then
+    mkdir -p "$(dirname "$clone")"
+    git clone -q --no-checkout "$source" "$clone" || die "could not clone $source for the baseline"
+  fi
+  git -C "$clone" fetch -q "$source" '+refs/heads/*:refs/remotes/origin/*' ||
+    die "could not fetch $source into the baseline clone"
+  git -C "$clone" checkout -q -f --detach "$commit" || die "could not check out $commit"
+  git -C "$clone" clean -q -f -d -x -e /target
+  (cd "$clone" && CARGO_BUILD_JOBS=4 cargo build --release -p foundry-app --bin foundry) ||
+    die "building the release foundry binary at $commit failed"
 }
 
 vm_teardown() {
@@ -309,6 +377,11 @@ vm_start() {
   openssl pkey -in "$STATE_DIR/machine-token.pem" -pubout -out "$STATE_DIR/machine-token.pub" ||
     die "openssl could not derive the machine-token public key"
 
+  local extra=() hook="env_${state//-/_}"
+  if declare -F "$hook" >/dev/null; then
+    mapfile -t extra < <("$hook")
+  fi
+
   # setsid + closed descriptors: the server outlives this shell and holds no lock.
   env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$HOME" \
     DATABASE_URL="$DATABASE_URL" \
@@ -322,6 +395,7 @@ vm_start() {
     FOUNDRY_PUBLIC_URL="$PUBLIC_URL" \
     FOUNDRY_INTEGRATIONS_RELOAD_MS=200 \
     RUST_LOG=info \
+    "${extra[@]+"${extra[@]}"}" \
     setsid "$STATE_DIR/bin/foundry" >"$STATE_DIR/foundry.log" 2>&1 </dev/null 9>&- &
   printf '%s\n' "$!" >"$STATE_DIR/foundry.pid"
 
@@ -342,7 +416,7 @@ vm_start() {
 
   seed_people_team_project
   "seed_${state//-/_}"
-  printf '%s\n' "$state" >"$STATE_DIR/state"
+  printf '%s %s\n' "$state" "$root" >"$STATE_DIR/state"
   printf 'examine-foundry: started in state %s (%s)\n' "$state" \
     "$(states_table | awk -F'\t' -v s="$state" '$1 == s { print $2 }')"
 }
@@ -787,12 +861,30 @@ seed_instance_key_no_secrets_key() {
   instance_key_made
 }
 
+env_env_slack_no_secrets_key() {
+  printf '%s\n' "SLACK_CLIENT_ID=$SLACK_ID" "SLACK_CLIENT_SECRET=$SLACK_SECRET" \
+    "SLACK_SIGNING_SECRET=$SLACK_SIGNING"
+}
+
+seed_env_slack_no_secrets_key() {
+  instance_key_made
+}
+
+seed_slack_app_saved() {
+  seed_secrets_key_no_slack
+  http priya POST /admin/instance/integrations/slack "client_id=$SLACK_ID" \
+    "client_secret=$SLACK_SECRET" "signing_secret=$SLACK_SIGNING"
+  expect "saving the Slack app" 200
+  expect_text "saving the Slack app" "Saved."
+}
+
 vm_main() {
   vm_dirs
   local op="$1"
   shift
   case "$op" in
     start) vm_start "$@" ;;
+    build-before) vm_build_before "$@" ;;
     stop) vm_stop ;;
     get) vm_request GET "$1" "$2" ;;
     post)

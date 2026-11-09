@@ -156,7 +156,15 @@ On macOS, `start` syncs and builds through `test-in-lima.sh`, then runs
 18480 to 18482, under `~/test.lock`. On Linux it uses this host. Paths may omit the
 leading slash, and under `nwdes` they must omit it. `post` adds the form's
 CSRF token itself. To add a state, add a line to `states_table` and a
-`seed_<name>` function in the script.
+`seed_<name>` function in the script, plus an `env_<name>` function when the
+server needs settings of its own (a Slack double's `SLACK_API_BASE_URL`, say).
+
+`start <state> --before` boots the release binary built from the commit in
+`.nwave/examine-baseline` instead, so a page can be compared before and after
+a change. It is built in its own clone and target directory in the VM
+(`~/examine-foundry-before`), never in the checkout. The orchestrator sets
+`.nwave/examine-baseline` to the feature base at the start of each Request.
+Only states the baseline already supports seed against it.
 
 `nwdes` starts a declared executable through `/dev/fd/N`, which macOS refuses
 to run ("Permission denied"). Run `nwdes examine probe` on Linux, such as in
