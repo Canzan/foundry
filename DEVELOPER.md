@@ -132,6 +132,36 @@ scripts/test-in-lima.sh bash -c 'source scripts/eip-lanes.sh; exec cargo xtask c
 stays on the Mac, and runs one command at a time. Build output stays in the VM.
 Bound long runs with `timeout` on the Mac side.
 
+### The examine probe (`scripts/examine-foundry`)
+
+At nWave's final EXAMINE, an examiner that cannot read the source looks at
+Foundry's public pages through this one command, which `.nwave/examine.json`
+declares to `nwdes examine probe`. It boots a throwaway Foundry, seeds a named
+state through the public flows, and prints a page the way a named, signed-in
+viewer sees it: the status line, the content type, the final URL when redirected,
+the main content's visible text (the sidebar left out), then its links
+(`link: <text> -> <href>`) and forms.
+
+```sh
+scripts/examine-foundry states            # what can be seeded
+scripts/examine-foundry viewers           # Priya, Tomás, Lena, signed-out
+scripts/examine-foundry start secrets-key-no-slack
+scripts/examine-foundry get Priya workspace/integrations
+scripts/examine-foundry post Priya admin/instance/integrations/secrets-key
+scripts/examine-foundry stop
+```
+
+On macOS, `start` syncs and builds through `test-in-lima.sh`, then runs
+`postgres:16-alpine` and the release binary in the `foundry-test` VM on ports
+18480 to 18482, under `~/test.lock`. On Linux it uses this host. Paths may omit the
+leading slash, and under `nwdes` they must omit it. `post` adds the form's
+CSRF token itself. To add a state, add a line to `states_table` and a
+`seed_<name>` function in the script.
+
+`nwdes` starts a declared executable through `/dev/fd/N`, which macOS refuses
+to run ("Permission denied"). Run `nwdes examine probe` on Linux, such as in
+the VM.
+
 ### Docker on macOS (Colima / OrbStack / Lima)
 
 For anything other than tests, the acceptance harness (testcontainers-rs + the

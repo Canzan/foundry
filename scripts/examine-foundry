@@ -1,0 +1,824 @@
+#!/usr/bin/env bash
+# The public probe an examiner uses to look at Foundry's pages: one throwaway
+# Foundry, seeded into a named state, asked for pages as named signed-in viewers.
+#
+#     scripts/examine-foundry states | viewers
+#     scripts/examine-foundry start secrets-key-no-slack
+#     scripts/examine-foundry get Priya workspace/integrations
+#     scripts/examine-foundry post Priya admin/instance/integrations/secrets-key
+#     scripts/examine-foundry stop
+#
+# Paths may be written with or without the leading slash; under
+# `nwdes examine probe` they must be written without it, since nwdes admits only
+# workspace-relative arguments.
+#
+# On macOS everything runs in the Lima VM (default foundry-test, or
+# FOUNDRY_TEST_VM), never on the Mac's Docker: `start` syncs and builds the
+# release binary through scripts/test-in-lima.sh, then boots a postgres:16-alpine
+# container and the binary in the VM. On Linux it runs on this host. `start`
+# holds ~/test.lock while it builds and boots, as test-in-lima.sh does.
+#
+# The probe may run with a restricted cwd and environment (nwdes gives it only
+# PATH, LANG and a scratch HOME and TMPDIR, and starts it through /dev/fd/N), so
+# the script finds the repo from the file it was started from, and the real home
+# from the password database.
+#
+# To add a state: add a line to `states_table` and a `seed_<name>` function (dashes
+# become underscores) that runs after the shared people, team and project exist.
+set -euo pipefail
+
+PROG=examine-foundry
+VM="${FOUNDRY_TEST_VM:-foundry-test}"
+PUBLIC_URL=https://foundry.example.org
+WORKSPACE_NAME="Canzan Labs"
+PASSWORD=examine-foundry-password
+PORT=18480
+METRICS_PORT=18481
+PG_PORT=18482
+PG_IMAGE=postgres:16-alpine
+PG_NAME=foundry-examine-pg
+
+die() {
+  printf '%s: %s\n' "$PROG" "$*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'USAGE'
+usage: examine-foundry start <state>
+       examine-foundry get <viewer> <path>
+       examine-foundry post <viewer> <path> [key=value ...]
+       examine-foundry stop
+       examine-foundry states | viewers
+USAGE
+}
+
+states_table() {
+  cat <<'STATES'
+secrets-key-no-slack	This Foundry made its own instance key file and Priya generated the secrets key; no Slack app is saved and no workspace is connected to Slack or Matrix.
+instance-key-no-secrets-key	This Foundry made its own instance key file and has no secrets key yet; nothing is set up for Slack or Matrix.
+STATES
+}
+
+viewers_table() {
+  cat <<'VIEWERS'
+Priya	Priya Raman: this Foundry's instance admin and an admin of the Canzan Labs workspace; lead of the teams General and Backend.
+Tomás	Tomás Rivera: an admin of the Canzan Labs workspace, not an instance admin; on no team.
+Lena	Lena Park: a member of the Canzan Labs workspace, lead of team Backend (project Identity Platform); neither kind of admin.
+signed-out	Nobody signed in.
+VIEWERS
+}
+
+print_table() {
+  "$1" | while IFS=$'\t' read -r name words; do
+    printf '%s: %s\n' "$name" "$words"
+  done
+}
+
+state_known() {
+  states_table | cut -f1 | grep -qxF -- "$1"
+}
+
+# The viewer's key (priya, tomas, lena, signed-out), or nothing.
+viewer_key() {
+  local lower
+  lower=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  case "$lower" in
+    priya | "priya raman") echo priya ;;
+    tomás | tomas | "tomás rivera" | "tomas rivera") echo tomas ;;
+    lena | "lena park") echo lena ;;
+    signed-out | nobody | anonymous) echo signed-out ;;
+    *) return 1 ;;
+  esac
+}
+
+# --------------------------------------------------------------- the host side
+
+# The file this script was started from. Under nwdes it is started as
+# /dev/fd/N, so the path behind that descriptor is asked for.
+self_path() {
+  local fd path
+  case "$0" in
+    /dev/fd/* | /proc/self/fd/*)
+      fd="${0##*/}"
+      if [ "$(uname -s)" = Darwin ]; then
+        path=$(lsof -a -p "$$" -d "$fd" -Fn 2>/dev/null | sed -n 's/^n//p' | head -n1)
+      else
+        path=$(readlink -f "/proc/$$/fd/$fd")
+      fi
+      ;;
+    */*) path="$0" ;;
+    *) path="${BASH_SOURCE[0]}" ;;
+  esac
+  [ -n "$path" ] && [ -f "$path" ] || die "cannot find the file this script runs from ($0)"
+  (cd "$(dirname "$path")" && printf '%s/%s\n' "$(pwd -P)" "$(basename "$path")")
+}
+
+real_home() {
+  local user
+  user=$(id -un)
+  case "$user" in *[!A-Za-z0-9._-]*) die "unexpected user name $user" ;; esac
+  eval "printf '%s\n' ~$user"
+}
+
+# Run this script in the VM: its own text goes in on stdin, so the VM always
+# runs the same code as the host, whatever was last synced.
+in_vm() {
+  local limit="$1" lock="$2"
+  shift 2
+  local inner
+  inner=$(printf '%q ' "$@")
+  if [ "$lock" = lock ]; then
+    inner="flock -o -w 900 ~/test.lock bash -s -- $inner"
+  else
+    inner="bash -s -- $inner"
+  fi
+  # limactl's own warnings are dropped; the probe's errors pass through.
+  {
+    timeout "$limit" limactl shell --workdir / "$VM" bash -c \
+      ". ~/foundry-test-env; ulimit -n 8192; $inner" <"$SELF" 2>&1 1>&3 3>&- |
+      { grep -v 'level=warning' >&2 || true; }
+  } 3>&1
+}
+
+vm_up() {
+  command -v limactl >/dev/null || die "limactl is not installed; scripts/test-vm-setup.sh needs it"
+  local status
+  status=$(timeout 30 limactl list --format '{{.Status}}' "$VM" 2>/dev/null) ||
+    die "no Lima VM named $VM; create it with scripts/test-vm-setup.sh"
+  if [ "$status" != Running ]; then
+    timeout 300 limactl start "$VM" >/dev/null 2>&1 || die "could not start the Lima VM $VM"
+  fi
+  # Lima can report Running while the VM is dead: ask it something.
+  timeout 30 limactl shell --workdir / "$VM" true 2>/dev/null ||
+    die "the Lima VM $VM does not answer; restart it with limactl stop $VM && limactl start $VM"
+}
+
+host_start() {
+  local state="$1" log
+  vm_up
+  log="$TMPDIR_HOST/examine-foundry-build.log"
+  if ! (cd "$ROOT" && timeout 3600 scripts/test-in-lima.sh bash -c \
+    'CARGO_BUILD_JOBS=4 cargo build --release -p foundry-app --bin foundry') >"$log" 2>&1; then
+    tail -n 20 "$log" >&2
+    die "building the release foundry binary in $VM failed (log: $log)"
+  fi
+  # The synced tree, relative to the VM home.
+  in_vm 900 lock __vm start "$state" foundry
+}
+
+host_main() {
+  local cmd="${1:-}"
+  [ "$#" -gt 0 ] && shift
+  case "$cmd" in
+    states) print_table states_table ;;
+    viewers) print_table viewers_table ;;
+    start)
+      [ "$#" -eq 1 ] || die "usage: examine-foundry start <state> (see: examine-foundry states)"
+      state_known "$1" || die "no state named $1 (see: examine-foundry states)"
+      if [ "$(uname -s)" = Linux ]; then
+        local_start "$1"
+      else
+        host_start "$1"
+      fi
+      ;;
+    get | post)
+      [ "$#" -ge 2 ] || die "usage: examine-foundry $cmd <viewer> <path>$([ "$cmd" = post ] && echo ' [key=value ...]')"
+      local viewer
+      viewer=$(viewer_key "$1") || die "no viewer named $1 (see: examine-foundry viewers)"
+      [ "$cmd" = get ] && [ "$#" -gt 2 ] && die "get takes one path; use post to send fields"
+      local path="$2"
+      shift 2
+      local field
+      for field in "$@"; do
+        case "$field" in *=*) ;; *) die "a field is key=value, not $field" ;; esac
+      done
+      run_op 120 "$cmd" "$viewer" "$path" "$@"
+      ;;
+    stop) run_op 120 stop ;;
+    "" | -h | --help | help) usage ;;
+    *)
+      usage >&2
+      exit 2
+      ;;
+  esac
+}
+
+run_op() {
+  local limit="$1"
+  shift
+  if [ "$(uname -s)" = Linux ]; then
+    timeout "$limit" bash "$SELF" __vm "$@"
+  else
+    vm_up
+    in_vm "$limit" nolock __vm "$@"
+  fi
+}
+
+# On a Linux host: build here, then boot, all under ~/test.lock.
+local_start() {
+  # A restricted PATH may not reach rustup's cargo.
+  if ! command -v cargo >/dev/null && [ -f "$HOME/.cargo/env" ]; then
+    # shellcheck disable=SC1091
+    . "$HOME/.cargo/env"
+  fi
+  (
+    flock -w 900 9 || die "another test run holds ~/test.lock"
+    (cd "$ROOT" && timeout 3600 cargo build --release -p foundry-app --bin foundry) >&2 ||
+      die "building the release foundry binary failed"
+    timeout 900 bash "$SELF" __vm start "$1" "$ROOT" 9>&-
+  ) 9>"$HOME/test.lock"
+}
+
+# ----------------------------------------------------------------- the VM side
+# Everything below runs where Foundry runs (the VM, or a Linux host).
+
+vm_dirs() {
+  STATE_DIR="$HOME/examine-foundry"
+  JARS="$STATE_DIR/jars"
+  BASE="http://127.0.0.1:$PORT"
+  DATABASE_URL="postgres://postgres:examine@127.0.0.1:$PG_PORT/foundry"
+}
+
+vm_teardown() {
+  if [ -f "$STATE_DIR/foundry.pid" ]; then
+    local pid
+    pid=$(cat "$STATE_DIR/foundry.pid")
+    kill "$pid" 2>/dev/null || true
+
+    for _ in $(seq 1 50); do
+      kill -0 "$pid" 2>/dev/null || break
+      sleep 0.2
+    done
+    kill -9 "$pid" 2>/dev/null || true
+  fi
+  pkill -9 -f "$STATE_DIR/bin/foundry" 2>/dev/null || true
+  docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
+  if [ -f "$STATE_DIR/data-dir" ]; then
+    rm -rf "$(cat "$STATE_DIR/data-dir")"
+  fi
+  rm -rf "$STATE_DIR"
+}
+
+vm_require_running() {
+  if ! { [ -f "$STATE_DIR/foundry.pid" ] && kill -0 "$(cat "$STATE_DIR/foundry.pid")" 2>/dev/null; }; then
+    die "no probe instance is running; run: examine-foundry start <state>"
+  fi
+}
+
+port_free() {
+  ! ss -Hltn "sport = :$1" 2>/dev/null | grep -q .
+}
+
+vm_start() {
+  local state="$1" root="$2"
+  case "$root" in /*) ;; *) root="$HOME/$root" ;; esac
+  local binary="$root/target/release/foundry"
+  [ -x "$binary" ] || die "no release binary at $binary"
+  vm_teardown
+  local p
+  for p in "$PORT" "$METRICS_PORT" "$PG_PORT"; do
+    port_free "$p" || die "port $p is in use in this machine; stop whatever listens there"
+  done
+  mkdir -p "$STATE_DIR/bin" "$JARS"
+  cp "$binary" "$STATE_DIR/bin/foundry"
+
+  docker run -d --name "$PG_NAME" --label foundry-examine=1 \
+    -e POSTGRES_PASSWORD=examine -e POSTGRES_DB=foundry \
+    -p "127.0.0.1:$PG_PORT:5432" "$PG_IMAGE" >/dev/null ||
+    die "could not start the $PG_IMAGE container"
+  local ready=
+  for _ in $(seq 1 60); do
+    if docker exec "$PG_NAME" pg_isready -U postgres -d foundry -h 127.0.0.1 >/dev/null 2>&1; then
+      ready=1
+      break
+    fi
+    sleep 1
+  done
+  [ -n "$ready" ] || die "Postgres did not become ready within 60 seconds"
+
+  # A fixed temp path, so the pages that name it read the same on every start.
+  local data_dir=/tmp/examine-foundry-data
+  rm -rf "$data_dir"
+  mkdir -m 700 "$data_dir"
+  printf '%s\n' "$data_dir" >"$STATE_DIR/data-dir"
+  head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n' >"$STATE_DIR/session-secret"
+  # The machine-token keypair a deploy supplies; this one lives as long as the probe.
+  openssl genpkey -algorithm ed25519 -out "$STATE_DIR/machine-token.pem" 2>/dev/null ||
+    die "openssl could not make the machine-token key"
+  openssl pkey -in "$STATE_DIR/machine-token.pem" -pubout -out "$STATE_DIR/machine-token.pub" ||
+    die "openssl could not derive the machine-token public key"
+
+  # setsid + closed descriptors: the server outlives this shell and holds no lock.
+  env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$HOME" \
+    DATABASE_URL="$DATABASE_URL" \
+    SESSION_SECRET="$(cat "$STATE_DIR/session-secret")" \
+    SESSION_COOKIE_SECURE=false \
+    MACHINE_TOKEN_PUBLIC_KEYS="$(cat "$STATE_DIR/machine-token.pub")" \
+    MACHINE_TOKEN_SIGNING_KEY="$(cat "$STATE_DIR/machine-token.pem")" \
+    FOUNDRY_HOST=127.0.0.1 FOUNDRY_PORT="$PORT" \
+    METRICS_HOST=127.0.0.1 METRICS_PORT="$METRICS_PORT" \
+    FOUNDRY_DATA_DIR="$data_dir" \
+    FOUNDRY_PUBLIC_URL="$PUBLIC_URL" \
+    FOUNDRY_INTEGRATIONS_RELOAD_MS=200 \
+    RUST_LOG=info \
+    setsid "$STATE_DIR/bin/foundry" >"$STATE_DIR/foundry.log" 2>&1 </dev/null 9>&- &
+  printf '%s\n' "$!" >"$STATE_DIR/foundry.pid"
+
+  ready=
+  for _ in $(seq 1 120); do
+    kill -0 "$(cat "$STATE_DIR/foundry.pid")" 2>/dev/null || break
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$BASE/readyz")" = 200 ]; then
+      ready=1
+      break
+    fi
+    sleep 0.5
+  done
+  if [ -z "$ready" ]; then
+    tail -n 20 "$STATE_DIR/foundry.log" >&2
+    vm_teardown
+    die "Foundry did not become ready within 60 seconds"
+  fi
+
+  seed_people_team_project
+  "seed_${state//-/_}"
+  printf '%s\n' "$state" >"$STATE_DIR/state"
+  printf 'examine-foundry: started in state %s (%s)\n' "$state" \
+    "$(states_table | awk -F'\t' -v s="$state" '$1 == s { print $2 }')"
+}
+
+vm_stop() {
+  vm_teardown
+  docker ps -aq --filter label=foundry-examine=1 | xargs -r docker rm -f >/dev/null
+  echo "examine-foundry: stopped; no probe container or process is left"
+}
+
+# ---- HTTP as a browser would -------------------------------------------------
+
+# A path of this Foundry for whatever the server or the caller gave.
+local_url() {
+  local target="$1" current="$2"
+  case "$target" in
+    "$PUBLIC_URL"/* | "$PUBLIC_URL") printf '%s%s\n' "$BASE" "${target#"$PUBLIC_URL"}" ;;
+    "$BASE"/* | "$BASE") printf '%s\n' "$target" ;;
+    //* | http://* | https://*) return 1 ;;
+    /*) printf '%s%s\n' "$BASE" "$target" ;;
+    \?*) printf '%s%s\n' "${current%%\?*}" "$target" ;;
+    *) printf '%s/%s\n' "${current%/*}" "$target" ;;
+  esac
+}
+
+csrf_of() {
+  [ -f "$1" ] || return 0
+  awk '$6 == "foundry_csrf" { v = $7 } END { if (v != "") print v }' "$1"
+}
+
+has_session() {
+  [ -f "$1" ] && awk '$6 == "foundry_session" { f = 1 } END { exit !f }' "$1"
+}
+
+# http VIEWER METHOD PATH [key=value ...]: the request with the viewer's cookies,
+# the CSRF token a form carries, and redirects followed within this Foundry.
+# Leaves the last answer in $STATE_DIR/last.{headers,body} and sets
+# HTTP_STATUS, HTTP_CODE, HTTP_TYPE, HTTP_FINAL, HTTP_REDIRECTED, HTTP_LEFT.
+http() {
+  local viewer="$1" method="$2" path="$3"
+  shift 3
+  local jar="$JARS/$viewer.txt" url hops=0
+  [ "$viewer" = signed-out ] && jar="$JARS/signed-out.txt"
+  case "$path" in /*) ;; *) path="/$path" ;; esac
+  url="$BASE$path"
+  local fields=("$@")
+  if [ "$method" = POST ] && [ -z "$(csrf_of "$jar")" ]; then
+    # A browser holds the token from the page the form was on.
+    curl -s -o /dev/null --max-time 30 -b "$jar" -c "$jar" "$BASE/" || true
+  fi
+  HTTP_REDIRECTED=
+  HTTP_LEFT=
+  while :; do
+    local args=(-s -S --max-time 30 -o "$STATE_DIR/last.body" -D "$STATE_DIR/last.headers"
+      -b "$jar" -c "$jar")
+    if [ "$method" = POST ]; then
+      args+=(-X POST --data-urlencode "_csrf=$(csrf_of "$jar")")
+      local f
+      for f in "${fields[@]+"${fields[@]}"}"; do
+        args+=(--data-urlencode "$f")
+      done
+    fi
+    curl "${args[@]}" "$url" || die "the request to $path did not complete"
+    HTTP_STATUS=$(tr -d '\r' <"$STATE_DIR/last.headers" | { grep -E '^HTTP/' || true; } | tail -n1)
+    HTTP_CODE=$(printf '%s' "$HTTP_STATUS" | awk '{ print $2 }')
+    HTTP_TYPE=$(header content-type)
+    local location
+    location=$(header location)
+    case "$HTTP_CODE" in
+      301 | 302 | 303 | 307 | 308) ;;
+      *) break ;;
+    esac
+    [ -n "$location" ] || break
+    local next
+    if ! next=$(local_url "$location" "$url"); then
+      HTTP_LEFT="$location"
+      break
+    fi
+    hops=$((hops + 1))
+    [ "$hops" -le 10 ] || die "more than 10 redirects from $path"
+    HTTP_REDIRECTED=1
+    url="$next"
+    case "$HTTP_CODE" in 307 | 308) ;; *) method=GET ;; esac
+  done
+  HTTP_FINAL="${url#"$BASE"}"
+}
+
+# The last value of one response header, or nothing.
+header() {
+  tr -d '\r' <"$STATE_DIR/last.headers" | { grep -i "^$1:" || true; } | tail -n1 | cut -d' ' -f2-
+}
+
+sign_in() {
+  local viewer="$1" email="$2"
+  local jar="$JARS/$viewer.txt"
+  curl -s -o /dev/null --max-time 30 -b "$jar" -c "$jar" "$BASE/sign-in" || true
+  http "$viewer" POST /sign-in "email=$email" "password=$PASSWORD"
+  has_session "$jar" || die "$viewer could not sign in"
+}
+
+email_of() {
+  case "$1" in
+    priya) echo priya.raman@example.org ;;
+    tomas) echo tomas.rivera@example.org ;;
+    lena) echo lena.park@example.org ;;
+  esac
+}
+
+vm_request() {
+  local method="$1" viewer="$2" path="$3"
+  shift 3
+  vm_require_running
+  if [ "$viewer" != signed-out ] && ! has_session "$JARS/$viewer.txt"; then
+    sign_in "$viewer" "$(email_of "$viewer")"
+  fi
+  http "$viewer" "$method" "$path" "$@"
+  printf 'status: %s\n' "$HTTP_STATUS"
+  printf 'content-type: %s\n' "${HTTP_TYPE:-none}"
+  if [ -n "$HTTP_REDIRECTED" ]; then
+    printf 'final-url: %s%s\n' "$PUBLIC_URL" "$HTTP_FINAL"
+  fi
+  if [ -n "$HTTP_LEFT" ]; then
+    printf 'redirect-not-followed (leaves this Foundry): %s\n' "$HTTP_LEFT"
+  fi
+  python3 -I -c "$(extract_py)" "$STATE_DIR/last.body" "${HTTP_TYPE:-}"
+}
+
+extract_py() {
+  cat <<'PY'
+import html, re, sys
+from html.parser import HTMLParser
+
+body_path, content_type = sys.argv[1], sys.argv[2]
+raw = open(body_path, "rb").read().decode("utf-8", "replace")
+
+if "html" not in content_type.lower():
+    print()
+    text = raw if len(raw) <= 20000 else raw[:20000] + "\n[... cut at 20000 characters]"
+    print(text.rstrip())
+    sys.exit(0)
+
+VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
+        "param", "source", "track", "wbr"}
+SKIP = {"script", "style", "template", "noscript", "head", "svg"}
+BLOCK = {"p", "div", "section", "article", "header", "footer", "main", "aside", "nav",
+         "h1", "h2", "h3", "h4", "h5", "h6", "li", "ul", "ol", "table", "thead", "tbody",
+         "tr", "form", "fieldset", "legend", "pre", "blockquote", "dl", "dt", "dd",
+         "details", "summary", "figure", "figcaption", "hr", "option", "dialog", "label",
+         "button", "select", "textarea"}
+
+class Node:
+    def __init__(self, tag, attrs, parent):
+        self.tag, self.attrs, self.parent, self.children = tag, dict(attrs), parent, []
+
+class Tree(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.root = Node("#root", [], None)
+        self.cur = self.root
+    def handle_starttag(self, tag, attrs):
+        node = Node(tag, attrs, self.cur)
+        self.cur.children.append(node)
+        if tag not in VOID:
+            self.cur = node
+    def handle_startendtag(self, tag, attrs):
+        self.cur.children.append(Node(tag, attrs, self.cur))
+    def handle_endtag(self, tag):
+        n = self.cur
+        while n is not None and n.tag != tag:
+            n = n.parent
+        if n is not None and n.parent is not None:
+            self.cur = n.parent
+    def handle_data(self, data):
+        self.cur.children.append(data)
+
+tree = Tree()
+tree.feed(raw)
+tree.close()
+
+def classes(n):
+    return (n.attrs.get("class") or "").split()
+
+def find(n, pred):
+    if isinstance(n, str):
+        return None
+    if pred(n):
+        return n
+    for c in n.children:
+        hit = find(c, pred)
+        if hit is not None:
+            return hit
+    return None
+
+title_node = find(tree.root, lambda n: n.tag == "title")
+root = (find(tree.root, lambda n: n.tag == "main")
+        or find(tree.root, lambda n: "app-shell__content" in classes(n))
+        or find(tree.root, lambda n: n.tag == "body")
+        or tree.root)
+
+def hidden(n):
+    if n.tag in SKIP:
+        return True
+    if "hidden" in n.attrs or n.attrs.get("aria-hidden") == "true":
+        return True
+    if re.search(r"display\s*:\s*none", n.attrs.get("style") or ""):
+        return True
+    if n.tag == "aside" and "sidebar" in classes(n):
+        return True
+    if n.tag == "input" and (n.attrs.get("type") or "").lower() == "hidden":
+        return True
+    return False
+
+def norm(s):
+    return re.sub(r"\s+", " ", s).strip()
+
+lines, links, forms = [], [], []
+buf = []
+
+def flush():
+    t = norm("".join(buf))
+    if t:
+        lines.append(t)
+    buf.clear()
+
+def text_of(n):
+    if isinstance(n, str):
+        return n
+    if hidden(n):
+        return ""
+    if n.tag == "br":
+        return " "
+    if n.tag == "input" and (n.attrs.get("type") or "").lower() in ("submit", "button"):
+        return " " + (n.attrs.get("value") or "") + " "
+    return "".join(text_of(c) for c in n.children)
+
+def field_list(form):
+    out, buttons = [], []
+    def visit(n):
+        if isinstance(n, str):
+            return
+        name = n.attrs.get("name")
+        kind = (n.attrs.get("type") or "").lower()
+        if n.tag == "input":
+            if kind in ("submit", "button"):
+                buttons.append(n.attrs.get("value") or "")
+                if name:
+                    out.append(f"{name}={n.attrs.get('value') or ''}")
+            elif name and name != "_csrf":
+                value = n.attrs.get("value")
+                if kind in ("checkbox", "radio"):
+                    mark = " (checked)" if "checked" in n.attrs else ""
+                    out.append(f"{name}={value or 'on'} [{kind}{mark}]")
+                elif kind == "password" or value is None or value == "":
+                    out.append(f"{name} [{kind or 'text'}]")
+                else:
+                    out.append(f"{name}={value}" + (f" [{kind}]" if kind and kind != "hidden" else ""))
+            return
+        if n.tag == "select" and name:
+            options = []
+            def opts(m):
+                if isinstance(m, str):
+                    return
+                if m.tag == "option":
+                    v = m.attrs.get("value")
+                    label = norm(text_of(m))
+                    options.append((v if v is not None else label) + ("*" if "selected" in m.attrs else ""))
+                for c in m.children:
+                    opts(c)
+            opts(n)
+            out.append(f"{name} one of: " + ", ".join(options))
+            return
+        if n.tag == "textarea" and name:
+            out.append(f"{name} [textarea]")
+            return
+        if n.tag == "button":
+            buttons.append(norm(text_of(n)))
+            if name:
+                out.append(f"{name}={n.attrs.get('value') or ''}")
+        for c in n.children:
+            visit(c)
+    visit(form)
+    return out, buttons
+
+def walk(n, in_pre=False):
+    if isinstance(n, str):
+        if in_pre:
+            buf.append(n)
+        else:
+            buf.append(n)
+        return
+    if hidden(n):
+        return
+    if n.tag == "pre":
+        flush()
+        for line in "".join(text_of(c) for c in n.children).splitlines():
+            if line.strip():
+                lines.append(line.rstrip())
+        return
+    if n.tag == "a" and "href" in n.attrs:
+        label = norm(text_of(n)) or norm(n.attrs.get("aria-label") or n.attrs.get("title") or "")
+        links.append((label, n.attrs["href"]))
+    if n.tag == "form":
+        fields, buttons = field_list(n)
+        method = (n.attrs.get("method") or "get").upper()
+        action = n.attrs.get("action") or "(this page)"
+        entry = f"form: {method} {action}"
+        if fields:
+            entry += " fields: " + "; ".join(fields)
+        if buttons:
+            entry += " buttons: " + "; ".join(b for b in buttons if b)
+        forms.append(entry)
+    if n.tag == "br":
+        flush()
+        return
+    if n.tag == "input" and (n.attrs.get("type") or "").lower() in ("submit", "button"):
+        buf.append(" " + (n.attrs.get("value") or "") + " ")
+        return
+    block = n.tag in BLOCK
+    if block:
+        flush()
+    for c in n.children:
+        walk(c)
+    if block:
+        flush()
+    elif n.tag in ("td", "th"):
+        buf.append(" ")
+
+if title_node is not None:
+    print("title: " + norm(text_of(title_node)))
+walk(root)
+flush()
+print()
+for line in lines:
+    print(line)
+print()
+for label, href in links:
+    print(f"link: {label} -> {href}")
+for entry in forms:
+    print(entry)
+PY
+}
+
+# ---- seeding through the public flows ----------------------------------------
+
+expect() {
+  local what="$1"
+  shift
+  local code
+  for code in "$@"; do
+    [ "$HTTP_CODE" = "$code" ] && return 0
+  done
+  die "seeding: $what answered $HTTP_STATUS at ${HTTP_FINAL:-?}"
+}
+
+expect_text() {
+  local what="$1" text="$2"
+  grep -qF -- "$text" "$STATE_DIR/last.body" || die "seeding: $what did not say \"$text\""
+}
+
+# Priya claims the first admin through the [BOOTSTRAP] link (which makes her the
+# instance admin and an admin of the workspace), invites Tomás and Lena, who
+# accept with a password; she creates team Backend, adds Lena and makes her
+# lead, and creates the project Identity Platform.
+seed_people_team_project() {
+  local url
+  url=$(grep -o '\[BOOTSTRAP\] Visit [^ ]* to claim admin' "$STATE_DIR/foundry.log" | head -n1 | cut -d' ' -f3)
+  [ -n "$url" ] || die "seeding: the server log has no [BOOTSTRAP] link"
+  local claim="${url#"$PUBLIC_URL"}"
+  http priya GET "$claim"
+  expect "the bootstrap link" 200
+  http priya POST "$claim" "email=$(email_of priya)" "password=$PASSWORD" \
+    "display_name=Priya Raman" "workspace_name=$WORKSPACE_NAME"
+  expect "the bootstrap claim" 200
+  has_session "$JARS/priya.txt" || die "seeding: the bootstrap claim did not sign Priya in"
+
+  invite_and_accept tomas
+  invite_and_accept lena
+
+  # Workspace roles change only through the operator CLI, never the web tier.
+  DATABASE_URL="$DATABASE_URL" timeout 60 "$STATE_DIR/bin/foundry" doctor set-role \
+    --workspace "$WORKSPACE_NAME" --email "$(email_of tomas)" --role admin >/dev/null ||
+    die "seeding: foundry doctor set-role could not make Tomás a workspace admin"
+
+  # Direct SQL: an accepted invite names its person after the email's local part,
+  # and no public flow changes a display name.
+  psql_exec "UPDATE users SET display_name = 'Tomás Rivera' WHERE email_lower = '$(email_of tomas)';
+             UPDATE users SET display_name = 'Lena Park' WHERE email_lower = '$(email_of lena)';"
+
+  http priya POST /teams "name=Backend"
+  expect "creating team Backend" 200
+  http priya GET /team/backend/members
+  expect "team Backend's members page" 200
+  local lena_id
+  lena_id=$(grep -o "<option value=\"[^\"]*\">[^<]*$(email_of lena)" "$STATE_DIR/last.body" |
+    sed 's/^<option value="\([^"]*\)".*/\1/' | head -n1)
+  [ -n "$lena_id" ] || die "seeding: team Backend's members page offers no Lena to add"
+  http priya POST /team/backend/members "user_id=$lena_id"
+  expect "adding Lena to Backend" 200
+  http priya POST "/team/backend/members/$lena_id/role" "role=lead"
+  expect "making Lena lead of Backend" 200
+  http priya POST /team/backend/projects "name=Identity Platform" "key_prefix=AUTH"
+  expect "creating Identity Platform" 200
+  http lena GET /team/backend/project/identity-platform
+  expect "Lena opening Identity Platform" 200
+}
+
+invite_and_accept() {
+  local viewer="$1" link
+  http priya POST /workspace/invites "email=$(email_of "$viewer")"
+  expect "inviting $viewer" 200
+  link=$(grep -o "$PUBLIC_URL/invites/accept?[^\"<]*" "$STATE_DIR/last.body" | head -n1)
+  [ -n "$link" ] || die "seeding: the invite page shows no accept link for $viewer"
+  link=$(python3 -I -c 'import html,sys; print(html.unescape(sys.argv[1]))' "$link")
+  local id sig
+  id=$(python3 -I -c 'import sys,urllib.parse as u; print(u.parse_qs(u.urlsplit(sys.argv[1]).query)["id"][0])' "$link")
+  sig=$(python3 -I -c 'import sys,urllib.parse as u; print(u.parse_qs(u.urlsplit(sys.argv[1]).query)["sig"][0])' "$link")
+  http "$viewer" GET "${link#"$PUBLIC_URL"}"
+  expect "$viewer opening the invite" 200
+  http "$viewer" POST /invites/accept "id=$id" "sig=$sig" "password=$PASSWORD" "confirm=$PASSWORD"
+  expect "$viewer accepting the invite" 200
+  has_session "$JARS/$viewer.txt" || die "seeding: accepting the invite did not sign $viewer in"
+}
+
+psql_exec() {
+  docker exec -i "$PG_NAME" psql -q -v ON_ERROR_STOP=1 -U postgres -d foundry -c "$1" >/dev/null ||
+    die "seeding: SQL failed: $1"
+}
+
+instance_key_made() {
+  [ -s "$(cat "$STATE_DIR/data-dir")/instance.key" ] ||
+    die "seeding: Foundry made no instance key file in its data directory"
+}
+
+seed_secrets_key_no_slack() {
+  instance_key_made
+  http priya POST /admin/instance/integrations/secrets-key
+  expect "generating the secrets key" 200
+  expect_text "generating the secrets key" "Secrets key generated."
+}
+
+seed_instance_key_no_secrets_key() {
+  instance_key_made
+}
+
+vm_main() {
+  vm_dirs
+  local op="$1"
+  shift
+  case "$op" in
+    start) vm_start "$@" ;;
+    stop) vm_stop ;;
+    get) vm_request GET "$1" "$2" ;;
+    post)
+      local viewer="$1" path="$2"
+      shift 2
+      vm_request POST "$viewer" "$path" "$@"
+      ;;
+    *) die "unknown VM operation $op" ;;
+  esac
+}
+
+main() {
+  if [ "${1:-}" = __vm ]; then
+    shift
+    vm_main "$@"
+    return
+  fi
+  HOME=$(real_home)
+  export HOME
+  TMPDIR_HOST="${TMPDIR:-/tmp}"
+  export PATH="$PATH:/opt/homebrew/bin:/usr/local/bin"
+  command -v timeout >/dev/null || die "timeout is not installed"
+  SELF=$(self_path)
+  ROOT=$(dirname "$(dirname "$SELF")")
+  host_main "$@"
+}
+
+main "$@"
+exit
