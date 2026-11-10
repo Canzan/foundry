@@ -81,6 +81,11 @@ async fn saved_app(world: &mut FoundryWorld) {
     iis::given_saved_app(world).await;
 }
 
+#[given(regex = r"^Priya has rotated the Slack app's signing secret$")]
+async fn rotated_signing_secret(world: &mut FoundryWorld) {
+    iis::given_rotated_signing_secret(world).await;
+}
+
 #[given(regex = r"^Priya has connected Canzan Labs to Slack with this Foundry's app$")]
 async fn connected(world: &mut FoundryWorld) {
     iis::given_connected(world).await;
@@ -243,6 +248,25 @@ async fn form_kept(world: &mut FoundryWorld, client_id: String) {
     iis::then_form_kept(world, &client_id);
 }
 
+#[then(
+    regex = r#"^the Slack app form offers the client ID "([^"]*)" with both secret fields empty$"#
+)]
+async fn form_offers(world: &mut FoundryWorld, client_id: String) {
+    iis::then_form_kept(world, &client_id);
+}
+
+#[then(regex = r"^the instance integrations activity reads these lines in this order$")]
+async fn activity_lines(world: &mut FoundryWorld, step: &Step) {
+    iis::then_activity_lines(world, &sentences(step)).await;
+}
+
+#[then(
+    regex = r"^the Slack app (\d+\.\d+) is still in effect, with its secrets and its activity unchanged$"
+)]
+async fn saved_app_unchanged(world: &mut FoundryWorld, client_id: String) {
+    iis::then_saved_app_unchanged(world, &client_id).await;
+}
+
 #[then(regex = r"^Slack is still not set up on this Foundry$")]
 async fn slack_not_set_up(world: &mut FoundryWorld) {
     iis::then_slack_not_set_up(world).await;
@@ -267,6 +291,13 @@ async fn workspace_offers(world: &mut FoundryWorld, offer: String) {
 )]
 async fn every_replica_offers(world: &mut FoundryWorld, offer: String) {
     iis::then_every_replica_offers(world, WorkspaceOffer::parse(&offer)).await;
+}
+
+#[then(
+    regex = r"^within 60 seconds, without a restart, every replica verifies Slack's events signed with (the rotated signing secret|the signing secret now in effect)$"
+)]
+async fn every_replica_verifies(world: &mut FoundryWorld, signer: String) {
+    iis::then_every_replica_verifies(world, Signer::parse(&signer)).await;
 }
 
 #[then(
@@ -328,7 +359,7 @@ async fn approval_for(world: &mut FoundryWorld, client_id: String) {
 }
 
 #[when(
-    regex = r"^Slack sends its URL verification challenge signed with (the saved signing secret|another signing secret)$"
+    regex = r"^Slack sends its URL verification challenge signed with (the saved signing secret|the rotated signing secret|the signing secret it replaced|another signing secret)$"
 )]
 async fn challenge(world: &mut FoundryWorld, signer: String) {
     iis::when_challenge(world, Signer::parse(&signer)).await;

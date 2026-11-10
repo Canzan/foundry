@@ -1,5 +1,7 @@
 //! instance-integration-setup driver (`tests/features/instance-integration-setup.feature`,
-//! DISTILL 2026-11-06, Deliverable A: US-IIS-01, 02, 03, 06, 08).
+//! Deliverable A: US-IIS-01, 02, 03, 06, 08; Deliverable B: US-IIS-04's
+//! wayfinding and US-IIS-05's replace - the saved app's own secrets rotated
+//! and another app entered whole).
 //!
 //! Extends, not duplicates, the external-integration-plugins driver: the
 //! Background, people, sessions, the in-process settings seam (`rewire`), the
@@ -85,6 +87,11 @@ pub const SIGNING_SECRET: &str = "b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05";
 pub const OTHER_CLIENT_ID: &str = "6123456789012.8888888888888";
 pub const OTHER_CLIENT_SECRET: &str = "0a1b2c3d4e5f60718293a4b5c6d7e8f9";
 pub const OTHER_SIGNING_SECRET: &str = "9f8e7d6c5b4a39281706f5e4d3c2b1a0";
+/// The signing secret Priya pastes after Slack regenerates it for the same
+/// app. It is a value this Foundry never held: a rotation to the secret the
+/// app already holds is unobservable, so the rotation scenarios cannot use
+/// [`SIGNING_SECRET`] as "the new one".
+pub const ROTATED_SIGNING_SECRET: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
 /// A signing secret Foundry never held (events signed with it are refused).
 pub const STRANGER_SIGNING_SECRET: &str = "11111111111111111111111111111111";
 
@@ -288,6 +295,11 @@ impl WorkspaceOffer {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Signer {
     Saved,
+    /// The secret Slack regenerated and Priya pasted in (US-IIS-05 AC 1).
+    Rotated,
+    /// The secret that rotation replaced: the same bytes the app was saved
+    /// with, now out of effect.
+    Replaced,
     Stranger,
 }
 
@@ -295,6 +307,8 @@ impl Signer {
     pub fn parse(words: &str) -> Self {
         match words.trim() {
             "the saved signing secret" => Self::Saved,
+            "the rotated signing secret" | "the signing secret now in effect" => Self::Rotated,
+            "the signing secret it replaced" => Self::Replaced,
             "another signing secret" => Self::Stranger,
             other => panic!("unknown signer {other:?}"),
         }
@@ -302,7 +316,8 @@ impl Signer {
 
     fn secret(self) -> &'static str {
         match self {
-            Self::Saved => SIGNING_SECRET,
+            Self::Saved | Self::Replaced => SIGNING_SECRET,
+            Self::Rotated => ROTATED_SIGNING_SECRET,
             Self::Stranger => STRANGER_SIGNING_SECRET,
         }
     }
@@ -846,7 +861,12 @@ async fn save_slack_app(
     answered(&page, "the instance integrations page");
     let (action, mut fields) = slack_form(&page.body).unwrap_or_else(|| {
         panic!(
-            "{who} finds the Slack app form on the instance integrations page; {}",
+            "{who} finds the Slack app form on the instance integrations page, the only place she \
+             enters or replaces this Foundry's Slack app: with no form there she cannot paste a \
+             regenerated secret or another app's credentials at all, and Slack stays on whatever \
+             was entered once. Render the form in the page's Slack section whenever a secrets key \
+             seals credentials - over a saved app in effect too, with that app's client ID \
+             pre-filled and both secret fields empty; {}",
             tm::describe(&page)
         )
     });
@@ -900,6 +920,19 @@ pub async fn given_saved_app(world: &mut FoundryWorld) {
     assert!(
         eip::text(&answer).contains("Saved."),
         "precondition: Priya saved the Slack app {CLIENT_ID}; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// "Priya has rotated the Slack app's signing secret": the saved app's own
+/// client ID, the client secret field left blank (the saved one is kept) and
+/// the secret Slack regenerated, entered on the page as she would.
+pub async fn given_rotated_signing_secret(world: &mut FoundryWorld) {
+    let answer = save_slack_app(world, "Priya", CLIENT_ID, "", ROTATED_SIGNING_SECRET).await;
+    assert!(
+        eip::text(&answer).contains("Saved."),
+        "precondition: Priya replaced the Slack app {CLIENT_ID}'s signing secret, leaving the \
+         client secret blank; {}",
         tm::describe(&answer)
     );
 }
@@ -1113,12 +1146,109 @@ pub async fn then_activity(world: &mut FoundryWorld, line: &str, once: bool) {
     );
 }
 
-/// "the form keeps the client ID <id> and leaves both secrets empty".
+/// "the instance integrations activity reads these lines in this order": the
+/// whole list Priya reads, in reading order, and nothing else. The population
+/// is the assertion: a line with the wrong words, a second line for one
+/// change, or a stored action rendered by the generic fallback ("slack app
+/// replaced") all show up here, which a contains-one-line reading hides.
+pub async fn then_activity_lines(world: &mut FoundryWorld, lines: &[String]) {
+    let page = instance_page(world, "Priya").await;
+    answered(&page, "Priya's instance integrations page");
+    let tidy = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let read: Vec<String> = texts_of(&page.body, ACTIVITY)
+        .iter()
+        .map(|l| tidy(l))
+        .collect();
+    let want: Vec<String> = lines.iter().map(|l| tidy(l)).collect();
+    assert_eq!(
+        read,
+        want,
+        "the instance integrations Activity list reads exactly these lines, newest first: each \
+         change this Foundry recorded is one line in I-18's words, naming who made it and the \
+         Slack app it names. A missing line means the change was never recorded; different words \
+         mean a reader cannot tell a replacement from a first save (or reads a raw action name); \
+         an extra line means one change was recorded twice. Record the change once and render it \
+         in I-18's words; {}",
+        tm::describe(&page)
+    );
+}
+
+/// "the Slack app <id> is still in effect, with its secrets and its activity
+/// unchanged": the refusal left the whole saved app where it was - the page
+/// names it with both secrets set, no replacement was recorded, Add to Slack
+/// still asks Slack for it, and an event signed with the secret it was saved
+/// with still verifies (so no version of a half-saved app took effect).
+pub async fn then_saved_app_unchanged(world: &mut FoundryWorld, client_id: &str) {
+    let page = instance_page(world, "Priya").await;
+    answered(&page, "Priya's instance integrations page");
+    let text = seen(world, &page);
+    for words in [
+        format!("Slack: set up here · app {client_id}"),
+        "Client secret: set".to_string(),
+        "Signing secret: set".to_string(),
+    ] {
+        assert!(
+            text.contains(&words),
+            "the page still reads {words:?}: a refused submission changes no saved app, so the \
+             app Priya already entered stays in effect with both its secrets. Refuse before \
+             anything is stored; {}",
+            tm::describe(&page)
+        );
+    }
+    let lines = texts_of(&page.body, ACTIVITY);
+    assert!(
+        !lines.iter().any(|l| l.contains("replaced the Slack app")),
+        "the Activity list records no replacement, because nothing was replaced: a recorded line \
+         tells a reader the app changed when it did not. Write the activity line only where the \
+         change commits; it lists {lines:?}"
+    );
+    then_approval_for(world, client_id).await;
+    let double = eip::slack_double(world);
+    let base = eip::base(world);
+    let (verified, detail) = events_verify(&double, &base, SIGNING_SECRET).await;
+    assert!(
+        verified,
+        "Slack's events still verify with the signing secret the saved app was entered with: a \
+         refusal that stored or cleared part of the submission leaves Slack's events failing on a \
+         secret nobody changed. Keep the saved app untouched until a submission is accepted \
+         whole; {detail}"
+    );
+}
+
+/// Post Slack's URL verification challenge, signed with `secret`, to the
+/// events address of the Foundry at `base`; `true` when Foundry verified it
+/// (Slack reads its own challenge back).
+async fn events_verify(double: &sd::SlackDouble, base: &str, secret: &str) -> (bool, String) {
+    let challenge = format!("iis-challenge-{}", uuid::Uuid::new_v4().simple());
+    let (status, body) = double
+        .post_event(
+            base,
+            SLACK_EVENTS,
+            &sd::url_verification_envelope(&challenge),
+            Some(secret),
+            Duration::ZERO,
+        )
+        .await;
+    (
+        status.is_success() && body.contains(&challenge),
+        format!("{base}{SLACK_EVENTS} answered {status}: {body}"),
+    )
+}
+
+/// "the form keeps the client ID <id> and leaves both secrets empty", and
+/// "the Slack app form offers the client ID <id> with both secret fields
+/// empty": one reading of the form in front of Priya, for a refusal that
+/// hands her typing back and for the replace form a saved app is offered.
 pub fn then_form_kept(world: &FoundryWorld, client_id: &str) {
     let answer = answer(world);
     let (_, fields) = slack_form(&answer.body).unwrap_or_else(|| {
         panic!(
-            "Priya is shown the Slack app form again; {}",
+            "Priya is shown the Slack app form here, holding the client ID {client_id:?} and no \
+             secret: it is how she enters an app, how a refusal hands her typing back, and how \
+             she replaces a saved app's secrets. A page without it leaves her nothing to type \
+             into and nowhere to read what she typed. Render the form in the page's Slack \
+             section, with the client ID in effect (or the one just refused) and both secret \
+             fields empty; {}",
             tm::describe(&answer)
         )
     });
@@ -1248,6 +1378,51 @@ pub async fn then_every_replica_offers(world: &mut FoundryWorld, offer: Workspac
         |page| offer.holds(page),
     )
     .await;
+}
+
+/// "within 60 seconds, without a restart, every replica verifies Slack's
+/// events signed with <signer>": each replica is asked at its own address, so
+/// the one that took the change cannot answer for the other. The shared clock
+/// advances a second per round, as the other replica waits do.
+pub async fn then_every_replica_verifies(world: &mut FoundryWorld, signer: Signer) {
+    let double = eip::slack_double(world);
+    let addrs = world
+        .eip
+        .replicas
+        .as_ref()
+        .expect("Foundry runs as replicas")
+        .replica_addrs();
+    let mut pending: Vec<String> = addrs.iter().map(|a| format!("http://{a}")).collect();
+    let mut waited = Duration::ZERO;
+    let wall = Instant::now();
+    let mut last = String::new();
+    while !pending.is_empty() {
+        let mut still = Vec::new();
+        for base in pending {
+            let (verified, detail) = events_verify(&double, &base, signer.secret()).await;
+            if !verified {
+                last = detail;
+                still.push(base);
+            }
+        }
+        pending = still;
+        if pending.is_empty() {
+            break;
+        }
+        assert!(
+            waited < LIVE_BOUND && wall.elapsed() < LIVE_BOUND,
+            "within 60 seconds, and with nothing restarted, every replica verifies Slack's events \
+             signed with the secret now in effect: Slack reaches whichever server answers, so a \
+             replica still holding the old secret drops Slack's events for everyone it serves, \
+             and an instance admin cannot tell. Let every server pick the committed Slack app up \
+             on its own reload, with no restart; still refused by {pending:?}; last: {last}"
+        );
+        if let Some(r) = &world.eip.replicas {
+            r.fake_clock.advance(CLOCK_STEP);
+        }
+        waited += CLOCK_STEP;
+        tokio::time::sleep(POLL).await;
+    }
 }
 
 /// "within 60 seconds every replica's history of the route to <dest> lists

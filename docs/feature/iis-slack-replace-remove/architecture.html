@@ -1337,16 +1337,16 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h6>Cases</h6>
 
-<pre><code>both fields blank: both opened secrets equal to before
+<pre><code>both fields blank: both opened secrets equal to before, so an event signed with the signing secret in effect still verifies and Add to Slack still exchanges Slack&#x27;s code
 </code></pre>
 
-<pre><code>the signing secret replaced: the opened client secret equal to before, the signing secret the new one
+<pre><code>the signing secret replaced with a value this Foundry has never held: the opened client secret is equal to before, so the code exchange still succeeds, while an event signed with the new signing secret verifies and an event signed with the replaced one is refused
 </code></pre>
 
-<pre><code>both replaced: both opened secrets the new ones
+<pre><code>both replaced with values this Foundry has never held: both opened secrets are the new ones, and neither replaced value verifies or exchanges afterwards
 </code></pre>
 
-<pre><code>Three cases cover the closed set of kept-or-replaced combinations for two fields, with the blank-blank case the identity.
+<pre><code>Three cases cover the closed set of kept-or-replaced combinations for two fields, with the blank-blank case the identity. Each replaced value must be one the Foundry has never held, or the case has no public witness: a rotation to the value already in effect is observationally equal to a discarded submission.
 </code></pre>
 
 <h5>Evidence</h5>
@@ -2690,13 +2690,13 @@ scripts/test-in-lima.sh cargo xtask check-arch
 
 <h4>Public oracle</h4>
 
-<pre><code>With the Slack app 6123456789012.7234567890123 saved and in effect and no workspace connected to Slack, Priya Raman POSTs /admin/instance/integrations/slack through the production router behind require_instance_admin, with her CSRF token, the same client ID, a blank client secret and the new signing secret b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05. In a second run she POSTs the client ID 6123456789012.8888888888888 with a blank client secret.
+<pre><code>With the Slack app 6123456789012.7234567890123 saved and in effect, its signing secret b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05, and no workspace connected to Slack, Priya Raman POSTs /admin/instance/integrations/slack through the production router behind require_instance_admin, with her CSRF token, the same client ID, a blank client secret and the rotated signing secret 0f1e2d3c4b5a69788796a5b4c3d2e1f0, a value this Foundry has never held. In a second run she POSTs the client ID 6123456789012.8888888888888 with a blank client secret.
 </code></pre>
 
-<pre><code>The first response reads &#x27;Saved. Workspace admins can now choose Add to Slack.&#x27;, the page still reads app 6123456789012.7234567890123 with both secrets set, and the Activity list reads &#x27;21 Oct 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)&#x27;. Within 60 seconds and with no restart, POST /integrations/slack/events signed with the new signing secret verifies on each replica asked directly, while Add to Slack still exchanges Slack&#x27;s code with the kept client secret. The second response reads &#x27;Enter the client secret from the Slack app&#x27;s Basic Information.&#x27;, keeps the typed client ID in the form with both secret fields empty, and the saved app, the activity list and the config version are unchanged.
+<pre><code>The first response reads &#x27;Saved. Workspace admins can now choose Add to Slack.&#x27;, the page still reads app 6123456789012.7234567890123 with both secrets set, and the Activity list reads &#x27;21 Oct 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)&#x27;. Within 60 seconds and with no restart, on each replica asked directly, POST /integrations/slack/events signed with 0f1e2d3c4b5a69788796a5b4c3d2e1f0 verifies and the same event signed with the replaced b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 is refused as unauthorised, while Add to Slack still exchanges Slack&#x27;s code with the kept client secret. The second response reads &#x27;Enter the client secret from the Slack app&#x27;s Basic Information.&#x27;, keeps the typed client ID in the form with both secret fields empty, and the saved app, the activity list and the config version are unchanged.
 </code></pre>
 
-<pre><code>A blank client secret that clears or replaces the saved client secret, so Add to Slack&#x27;s code exchange fails; a replace whose activity line reads &#x27;saved the Slack app&#x27; or &#x27;slack app replaced&#x27;; a different client ID with a blank secret that saves; or a new signing secret that verifies on the posting replica but not on the other within 60 seconds.
+<pre><code>A rotation to a value this Foundry already held, which no observation can tell apart from a discarded submission; the replaced b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 still verifying on any replica after the save; 0f1e2d3c4b5a69788796a5b4c3d2e1f0 verifying on the posting replica but not on the other within 60 seconds; a blank client secret that clears or replaces the saved client secret, so Add to Slack&#x27;s code exchange fails; a replace whose activity line reads &#x27;saved the Slack app&#x27; or &#x27;slack app replaced&#x27;; or a different client ID with a blank secret that saves.
 </code></pre>
 
 <h5>Promises</h5>

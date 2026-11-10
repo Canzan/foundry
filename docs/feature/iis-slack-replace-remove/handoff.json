@@ -1,10 +1,162 @@
 {
+"acceptance": {
+"S1": [
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1"
+],
+"still_passes_if": "F460",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: The replace form offers the saved app's client ID and asks for no secret Priya keeps"
+},
+"expected": "F458",
+"stimulus": "F457",
+"user_result": "F459"
+},
+{
+"covers": [
+"P1",
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1",
+"T2"
+],
+"still_passes_if": "F464",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Rotating the signing secret, with the client secret left blank, is saved at once"
+},
+"expected": "F462",
+"stimulus": "F461",
+"user_result": "F463"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L9"
+],
+"still_passes_if": "F468",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: An instance admin turns on Matrix and Slack and rotates a Slack secret, and every replica follows without a restart"
+},
+"expected": "F466",
+"stimulus": "F465",
+"user_result": "F467"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L8"
+],
+"still_passes_if": "F472",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: After the rotation Slack's events verify with the signing secret now in effect"
+},
+"expected": "F470",
+"stimulus": "F469",
+"user_result": "F471"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L8"
+],
+"still_passes_if": "F476",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: The signing secret the rotation replaced no longer verifies"
+},
+"expected": "F474",
+"stimulus": "F473",
+"user_result": "F475"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1",
+"L8"
+],
+"still_passes_if": "F480",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Add to Slack still exchanges Slack's code with the client secret the rotation kept"
+},
+"expected": "F478",
+"stimulus": "F477",
+"user_result": "F479"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1"
+],
+"still_passes_if": "F484",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Another Slack app needs both secrets, and a blank one changes nothing"
+},
+"expected": "F482",
+"stimulus": "F481",
+"user_result": "F483"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1",
+"L3"
+],
+"still_passes_if": "F488",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Another Slack app entered with both secrets takes over at once while no workspace is connected"
+},
+"expected": "F486",
+"stimulus": "F485",
+"user_result": "F487"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2"
+],
+"still_passes_if": "F492",
+"test": "crates/foundry-app/src/integrations/slack_app.rs :: the field-shape table and the generated field cases of the decision module"
+},
+"expected": "F490",
+"stimulus": "F489",
+"user_result": "F491"
+}
+]
+},
 "counters": {
 "B": 5,
 "C": 3,
 "D": 15,
 "E": 25,
-"F": 456,
+"F": 499,
 "K": 12,
 "L": 11,
 "N": 8,
@@ -721,12 +873,12 @@
 "statement": "F210",
 "treatment": {
 "cases": [
-"F211",
-"F212",
-"F213"
+"F493",
+"F494",
+"F495"
 ],
 "kind": "Finite",
-"reason": "F214"
+"reason": "F496"
 }
 },
 {
@@ -1534,14 +1686,14 @@
 ]
 },
 "public_oracle": {
-"expected": "F400",
-"falsifier": "F401",
+"expected": "F498",
+"falsifier": "F499",
 "promises": [
 "P1",
 "P2",
 "P6"
 ],
-"stimulus": "F399"
+"stimulus": "F497"
 },
 "records": {
 "impact": [
@@ -2222,10 +2374,6 @@
 "F209": "The preserved set is the shipped connection and delivery rows; the cases are the presence or absence of one connection.",
 "F21": "A replace that keeps the same client ID is saved straight away, with no confirmation page or extra confirming step in between.",
 "F210": "A Rotate that keeps a secret re-seals the secret the server already holds opened, so the app in effect opens afterwards to the same secrets it opened to before, except for the fields the Rotate replaced.",
-"F211": "both fields blank: both opened secrets equal to before",
-"F212": "the signing secret replaced: the opened client secret equal to before, the signing secret the new one",
-"F213": "both replaced: both opened secrets the new ones",
-"F214": "Three cases cover the closed set of kept-or-replaced combinations for two fields, with the blank-blank case the identity.",
 "F215": "A saved, replaced or removed app is in effect on every replica within 60 seconds of its commit, with no restart.",
 "F216": "two replicas on one database, the shared clock advanced past one reload interval, each replica asked directly after a replace",
 "F217": "the same after a removal: both replicas answer 401 to an event signed with the removed secret",
@@ -2429,11 +2577,8 @@
 "F396": "The submission kind, the replace-aware verdict and the plan that re-seals a kept saved secret.",
 "F397": "The replace form's pre-filled client ID, the replace notice and the I-18 replaced arm.",
 "F398": "The replace form over a saved app in effect: the client ID pre-filled, both secret fields empty.",
-"F399": "With the Slack app 6123456789012.7234567890123 saved and in effect and no workspace connected to Slack, Priya Raman POSTs /admin/instance/integrations/slack through the production router behind require_instance_admin, with her CSRF token, the same client ID, a blank client secret and the new signing secret b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05. In a second run she POSTs the client ID 6123456789012.8888888888888 with a blank client secret.",
 "F4": "POST /admin/instance/integrations/slack with a client ID different from the current app's requires both secrets; a blank one answers I-11 (\"Enter the {field} from the Slack app's Basic Information.\") and changes nothing.",
 "F40": "After a replace, the instance integrations Activity list shows a dated line naming the person who replaced the Slack app and the client ID involved.",
-"F400": "The first response reads 'Saved. Workspace admins can now choose Add to Slack.', the page still reads app 6123456789012.7234567890123 with both secrets set, and the Activity list reads '21 Oct 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)'. Within 60 seconds and with no restart, POST /integrations/slack/events signed with the new signing secret verifies on each replica asked directly, while Add to Slack still exchanges Slack's code with the kept client secret. The second response reads 'Enter the client secret from the Slack app's Basic Information.', keeps the typed client ID in the form with both secret fields empty, and the saved app, the activity list and the config version are unchanged.",
-"F401": "A blank client secret that clears or replaces the saved client secret, so Add to Slack's code exchange fails; a replace whose activity line reads 'saved the Slack app' or 'slack app replaced'; a different client ID with a blank secret that saves; or a new signing secret that verifies on the posting replica but not on the other within 60 seconds.",
 "F402": "L2: move the three per-field shape checks and the first-failing-field order out of SlackAppForm::refusal into a SlackFields value object that judges one named field at a time, with no verdict changed. It makes the follow-up change easier: the replace path asks the same object a different question - which fields this submission requires - instead of duplicating the checks.",
 "F403": "Every verdict of SlackField::check and SlackAppForm::refusal, including the trimming, the form order and the Refusal variants; the module's existing table test and its three property tests are unchanged in content.",
 "F404": "The verdict now depends on which app the submission names, so the one refusal rule is extended rather than copied into a replace-only rule.",
@@ -2494,10 +2639,53 @@
 "F454": "It already reads W-2 from the shipped cause when no app is in effect, so a removal needs no change there.",
 "F455": "A new template: I-15 in the form the connected-workspace count selects, with one Remove control.",
 "F456": "S3 adds one store write, one door and two page offers beside the shipped ones; no shipped behaviour moves first. The page's offer decision follows the shipped KeyOffer shape already in place, so there is nothing to extract, and S1 declares this Request's one preserving move.",
+"F457": "An instance admin whose Foundry already holds a saved Slack app in effect, with no workspace connected to Slack, opens the instance integrations page.",
+"F458": "The page offers the Slack app form with that app's client ID already filled in and both secret fields empty, and shows no key and no secret anywhere.",
+"F459": "Priya can replace a secret without retyping the client ID, and the page hands no secret back to her.",
 "F46": "The submitted app awaiting confirmation lives in its own single-row table instance_slack_app_pending (client_id, sealed_client_secret, sealed_signing_secret, requested_by, expires_at), added by its own migration 0034, never in the session table (ADR-IIS-003 r4).",
+"F460": "A form that pre-fills the client ID while its door ignores a blank secret field would still pass this row; the rotation rows observe what a blank field keeps.",
+"F461": "With that app saved and in effect and no workspace connected, she submits the same client ID, a blank client secret and the signing secret Slack has just regenerated.",
+"F462": "She reads that it is saved and that workspace admins can now choose Add to Slack, on the integrations page itself with no confirmation step in between; the page still names the same app with both secrets set and shows no secret; and the Activity list reads, newest first, that she replaced that Slack app, then that she saved it, then that she generated the secrets key, and nothing else.",
+"F463": "Priya rotates one secret in the browser, is told it is done, and the record names her as having replaced that app.",
+"F464": "A save that stored the regenerated signing secret but silently re-entered the old one would still pass this row; the rows below observe which secret Slack events verify with.",
+"F465": "On a Foundry running as two replicas, she turns Matrix on, enters the Slack app, and then rotates its signing secret, with nothing restarted.",
+"F466": "Within a minute, and with no restart, each replica asked directly verifies a Slack event signed with the signing secret now in effect.",
+"F467": "Slack keeps working whichever server answers it, right after Priya rotates the secret.",
+"F468": "A change that reached only the replica that took it would be caught, but a rotation that took minutes to arrive would still pass if the wait were read per replica rather than for the whole observation.",
+"F469": "After that rotation, Slack sends its address-verification message signed with the secret it regenerated.",
 "F47": "The current app a submission is compared against is the app in effect: the environment's when its trio is set, else the saved app whose secrets open. So the I-14 gate and I-14's old client ID read the same client ID the page names in I-6 or I-7.",
+"F470": "Foundry verifies it, and Slack confirmation of the events address succeeds.",
+"F471": "Slack events reach Foundry again with the new secret, without anyone restarting anything.",
+"F472": "A Foundry that accepted every message, signed or not, would still pass this row; the next row observes a message signed with the secret the rotation replaced.",
+"F473": "After that rotation, Slack sends its address-verification message signed with the signing secret the rotation replaced.",
+"F474": "Foundry refuses it as unauthorised.",
+"F475": "A leaked secret stops working the moment Priya rotates it.",
+"F476": "A Foundry that refused every message would still pass this row; the row above observes the secret now in effect being accepted.",
+"F477": "After that rotation, a workspace admin chooses Add to Slack and approves Foundry in Slack.",
+"F478": "The workspace is connected and its integrations page says so, because Slack exchanged the code with the client secret the blank field kept.",
+"F479": "Rotating one secret does not break Add to Slack: the client secret Priya left blank is still the one Slack checks.",
 "F48": "A blank secret field keeps the saved value by re-sealing the secret the app layer already holds opened, so SlackAppSave keeps both sealed columns required and all sealing stays in slack_app.rs. Where the saved app does not open (I-13) a blank field has nothing to keep and answers I-11 for that field.",
+"F480": "A blank field that stored an empty client secret would still pass if Slack accepted any secret; the Slack this scenario talks to accepts only the client secret the app was entered with.",
+"F481": "With one app saved and in effect, she submits a different client ID with the client secret left blank, and in a second run with the signing secret left blank.",
+"F482": "She reads that she must enter that field from the Slack app Basic Information page, the form hands back the client ID she typed with both secret fields empty, and the app already in effect is untouched: the page still names it with both secrets set, no replacement is recorded, Add to Slack still asks Slack for it, and its events still verify.",
+"F483": "Switching apps cannot half happen: Priya is asked for the secret she left out, and nothing about the app that works moves.",
+"F484": "A refusal that stored the submitted secret somewhere out of sight would still pass this row; what a page shows is read by the rows that sweep the page for secrets.",
+"F485": "With one app saved and in effect and no workspace connected to Slack, she submits a different client ID with both of its secrets.",
+"F486": "She reads that it is saved and that workspace admins can now choose Add to Slack, on the integrations page with no confirmation step in between; the page names the new app, and Add to Slack asks Slack approval for the new app.",
+"F487": "While nobody is connected, Priya moves this Foundry to another Slack app in one step.",
+"F488": "A save that sealed the old app secrets under the new client ID would still pass this row; the blank-field rows above refuse the submission that would do it, and the workspace connection is observed only for the app whose secrets were kept.",
+"F489": "Any of the three fields is submitted with surrounding spaces, in upper case, with a character outside its alphabet, with two dots or with none, on the replace path as on the first entry.",
 "F49": "The pending row's two secrets join the three shipped sealed-value sets - the seal fence, reseal_sealed_values and the boot probe - as ADR-IIS-003 r4 requires, but they are not credentials in I-22's count, which stays connections plus the saved app (ADR-IIS-001).",
+"F490": "The verdict is the one the field shapes already give: spaces around a value do not change it, any 32 lowercase hexadecimal value is a secret, and a value outside a field alphabet is named as malformed rather than as missing.",
+"F491": "Priya gets the same answer about what she typed whether she is entering Slack for the first time or replacing it, so a rotation never fails for a reason she has not been told.",
+"F492": "A refactoring that kept every field verdict but stopped trimming the client ID before comparing it with the app in effect would still pass these cases; which app a submission names is observed by the rows above.",
+"F493": "both fields blank: both opened secrets equal to before, so an event signed with the signing secret in effect still verifies and Add to Slack still exchanges Slack's code",
+"F494": "the signing secret replaced with a value this Foundry has never held: the opened client secret is equal to before, so the code exchange still succeeds, while an event signed with the new signing secret verifies and an event signed with the replaced one is refused",
+"F495": "both replaced with values this Foundry has never held: both opened secrets are the new ones, and neither replaced value verifies or exchanges afterwards",
+"F496": "Three cases cover the closed set of kept-or-replaced combinations for two fields, with the blank-blank case the identity. Each replaced value must be one the Foundry has never held, or the case has no public witness: a rotation to the value already in effect is observationally equal to a discarded submission.",
+"F497": "With the Slack app 6123456789012.7234567890123 saved and in effect, its signing secret b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05, and no workspace connected to Slack, Priya Raman POSTs /admin/instance/integrations/slack through the production router behind require_instance_admin, with her CSRF token, the same client ID, a blank client secret and the rotated signing secret 0f1e2d3c4b5a69788796a5b4c3d2e1f0, a value this Foundry has never held. In a second run she POSTs the client ID 6123456789012.8888888888888 with a blank client secret.",
+"F498": "The first response reads 'Saved. Workspace admins can now choose Add to Slack.', the page still reads app 6123456789012.7234567890123 with both secrets set, and the Activity list reads '21 Oct 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)'. Within 60 seconds and with no restart, on each replica asked directly, POST /integrations/slack/events signed with 0f1e2d3c4b5a69788796a5b4c3d2e1f0 verifies and the same event signed with the replaced b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 is refused as unauthorised, while Add to Slack still exchanges Slack's code with the kept client secret. The second response reads 'Enter the client secret from the Slack app's Basic Information.', keeps the typed client ID in the form with both secret fields empty, and the saved app, the activity list and the config version are unchanged.",
+"F499": "A rotation to a value this Foundry already held, which no observation can tell apart from a discarded submission; the replaced b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 still verifying on any replica after the save; 0f1e2d3c4b5a69788796a5b4c3d2e1f0 verifying on the posting replica but not on the other within 60 seconds; a blank client secret that clears or replaces the saved client secret, so Add to Slack's code exchange fails; a replace whose activity line reads 'saved the Slack app' or 'slack app replaced'; or a different client ID with a blank secret that saves.",
 "F5": "POST /admin/instance/integrations/slack with a different client ID while Slack connections exist redirects to GET /admin/instance/integrations/slack/confirm, which shows I-14 with the connected-workspace count and the current client ID (the n = 1 form for one workspace) and changes nothing until \"Save the new app\"; the submitted app is held sealed for 10 minutes so the confirm page holds no secret; only the same instance admin's POST /admin/instance/integrations/slack/confirm saves it. This applies equally when the current app is the environment's (US-IIS-06 AC 6).",
 "F50": "Carriers and owners. The submission and its verdict are SlackSubmission, SlackChange and the shipped Refusal, owned by crates/foundry-app/src/integrations/slack_app.rs; the page's Replace and Remove controls are a closed SlackOffer set shaped like the shipped KeyOffer, owned by crates/foundry-app/src/integrations/handlers/instance.rs; effects are the fenced writes save_slack_app, hold_pending_slack_app, apply_pending_slack_app and remove_slack_app, owned by crates/foundry-store/src/integrations/instance.rs; errors are SlackSaveOutcome extended with the pending and remove outcomes plus StoreError, owned by that same module; per-process state stays the shipped Integrations held by IntegrationsHandle in crates/foundry-app/src/integrations/mod.rs, rebuilt by the shipped reload.",
 "F51": "With the environment's app in effect the page offers neither Replace nor Remove, and both the GET and the POST of the remove door change nothing and answer the page (ADR-IIS-003 r5). The shipped save form stays where the environment's app is in effect (US-IIS-06 AC 4, I-17), and a POST through it with a client ID different from the environment's while workspaces are connected answers I-14 first (US-IIS-06 AC 6).",

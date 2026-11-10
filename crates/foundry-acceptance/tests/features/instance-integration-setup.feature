@@ -4,11 +4,14 @@
 # in plaintext, and instances configured before this feature keep working.
 #
 # Copy I-n is locked in docs/feature/instance-integration-setup/discuss/
-# user-stories.md. US-IIS-04 (I-19: the workspace pages and the route form send
-# an instance admin to the setup; I-20: what the Slack setup guide tells her to
-# do) is here, at the end of the file. The rest of Deliverable B (US-IIS-05, 07:
-# Replace, Remove, the I-14 confirm, Start over) is not; where A shows a state B
-# extends (I-26), A's scenario checks the restore-only form.
+# user-stories.md. Deliverable B is in this file too, at the end: US-IIS-04
+# (I-19: the workspace pages and the route form send an instance admin to the
+# setup; I-20: what the Slack setup guide tells her to do), and US-IIS-05's
+# replace - the saved app's own secrets rotated and another app entered whole
+# (I-11, the I-18 "replaced" line). The rest of US-IIS-05 (the I-14 confirm
+# while workspaces are connected, Remove, the environment-app rules) and
+# US-IIS-07 (Start over) are not here yet; where A shows a state B extends
+# (I-26), A's scenario checks the restore-only form.
 #
 # Harness (DEVOPS D8, brief.md "For Acceptance Designer"): the production
 # router in process (InProcHarness), real Postgres, Slack as the in-process
@@ -48,9 +51,12 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
   # ------------------------------------------------------------ walking skeleton
 
-  # US-IIS-01 -> 02 -> 03 with an operator-set instance key (DISCUSS D15).
-  @walking_skeleton @driving_port @iis-replica @us-iis-01 @us-iis-02 @us-iis-03 @kpi-iis-1 @kpi-iis-2
-  Scenario: An instance admin turns on Matrix and then Slack, and every replica offers them without a restart
+  # US-IIS-01 -> 02 -> 03 -> 05 with an operator-set instance key (DISCUSS D15):
+  # the one journey through this Foundry's setup, extended by each story that
+  # adds to it. Slack regenerates a secret the day after, and the rotation is
+  # the last leg.
+  @walking_skeleton @driving_port @iis-replica @us-iis-01 @us-iis-02 @us-iis-03 @us-iis-05 @kpi-iis-1 @kpi-iis-2 @kpi-iis-4
+  Scenario: An instance admin turns on Matrix and Slack and rotates a Slack secret, and every replica follows without a restart
     Given this Foundry runs as two replicas with its instance key set by the operator
     When Priya opens the instance integrations page
     Then Priya reads "This Foundry has no secrets key yet. Foundry needs one to store Slack and Matrix credentials."
@@ -60,6 +66,9 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya saves the Slack app with client ID "6123456789012.7234567890123", client secret "3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8" and signing secret "b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05"
     Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
     And within 60 seconds, without a restart, Canzan Labs' workspace integrations page offers Add to Slack on every replica
+    When Priya saves the Slack app with client ID "6123456789012.7234567890123", client secret "" and signing secret "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
+    And within 60 seconds, without a restart, every replica verifies Slack's events signed with the signing secret now in effect
 
   # ------------------------------------------------------------------ US-IIS-01
 
@@ -683,3 +692,93 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya generates the secrets key on the first server
     Then within 60 seconds the second server's instance integrations page reads "This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server."
     And the second server's health signals report the secrets key as degraded
+
+  # ------------------------------------------------------------------ US-IIS-05
+
+  # Replacing the Slack app in the browser, with no workspace connected to
+  # Slack: the saved app's own secrets rotated (a blank field keeps the secret
+  # Foundry already holds, so Add to Slack keeps working), and another app,
+  # which is only accepted with both secrets. "0f1e…" is the secret Slack
+  # regenerated: the app was entered with "b7e1…", so a rotation to it is
+  # something a reader - and this file - can tell apart from nothing happening.
+
+  @us-iis-05 @driving_port @kpi-iis-4
+  Scenario: The replace form offers the saved app's client ID and asks for no secret Priya keeps
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    When Priya opens the instance integrations page
+    Then Priya reads "Slack: set up here · app 6123456789012.7234567890123"
+    And the Slack app form offers the client ID "6123456789012.7234567890123" with both secret fields empty
+    And the page shows no key and no Slack secret
+
+  @us-iis-05 @driving_port @kpi-iis-1 @kpi-iis-4
+  Scenario: Rotating the signing secret, with the client secret left blank, is saved at once
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    When Priya saves the Slack app with client ID "6123456789012.7234567890123", client secret "" and signing secret "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
+    And Priya is on the instance integrations page
+    And Priya reads "Slack: set up here · app 6123456789012.7234567890123"
+    And Priya reads "Client secret: set"
+    And Priya reads "Signing secret: set"
+    And the page shows no key and no Slack secret
+    And the instance integrations activity reads these lines in this order
+      | line                                                                           |
+      | 21 Oct 2026 · Priya Raman replaced the Slack app (6123456789012.7234567890123) |
+      | 21 Oct 2026 · Priya Raman saved the Slack app (6123456789012.7234567890123)    |
+      | 21 Oct 2026 · Priya Raman generated the secrets key                            |
+
+  @us-iis-05 @kpi-iis-1 @kpi-iis-4
+  Scenario: After the rotation Slack's events verify with the signing secret now in effect
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has rotated the Slack app's signing secret
+    When Slack sends its URL verification challenge signed with the rotated signing secret
+    Then Slack's confirmation of Foundry's events address succeeds
+
+  @us-iis-05 @kpi-iis-1 @kpi-iis-4 @error
+  Scenario: The signing secret the rotation replaced no longer verifies
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has rotated the Slack app's signing secret
+    When Slack sends its URL verification challenge signed with the signing secret it replaced
+    Then Foundry refuses as unauthorised the message
+
+  @us-iis-05 @kpi-iis-1 @kpi-iis-4
+  Scenario: Add to Slack still exchanges Slack's code with the client secret the rotation kept
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has rotated the Slack app's signing secret
+    When Priya connects Canzan Labs to Slack with this Foundry's app
+    Then the workspace integrations page reads "Connected to Canzan Labs"
+
+  @us-iis-05 @error @kpi-iis-4
+  Scenario Outline: Another Slack app needs both secrets, and a blank one changes nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    When Priya saves the Slack app with client ID "6123456789012.8888888888888", client secret "<client_secret>" and signing secret "<signing_secret>"
+    Then Priya reads "Enter the <field> from the Slack app's Basic Information."
+    And the form keeps the client ID "6123456789012.8888888888888" and leaves both secrets empty
+    And the Slack app 6123456789012.7234567890123 is still in effect, with its secrets and its activity unchanged
+
+    Examples:
+      | client_secret                    | signing_secret                   | field          |
+      |                                  | 9f8e7d6c5b4a39281706f5e4d3c2b1a0 | client secret  |
+      | 0a1b2c3d4e5f60718293a4b5c6d7e8f9 |                                  | signing secret |
+
+  @us-iis-05 @driving_port @kpi-iis-4
+  Scenario: Another Slack app entered with both secrets takes over at once while no workspace is connected
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    When Priya saves the Slack app with client ID "6123456789012.8888888888888", client secret "0a1b2c3d4e5f60718293a4b5c6d7e8f9" and signing secret "9f8e7d6c5b4a39281706f5e4d3c2b1a0"
+    Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
+    And Priya is on the instance integrations page
+    And Priya reads "Slack: set up here · app 6123456789012.8888888888888"
+    And Add to Slack on Canzan Labs' workspace integrations page sends Priya to Slack's approval for client ID 6123456789012.8888888888888
