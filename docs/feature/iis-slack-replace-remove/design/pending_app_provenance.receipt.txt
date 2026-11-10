@@ -1,0 +1,2473 @@
+RECEIPT pending_app_provenance.qnt
+model sha256: 123c28efd136ad200af193d80fbb52fb16b31fd55135d64fef536fb067cf90a7  pending_app_provenance.qnt
+compiled subject sha256: 107393ab492c0e337d160d8206030a5f758ef460911d03f85437466ff457c538  pending_app_provenance.qnt.json
+host: Lima VM local-dev, aarch64, Docker 29.9.2, containers only; nothing installed on the Mac
+quint: 0.33.1 (npm @informalsystems/quint@0.33.1) in image foundry-quint:0.33.1 built FROM node@sha256:5ec23b7c622b00547753bc6ffd78085dd868a68aeb41c8e0a1418f033e13d96d
+apalache: 0.62.4, apalache.tgz sha256 8ac8488422c30d552735bae11b92a2d014d8e02e8608702acc08f9a2d8a9abb2, run on eclipse-temurin@sha256:ebfbb18d11ff163ee83b21258acf12248af48d22a0fdfdc68fa1a1516c05976a
+NOTE: the published ghcr.io/apalache-mc/apalache image is amd64-only and answered "exec format error" on this aarch64 host, under emulation too; the official jar distribution is used instead and is arch-independent.
+NOTE: quint 0.33.1 defaults to a Rust evaluator it downloads from GitHub, which answered "rate limit exceeded"; every run below therefore pins --backend=typescript, quint own in-process evaluator.
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w foundry-quint:0.33.1 quint typecheck pending_app_provenance.qnt
+EXIT: 0
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w foundry-quint:0.33.1 quint run pending_app_provenance.qnt --main=pending_app_provenance --backend=typescript --max-steps=12 --max-samples=5000 --seed=0x1a2b3c --invariant=provenanceInv
+An example execution:
+
+[State 0]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 1]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 2]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 3]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 4]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 5]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 6]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 1,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 7]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 1,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 8]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 9]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 10]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 0,
+  directRotate: true,
+  envApp: "A2",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "priya",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 11]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 0,
+  directRotate: true,
+  envApp: "A2",
+  now: 3,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "priya",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 12]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 0,
+  directRotate: true,
+  envApp: "A2",
+  now: 4,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "priya",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[ok] No violation found (2288ms at 2185 traces/second).
+Trace length statistics: max=13, min=13, average=13.00
+You may increase --max-samples and --max-steps.
+Use --verbosity to produce more (or less) output.
+Use --seed=0x1a2b3c --backend=typescript to reproduce.
+EXIT: 0
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w foundry-quint:0.33.1 quint run pending_app_provenance.qnt --main=pending_app_provenance --backend=typescript --max-steps=12 --max-samples=5000 --seed=0x1a2b3c --invariant=pendingSealedInv
+An example execution:
+
+[State 0]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 1]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 2]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 3]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 4]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 5]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 6]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 1,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 7]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 1,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 8]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 9]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 10]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 0,
+  directRotate: true,
+  envApp: "A2",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "priya",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 11]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 0,
+  directRotate: true,
+  envApp: "A2",
+  now: 3,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "priya",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[State 12]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 0,
+  directRotate: true,
+  envApp: "A2",
+  now: 4,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "priya",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[ok] No violation found (2210ms at 2262 traces/second).
+Trace length statistics: max=13, min=13, average=13.00
+You may increase --max-samples and --max-steps.
+Use --verbosity to produce more (or less) output.
+Use --seed=0x1a2b3c --backend=typescript to reproduce.
+EXIT: 0
+
+## Reachability witnesses: a VIOLATION is the construction trace (expected EXIT 1)
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w foundry-quint:0.33.1 quint run pending_app_provenance.qnt --main=pending_app_provenance --backend=typescript --max-steps=12 --max-samples=5000 --seed=0x1a2b3c --invariant=noSaveReachable --verbosity=3
+An example execution:
+
+[Frame 0]
+q::initAndInvariant => true
+└─ init => true
+
+[State 0]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[Frame 1]
+q::stepAndInvariant => true
+└─ step => true
+   └─ sweep => false
+
+[State 1]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[Frame 2]
+q::stepAndInvariant => true
+└─ step => true
+   └─ reconnect => true
+
+[State 2]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[Frame 3]
+q::stepAndInvariant => true
+└─ step => true
+
+[State 3]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[Frame 4]
+q::stepAndInvariant => false
+└─ step => true
+
+[State 4]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 2,
+  directRotate: true,
+  envApp: "A2",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 1
+}
+
+[violation] Found an issue (7ms at 143 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x1a2b3c --backend=typescript to reproduce.
+error: Invariant violated
+EXIT: 1
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w foundry-quint:0.33.1 quint run pending_app_provenance.qnt --main=pending_app_provenance --backend=typescript --max-steps=12 --max-samples=5000 --seed=0x1a2b3c --invariant=noConfirmRouteReachable --verbosity=3
+An example execution:
+
+[Frame 0]
+q::initAndInvariant => true
+└─ init => true
+
+[State 0]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[Frame 1]
+q::stepAndInvariant => true
+└─ step => true
+
+[State 1]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[Frame 2]
+q::stepAndInvariant => true
+└─ step => true
+
+[State 2]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[Frame 3]
+q::stepAndInvariant => true
+└─ step => true
+
+[State 3]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "A2",
+  pendingBy: "tomas",
+  pendingExpires: 2,
+  pendingSealedUnder: 1,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[Frame 4]
+q::stepAndInvariant => true
+└─ step => true
+
+[State 4]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "A2",
+  pendingBy: "tomas",
+  pendingExpires: 2,
+  pendingSealedUnder: 2,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 2
+}
+
+[Frame 5]
+q::stepAndInvariant => true
+└─ step => true
+
+[State 5]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 1,
+  pending: "A2",
+  pendingBy: "tomas",
+  pendingExpires: 2,
+  pendingSealedUnder: 2,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 2
+}
+
+[Frame 6]
+q::stepAndInvariant => true
+└─ step => true
+
+[State 6]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 1,
+  pending: "A2",
+  pendingBy: "tomas",
+  pendingExpires: 2,
+  pendingSealedUnder: 3,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 3
+}
+
+[Frame 7]
+q::stepAndInvariant => true
+└─ step => true
+
+[State 7]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 1,
+  pending: "A2",
+  pendingBy: "tomas",
+  pendingExpires: 2,
+  pendingSealedUnder: 3,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 3
+}
+
+[Frame 8]
+q::stepAndInvariant => true
+└─ step => true
+
+[State 8]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 1,
+  pending: "A2",
+  pendingBy: "tomas",
+  pendingExpires: 2,
+  pendingSealedUnder: 4,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 4
+}
+
+[Frame 9]
+q::stepAndInvariant => false
+└─ step => true
+
+[State 9]
+{
+  confirmReadAt: 1,
+  confirmReadBy: "tomas",
+  confirmReadExpires: 2,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 1,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "confirm",
+  sealingKey: 4
+}
+
+[violation] Found an issue (12ms at 167 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x1a2b94 --backend=typescript to reproduce.
+error: Invariant violated
+EXIT: 1
+
+## Exhaustive safety, clean model (expected EXIT 0, outcome NoError)
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w eclipse-temurin:21-jdk ./apalache/bin/apalache-mc check --init=init --next=step --inv=provenanceInv --length=6 --out-dir=/w/_apalache-out pending_app_provenance.qnt.json
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /w/_apalache-out/pending_app_provenance.qnt.json/2026-11-10T03-23-26_834959211997952048
+# APALACHE version: 0.62.4 | build: 7954daf                       I@03:23:26.426
+Tuning:                                                           I@03:23:26.430
+PASS #0: SanyParser                                               I@03:23:26.531
+PASS #1: TypeCheckerSnowcat                                       I@03:23:26.757
+ > Running Snowcat .::.                                           I@03:23:26.757
+ > Your types are purrfect!                                       I@03:23:27.193
+ > All expressions are typed                                      I@03:23:27.193
+PASS #2: ConfigurationPass                                        I@03:23:27.194
+  > Set the initialization predicate to init                      I@03:23:27.196
+  > Set the transition predicate to step                          I@03:23:27.196
+  > Set an invariant to provenanceInv                             I@03:23:27.196
+PASS #3: DesugarerPass                                            I@03:23:27.199
+  > Desugaring...                                                 I@03:23:27.199
+PASS #4: InlinePass                                               I@03:23:27.203
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:27.204
+PASS #5: TemporalPass                                             I@03:23:27.230
+  > Rewriting temporal operators...                               I@03:23:27.230
+  > No temporal property specified, nothing to encode             I@03:23:27.230
+PASS #6: InlinePass                                               I@03:23:27.230
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:27.230
+PASS #7: PrimingPass                                              I@03:23:27.234
+  > Introducing initPrimed for init'                              I@03:23:27.235
+PASS #8: VCGen                                                    I@03:23:27.236
+  > Producing verification conditions from the invariant provenanceInv I@03:23:27.236
+  > VCGen produced 1 verification condition(s)                    I@03:23:27.238
+PASS #9: PreprocessingPass                                        I@03:23:27.240
+  > Before preprocessing: unique renaming                         I@03:23:27.240
+ > Applying standard transformations:                             I@03:23:27.243
+  > PrimePropagation                                              I@03:23:27.243
+  > Desugarer                                                     I@03:23:27.244
+  > UniqueRenamer                                                 I@03:23:27.246
+  > Normalizer                                                    I@03:23:27.248
+  > SetMembershipSimplifier                                       I@03:23:27.250
+  > Keramelizer                                                   I@03:23:27.252
+  > After preprocessing: UniqueRenamer                            I@03:23:27.257
+PASS #10: TransitionFinderPass                                    I@03:23:27.260
+  > Found 1 initializing transitions                              I@03:23:27.267
+  > Found 9 transitions                                           I@03:23:27.274
+  > No constant initializer                                       I@03:23:27.275
+  > Applying unique renaming                                      I@03:23:27.275
+PASS #11: OptimizationPass                                        I@03:23:27.277
+ > Applying optimizations:                                        I@03:23:27.279
+  > ConstSimplifier                                               I@03:23:27.279
+  > ExprOptimizer                                                 I@03:23:27.284
+  > SetMembershipSimplifier                                       I@03:23:27.285
+  > ConstSimplifier                                               I@03:23:27.286
+PASS #12: AnalysisPass                                            I@03:23:27.289
+ > Marking skolemizable existentials and sets to be expanded...   I@03:23:27.290
+  > Skolemization                                                 I@03:23:27.290
+  > Expansion                                                     I@03:23:27.291
+  > Remove unused let-in defs                                     I@03:23:27.292
+ > Running analyzers...                                           I@03:23:27.293
+  > Introduced expression grades                                  I@03:23:27.295
+PASS #13: BoundedChecker                                          I@03:23:27.295
+State 0: Checking 1 state invariants                              I@03:23:27.495
+State 0: state invariant 0 holds.                                 I@03:23:27.500
+Step 0: picking a transition out of 1 transition(s)               I@03:23:27.502
+Step 1: Transition #2 is disabled                                 I@03:23:27.509
+State 1: Checking 1 state invariants                              I@03:23:27.519
+State 1: state invariant 0 holds.                                 I@03:23:27.521
+Step 1: Transition #7 is disabled                                 I@03:23:27.534
+Step 1: picking a transition out of 7 transition(s)               I@03:23:27.540
+State 2: Checking 1 state invariants                              I@03:23:27.552
+State 2: state invariant 0 holds.                                 I@03:23:27.554
+Step 2: Transition #2 is disabled                                 I@03:23:27.558
+State 2: Checking 1 state invariants                              I@03:23:27.564
+State 2: state invariant 0 holds.                                 I@03:23:27.566
+State 2: Checking 1 state invariants                              I@03:23:27.573
+State 2: state invariant 0 holds.                                 I@03:23:27.575
+Step 2: picking a transition out of 8 transition(s)               I@03:23:27.577
+State 3: Checking 1 state invariants                              I@03:23:27.586
+State 3: state invariant 0 holds.                                 I@03:23:27.587
+Step 3: Transition #2 is disabled                                 I@03:23:27.589
+State 3: Checking 1 state invariants                              I@03:23:27.595
+State 3: state invariant 0 holds.                                 I@03:23:27.597
+State 3: Checking 1 state invariants                              I@03:23:27.603
+State 3: state invariant 0 holds.                                 I@03:23:27.604
+Step 3: picking a transition out of 8 transition(s)               I@03:23:27.606
+State 4: Checking 1 state invariants                              I@03:23:27.614
+State 4: state invariant 0 holds.                                 I@03:23:27.615
+State 4: Checking 1 state invariants                              I@03:23:27.622
+State 4: state invariant 0 holds.                                 I@03:23:27.623
+State 4: Checking 1 state invariants                              I@03:23:27.636
+State 4: state invariant 0 holds.                                 I@03:23:27.637
+Step 4: picking a transition out of 9 transition(s)               I@03:23:27.639
+State 5: Checking 1 state invariants                              I@03:23:27.647
+State 5: state invariant 0 holds.                                 I@03:23:27.648
+State 5: Checking 1 state invariants                              I@03:23:27.656
+State 5: state invariant 0 holds.                                 I@03:23:27.657
+State 5: Checking 1 state invariants                              I@03:23:27.662
+State 5: state invariant 0 holds.                                 I@03:23:27.663
+Step 5: picking a transition out of 9 transition(s)               I@03:23:27.665
+State 6: Checking 1 state invariants                              I@03:23:27.671
+State 6: state invariant 0 holds.                                 I@03:23:27.672
+State 6: Checking 1 state invariants                              I@03:23:27.680
+State 6: state invariant 0 holds.                                 I@03:23:27.681
+State 6: Checking 1 state invariants                              I@03:23:27.685
+State 6: state invariant 0 holds.                                 I@03:23:27.687
+Step 6: picking a transition out of 9 transition(s)               I@03:23:27.689
+The outcome is: NoError                                           I@03:23:27.695
+Checker reports no error up to computation length 6               I@03:23:27.696
+It took me 0 days  0 hours  0 min  1 sec                          I@03:23:27.696
+Total time: 1.268 sec                                             I@03:23:27.696
+EXITCODE: OK
+EXIT: 0
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w eclipse-temurin:21-jdk ./apalache/bin/apalache-mc check --init=init --next=step --inv=pendingSealedInv --length=6 --out-dir=/w/_apalache-out pending_app_provenance.qnt.json
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /w/_apalache-out/pending_app_provenance.qnt.json/2026-11-10T03-23-28_7269806351070200860
+# APALACHE version: 0.62.4 | build: 7954daf                       I@03:23:28.127
+Tuning:                                                           I@03:23:28.131
+PASS #0: SanyParser                                               I@03:23:28.230
+PASS #1: TypeCheckerSnowcat                                       I@03:23:28.462
+ > Running Snowcat .::.                                           I@03:23:28.462
+ > Your types are purrfect!                                       I@03:23:28.895
+ > All expressions are typed                                      I@03:23:28.895
+PASS #2: ConfigurationPass                                        I@03:23:28.896
+  > Set the initialization predicate to init                      I@03:23:28.897
+  > Set the transition predicate to step                          I@03:23:28.898
+  > Set an invariant to pendingSealedInv                          I@03:23:28.898
+PASS #3: DesugarerPass                                            I@03:23:28.901
+  > Desugaring...                                                 I@03:23:28.901
+PASS #4: InlinePass                                               I@03:23:28.905
+Leaving only relevant operators: CInitPrimed, init, initPrimed, pendingSealedInv, step I@03:23:28.905
+PASS #5: TemporalPass                                             I@03:23:28.935
+  > Rewriting temporal operators...                               I@03:23:28.935
+  > No temporal property specified, nothing to encode             I@03:23:28.935
+PASS #6: InlinePass                                               I@03:23:28.935
+Leaving only relevant operators: CInitPrimed, init, initPrimed, pendingSealedInv, step I@03:23:28.935
+PASS #7: PrimingPass                                              I@03:23:28.938
+  > Introducing initPrimed for init'                              I@03:23:28.939
+PASS #8: VCGen                                                    I@03:23:28.940
+  > Producing verification conditions from the invariant pendingSealedInv I@03:23:28.941
+  > VCGen produced 1 verification condition(s)                    I@03:23:28.943
+PASS #9: PreprocessingPass                                        I@03:23:28.945
+  > Before preprocessing: unique renaming                         I@03:23:28.945
+ > Applying standard transformations:                             I@03:23:28.948
+  > PrimePropagation                                              I@03:23:28.948
+  > Desugarer                                                     I@03:23:28.949
+  > UniqueRenamer                                                 I@03:23:28.952
+  > Normalizer                                                    I@03:23:28.954
+  > SetMembershipSimplifier                                       I@03:23:28.956
+  > Keramelizer                                                   I@03:23:28.958
+  > After preprocessing: UniqueRenamer                            I@03:23:28.963
+PASS #10: TransitionFinderPass                                    I@03:23:28.966
+  > Found 1 initializing transitions                              I@03:23:28.975
+  > Found 9 transitions                                           I@03:23:28.983
+  > No constant initializer                                       I@03:23:28.983
+  > Applying unique renaming                                      I@03:23:28.984
+PASS #11: OptimizationPass                                        I@03:23:28.985
+ > Applying optimizations:                                        I@03:23:28.987
+  > ConstSimplifier                                               I@03:23:28.988
+  > ExprOptimizer                                                 I@03:23:28.992
+  > SetMembershipSimplifier                                       I@03:23:28.993
+  > ConstSimplifier                                               I@03:23:28.994
+PASS #12: AnalysisPass                                            I@03:23:28.997
+ > Marking skolemizable existentials and sets to be expanded...   I@03:23:28.998
+  > Skolemization                                                 I@03:23:28.998
+  > Expansion                                                     I@03:23:28.998
+  > Remove unused let-in defs                                     I@03:23:29.000
+ > Running analyzers...                                           I@03:23:29.001
+  > Introduced expression grades                                  I@03:23:29.003
+PASS #13: BoundedChecker                                          I@03:23:29.004
+State 0: Checking 1 state invariants                              I@03:23:29.204
+State 0: state invariant 0 holds.                                 I@03:23:29.207
+Step 0: picking a transition out of 1 transition(s)               I@03:23:29.209
+Step 1: Transition #2 is disabled                                 I@03:23:29.216
+State 1: Checking 1 state invariants                              I@03:23:29.219
+State 1: state invariant 0 holds.                                 I@03:23:29.220
+State 1: Checking 1 state invariants                              I@03:23:29.238
+State 1: state invariant 0 holds.                                 I@03:23:29.238
+Step 1: Transition #7 is disabled                                 I@03:23:29.242
+Step 1: picking a transition out of 7 transition(s)               I@03:23:29.245
+Step 2: Transition #2 is disabled                                 I@03:23:29.258
+State 2: Checking 1 state invariants                              I@03:23:29.260
+State 2: state invariant 0 holds.                                 I@03:23:29.261
+State 2: Checking 1 state invariants                              I@03:23:29.274
+State 2: state invariant 0 holds.                                 I@03:23:29.274
+State 2: Checking 1 state invariants                              I@03:23:29.278
+State 2: state invariant 0 holds.                                 I@03:23:29.278
+Step 2: picking a transition out of 8 transition(s)               I@03:23:29.281
+Step 3: Transition #2 is disabled                                 I@03:23:29.293
+State 3: Checking 1 state invariants                              I@03:23:29.294
+State 3: state invariant 0 holds.                                 I@03:23:29.295
+State 3: Checking 1 state invariants                              I@03:23:29.304
+State 3: state invariant 0 holds.                                 I@03:23:29.305
+State 3: Checking 1 state invariants                              I@03:23:29.308
+State 3: state invariant 0 holds.                                 I@03:23:29.308
+Step 3: picking a transition out of 8 transition(s)               I@03:23:29.311
+State 4: Checking 1 state invariants                              I@03:23:29.320
+State 4: state invariant 0 holds.                                 I@03:23:29.320
+State 4: Checking 1 state invariants                              I@03:23:29.322
+State 4: state invariant 0 holds.                                 I@03:23:29.322
+State 4: Checking 1 state invariants                              I@03:23:29.329
+State 4: state invariant 0 holds.                                 I@03:23:29.329
+State 4: Checking 1 state invariants                              I@03:23:29.331
+State 4: state invariant 0 holds.                                 I@03:23:29.332
+Step 4: picking a transition out of 9 transition(s)               I@03:23:29.334
+State 5: Checking 1 state invariants                              I@03:23:29.353
+State 5: state invariant 0 holds.                                 I@03:23:29.354
+State 5: Checking 1 state invariants                              I@03:23:29.355
+State 5: state invariant 0 holds.                                 I@03:23:29.355
+State 5: Checking 1 state invariants                              I@03:23:29.364
+State 5: state invariant 0 holds.                                 I@03:23:29.364
+State 5: Checking 1 state invariants                              I@03:23:29.366
+State 5: state invariant 0 holds.                                 I@03:23:29.367
+Step 5: picking a transition out of 9 transition(s)               I@03:23:29.369
+State 6: Checking 1 state invariants                              I@03:23:29.379
+State 6: state invariant 0 holds.                                 I@03:23:29.380
+State 6: Checking 1 state invariants                              I@03:23:29.381
+State 6: state invariant 0 holds.                                 I@03:23:29.381
+State 6: Checking 1 state invariants                              I@03:23:29.389
+State 6: state invariant 0 holds.                                 I@03:23:29.389
+State 6: Checking 1 state invariants                              I@03:23:29.392
+State 6: state invariant 0 holds.                                 I@03:23:29.393
+Step 6: picking a transition out of 9 transition(s)               I@03:23:29.396
+The outcome is: NoError                                           I@03:23:29.402
+Checker reports no error up to computation length 6               I@03:23:29.403
+It took me 0 days  0 hours  0 min  1 sec                          I@03:23:29.403
+Total time: 1.274 sec                                             I@03:23:29.403
+EXITCODE: OK
+EXIT: 0
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w eclipse-temurin:21-jdk ./apalache/bin/apalache-mc check --init=init --next=step --inv=provenanceInv --length=12 --out-dir=/w/_apalache-out pending_app_provenance.qnt.json
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /w/_apalache-out/pending_app_provenance.qnt.json/2026-11-10T03-23-29_15058689909875366238
+# APALACHE version: 0.62.4 | build: 7954daf                       I@03:23:29.823
+Tuning:                                                           I@03:23:29.826
+PASS #0: SanyParser                                               I@03:23:29.927
+PASS #1: TypeCheckerSnowcat                                       I@03:23:30.164
+ > Running Snowcat .::.                                           I@03:23:30.164
+ > Your types are purrfect!                                       I@03:23:30.597
+ > All expressions are typed                                      I@03:23:30.597
+PASS #2: ConfigurationPass                                        I@03:23:30.598
+  > Set the initialization predicate to init                      I@03:23:30.599
+  > Set the transition predicate to step                          I@03:23:30.600
+  > Set an invariant to provenanceInv                             I@03:23:30.600
+PASS #3: DesugarerPass                                            I@03:23:30.602
+  > Desugaring...                                                 I@03:23:30.602
+PASS #4: InlinePass                                               I@03:23:30.608
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:30.609
+PASS #5: TemporalPass                                             I@03:23:30.644
+  > Rewriting temporal operators...                               I@03:23:30.644
+  > No temporal property specified, nothing to encode             I@03:23:30.644
+PASS #6: InlinePass                                               I@03:23:30.644
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:30.644
+PASS #7: PrimingPass                                              I@03:23:30.647
+  > Introducing initPrimed for init'                              I@03:23:30.648
+PASS #8: VCGen                                                    I@03:23:30.649
+  > Producing verification conditions from the invariant provenanceInv I@03:23:30.649
+  > VCGen produced 1 verification condition(s)                    I@03:23:30.651
+PASS #9: PreprocessingPass                                        I@03:23:30.654
+  > Before preprocessing: unique renaming                         I@03:23:30.654
+ > Applying standard transformations:                             I@03:23:30.657
+  > PrimePropagation                                              I@03:23:30.657
+  > Desugarer                                                     I@03:23:30.658
+  > UniqueRenamer                                                 I@03:23:30.660
+  > Normalizer                                                    I@03:23:30.662
+  > SetMembershipSimplifier                                       I@03:23:30.664
+  > Keramelizer                                                   I@03:23:30.665
+  > After preprocessing: UniqueRenamer                            I@03:23:30.670
+PASS #10: TransitionFinderPass                                    I@03:23:30.676
+  > Found 1 initializing transitions                              I@03:23:30.685
+  > Found 9 transitions                                           I@03:23:30.694
+  > No constant initializer                                       I@03:23:30.694
+  > Applying unique renaming                                      I@03:23:30.695
+PASS #11: OptimizationPass                                        I@03:23:30.696
+ > Applying optimizations:                                        I@03:23:30.699
+  > ConstSimplifier                                               I@03:23:30.699
+  > ExprOptimizer                                                 I@03:23:30.704
+  > SetMembershipSimplifier                                       I@03:23:30.705
+  > ConstSimplifier                                               I@03:23:30.706
+PASS #12: AnalysisPass                                            I@03:23:30.709
+ > Marking skolemizable existentials and sets to be expanded...   I@03:23:30.710
+  > Skolemization                                                 I@03:23:30.710
+  > Expansion                                                     I@03:23:30.711
+  > Remove unused let-in defs                                     I@03:23:30.712
+ > Running analyzers...                                           I@03:23:30.713
+  > Introduced expression grades                                  I@03:23:30.716
+PASS #13: BoundedChecker                                          I@03:23:30.716
+State 0: Checking 1 state invariants                              I@03:23:30.916
+State 0: state invariant 0 holds.                                 I@03:23:30.922
+Step 0: picking a transition out of 1 transition(s)               I@03:23:30.923
+Step 1: Transition #2 is disabled                                 I@03:23:30.930
+State 1: Checking 1 state invariants                              I@03:23:30.941
+State 1: state invariant 0 holds.                                 I@03:23:30.943
+Step 1: Transition #7 is disabled                                 I@03:23:30.951
+Step 1: picking a transition out of 7 transition(s)               I@03:23:30.953
+State 2: Checking 1 state invariants                              I@03:23:30.962
+State 2: state invariant 0 holds.                                 I@03:23:30.964
+Step 2: Transition #2 is disabled                                 I@03:23:30.967
+State 2: Checking 1 state invariants                              I@03:23:30.977
+State 2: state invariant 0 holds.                                 I@03:23:30.979
+State 2: Checking 1 state invariants                              I@03:23:30.987
+State 2: state invariant 0 holds.                                 I@03:23:30.989
+Step 2: picking a transition out of 8 transition(s)               I@03:23:30.991
+State 3: Checking 1 state invariants                              I@03:23:31.000
+State 3: state invariant 0 holds.                                 I@03:23:31.001
+Step 3: Transition #2 is disabled                                 I@03:23:31.004
+State 3: Checking 1 state invariants                              I@03:23:31.011
+State 3: state invariant 0 holds.                                 I@03:23:31.012
+State 3: Checking 1 state invariants                              I@03:23:31.018
+State 3: state invariant 0 holds.                                 I@03:23:31.019
+Step 3: picking a transition out of 8 transition(s)               I@03:23:31.022
+State 4: Checking 1 state invariants                              I@03:23:31.029
+State 4: state invariant 0 holds.                                 I@03:23:31.030
+State 4: Checking 1 state invariants                              I@03:23:31.037
+State 4: state invariant 0 holds.                                 I@03:23:31.038
+State 4: Checking 1 state invariants                              I@03:23:31.050
+State 4: state invariant 0 holds.                                 I@03:23:31.051
+Step 4: picking a transition out of 9 transition(s)               I@03:23:31.053
+State 5: Checking 1 state invariants                              I@03:23:31.060
+State 5: state invariant 0 holds.                                 I@03:23:31.061
+State 5: Checking 1 state invariants                              I@03:23:31.068
+State 5: state invariant 0 holds.                                 I@03:23:31.069
+State 5: Checking 1 state invariants                              I@03:23:31.075
+State 5: state invariant 0 holds.                                 I@03:23:31.076
+Step 5: picking a transition out of 9 transition(s)               I@03:23:31.079
+State 6: Checking 1 state invariants                              I@03:23:31.085
+State 6: state invariant 0 holds.                                 I@03:23:31.086
+State 6: Checking 1 state invariants                              I@03:23:31.094
+State 6: state invariant 0 holds.                                 I@03:23:31.095
+State 6: Checking 1 state invariants                              I@03:23:31.099
+State 6: state invariant 0 holds.                                 I@03:23:31.100
+Step 6: picking a transition out of 9 transition(s)               I@03:23:31.102
+State 7: Checking 1 state invariants                              I@03:23:31.107
+State 7: state invariant 0 holds.                                 I@03:23:31.108
+State 7: Checking 1 state invariants                              I@03:23:31.119
+State 7: state invariant 0 holds.                                 I@03:23:31.120
+State 7: Checking 1 state invariants                              I@03:23:31.124
+State 7: state invariant 0 holds.                                 I@03:23:31.125
+Step 7: picking a transition out of 9 transition(s)               I@03:23:31.127
+State 8: Checking 1 state invariants                              I@03:23:31.134
+State 8: state invariant 0 holds.                                 I@03:23:31.135
+State 8: Checking 1 state invariants                              I@03:23:31.143
+State 8: state invariant 0 holds.                                 I@03:23:31.144
+State 8: Checking 1 state invariants                              I@03:23:31.148
+State 8: state invariant 0 holds.                                 I@03:23:31.149
+Step 8: picking a transition out of 9 transition(s)               I@03:23:31.151
+State 9: Checking 1 state invariants                              I@03:23:31.156
+State 9: state invariant 0 holds.                                 I@03:23:31.157
+State 9: Checking 1 state invariants                              I@03:23:31.164
+State 9: state invariant 0 holds.                                 I@03:23:31.165
+State 9: Checking 1 state invariants                              I@03:23:31.171
+State 9: state invariant 0 holds.                                 I@03:23:31.172
+Step 9: picking a transition out of 9 transition(s)               I@03:23:31.174
+State 10: Checking 1 state invariants                             I@03:23:31.179
+State 10: state invariant 0 holds.                                I@03:23:31.180
+State 10: Checking 1 state invariants                             I@03:23:31.189
+State 10: state invariant 0 holds.                                I@03:23:31.190
+State 10: Checking 1 state invariants                             I@03:23:31.202
+State 10: state invariant 0 holds.                                I@03:23:31.203
+Step 10: picking a transition out of 9 transition(s)              I@03:23:31.209
+State 11: Checking 1 state invariants                             I@03:23:31.218
+State 11: state invariant 0 holds.                                I@03:23:31.219
+State 11: Checking 1 state invariants                             I@03:23:31.252
+State 11: state invariant 0 holds.                                I@03:23:31.254
+State 11: Checking 1 state invariants                             I@03:23:31.261
+State 11: state invariant 0 holds.                                I@03:23:31.262
+Step 11: picking a transition out of 9 transition(s)              I@03:23:31.265
+State 12: Checking 1 state invariants                             I@03:23:31.280
+State 12: state invariant 0 holds.                                I@03:23:31.281
+State 12: Checking 1 state invariants                             I@03:23:31.316
+State 12: state invariant 0 holds.                                I@03:23:31.317
+State 12: Checking 1 state invariants                             I@03:23:31.323
+State 12: state invariant 0 holds.                                I@03:23:31.324
+Step 12: picking a transition out of 9 transition(s)              I@03:23:31.326
+The outcome is: NoError                                           I@03:23:31.332
+Checker reports no error up to computation length 12              I@03:23:31.333
+It took me 0 days  0 hours  0 min  1 sec                          I@03:23:31.333
+Total time: 1.508 sec                                             I@03:23:31.333
+EXITCODE: OK
+EXIT: 0
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w eclipse-temurin:21-jdk ./apalache/bin/apalache-mc check --init=init --next=step --inv=pendingSealedInv --length=12 --out-dir=/w/_apalache-out pending_app_provenance.qnt.json
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /w/_apalache-out/pending_app_provenance.qnt.json/2026-11-10T03-23-31_15606025069267946935
+# APALACHE version: 0.62.4 | build: 7954daf                       I@03:23:31.767
+Tuning:                                                           I@03:23:31.771
+PASS #0: SanyParser                                               I@03:23:31.873
+PASS #1: TypeCheckerSnowcat                                       I@03:23:32.099
+ > Running Snowcat .::.                                           I@03:23:32.099
+ > Your types are purrfect!                                       I@03:23:32.526
+ > All expressions are typed                                      I@03:23:32.526
+PASS #2: ConfigurationPass                                        I@03:23:32.526
+  > Set the initialization predicate to init                      I@03:23:32.528
+  > Set the transition predicate to step                          I@03:23:32.528
+  > Set an invariant to pendingSealedInv                          I@03:23:32.529
+PASS #3: DesugarerPass                                            I@03:23:32.532
+  > Desugaring...                                                 I@03:23:32.532
+PASS #4: InlinePass                                               I@03:23:32.537
+Leaving only relevant operators: CInitPrimed, init, initPrimed, pendingSealedInv, step I@03:23:32.538
+PASS #5: TemporalPass                                             I@03:23:32.563
+  > Rewriting temporal operators...                               I@03:23:32.563
+  > No temporal property specified, nothing to encode             I@03:23:32.563
+PASS #6: InlinePass                                               I@03:23:32.564
+Leaving only relevant operators: CInitPrimed, init, initPrimed, pendingSealedInv, step I@03:23:32.564
+PASS #7: PrimingPass                                              I@03:23:32.568
+  > Introducing initPrimed for init'                              I@03:23:32.569
+PASS #8: VCGen                                                    I@03:23:32.570
+  > Producing verification conditions from the invariant pendingSealedInv I@03:23:32.570
+  > VCGen produced 1 verification condition(s)                    I@03:23:32.572
+PASS #9: PreprocessingPass                                        I@03:23:32.574
+  > Before preprocessing: unique renaming                         I@03:23:32.574
+ > Applying standard transformations:                             I@03:23:32.577
+  > PrimePropagation                                              I@03:23:32.577
+  > Desugarer                                                     I@03:23:32.578
+  > UniqueRenamer                                                 I@03:23:32.580
+  > Normalizer                                                    I@03:23:32.582
+  > SetMembershipSimplifier                                       I@03:23:32.585
+  > Keramelizer                                                   I@03:23:32.586
+  > After preprocessing: UniqueRenamer                            I@03:23:32.591
+PASS #10: TransitionFinderPass                                    I@03:23:32.593
+  > Found 1 initializing transitions                              I@03:23:32.601
+  > Found 9 transitions                                           I@03:23:32.609
+  > No constant initializer                                       I@03:23:32.609
+  > Applying unique renaming                                      I@03:23:32.609
+PASS #11: OptimizationPass                                        I@03:23:32.611
+ > Applying optimizations:                                        I@03:23:32.613
+  > ConstSimplifier                                               I@03:23:32.614
+  > ExprOptimizer                                                 I@03:23:32.618
+  > SetMembershipSimplifier                                       I@03:23:32.619
+  > ConstSimplifier                                               I@03:23:32.620
+PASS #12: AnalysisPass                                            I@03:23:32.624
+ > Marking skolemizable existentials and sets to be expanded...   I@03:23:32.625
+  > Skolemization                                                 I@03:23:32.625
+  > Expansion                                                     I@03:23:32.625
+  > Remove unused let-in defs                                     I@03:23:32.627
+ > Running analyzers...                                           I@03:23:32.628
+  > Introduced expression grades                                  I@03:23:32.630
+PASS #13: BoundedChecker                                          I@03:23:32.631
+State 0: Checking 1 state invariants                              I@03:23:32.837
+State 0: state invariant 0 holds.                                 I@03:23:32.840
+Step 0: picking a transition out of 1 transition(s)               I@03:23:32.842
+Step 1: Transition #2 is disabled                                 I@03:23:32.849
+State 1: Checking 1 state invariants                              I@03:23:32.851
+State 1: state invariant 0 holds.                                 I@03:23:32.851
+State 1: Checking 1 state invariants                              I@03:23:32.867
+State 1: state invariant 0 holds.                                 I@03:23:32.867
+Step 1: Transition #7 is disabled                                 I@03:23:32.870
+Step 1: picking a transition out of 7 transition(s)               I@03:23:32.873
+Step 2: Transition #2 is disabled                                 I@03:23:32.884
+State 2: Checking 1 state invariants                              I@03:23:32.886
+State 2: state invariant 0 holds.                                 I@03:23:32.887
+State 2: Checking 1 state invariants                              I@03:23:32.902
+State 2: state invariant 0 holds.                                 I@03:23:32.902
+State 2: Checking 1 state invariants                              I@03:23:32.906
+State 2: state invariant 0 holds.                                 I@03:23:32.906
+Step 2: picking a transition out of 8 transition(s)               I@03:23:32.909
+Step 3: Transition #2 is disabled                                 I@03:23:32.920
+State 3: Checking 1 state invariants                              I@03:23:32.922
+State 3: state invariant 0 holds.                                 I@03:23:32.923
+State 3: Checking 1 state invariants                              I@03:23:32.933
+State 3: state invariant 0 holds.                                 I@03:23:32.934
+State 3: Checking 1 state invariants                              I@03:23:32.936
+State 3: state invariant 0 holds.                                 I@03:23:32.937
+Step 3: picking a transition out of 8 transition(s)               I@03:23:32.939
+State 4: Checking 1 state invariants                              I@03:23:32.949
+State 4: state invariant 0 holds.                                 I@03:23:32.949
+State 4: Checking 1 state invariants                              I@03:23:32.950
+State 4: state invariant 0 holds.                                 I@03:23:32.951
+State 4: Checking 1 state invariants                              I@03:23:32.958
+State 4: state invariant 0 holds.                                 I@03:23:32.959
+State 4: Checking 1 state invariants                              I@03:23:32.961
+State 4: state invariant 0 holds.                                 I@03:23:32.961
+Step 4: picking a transition out of 9 transition(s)               I@03:23:32.963
+State 5: Checking 1 state invariants                              I@03:23:32.979
+State 5: state invariant 0 holds.                                 I@03:23:32.980
+State 5: Checking 1 state invariants                              I@03:23:32.981
+State 5: state invariant 0 holds.                                 I@03:23:32.981
+State 5: Checking 1 state invariants                              I@03:23:32.988
+State 5: state invariant 0 holds.                                 I@03:23:32.989
+State 5: Checking 1 state invariants                              I@03:23:32.991
+State 5: state invariant 0 holds.                                 I@03:23:32.992
+Step 5: picking a transition out of 9 transition(s)               I@03:23:32.994
+State 6: Checking 1 state invariants                              I@03:23:33.004
+State 6: state invariant 0 holds.                                 I@03:23:33.004
+State 6: Checking 1 state invariants                              I@03:23:33.005
+State 6: state invariant 0 holds.                                 I@03:23:33.005
+State 6: Checking 1 state invariants                              I@03:23:33.012
+State 6: state invariant 0 holds.                                 I@03:23:33.013
+State 6: Checking 1 state invariants                              I@03:23:33.015
+State 6: state invariant 0 holds.                                 I@03:23:33.015
+Step 6: picking a transition out of 9 transition(s)               I@03:23:33.018
+State 7: Checking 1 state invariants                              I@03:23:33.029
+State 7: state invariant 0 holds.                                 I@03:23:33.030
+State 7: Checking 1 state invariants                              I@03:23:33.031
+State 7: state invariant 0 holds.                                 I@03:23:33.032
+State 7: Checking 1 state invariants                              I@03:23:33.038
+State 7: state invariant 0 holds.                                 I@03:23:33.038
+State 7: Checking 1 state invariants                              I@03:23:33.040
+State 7: state invariant 0 holds.                                 I@03:23:33.041
+Step 7: picking a transition out of 9 transition(s)               I@03:23:33.043
+State 8: Checking 1 state invariants                              I@03:23:33.052
+State 8: state invariant 0 holds.                                 I@03:23:33.053
+State 8: Checking 1 state invariants                              I@03:23:33.054
+State 8: state invariant 0 holds.                                 I@03:23:33.054
+State 8: Checking 1 state invariants                              I@03:23:33.060
+State 8: state invariant 0 holds.                                 I@03:23:33.061
+State 8: Checking 1 state invariants                              I@03:23:33.062
+State 8: state invariant 0 holds.                                 I@03:23:33.063
+Step 8: picking a transition out of 9 transition(s)               I@03:23:33.065
+State 9: Checking 1 state invariants                              I@03:23:33.073
+State 9: state invariant 0 holds.                                 I@03:23:33.073
+State 9: Checking 1 state invariants                              I@03:23:33.075
+State 9: state invariant 0 holds.                                 I@03:23:33.076
+State 9: Checking 1 state invariants                              I@03:23:33.082
+State 9: state invariant 0 holds.                                 I@03:23:33.082
+State 9: Checking 1 state invariants                              I@03:23:33.084
+State 9: state invariant 0 holds.                                 I@03:23:33.084
+Step 9: picking a transition out of 9 transition(s)               I@03:23:33.087
+State 10: Checking 1 state invariants                             I@03:23:33.098
+State 10: state invariant 0 holds.                                I@03:23:33.098
+State 10: Checking 1 state invariants                             I@03:23:33.099
+State 10: state invariant 0 holds.                                I@03:23:33.100
+State 10: Checking 1 state invariants                             I@03:23:33.106
+State 10: state invariant 0 holds.                                I@03:23:33.107
+State 10: Checking 1 state invariants                             I@03:23:33.110
+State 10: state invariant 0 holds.                                I@03:23:33.111
+Step 10: picking a transition out of 9 transition(s)              I@03:23:33.115
+State 11: Checking 1 state invariants                             I@03:23:33.128
+State 11: state invariant 0 holds.                                I@03:23:33.129
+State 11: Checking 1 state invariants                             I@03:23:33.133
+State 11: state invariant 0 holds.                                I@03:23:33.133
+State 11: Checking 1 state invariants                             I@03:23:33.144
+State 11: state invariant 0 holds.                                I@03:23:33.144
+State 11: Checking 1 state invariants                             I@03:23:33.147
+State 11: state invariant 0 holds.                                I@03:23:33.148
+Step 11: picking a transition out of 9 transition(s)              I@03:23:33.151
+State 12: Checking 1 state invariants                             I@03:23:33.164
+State 12: state invariant 0 holds.                                I@03:23:33.164
+State 12: Checking 1 state invariants                             I@03:23:33.172
+State 12: state invariant 0 holds.                                I@03:23:33.173
+State 12: Checking 1 state invariants                             I@03:23:33.192
+State 12: state invariant 0 holds.                                I@03:23:33.193
+State 12: Checking 1 state invariants                             I@03:23:33.196
+State 12: state invariant 0 holds.                                I@03:23:33.197
+Step 12: picking a transition out of 9 transition(s)              I@03:23:33.205
+The outcome is: NoError                                           I@03:23:33.211
+Checker reports no error up to computation length 12              I@03:23:33.211
+It took me 0 days  0 hours  0 min  1 sec                          I@03:23:33.212
+Total time: 1.443 sec                                             I@03:23:33.212
+EXITCODE: OK
+EXIT: 0
+
+## Behavioural mutant kills, simulation then exhaustive (expected EXIT 1 then ERROR 12)
+
+MUTANT m1_confirm_ignores_requester sha256: aa580d904e3cfd63fc190d1788a605935a671ed18d7409ae75d31a8255e634e8
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w/mut foundry-quint:0.33.1 quint run m1_confirm_ignores_requester.qnt --main=m1_confirm_ignores_requester --backend=typescript --max-steps=12 --max-samples=20000 --seed=0x1a2b3c --invariant=provenanceInv
+An example execution:
+
+[State 0]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 1]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 0,
+  pending: "A2",
+  pendingBy: "tomas",
+  pendingExpires: 2,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 2]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "tomas",
+  confirmReadExpires: 2,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "confirm",
+  sealingKey: 0
+}
+
+[State 3]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "tomas",
+  confirmReadExpires: 2,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 1,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "confirm",
+  sealingKey: 0
+}
+
+[State 4]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "tomas",
+  confirmReadExpires: 2,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 1,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "confirm",
+  sealingKey: 0
+}
+
+[State 5]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "tomas",
+  confirmReadExpires: 2,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 1,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "confirm",
+  sealingKey: 0
+}
+
+[State 6]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "tomas",
+  confirmReadExpires: 2,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "confirm",
+  sealingKey: 0
+}
+
+[State 7]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "tomas",
+  confirmReadExpires: 2,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "confirm",
+  sealingKey: 0
+}
+
+[State 8]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "tomas",
+  confirmReadExpires: 2,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 2,
+  pending: "A2",
+  pendingBy: "priya",
+  pendingExpires: 4,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "confirm",
+  sealingKey: 0
+}
+
+[State 9]
+{
+  confirmReadAt: 2,
+  confirmReadBy: "priya",
+  confirmReadExpires: 4,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "confirm",
+  sealingKey: 0
+}
+
+[violation] Found an issue (26ms at 385 traces/second).
+Use --verbosity=3 to show executions.
+error: Invariant violated
+Use --seed=0x1a2e4c --backend=typescript to reproduce.
+EXIT: 1
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w/mut eclipse-temurin:21-jdk ../apalache/bin/apalache-mc check --init=init --next=step --inv=provenanceInv --length=6 --out-dir=/w/_apalache-out m1_confirm_ignores_requester.qnt.json
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /w/_apalache-out/m1_confirm_ignores_requester.qnt.json/2026-11-10T03-23-34_14280991056103888542
+# APALACHE version: 0.62.4 | build: 7954daf                       I@03:23:34.277
+Tuning:                                                           I@03:23:34.280
+PASS #0: SanyParser                                               I@03:23:34.384
+PASS #1: TypeCheckerSnowcat                                       I@03:23:34.611
+ > Running Snowcat .::.                                           I@03:23:34.611
+ > Your types are purrfect!                                       I@03:23:35.056
+ > All expressions are typed                                      I@03:23:35.057
+PASS #2: ConfigurationPass                                        I@03:23:35.057
+  > Set the initialization predicate to init                      I@03:23:35.059
+  > Set the transition predicate to step                          I@03:23:35.059
+  > Set an invariant to provenanceInv                             I@03:23:35.059
+PASS #3: DesugarerPass                                            I@03:23:35.062
+  > Desugaring...                                                 I@03:23:35.062
+PASS #4: InlinePass                                               I@03:23:35.067
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:35.068
+PASS #5: TemporalPass                                             I@03:23:35.094
+  > Rewriting temporal operators...                               I@03:23:35.094
+  > No temporal property specified, nothing to encode             I@03:23:35.094
+PASS #6: InlinePass                                               I@03:23:35.094
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:35.095
+PASS #7: PrimingPass                                              I@03:23:35.098
+  > Introducing initPrimed for init'                              I@03:23:35.099
+PASS #8: VCGen                                                    I@03:23:35.100
+  > Producing verification conditions from the invariant provenanceInv I@03:23:35.100
+  > VCGen produced 1 verification condition(s)                    I@03:23:35.102
+PASS #9: PreprocessingPass                                        I@03:23:35.105
+  > Before preprocessing: unique renaming                         I@03:23:35.105
+ > Applying standard transformations:                             I@03:23:35.108
+  > PrimePropagation                                              I@03:23:35.108
+  > Desugarer                                                     I@03:23:35.109
+  > UniqueRenamer                                                 I@03:23:35.111
+  > Normalizer                                                    I@03:23:35.113
+  > SetMembershipSimplifier                                       I@03:23:35.116
+  > Keramelizer                                                   I@03:23:35.118
+  > After preprocessing: UniqueRenamer                            I@03:23:35.123
+PASS #10: TransitionFinderPass                                    I@03:23:35.125
+  > Found 1 initializing transitions                              I@03:23:35.134
+  > Found 9 transitions                                           I@03:23:35.142
+  > No constant initializer                                       I@03:23:35.142
+  > Applying unique renaming                                      I@03:23:35.142
+PASS #11: OptimizationPass                                        I@03:23:35.144
+ > Applying optimizations:                                        I@03:23:35.146
+  > ConstSimplifier                                               I@03:23:35.146
+  > ExprOptimizer                                                 I@03:23:35.151
+  > SetMembershipSimplifier                                       I@03:23:35.152
+  > ConstSimplifier                                               I@03:23:35.153
+PASS #12: AnalysisPass                                            I@03:23:35.156
+ > Marking skolemizable existentials and sets to be expanded...   I@03:23:35.157
+  > Skolemization                                                 I@03:23:35.158
+  > Expansion                                                     I@03:23:35.158
+  > Remove unused let-in defs                                     I@03:23:35.159
+ > Running analyzers...                                           I@03:23:35.161
+  > Introduced expression grades                                  I@03:23:35.164
+PASS #13: BoundedChecker                                          I@03:23:35.164
+State 0: Checking 1 state invariants                              I@03:23:35.373
+State 0: state invariant 0 holds.                                 I@03:23:35.380
+Step 0: picking a transition out of 1 transition(s)               I@03:23:35.382
+Step 1: Transition #2 is disabled                                 I@03:23:35.390
+State 1: Checking 1 state invariants                              I@03:23:35.401
+State 1: state invariant 0 holds.                                 I@03:23:35.404
+Step 1: Transition #7 is disabled                                 I@03:23:35.412
+Step 1: picking a transition out of 7 transition(s)               I@03:23:35.415
+State 2: Checking 1 state invariants                              I@03:23:35.423
+State 2: state invariant 0 holds.                                 I@03:23:35.425
+Step 2: Transition #2 is disabled                                 I@03:23:35.430
+State 2: Checking 1 state invariants                              I@03:23:35.439
+State 2: state invariant 0 holds.                                 I@03:23:35.441
+State 2: Checking 1 state invariants                              I@03:23:35.453
+Check the trace in: /w/_apalache-out/m1_confirm_ignores_requester.qnt.json/2026-11-10T03-23-34_14280991056103888542/violation1.tla, /w/_apalache-out/m1_confirm_ignores_requester.qnt.json/2026-11-10T03-23-34_14280991056103888542/MCviolation1.out, /w/_apalache-out/m1_confirm_ignores_requester.qnt.json/2026-11-10T03-23-34_14280991056103888542/violation1.json, /w/_apalache-out/m1_confirm_ignores_requester.qnt.json/2026-11-10T03-23-34_14280991056103888542/violation1.itf.json I@03:23:35.530
+State 2: state invariant 0 violated.                              I@03:23:35.530
+Found 1 error(s)                                                  I@03:23:35.530
+The outcome is: Error                                             I@03:23:35.531
+Checker has found an error                                        I@03:23:35.536
+It took me 0 days  0 hours  0 min  1 sec                          I@03:23:35.536
+Total time: 1.257 sec                                             I@03:23:35.536
+EXITCODE: ERROR (12)
+EXIT: 12
+
+MUTANT m2_confirm_ignores_expiry sha256: 887b336e4d6787e1ca0c0c5fe1205d244ea144a77d8a0d55320294d72d5ab625
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w/mut foundry-quint:0.33.1 quint run m2_confirm_ignores_expiry.qnt --main=m2_confirm_ignores_expiry --backend=typescript --max-steps=12 --max-samples=20000 --seed=0x1a2b3c --invariant=provenanceInv
+An example execution:
+
+[State 0]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 1]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 2]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 3]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 4]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "A1",
+  pendingBy: "priya",
+  pendingExpires: 2,
+  pendingSealedUnder: 1,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 5]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "A1",
+  pendingBy: "priya",
+  pendingExpires: 2,
+  pendingSealedUnder: 1,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 6]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "A1",
+  pendingBy: "priya",
+  pendingExpires: 2,
+  pendingSealedUnder: 1,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 7]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "A1",
+  pendingBy: "priya",
+  pendingExpires: 2,
+  pendingSealedUnder: 1,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 8]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "A1",
+  pendingBy: "priya",
+  pendingExpires: 2,
+  pendingSealedUnder: 2,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 2
+}
+
+[State 9]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 1,
+  pending: "A1",
+  pendingBy: "priya",
+  pendingExpires: 2,
+  pendingSealedUnder: 2,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 2
+}
+
+[State 10]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 2,
+  pending: "A1",
+  pendingBy: "priya",
+  pendingExpires: 2,
+  pendingSealedUnder: 2,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 2
+}
+
+[State 11]
+{
+  confirmReadAt: 2,
+  confirmReadBy: "priya",
+  confirmReadExpires: 2,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 2,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A1",
+  savedBy: "priya",
+  savedVia: "confirm",
+  sealingKey: 2
+}
+
+[violation] Found an issue (80ms at 1188 traces/second).
+Use --verbosity=3 to show executions.
+error: Invariant violated
+Use --seed=0x1a4b9c --backend=typescript to reproduce.
+EXIT: 1
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w/mut eclipse-temurin:21-jdk ../apalache/bin/apalache-mc check --init=init --next=step --inv=provenanceInv --length=6 --out-dir=/w/_apalache-out m2_confirm_ignores_expiry.qnt.json
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /w/_apalache-out/m2_confirm_ignores_expiry.qnt.json/2026-11-10T03-23-36_17024510201105067381
+# APALACHE version: 0.62.4 | build: 7954daf                       I@03:23:36.608
+Tuning:                                                           I@03:23:36.612
+PASS #0: SanyParser                                               I@03:23:36.713
+PASS #1: TypeCheckerSnowcat                                       I@03:23:36.936
+ > Running Snowcat .::.                                           I@03:23:36.936
+ > Your types are purrfect!                                       I@03:23:37.365
+ > All expressions are typed                                      I@03:23:37.365
+PASS #2: ConfigurationPass                                        I@03:23:37.365
+  > Set the initialization predicate to init                      I@03:23:37.367
+  > Set the transition predicate to step                          I@03:23:37.368
+  > Set an invariant to provenanceInv                             I@03:23:37.368
+PASS #3: DesugarerPass                                            I@03:23:37.371
+  > Desugaring...                                                 I@03:23:37.371
+PASS #4: InlinePass                                               I@03:23:37.376
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:37.377
+PASS #5: TemporalPass                                             I@03:23:37.404
+  > Rewriting temporal operators...                               I@03:23:37.404
+  > No temporal property specified, nothing to encode             I@03:23:37.404
+PASS #6: InlinePass                                               I@03:23:37.405
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:37.405
+PASS #7: PrimingPass                                              I@03:23:37.408
+  > Introducing initPrimed for init'                              I@03:23:37.409
+PASS #8: VCGen                                                    I@03:23:37.410
+  > Producing verification conditions from the invariant provenanceInv I@03:23:37.410
+  > VCGen produced 1 verification condition(s)                    I@03:23:37.412
+PASS #9: PreprocessingPass                                        I@03:23:37.414
+  > Before preprocessing: unique renaming                         I@03:23:37.414
+ > Applying standard transformations:                             I@03:23:37.417
+  > PrimePropagation                                              I@03:23:37.418
+  > Desugarer                                                     I@03:23:37.418
+  > UniqueRenamer                                                 I@03:23:37.421
+  > Normalizer                                                    I@03:23:37.423
+  > SetMembershipSimplifier                                       I@03:23:37.425
+  > Keramelizer                                                   I@03:23:37.427
+  > After preprocessing: UniqueRenamer                            I@03:23:37.432
+PASS #10: TransitionFinderPass                                    I@03:23:37.435
+  > Found 1 initializing transitions                              I@03:23:37.443
+  > Found 9 transitions                                           I@03:23:37.450
+  > No constant initializer                                       I@03:23:37.450
+  > Applying unique renaming                                      I@03:23:37.451
+PASS #11: OptimizationPass                                        I@03:23:37.452
+ > Applying optimizations:                                        I@03:23:37.454
+  > ConstSimplifier                                               I@03:23:37.455
+  > ExprOptimizer                                                 I@03:23:37.458
+  > SetMembershipSimplifier                                       I@03:23:37.460
+  > ConstSimplifier                                               I@03:23:37.461
+PASS #12: AnalysisPass                                            I@03:23:37.464
+ > Marking skolemizable existentials and sets to be expanded...   I@03:23:37.465
+  > Skolemization                                                 I@03:23:37.465
+  > Expansion                                                     I@03:23:37.466
+  > Remove unused let-in defs                                     I@03:23:37.467
+ > Running analyzers...                                           I@03:23:37.468
+  > Introduced expression grades                                  I@03:23:37.470
+PASS #13: BoundedChecker                                          I@03:23:37.470
+State 0: Checking 1 state invariants                              I@03:23:37.671
+State 0: state invariant 0 holds.                                 I@03:23:37.677
+Step 0: picking a transition out of 1 transition(s)               I@03:23:37.679
+Step 1: Transition #2 is disabled                                 I@03:23:37.685
+State 1: Checking 1 state invariants                              I@03:23:37.696
+State 1: state invariant 0 holds.                                 I@03:23:37.698
+Step 1: Transition #7 is disabled                                 I@03:23:37.706
+Step 1: picking a transition out of 7 transition(s)               I@03:23:37.709
+State 2: Checking 1 state invariants                              I@03:23:37.721
+State 2: state invariant 0 holds.                                 I@03:23:37.722
+Step 2: Transition #2 is disabled                                 I@03:23:37.725
+State 2: Checking 1 state invariants                              I@03:23:37.735
+State 2: state invariant 0 holds.                                 I@03:23:37.737
+State 2: Checking 1 state invariants                              I@03:23:37.745
+State 2: state invariant 0 holds.                                 I@03:23:37.747
+Step 2: picking a transition out of 8 transition(s)               I@03:23:37.750
+State 3: Checking 1 state invariants                              I@03:23:37.758
+State 3: state invariant 0 holds.                                 I@03:23:37.760
+Step 3: Transition #2 is disabled                                 I@03:23:37.762
+State 3: Checking 1 state invariants                              I@03:23:37.768
+State 3: state invariant 0 holds.                                 I@03:23:37.769
+State 3: Checking 1 state invariants                              I@03:23:37.774
+State 3: state invariant 0 holds.                                 I@03:23:37.775
+Step 3: picking a transition out of 8 transition(s)               I@03:23:37.778
+State 4: Checking 1 state invariants                              I@03:23:37.786
+State 4: state invariant 0 holds.                                 I@03:23:37.787
+State 4: Checking 1 state invariants                              I@03:23:37.795
+State 4: state invariant 0 holds.                                 I@03:23:37.796
+State 4: Checking 1 state invariants                              I@03:23:37.808
+Check the trace in: /w/_apalache-out/m2_confirm_ignores_expiry.qnt.json/2026-11-10T03-23-36_17024510201105067381/violation1.tla, /w/_apalache-out/m2_confirm_ignores_expiry.qnt.json/2026-11-10T03-23-36_17024510201105067381/MCviolation1.out, /w/_apalache-out/m2_confirm_ignores_expiry.qnt.json/2026-11-10T03-23-36_17024510201105067381/violation1.json, /w/_apalache-out/m2_confirm_ignores_expiry.qnt.json/2026-11-10T03-23-36_17024510201105067381/violation1.itf.json I@03:23:37.890
+State 4: state invariant 0 violated.                              I@03:23:37.890
+Found 1 error(s)                                                  I@03:23:37.891
+The outcome is: Error                                             I@03:23:37.892
+Checker has found an error                                        I@03:23:37.897
+It took me 0 days  0 hours  0 min  1 sec                          I@03:23:37.897
+Total time: 1.287 sec                                             I@03:23:37.897
+EXITCODE: ERROR (12)
+EXIT: 12
+
+MUTANT m3_move_forgets_pending_reseal sha256: ed2c081fae7060cf612b39e2bf460053e688fbd69c61c381fbbcd36e238905ab
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w/mut foundry-quint:0.33.1 quint run m3_move_forgets_pending_reseal.qnt --main=m3_move_forgets_pending_reseal --backend=typescript --max-steps=12 --max-samples=20000 --seed=0x1a2b3c --invariant=pendingSealedInv
+An example execution:
+
+[State 0]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 1]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 2]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 3]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "A2",
+  pendingBy: "tomas",
+  pendingExpires: 2,
+  pendingSealedUnder: 1,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 1
+}
+
+[State 4]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 2,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "",
+  now: 0,
+  pending: "A2",
+  pendingBy: "tomas",
+  pendingExpires: 2,
+  pendingSealedUnder: 1,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 2
+}
+
+[violation] Found an issue (11ms at 182 traces/second).
+Use --verbosity=3 to show executions.
+error: Invariant violated
+Use --seed=0x1a2b94 --backend=typescript to reproduce.
+EXIT: 1
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w/mut eclipse-temurin:21-jdk ../apalache/bin/apalache-mc check --init=init --next=step --inv=pendingSealedInv --length=6 --out-dir=/w/_apalache-out m3_move_forgets_pending_reseal.qnt.json
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /w/_apalache-out/m3_move_forgets_pending_reseal.qnt.json/2026-11-10T03-23-38_10267855360216368696
+# APALACHE version: 0.62.4 | build: 7954daf                       I@03:23:38.917
+Tuning:                                                           I@03:23:38.921
+PASS #0: SanyParser                                               I@03:23:39.022
+PASS #1: TypeCheckerSnowcat                                       I@03:23:39.250
+ > Running Snowcat .::.                                           I@03:23:39.251
+ > Your types are purrfect!                                       I@03:23:39.682
+ > All expressions are typed                                      I@03:23:39.682
+PASS #2: ConfigurationPass                                        I@03:23:39.683
+  > Set the initialization predicate to init                      I@03:23:39.685
+  > Set the transition predicate to step                          I@03:23:39.685
+  > Set an invariant to pendingSealedInv                          I@03:23:39.685
+PASS #3: DesugarerPass                                            I@03:23:39.688
+  > Desugaring...                                                 I@03:23:39.688
+PASS #4: InlinePass                                               I@03:23:39.693
+Leaving only relevant operators: CInitPrimed, init, initPrimed, pendingSealedInv, step I@03:23:39.694
+PASS #5: TemporalPass                                             I@03:23:39.723
+  > Rewriting temporal operators...                               I@03:23:39.723
+  > No temporal property specified, nothing to encode             I@03:23:39.723
+PASS #6: InlinePass                                               I@03:23:39.724
+Leaving only relevant operators: CInitPrimed, init, initPrimed, pendingSealedInv, step I@03:23:39.724
+PASS #7: PrimingPass                                              I@03:23:39.727
+  > Introducing initPrimed for init'                              I@03:23:39.728
+PASS #8: VCGen                                                    I@03:23:39.729
+  > Producing verification conditions from the invariant pendingSealedInv I@03:23:39.729
+  > VCGen produced 1 verification condition(s)                    I@03:23:39.731
+PASS #9: PreprocessingPass                                        I@03:23:39.733
+  > Before preprocessing: unique renaming                         I@03:23:39.734
+ > Applying standard transformations:                             I@03:23:39.736
+  > PrimePropagation                                              I@03:23:39.737
+  > Desugarer                                                     I@03:23:39.738
+  > UniqueRenamer                                                 I@03:23:39.740
+  > Normalizer                                                    I@03:23:39.742
+  > SetMembershipSimplifier                                       I@03:23:39.744
+  > Keramelizer                                                   I@03:23:39.745
+  > After preprocessing: UniqueRenamer                            I@03:23:39.750
+PASS #10: TransitionFinderPass                                    I@03:23:39.752
+  > Found 1 initializing transitions                              I@03:23:39.761
+  > Found 9 transitions                                           I@03:23:39.769
+  > No constant initializer                                       I@03:23:39.770
+  > Applying unique renaming                                      I@03:23:39.770
+PASS #11: OptimizationPass                                        I@03:23:39.772
+ > Applying optimizations:                                        I@03:23:39.775
+  > ConstSimplifier                                               I@03:23:39.775
+  > ExprOptimizer                                                 I@03:23:39.779
+  > SetMembershipSimplifier                                       I@03:23:39.781
+  > ConstSimplifier                                               I@03:23:39.781
+PASS #12: AnalysisPass                                            I@03:23:39.784
+ > Marking skolemizable existentials and sets to be expanded...   I@03:23:39.786
+  > Skolemization                                                 I@03:23:39.786
+  > Expansion                                                     I@03:23:39.786
+  > Remove unused let-in defs                                     I@03:23:39.787
+ > Running analyzers...                                           I@03:23:39.789
+  > Introduced expression grades                                  I@03:23:39.791
+PASS #13: BoundedChecker                                          I@03:23:39.791
+State 0: Checking 1 state invariants                              I@03:23:39.994
+State 0: state invariant 0 holds.                                 I@03:23:39.997
+Step 0: picking a transition out of 1 transition(s)               I@03:23:39.998
+Step 1: Transition #2 is disabled                                 I@03:23:40.005
+State 1: Checking 1 state invariants                              I@03:23:40.006
+State 1: state invariant 0 holds.                                 I@03:23:40.007
+State 1: Checking 1 state invariants                              I@03:23:40.022
+State 1: state invariant 0 holds.                                 I@03:23:40.023
+Step 1: Transition #7 is disabled                                 I@03:23:40.027
+Step 1: picking a transition out of 7 transition(s)               I@03:23:40.030
+Step 2: Transition #2 is disabled                                 I@03:23:40.041
+State 2: Checking 1 state invariants                              I@03:23:40.042
+Check the trace in: /w/_apalache-out/m3_move_forgets_pending_reseal.qnt.json/2026-11-10T03-23-38_10267855360216368696/violation1.tla, /w/_apalache-out/m3_move_forgets_pending_reseal.qnt.json/2026-11-10T03-23-38_10267855360216368696/MCviolation1.out, /w/_apalache-out/m3_move_forgets_pending_reseal.qnt.json/2026-11-10T03-23-38_10267855360216368696/violation1.json, /w/_apalache-out/m3_move_forgets_pending_reseal.qnt.json/2026-11-10T03-23-38_10267855360216368696/violation1.itf.json I@03:23:40.118
+State 2: state invariant 0 violated.                              I@03:23:40.118
+Found 1 error(s)                                                  I@03:23:40.118
+The outcome is: Error                                             I@03:23:40.120
+Checker has found an error                                        I@03:23:40.124
+It took me 0 days  0 hours  0 min  1 sec                          I@03:23:40.124
+Total time: 1.205 sec                                             I@03:23:40.124
+EXITCODE: ERROR (12)
+EXIT: 12
+
+MUTANT m4_submit_saves_while_connected sha256: 31036ff08c5debabb135207271f851e982e2da8c6668fd95219a30ddb405e56a
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w/mut foundry-quint:0.33.1 quint run m4_submit_saves_while_connected.qnt --main=m4_submit_saves_while_connected --backend=typescript --max-steps=12 --max-samples=20000 --seed=0x1a2b3c --invariant=provenanceInv
+An example execution:
+
+[State 0]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 0,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 1]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 1,
+  directConnected: 0,
+  directRotate: false,
+  envApp: "A1",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "",
+  savedBy: "",
+  savedVia: "none",
+  sealingKey: 0
+}
+
+[State 2]
+{
+  confirmReadAt: 0,
+  confirmReadBy: "",
+  confirmReadExpires: 0,
+  connected: 1,
+  directConnected: 1,
+  directRotate: false,
+  envApp: "A1",
+  now: 0,
+  pending: "",
+  pendingBy: "",
+  pendingExpires: 0,
+  pendingSealedUnder: 0,
+  saved: "A2",
+  savedBy: "tomas",
+  savedVia: "direct",
+  sealingKey: 0
+}
+
+[violation] Found an issue (12ms at 250 traces/second).
+Use --verbosity=3 to show executions.
+Use --seed=0x1a2be6 --backend=typescript to reproduce.
+error: Invariant violated
+EXIT: 1
+
+ARGV: docker run --rm -v /home/jeffbailey.guest/iis-models:/w -w /w/mut eclipse-temurin:21-jdk ../apalache/bin/apalache-mc check --init=init --next=step --inv=provenanceInv --length=6 --out-dir=/w/_apalache-out m4_submit_saves_while_connected.qnt.json
+# Usage statistics is OFF. We care about your privacy.
+# If you want to help our project, consider enabling statistics with config --enable-stats=true.
+
+Output directory: /w/_apalache-out/m4_submit_saves_while_connected.qnt.json/2026-11-10T03-23-41_7796083505288329021
+# APALACHE version: 0.62.4 | build: 7954daf                       I@03:23:41.129
+Tuning:                                                           I@03:23:41.133
+PASS #0: SanyParser                                               I@03:23:41.238
+PASS #1: TypeCheckerSnowcat                                       I@03:23:41.468
+ > Running Snowcat .::.                                           I@03:23:41.468
+ > Your types are purrfect!                                       I@03:23:41.898
+ > All expressions are typed                                      I@03:23:41.898
+PASS #2: ConfigurationPass                                        I@03:23:41.899
+  > Set the initialization predicate to init                      I@03:23:41.901
+  > Set the transition predicate to step                          I@03:23:41.901
+  > Set an invariant to provenanceInv                             I@03:23:41.901
+PASS #3: DesugarerPass                                            I@03:23:41.904
+  > Desugaring...                                                 I@03:23:41.904
+PASS #4: InlinePass                                               I@03:23:41.909
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:41.909
+PASS #5: TemporalPass                                             I@03:23:41.936
+  > Rewriting temporal operators...                               I@03:23:41.936
+  > No temporal property specified, nothing to encode             I@03:23:41.936
+PASS #6: InlinePass                                               I@03:23:41.936
+Leaving only relevant operators: CInitPrimed, init, initPrimed, provenanceInv, step I@03:23:41.936
+PASS #7: PrimingPass                                              I@03:23:41.939
+  > Introducing initPrimed for init'                              I@03:23:41.940
+PASS #8: VCGen                                                    I@03:23:41.941
+  > Producing verification conditions from the invariant provenanceInv I@03:23:41.941
+  > VCGen produced 1 verification condition(s)                    I@03:23:41.944
+PASS #9: PreprocessingPass                                        I@03:23:41.946
+  > Before preprocessing: unique renaming                         I@03:23:41.946
+ > Applying standard transformations:                             I@03:23:41.950
+  > PrimePropagation                                              I@03:23:41.950
+  > Desugarer                                                     I@03:23:41.951
+  > UniqueRenamer                                                 I@03:23:41.953
+  > Normalizer                                                    I@03:23:41.955
+  > SetMembershipSimplifier                                       I@03:23:41.957
+  > Keramelizer                                                   I@03:23:41.959
+  > After preprocessing: UniqueRenamer                            I@03:23:41.964
+PASS #10: TransitionFinderPass                                    I@03:23:41.967
+  > Found 1 initializing transitions                              I@03:23:41.976
+  > Found 9 transitions                                           I@03:23:41.984
+  > No constant initializer                                       I@03:23:41.985
+  > Applying unique renaming                                      I@03:23:41.985
+PASS #11: OptimizationPass                                        I@03:23:41.987
+ > Applying optimizations:                                        I@03:23:41.989
+  > ConstSimplifier                                               I@03:23:41.990
+  > ExprOptimizer                                                 I@03:23:41.994
+  > SetMembershipSimplifier                                       I@03:23:41.995
+  > ConstSimplifier                                               I@03:23:41.996
+PASS #12: AnalysisPass                                            I@03:23:41.999
+ > Marking skolemizable existentials and sets to be expanded...   I@03:23:42.000
+  > Skolemization                                                 I@03:23:42.000
+  > Expansion                                                     I@03:23:42.001
+  > Remove unused let-in defs                                     I@03:23:42.002
+ > Running analyzers...                                           I@03:23:42.003
+  > Introduced expression grades                                  I@03:23:42.006
+PASS #13: BoundedChecker                                          I@03:23:42.006
+State 0: Checking 1 state invariants                              I@03:23:42.203
+State 0: state invariant 0 holds.                                 I@03:23:42.208
+Step 0: picking a transition out of 1 transition(s)               I@03:23:42.210
+Step 1: Transition #2 is disabled                                 I@03:23:42.217
+State 1: Checking 1 state invariants                              I@03:23:42.226
+Check the trace in: /w/_apalache-out/m4_submit_saves_while_connected.qnt.json/2026-11-10T03-23-41_7796083505288329021/violation1.tla, /w/_apalache-out/m4_submit_saves_while_connected.qnt.json/2026-11-10T03-23-41_7796083505288329021/MCviolation1.out, /w/_apalache-out/m4_submit_saves_while_connected.qnt.json/2026-11-10T03-23-41_7796083505288329021/violation1.json, /w/_apalache-out/m4_submit_saves_while_connected.qnt.json/2026-11-10T03-23-41_7796083505288329021/violation1.itf.json I@03:23:42.298
+State 1: state invariant 0 violated.                              I@03:23:42.298
+Found 1 error(s)                                                  I@03:23:42.299
+The outcome is: Error                                             I@03:23:42.300
+Checker has found an error                                        I@03:23:42.305
+It took me 0 days  0 hours  0 min  1 sec                          I@03:23:42.305
+Total time: 1.174 sec                                             I@03:23:42.305
+EXITCODE: ERROR (12)
+EXIT: 12

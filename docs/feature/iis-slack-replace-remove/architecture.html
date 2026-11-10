@@ -1,0 +1,3430 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>:root{
+  --paper:#fbfaf8; --ink:#14171c; --muted:#5f6672; --rule:#e3e0da;
+  --panel:#ffffff; --accent:#a8590c; --accent-soft:#f5ead9;
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --paper:#11141a; --ink:#e7e5e0; --muted:#98a0ad; --rule:#252a33;
+    --panel:#171b22; --accent:#e0964a; --accent-soft:#2a2118;
+    --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+    --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+    --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+  }
+}
+:root[data-theme="light"]{
+  --paper:#fbfaf8; --ink:#14171c; --muted:#5f6672; --rule:#e3e0da;
+  --panel:#ffffff; --accent:#a8590c; --accent-soft:#f5ead9;
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+:root[data-theme="dark"]{
+  --paper:#11141a; --ink:#e7e5e0; --muted:#98a0ad; --rule:#252a33;
+  --panel:#171b22; --accent:#e0964a; --accent-soft:#2a2118;
+  --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+  --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+  --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--nwave-font-stack);
+  font-size:15px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 6rem;
+  display:flex;flex-direction:column;gap:1.1rem}
+.brandbar{background:#11141a;border-radius:4px;padding:.7rem 1rem;display:flex;align-items:center}
+.brandbar-logo{height:1.9rem;width:auto;display:block}
+.provenance{
+  display:flex;flex-wrap:wrap;gap:.5rem .9rem;align-items:baseline;
+  background:var(--accent-soft);border-left:3px solid var(--accent);
+  padding:.7rem .95rem;border-radius:0 4px 4px 0;font-size:.8rem;color:var(--muted);
+}
+.provenance strong{color:var(--ink);font-weight:600}
+.provenance code{background:none;padding:0;color:var(--accent)}
+h1,h2,h3,h4{text-wrap:balance;line-height:1.22;margin:0;font-weight:640}
+h1{font-size:1.9rem;letter-spacing:-.018em;margin-top:.6rem}
+h2{font-size:1.28rem;letter-spacing:-.01em;margin-top:2.2rem;
+  padding-bottom:.4rem;border-bottom:1px solid var(--rule)}
+h3{font-size:1.02rem;margin-top:1.5rem;color:var(--accent)}
+h4{font-size:.9rem;margin-top:1.1rem;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted)}
+p{margin:0;max-width:74ch}
+ul,ol{margin:0;padding-left:1.3rem;display:flex;flex-direction:column;gap:.35rem;max-width:74ch}
+hr{border:0;border-top:1px solid var(--rule);margin:1.6rem 0;width:100%}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.86em;
+  background:var(--accent-soft);padding:.1em .34em;border-radius:3px}
+pre{background:var(--panel);border:1px solid var(--rule);border-radius:5px;
+  padding:1rem 1.1rem;overflow-x:auto;margin:0;font-size:.78rem;line-height:1.5}
+pre code{background:none;padding:0;font-size:inherit}
+blockquote{margin:0;padding:.75rem 1rem;background:var(--panel);
+  border-left:3px solid var(--quar);border-radius:0 4px 4px 0;color:var(--muted);max-width:74ch}
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:5px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:.83rem;
+  font-variant-numeric:tabular-nums}
+th{position:sticky;top:0;background:var(--panel);text-align:left;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);font-weight:620;padding:.6rem .75rem;
+  border-bottom:1px solid var(--rule);white-space:nowrap}
+td{padding:.55rem .75rem;border-bottom:1px solid var(--rule);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+.chip{display:inline-block;padding:.12em .55em;border-radius:100px;
+  font-size:.7rem;font-weight:650;letter-spacing:.03em;white-space:nowrap;
+  border:1px solid currentColor}
+.s-ready{color:var(--ready)} .s-wip{color:var(--wip)} .s-done{color:var(--done)}
+.s-quar{color:var(--quar)} .s-cont{color:var(--cont)} .s-guard{color:var(--guard)}
+.s-dsn{color:var(--dsn)}
+.v-keep{color:var(--keep)} .v-simp{color:var(--simp)}
+.v-drop{color:var(--drop)} .v-unk{color:var(--unk)}
+/* --- directory tree: connectors drawn with borders, not characters,
+   so the chips stay aligned regardless of name length --- */
+.treewrap{border:1px solid var(--rule);border-radius:5px;background:var(--panel);
+  padding:.9rem 1.1rem;overflow-x:auto}
+ul.tree{list-style:none;margin:0;padding:0;display:block;max-width:none;
+  font-size:.83rem;line-height:1.5}
+ul.tree ul.tree{margin-left:.62rem;padding-left:.95rem;border-left:1px solid var(--rule)}
+ul.tree li{position:relative;padding:.16rem 0 .16rem .95rem;margin:0}
+ul.tree ul.tree>li::before{content:"";position:absolute;left:-.95rem;top:.72rem;
+  width:.82rem;border-top:1px solid var(--rule)}
+ul.tree ul.tree>li:last-child::after{content:"";position:absolute;left:-1.02rem;
+  top:.75rem;bottom:0;width:1px;background:var(--panel)}
+ul.tree summary{cursor:pointer;list-style:none;padding:.16rem 0;margin-left:-.95rem;
+  padding-left:.95rem;border-radius:3px}
+ul.tree summary::-webkit-details-marker{display:none}
+ul.tree summary::before{content:"▾";position:absolute;left:-.15rem;color:var(--muted);
+  font-size:.7rem;transition:transform .12s ease}
+ul.tree details:not([open])>summary::before{content:"▸"}
+ul.tree summary:hover{background:var(--accent-soft)}
+ul.tree summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.t-id{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-weight:650;
+  color:var(--accent);margin-right:.55rem;white-space:nowrap}
+.t-name{color:var(--ink);margin-right:.55rem}
+.t-badge{display:inline-block;font-size:.7rem;color:var(--muted);
+  border:1px solid var(--rule);border-radius:3px;padding:.02em .4em;
+  margin-right:.35rem;white-space:nowrap}
+li.t-branch>details>summary .t-id{font-size:.86rem;letter-spacing:.01em}
+/* --- colore del TESTO per stato: si legge la riga intera, non solo la chip --- */
+li.row-s-done>.t-name,li.row-s-done>details>summary .t-name{color:var(--done);
+  text-decoration:line-through;text-decoration-thickness:1px;opacity:.82}
+li.row-s-done>.t-id,li.row-s-done>details>summary .t-id{color:var(--done)}
+li.row-s-wip>.t-name,li.row-s-wip>details>summary .t-name{color:var(--wip);font-weight:560}
+li.row-s-wip>.t-id,li.row-s-wip>details>summary .t-id{color:var(--wip)}
+li.row-s-wip>details>summary{background:color-mix(in srgb,var(--wip) 9%,transparent);
+  border-left:2px solid var(--wip);margin-left:-1.15rem;padding-left:1.1rem}
+li.row-s-quar>.t-name,li.row-s-quar>details>summary .t-name{color:var(--muted);opacity:.72}
+li.row-s-cont>.t-name,li.row-s-cont>details>summary .t-name{color:var(--cont)}
+li.row-s-dsn>.t-name,li.row-s-dsn>details>summary .t-name{color:var(--dsn)}
+li.row-s-dsn>.t-id,li.row-s-dsn>details>summary .t-id{color:var(--dsn)}
+/* leaf with detail: closed by default, so the tree stays scannable
+   and the full row is a click away instead of a table to search */
+li.t-has-detail>details>summary::before{content:"›";font-size:.85rem}
+li.t-has-detail>details[open]>summary::before{content:"⌄";font-size:.7rem}
+li.t-has-detail>details[open]>summary{background:var(--accent-soft)}
+dl.t-detail{display:grid;grid-template-columns:auto 1fr;gap:.28rem .9rem;
+  margin:.45rem 0 .6rem .3rem;padding:.6rem .8rem;font-size:.78rem;
+  background:var(--paper);border:1px solid var(--rule);border-radius:4px}
+dl.t-detail dt{color:var(--muted);font-size:.7rem;text-transform:uppercase;
+  letter-spacing:.05em;font-weight:620;white-space:nowrap;padding-top:.06rem}
+dl.t-detail dd{margin:0;color:var(--ink)}
+@media (max-width:640px){.wrap{padding:1.5rem 1rem 4rem}h1{font-size:1.5rem}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200.0001 281.99999" width="1200" height="282">
+  <!-- nWave wordmark (nWave-logo-tYW) — yellow n + white Wave, for dark backgrounds -->
+  <g transform="matrix(1.4449288,0,0,1.4449288,-451.84019,-521.62622)">
+    <path
+      d="m 452.34925,552.58492 q -15.46668,0 -25.60003,-10.13335 -10.13334,-10.13334 -10.13334,-26.40003 0,-8.00001 2.13333,-18.66669 2.13334,-10.93335 4.80001,-21.86669 2.93334,-10.93335 5.60001,-19.46669 2.93333,-8.80001 4,-12.80002 3.46667,-11.20001 2.93334,-16.53335 -0.53334,-5.60001 -3.73334,-7.46668 -3.2,-1.86667 -7.73334,-1.86667 -5.86668,0 -13.06669,4.80001 -7.2,4.8 -15.73335,18.13335 -2.66667,4.26668 -8.00001,13.86669 -5.33334,9.33334 -12.00001,21.60002 -6.40001,12.00002 -13.33335,25.33337 -6.93334,13.06668 -13.06668,25.33336 -6.13335,12.00002 -10.66668,21.06669 -2.93334,5.86668 -8.80001,6.40001 -5.86668,0.8 -10.66668,-2.66667 -4.53334,-3.73334 -4.26668,-10.13334 2.13334,-29.86671 6.40001,-60.00008 4.53334,-30.13337 11.73335,-60.00007 1.6,-6.13334 5.86667,-8.26668 4.53334,-2.13333 9.33335,-0.8 5.06667,1.33334 8.00001,5.33334 3.2,3.73334 1.86667,9.60001 -2.66667,11.46668 -5.33334,23.4667 -2.40001,11.73335 -4.53334,23.46669 8.26667,-15.46668 15.20002,-28.2667 7.20001,-12.80001 10.93334,-18.66669 9.86668,-15.46668 22.13336,-25.06669 12.53335,-9.60001 28.00004,-9.60001 15.73335,0 24.53336,8.53334 8.80001,8.26668 10.93335,21.60003 2.13333,13.33334 -2.40001,28.2667 -1.06666,3.73333 -3.73333,12.53335 -2.40001,8.53334 -5.06668,19.20002 -2.66667,10.40001 -4.8,19.73336 -1.86667,9.06667 -1.86667,13.86668 0,4.26667 1.6,8.00001 1.86667,3.46667 8.53334,3.46667 5.06668,0 11.20002,-2.93334 6.40001,-3.2 13.06668,-9.33334 4.53334,-4.26667 9.33335,-3.46667 4.8,0.8 8.00001,4.53334 3.46667,3.73333 3.73333,8.80001 0.53334,4.8 -4,8.80001 -9.06668,8.26667 -19.46669,13.60001 -10.13335,5.06668 -21.8667,5.06668 z"
+      fill="#fbcf09" aria-label="n" />
+    <path
+      fill="#ffffff"
+      d="m 491.73113,362.45678 h 29.19637 q 4.52157,0 7.49288,2.19618 3.1005,2.067 4.134,5.68425 L 564.3345,482.0844 q 1.16269,4.134 2.067,9.04313 1.0335,4.77993 1.93782,10.20581 1.0335,-5.42588 2.19618,-10.20581 1.29188,-4.90913 2.71294,-9.04313 l 36.68925,-111.74719 q 1.0335,-2.97131 4.00481,-5.42587 3.1005,-2.45456 7.49288,-2.45456 h 10.20581 q 4.52156,0 7.49288,2.19618 2.97131,2.067 4.134,5.68425 l 36.43087,111.74719 q 2.84213,8.268 4.90913,18.34463 0.90431,-5.03832 1.80862,-9.68907 1.0335,-4.65075 2.067,-8.65556 l 31.78013,-111.74719 q 0.90431,-3.22968 4.00481,-5.55506 3.1005,-2.32537 7.49287,-2.32537 h 27.25857 L 701.01488,549.2619 H 669.62232 L 628.79907,421.62465 q -0.77513,-2.45456 -1.67944,-5.29669 -0.77513,-2.84212 -1.55025,-6.07181 -0.77513,3.22969 -1.67944,6.07181 -0.77512,2.84213 -1.55025,5.29669 L 581.12888,549.2619 H 549.73632 Z M 868.7002,549.2619 h -14.33981 q -4.52156,0 -7.10531,-1.29187 -2.58375,-1.42107 -3.87563,-5.55507 l -2.84212,-9.43068 q -5.03832,4.52156 -9.94744,8.00962 -4.77994,3.35888 -9.94744,5.68425 -5.1675,2.32538 -10.98094,3.48806 -5.81343,1.16269 -12.91875,1.16269 -8.39718,0 -15.5025,-2.19619 -7.10531,-2.32537 -12.27281,-6.84693 -5.03831,-4.52157 -7.88044,-11.23932 -2.84212,-6.71775 -2.84212,-15.63168 0,-7.49288 3.87562,-14.72738 4.00482,-7.36369 13.17713,-13.17712 9.17231,-5.94263 24.41644,-9.81825 15.24412,-3.87563 37.85193,-4.39238 v -7.75125 q 0,-13.30631 -5.68425,-19.6365 -5.55506,-6.45937 -16.27762,-6.45937 -7.75125,0 -12.91875,1.80862 -5.1675,1.80863 -9.04313,4.134 -3.74643,2.19619 -6.97612,4.00481 -3.22969,1.80863 -7.10531,1.80863 -3.22969,0 -5.55507,-1.67944 -2.32537,-1.67944 -3.74643,-4.134 l -5.81344,-10.20581 q 22.86619,-20.92838 55.16306,-20.92838 11.62688,0 20.67,3.87563 9.17231,3.74644 15.5025,10.59337 6.33019,6.71775 9.55988,16.14844 3.35887,9.43069 3.35887,20.67 z m -62.01,-19.89487 q 4.90913,0 9.04313,-0.90432 4.134,-0.90431 7.75125,-2.71293 3.74643,-1.80863 7.10531,-4.39238 3.48806,-2.71294 6.97612,-6.33019 v -22.34943 q -13.95225,0.64593 -23.38293,2.45456 -9.3015,1.67944 -14.98575,4.39237 -5.68425,2.71294 -8.13882,6.33019 -2.32537,3.61725 -2.32537,7.88044 0,8.39719 4.90912,12.01444 5.03832,3.61725 13.04794,3.61725 z m 155.15439,19.89487 h -28.938 l -52.7085,-132.54637 h 26.48344 q 3.48806,0 5.81344,1.67943 2.45456,1.67944 3.35887,4.26319 l 25.57913,70.79475 q 2.19618,6.201 3.61725,12.14363 1.55025,5.94262 2.71293,11.88525 1.16269,-5.94263 2.58375,-11.88525 1.55025,-5.94263 3.87563,-12.14363 l 26.22506,-70.79475 q 0.90431,-2.58375 3.22969,-4.26319 2.32537,-1.67943 5.55506,-1.67943 h 25.19156 z M 1083.7976,414.64853 q 12.5312,0 22.9954,4.00481 10.5934,4.00481 18.2155,11.75606 7.622,7.62206 11.8852,18.86138 4.2632,11.11012 4.2632,25.44993 0,3.61725 -0.3876,6.07182 -0.2583,2.32537 -1.1627,3.74643 -0.7751,1.29188 -2.1961,1.93782 -1.4211,0.51675 -3.6173,0.51675 h -81.9049 q 1.4211,20.41162 10.981,29.9715 9.5598,9.55987 25.3207,9.55987 7.7513,0 13.3063,-1.80862 5.6843,-1.80863 9.8183,-4.00482 4.2632,-2.19618 7.3637,-4.00481 3.2297,-1.80862 6.201,-1.80862 1.9378,0 3.3588,0.77512 1.4211,0.77513 2.4546,2.19619 l 9.3015,11.62687 q -5.2967,6.201 -11.8852,10.46419 -6.5886,4.134 -13.8231,6.71775 -7.1053,2.45456 -14.5982,3.48806 -7.3637,1.0335 -14.3398,1.0335 -13.8231,0 -25.7083,-4.52156 -11.8853,-4.65075 -20.67,-13.56469 -8.7848,-9.04312 -13.8231,-22.22025 -5.0383,-13.30631 -5.0383,-30.74662 0,-13.56469 4.3924,-25.44994 4.3924,-12.01444 12.5312,-20.79919 8.268,-8.91393 20.024,-14.08143 11.8853,-5.1675 26.7418,-5.1675 z m 0.646,22.86618 q -13.9523,0 -21.8327,7.88044 -7.8804,7.88044 -10.0766,22.34944 h 59.943 q 0,-6.201 -1.6795,-11.62688 -1.6794,-5.55506 -5.1675,-9.68906 -3.488,-4.134 -8.7847,-6.45937 -5.2967,-2.45457 -12.402,-2.45457 z"
+      aria-label="Wave" />
+  </g>
+</svg>
+
+<h1>Architecture brief: iis-slack-replace-remove</h1>
+
+<h2>Paradigm</h2>
+
+<p>object_oriented</p>
+
+<h2>Shared records</h2>
+
+<h3>Decisions</h3>
+
+<h4>D1</h4>
+
+<pre><code>Claim-to-checker mapping, each claim checked by the checker that decides it. Quint with the Apalache backend decides the pending-app lifecycle, whose safety is quantified over orderings of separate atomic transactions (submit, confirm, remove, the retention sweep, a secrets-key Move) and which exhaustive finite tables over single-transition pure functions cannot decide: the model is pending_app_provenance.qnt, checked exhaustively to length 12 with no error, with four behavioural mutants each refuted by the property it targets and two reachability witnesses violated as intended. TLA+/TLC decides the two temporal claims that need fairness: pending_sweep.tla for the eventual sweep of an expired pending row and replica_convergence.tla for a committed change reaching every replica, each run three times - with fairness, without fairness and with a progress mutant under fairness - where only the fairness run is free of a counterexample. Agda is not selected: no obligation here exceeds a decidable finite relation. Every local, pure, finite claim - the field shapes, the submission kind, the app in effect, the I-14 and I-15 count forms, the offer set, the side-effect-free GET - is decided by the repository own checker, rustc, over closed enums plus exhaustive tables. Every checker runs in a pinned container inside the shared local-dev Lima VM, with nothing installed on the Mac.
+</code></pre>
+
+<h4>D2</h4>
+
+<pre><code>The submitted app awaiting confirmation lives in its own single-row table instance_slack_app_pending (client_id, sealed_client_secret, sealed_signing_secret, requested_by, expires_at), added by its own migration 0034, never in the session table (ADR-IIS-003 r4).
+</code></pre>
+
+<h4>D3</h4>
+
+<pre><code>The current app a submission is compared against is the app in effect: the environment&#x27;s when its trio is set, else the saved app whose secrets open. So the I-14 gate and I-14&#x27;s old client ID read the same client ID the page names in I-6 or I-7.
+</code></pre>
+
+<h4>D4</h4>
+
+<pre><code>A blank secret field keeps the saved value by re-sealing the secret the app layer already holds opened, so SlackAppSave keeps both sealed columns required and all sealing stays in slack_app.rs. Where the saved app does not open (I-13) a blank field has nothing to keep and answers I-11 for that field.
+</code></pre>
+
+<h4>D5</h4>
+
+<pre><code>The pending row&#x27;s two secrets join the three shipped sealed-value sets - the seal fence, reseal_sealed_values and the boot probe - as ADR-IIS-003 r4 requires, but they are not credentials in I-22&#x27;s count, which stays connections plus the saved app (ADR-IIS-001).
+</code></pre>
+
+<h4>D6</h4>
+
+<pre><code>Carriers and owners. The submission and its verdict are SlackSubmission, SlackChange and the shipped Refusal, owned by crates/foundry-app/src/integrations/slack_app.rs; the page&#x27;s Replace and Remove controls are a closed SlackOffer set shaped like the shipped KeyOffer, owned by crates/foundry-app/src/integrations/handlers/instance.rs; effects are the fenced writes save_slack_app, hold_pending_slack_app, apply_pending_slack_app and remove_slack_app, owned by crates/foundry-store/src/integrations/instance.rs; errors are SlackSaveOutcome extended with the pending and remove outcomes plus StoreError, owned by that same module; per-process state stays the shipped Integrations held by IntegrationsHandle in crates/foundry-app/src/integrations/mod.rs, rebuilt by the shipped reload.
+</code></pre>
+
+<h4>D7</h4>
+
+<pre><code>With the environment&#x27;s app in effect the page offers neither Replace nor Remove, and both the GET and the POST of the remove door change nothing and answer the page (ADR-IIS-003 r5). The shipped save form stays where the environment&#x27;s app is in effect (US-IIS-06 AC 4, I-17), and a POST through it with a client ID different from the environment&#x27;s while workspaces are connected answers I-14 first (US-IIS-06 AC 6).
+</code></pre>
+
+<h4>D8</h4>
+
+<pre><code>Remove deletes the instance_slack_app row, records slack_app_removed and bumps the config version in one locked transaction, and touches nothing else: no connection row, no lost_reason, no notice, no delivery. Afterwards workspaces read W-2 through the shipped NoConnectionCause, POST /integrations/slack/events answers 401 through the shipped verification, and pending deliveries keep failing transiently under the shipped 24-hour give-up.
+</code></pre>
+
+<h4>D9</h4>
+
+<pre><code>activity_line gains its slack_app_replaced and slack_app_removed arms, so I-18 reads &#x27;replaced the Slack app (client_id)&#x27; and &#x27;removed the Slack app (client_id)&#x27; instead of the generic underscore fallback. The stored action names and their CHECK are already in migration 0033, so the activity table needs no migration.
+</code></pre>
+
+<h4>D10</h4>
+
+<pre><code>The connected-workspace count is one read in crates/foundry-store/src/integrations/instance.rs over integration_connections with kind slack and a state other than disconnected, counting distinct workspace_id. The I-14 gate reads it inside the write&#x27;s own locked transaction; the I-14 and I-15 pages read it per request, never from a rebuilt Integrations, because a workspace connection does not bump the config version.
+</code></pre>
+
+<h4>D11</h4>
+
+<pre><code>POST of the confirm door applies the pending row only when its requester is the posting instance admin and its expiry is after the injected clock&#x27;s now, and deletes it in that same transaction. A second confirm, another instance admin&#x27;s confirm and an expired confirm therefore all find nothing and answer the page. A new submission overwrites the row.
+</code></pre>
+
+<h4>D12</h4>
+
+<pre><code>GET of the confirm door and GET of the remove door read and render only: a prefetch of either changes no row, writes no activity line and bumps no version.
+</code></pre>
+
+<h4>D13</h4>
+
+<pre><code>ADR-IIS-001, ADR-IIS-003, ADR-IIS-004 and ADR-IIS-005 carry this design unchanged, including their Proposed status; this Request adds no ADR and changes no ADR body.
+</code></pre>
+
+<h4>D14</h4>
+
+<pre><code>What the replica model carries and what it does not: replica_convergence.tla proves that every committed version eventually reaches every replica under weak fairness on each replica&#x27;s reload task. The 60-second figure of the promise is that eventual convergence under the configured poll interval, FOUNDRY_INTEGRATIONS_RELOAD_MS with its 5000 ms default; it is a consequence of that configuration, not a theorem of the model, and the two-replica acceptance scenario is what observes it.
+</code></pre>
+
+<h4>D15</h4>
+
+<pre><code>I-14&#x27;s count is a reading taken when the page is rendered, not a gate on the confirm: a workspace connecting or disconnecting between the submission and the confirm changes the number Priya read, never whether her confirm applies.
+</code></pre>
+
+<h3>Constraints</h3>
+
+<h4>K1</h4>
+
+<pre><code>Field bounds are ADR-IIS-003 r3&#x27;s, unchanged: a client ID is digits, a dot and digits; each secret is exactly 32 lowercase hex characters; leading and trailing whitespace is trimmed. No authority bounds a field&#x27;s total length beyond that shape and this design adds none.
+</code></pre>
+
+<h4>K2</h4>
+
+<pre><code>The pending app expires exactly 10 minutes after it is held, judged by the injected Clock.
+</code></pre>
+
+<h4>K3</h4>
+
+<pre><code>I-15 has three locked forms by the connected-workspace count: the n = 0 form, the n = 1 form (Remove the Slack app from this Foundry? 1 workspace&#x27;s Slack routes stop posting until it is set up again, and no workspace can connect Slack.) and the counted n &gt;= 2 form. I-14 likewise has separate n = 1 and n &gt;= 2 forms.
+</code></pre>
+
+<h4>K4</h4>
+
+<pre><code>No authority bounds the connected-workspace count; the count is whatever the store holds and the counted forms carry it verbatim.
+</code></pre>
+
+<h4>K5</h4>
+
+<pre><code>Copy I-11, I-14, I-15, I-16, I-17 and I-18 is locked verbatim. W-2, W-3, K-2 and K-19, the Slack app manifest and every workspace connect and disconnect flow are unchanged.
+</code></pre>
+
+<h4>K6</h4>
+
+<pre><code>A committed change is in effect on every replica within 60 seconds without a restart, through the shipped version poll and reload whose default interval is 5000 ms (ADR-IIS-004 r3 and r4).
+</code></pre>
+
+<h4>K7</h4>
+
+<pre><code>Removal leaves the shipped 24-hour delivery give-up untouched: pending deliveries meet no app and keep failing transiently.
+</code></pre>
+
+<h4>K8</h4>
+
+<pre><code>Every write in this design takes the one instance-integrations advisory lock exclusively, fences on the sealing key id and bumps the config version in its own transaction; the pending hold takes that lock shared and fences the same way (ADR-IIS-004 r1, r2, r3).
+</code></pre>
+
+<h4>K9</h4>
+
+<pre><code>The design runs on a standalone deploy: no setting, host, cluster or DNS name beyond the documented FOUNDRY_ settings, and no dependency on any particular environment.
+</code></pre>
+
+<h4>K10</h4>
+
+<pre><code>Default test budgets apply and no feature derogation is requested; the acceptance lane runs in the isolated Lima VM through scripts/test-in-lima.sh.
+</code></pre>
+
+<h4>K11</h4>
+
+<pre><code>No secret, key or key id reaches the confirm page, the remove page, the activity table or a log line.
+</code></pre>
+
+<h4>K12</h4>
+
+<pre><code>Out of scope and unchanged by this design: US-IIS-07&#x27;s Replace secrets key and Start over, and Deliverable A carried-forward items 32 and 35.
+</code></pre>
+
+<h3>Reuse</h3>
+
+<p>SlackAppForm</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs:113</p>
+
+<p>Extend</p>
+
+<pre><code>It already reads and trims the three fields; the replace path needs the same reading plus which app the submission names, so the submission kind is added to this owner instead of a second form type.
+</code></pre>
+
+<p>check</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs:156</p>
+
+<p>Reuse</p>
+
+<pre><code>The shapes and the trimming are unchanged by Replace and Remove, and its table and property tests already decide the whole field relation.
+</code></pre>
+
+<p>plan_save</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs:198</p>
+
+<p>Extend</p>
+
+<pre><code>It already seals both secrets into their slots and sets the fence; keeping a saved secret and holding a pending app are the same sealing with a different source and a different target row.
+</code></pre>
+
+<p>app_in_effect</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs:59</p>
+
+<p>Reuse</p>
+
+<pre><code>The current app the gate compares against and the app the offers follow are exactly this function&#x27;s answer, so no second rule is written.
+</code></pre>
+
+<p>page_state</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:255</p>
+
+<p>Extend</p>
+
+<pre><code>It already decides every line and offer of the page from one PageFacts; the Replace and Remove controls are two more offers of the same pure decision.
+</code></pre>
+
+<p>KeyOffer</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:190</p>
+
+<p>Reuse</p>
+
+<pre><code>Its shape - a closed offer carrying its label, its door and when it applies - is the shape SlackOffer follows, so the page keeps one way of offering a control.
+</code></pre>
+
+<p>activity_line</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:352</p>
+
+<p>Extend</p>
+
+<pre><code>It is the one place a stored action becomes I-18 words; the replaced and removed arms belong there rather than in a second renderer.
+</code></pre>
+
+<p>save_slack_app</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:406</p>
+
+<p>Extend</p>
+
+<pre><code>It already holds the lock, the fence, the upsert, the activity line and the version bump; a replace is that same write with the saved-secret source decided upstream.
+</code></pre>
+
+<p>reseal_sealed_values</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:715</p>
+
+<p>Extend</p>
+
+<pre><code>It is the one definition of the sealed-value set, so the pending secrets join it there rather than being re-sealed by a second path.
+</code></pre>
+
+<p>commit_recorded</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:775</p>
+
+<p>Reuse</p>
+
+<pre><code>Every write in this design ends the same way - one activity line, one version bump, one commit - so none of them writes that ending again.
+</code></pre>
+
+<p>lock_exclusive</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:272</p>
+
+<p>Reuse</p>
+
+<pre><code>The one instance-integrations lock is already taken here; the new writes take the same one.
+</code></pre>
+
+<p>stored_key_id</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:409</p>
+
+<p>Reuse</p>
+
+<pre><code>The fence comparison is already defined; the pending hold and the confirm use it unchanged.
+</code></pre>
+
+<p>Activity</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:232</p>
+
+<p>Extend</p>
+
+<pre><code>Its SlackAppReplaced variant already exists and SlackAppRemoved is the only missing action of ADR-IIS-005&#x27;s closed list, so the enum is extended rather than replaced.
+</code></pre>
+
+<p>InstanceSnapshot</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:199</p>
+
+<p>Extend</p>
+
+<pre><code>The boot probe and the reload read the sealed-value set from this one snapshot, so the pending row is added to it rather than read by a second path.
+</code></pre>
+
+<p>sealed_slot</p>
+
+<p>crates/foundry-app/src/integrations/mod.rs:129</p>
+
+<p>Extend</p>
+
+<pre><code>It is the one map from a stored slot to its sealing slot; the two pending slots are added there.
+</code></pre>
+
+<p>StoreCapabilities</p>
+
+<p>crates/foundry-app/src/integrations/store_capabilities.rs:203</p>
+
+<p>Extend</p>
+
+<pre><code>It is the only writer of the instance tables from the app crate, so the hold, the confirm, the remove, the count and the prune are methods on it.
+</code></pre>
+
+<p>words</p>
+
+<p>crates/foundry-app/src/integrations/no_connection.rs:202</p>
+
+<p>Reuse</p>
+
+<pre><code>W-2 after a removal is exactly its NotSetUp cause, delivered by Request 1; the removal writes no new words.
+</code></pre>
+
+<p>require_instance_admin</p>
+
+<p>crates/foundry-app/src/instance_admin.rs:1</p>
+
+<p>Reuse</p>
+
+<pre><code>Every new door is behind the same guard with the same uniform 404, so no second authorization rule exists.
+</code></pre>
+
+<p>ensure_csrf_cookie</p>
+
+<p>crates/foundry-app/src/csrf.rs:1</p>
+
+<p>Reuse</p>
+
+<pre><code>Each new POST carries the same CSRF token as the shipped ones.
+</code></pre>
+
+<p>Retention</p>
+
+<p>crates/foundry-app/src/integrations/worker.rs:290</p>
+
+<p>Extend</p>
+
+<pre><code>The hourly sweep already prunes replica states and deliveries; deleting expired pending rows is one more prune on that tick rather than a new task.
+</code></pre>
+
+<p>SEAL_FENCED_WRITERS</p>
+
+<p>xtask/src/check_arch.rs:15043</p>
+
+<p>Extend</p>
+
+<pre><code>The list is the definition of a fenced writer, so the pending hold is added to it; a new rule would compete with it.
+</code></pre>
+
+<p>INSTANCE_TABLES</p>
+
+<p>xtask/src/check_arch.rs:14764</p>
+
+<p>Reuse</p>
+
+<pre><code>It already names instance_slack_app_pending, so the one-module rule covers the new table unchanged.
+</code></pre>
+
+<p>page.saved_slack</p>
+
+<p>crates/foundry-app/templates/integrations/instance.html:45</p>
+
+<p>Extend</p>
+
+<pre><code>The saved-app section is where Replace and Remove belong; a second Slack section would compete with it.
+</code></pre>
+
+<p>0034_instance_slack_app_pending.sql</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<p>CreateNew</p>
+
+<pre><code>No shipped table can hold the pending app: instance_slack_app is the app in effect and the session table sits outside the fence and the re-seal set (ADR-IIS-003 r4). The evolution doc requires its own migration.
+</code></pre>
+
+<p>slack_confirm.html</p>
+
+<p>crates/foundry-app/templates/integrations/slack_confirm.html:1</p>
+
+<p>CreateNew</p>
+
+<pre><code>No shipped template renders a one-question confirm, and I-14 must render with no secret and no form field, so it cannot reuse the save form&#x27;s template.
+</code></pre>
+
+<p>slack_remove.html</p>
+
+<p>crates/foundry-app/templates/integrations/slack_remove.html:1</p>
+
+<p>CreateNew</p>
+
+<pre><code>Same reason for I-15: a counted question with one control, which no shipped template offers.
+</code></pre>
+
+<p>connected_slack_workspaces</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:452</p>
+
+<p>CreateNew</p>
+
+<pre><code>No shipped read answers how many workspaces hold a live Slack connection: integration_census groups every kind and state for gauges, and the disconnect preview is scoped to one workspace.
+</code></pre>
+
+<h3>Impact</h3>
+
+<p>module, the decision owner</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs:113</p>
+
+<p>Changed</p>
+
+<pre><code>The submission kind, the replace-aware verdict and the keep-a-saved-secret plan live here.
+</code></pre>
+
+<p>public interface of the store capability</p>
+
+<p>crates/foundry-app/src/integrations/store_capabilities.rs:203</p>
+
+<p>Migrated</p>
+
+<pre><code>Five methods are added and every implementation follows; no shipped method&#x27;s signature changes.
+</code></pre>
+
+<p>handler and its template</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:502</p>
+
+<p>Changed</p>
+
+<pre><code>The gate, the two new doors, the offers, I-14, I-15, I-16 and the two I-18 arms.
+</code></pre>
+
+<p>router, the public door list</p>
+
+<p>crates/foundry-app/src/lib.rs:858</p>
+
+<p>Changed</p>
+
+<pre><code>Four routes are added: GET and POST of the confirm door and of the remove door.
+</code></pre>
+
+<p>store module, the only writer of the instance tables</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:406</p>
+
+<p>Changed</p>
+
+<pre><code>The pending hold, the confirm, the remove, the count, the prune and the pending row in the re-seal set.
+</code></pre>
+
+<p>public types of the store module</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:164</p>
+
+<p>Migrated</p>
+
+<pre><code>PendingSlackAppSave, PendingApplied and RemoveOutcome are added and SlackSaveOutcome gains no variant that a shipped caller must handle differently.
+</code></pre>
+
+<p>migration set</p>
+
+<p>crates/foundry-store/migrations/0033_instance_integrations.sql:9</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>0033 already admits the two activity actions and reserves the pending table for its own migration, so it is not edited.
+</code></pre>
+
+<p>worker tick</p>
+
+<p>crates/foundry-app/src/integrations/worker.rs:290</p>
+
+<p>Changed</p>
+
+<pre><code>The hourly sweep also deletes expired pending rows.
+</code></pre>
+
+<p>architecture guard</p>
+
+<p>xtask/src/check_arch.rs:15043</p>
+
+<p>Changed</p>
+
+<pre><code>The pending hold joins the fenced writers; the instance-tables list already names the table.
+</code></pre>
+
+<p>acceptance support, the oracle&#x27;s driver</p>
+
+<p>crates/foundry-acceptance/src/support/instance_integration_setup.rs:838</p>
+
+<p>Changed</p>
+
+<pre><code>It gains the replace, confirm and remove requests and the connected-workspace setup the new scenarios drive.
+</code></pre>
+
+<p>acceptance steps</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_instance_integration_setup.rs:179</p>
+
+<p>Changed</p>
+
+<pre><code>It gains the step definitions those scenarios compose.
+</code></pre>
+
+<p>store integration test</p>
+
+<p>crates/foundry-store/tests/iis_instance_store.rs:377</p>
+
+<p>Changed</p>
+
+<pre><code>The lock, fence, activity and version obligations of the new writes are asserted beside the shipped ones.
+</code></pre>
+
+<p>app reload test</p>
+
+<p>crates/foundry-app/tests/iis_reload.rs:58</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The snapshot gains a field it does not read; the shipped reload assertions still hold.
+</code></pre>
+
+<p>build and package metadata</p>
+
+<p>crates/foundry-app/Cargo.toml:1</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>No dependency, feature or binary changes.
+</code></pre>
+
+<p>operator documentation</p>
+
+<p>RELEASING.md:419</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The runbook already sends an instance admin to the integrations page; Replace and Remove add no operator step.
+</code></pre>
+
+<h3>Agreement</h3>
+
+<p>instance_slack_app_pending row shape: client_id, both sealed secrets, requested_by and expires_at (ADR-IIS-003 r4)</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>The migration defines the columns, the single-row CHECK and the NOT NULLs the store relies on.
+</code></pre>
+
+<p>instance_slack_app_pending row shape: client_id, both sealed secrets, requested_by and expires_at (ADR-IIS-003 r4)</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:406</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The only module that reads or writes the table, in the same commit as the migration.
+</code></pre>
+
+<p>instance_integration_audit_events.action wire names (ADR-IIS-005 r1)</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:232</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>It writes slack_app_replaced and adds slack_app_removed, both already admitted by the 0033 CHECK.
+</code></pre>
+
+<p>instance_integration_audit_events.action wire names (ADR-IIS-005 r1)</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:352</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>It renders both actions as I-18 words them instead of falling back to the generic form; rows written by another release are read by this arm.
+</code></pre>
+
+<p>SealedSlot, the set of sealed values the fence and the re-seal agree on (ADR-IIS-004 r2)</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:136</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>Two variants are added for the pending secrets.
+</code></pre>
+
+<p>SealedSlot, the set of sealed values the fence and the re-seal agree on (ADR-IIS-004 r2)</p>
+
+<p>crates/foundry-app/src/integrations/mod.rs:129</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>It maps each slot to its sealing slot and gains the two arms; rustc refuses a missing one.
+</code></pre>
+
+<p>SealedSlot, the set of sealed values the fence and the re-seal agree on (ADR-IIS-004 r2)</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:478</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Generate and Move pass their re-seal closure through unchanged; the new slots reach it through the same map.
+</code></pre>
+
+<p>InstanceSnapshot, what a reload and the boot probe rebuild from (ADR-IIS-004 r4)</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:199</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>It gains the pending row so the boot probe sees its sealed bytes.
+</code></pre>
+
+<p>InstanceSnapshot, what a reload and the boot probe rebuild from (ADR-IIS-004 r4)</p>
+
+<p>crates/foundry-app/src/integrations/reload.rs:1</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The reload rebuilds from the snapshot and ignores the new field.
+</code></pre>
+
+<p>InstanceSnapshot, what a reload and the boot probe rebuild from (ADR-IIS-004 r4)</p>
+
+<p>crates/foundry-app/src/integrations/mod.rs:583</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The boot probe counts the pending secrets among the values a held key must open, and direct_seals keeps counting credentials only.
+</code></pre>
+
+<p>The instance store capability trait, the only writer of the instance tables (DDR-26)</p>
+
+<p>crates/foundry-app/src/integrations/store_capabilities.rs:203</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>Five methods are added to the trait.
+</code></pre>
+
+<p>The instance store capability trait, the only writer of the instance tables (DDR-26)</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:502</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The new doors call only those methods.
+</code></pre>
+
+<p>The instance store capability trait, the only writer of the instance tables (DDR-26)</p>
+
+<p>crates/foundry-services/src/integrations/store_impls.rs:2</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The services implementations hold no instance-write capability, so nothing there changes.
+</code></pre>
+
+<p>The acceptance harness contract: the production router in process, real Postgres and the Slack double driven through HTTP</p>
+
+<p>crates/foundry-acceptance/src/support/instance_integration_setup.rs:838</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The driver gains the new requests; the harness itself is unchanged.
+</code></pre>
+
+<h3>Not applicable</h3>
+
+<p>None.</p>
+
+<h3>Boundaries</h3>
+
+<pre><code>HTTP on the production axum router in crates/foundry-app/src/lib.rs: GET and POST /admin/instance/integrations/slack/confirm, GET and POST /admin/instance/integrations/slack/remove, POST /admin/instance/integrations/slack and GET /admin/instance/integrations, each behind require_instance_admin with the uniform 404 for everyone else and CSRF on every POST.
+</code></pre>
+
+<h4>Driven ports</h4>
+
+<pre><code>The instance integrations store capability over Postgres (crates/foundry-app/src/integrations/store_capabilities.rs), the only writer of the instance tables.
+</code></pre>
+
+<pre><code>The injected clock, Arc&lt;dyn Clock&gt;, which decides the pending row&#x27;s expiry.
+</code></pre>
+
+<pre><code>The credential box that seals and opens the Slack secrets (foundry_auth::secret_box).
+</code></pre>
+
+<pre><code>The shipped Slack adapter and the mail notifier, neither of which a removal calls.
+</code></pre>
+
+<pre><code>The crates/foundry-app handlers depend inward on the pure slack_app decision module and outward only through the store capability trait and the clock. crates/foundry-store names no handler, and SQL on the instance tables never leaves crates/foundry-store/src/integrations/instance.rs.
+</code></pre>
+
+<h4>Failures</h4>
+
+<h5>B1</h5>
+
+<pre><code>The condition that the store cannot be read while a confirm or remove page is being rendered
+</code></pre>
+
+<p>Indeterminate</p>
+
+<pre><code>The door answers the instance page with the reason logged and no count rendered; an unread count is never rendered as zero, so I-15&#x27;s n = 0 form cannot stand in for it.
+</code></pre>
+
+<h5>B2</h5>
+
+<pre><code>A submission with a different client ID and a blank client secret or signing secret
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>I-11 naming that field, the typed client ID kept in the form and both secret fields empty; no row, activity line or version changes.
+</code></pre>
+
+<h5>B3</h5>
+
+<pre><code>A confirm posted by another instance admin, posted twice, or posted after the pending app expired
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>The instance page as it is, with the saved app, the activity list and the config version unchanged.
+</code></pre>
+
+<h5>B4</h5>
+
+<pre><code>A remove posted while the environment&#x27;s app is in effect
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>The instance page as it is, offering neither Replace nor Remove, with the stored row, the activity list and the version unchanged.
+</code></pre>
+
+<h5>B5</h5>
+
+<pre><code>A write whose sealing key is no longer the sealing key when its transaction checks the fence
+</code></pre>
+
+<p>Retry</p>
+
+<pre><code>The handler reloads its integrations and tries once more; a second turn-back answers the page with nothing saved.
+</code></pre>
+
+<h3>Observations</h3>
+
+<pre><code>The rendered instance integrations page: its notice line, its Slack lines, whether a Replace or a Remove control is offered, and its Activity list.
+</code></pre>
+
+<p>HTTP status and HTML response body</p>
+
+<pre><code>Which sealed bytes a row holds, which key sealed them, and in which order two serialized writes committed.
+</code></pre>
+
+<pre><code>The confirm page at GET /admin/instance/integrations/slack/confirm: the I-14 line with its count and the current client ID, and the Save the new app control.
+</code></pre>
+
+<p>HTTP status and HTML response body</p>
+
+<pre><code>The pending row&#x27;s secrets, its requester and its exact expiry instant.
+</code></pre>
+
+<pre><code>The remove page at GET /admin/instance/integrations/slack/remove: the I-15 line with its count.
+</code></pre>
+
+<p>HTTP status and HTML response body</p>
+
+<pre><code>Whether the saved app&#x27;s secrets open, and which workspaces the count stands for.
+</code></pre>
+
+<pre><code>The app in effect, read through POST /integrations/slack/events signed with a given signing secret and through Add to Slack&#x27;s client ID on a workspace integrations page.
+</code></pre>
+
+<p>HTTP status and the redirect target&#x27;s client_id parameter</p>
+
+<pre><code>Which replica answered and how recently it reloaded.
+</code></pre>
+
+<pre><code>A workspace&#x27;s Slack connection line on GET /workspace/integrations and the mail double&#x27;s recorded emails, after a removal.
+</code></pre>
+
+<p>HTML response body and the recorded email list</p>
+
+<pre><code>A delivery&#x27;s internal retry timing inside the 24-hour give-up.
+</code></pre>
+
+<pre><code>The instance activity list on GET /admin/instance/integrations.
+</code></pre>
+
+<p>an ordered list of rendered lines</p>
+
+<pre><code>The actor&#x27;s identity beyond the display name, and two lines committed in the same second.
+</code></pre>
+
+<h3>Equality</h3>
+
+<p>SlackSubmission</p>
+
+<pre><code>Two submissions are equal when their trimmed client IDs are equal and each secret field is equally blank or equally the same text; the form&#x27;s surrounding whitespace is not observable.
+</code></pre>
+
+<p>the app in effect</p>
+
+<pre><code>Two servers hold the same app in effect when the same source wins and the winning app&#x27;s client ID and both opened secrets are equal; the sealed bytes and the sealing key id are not observable through it.
+</code></pre>
+
+<p>the pending app</p>
+
+<pre><code>Two pending states are equal when both are absent, or both hold the same client ID, the same requester and the same expiry instant; the sealed bytes are not observable.
+</code></pre>
+
+<p>the instance page</p>
+
+<pre><code>Two pages are equal when their notice, their Slack lines, their offered controls and their activity lines are equal; the template&#x27;s whitespace is not observable.
+</code></pre>
+
+<h3>Constructors</h3>
+
+<p>SlackSubmission::from_fields</p>
+
+<p>fn from_fields(fields: &amp;[(String, String)]) -&gt; SlackSubmission</p>
+
+<p>SlackSubmission::judge</p>
+
+<p>fn judge(&amp;self, current: Option&lt;&amp;str&gt;, saved_secrets: Option&lt;&amp;SavedSecrets&gt;) -&gt; Result&lt;SlackChange, Refusal&gt;</p>
+
+<p>plan_replace</p>
+
+<p>fn plan_replace(sealing: &amp;SecretBox, mode: KeyMode, change: &amp;SlackChange, by: Uuid, at: OffsetDateTime) -&gt; Option&lt;SlackAppSave&gt;</p>
+
+<p>plan_hold_pending</p>
+
+<p>fn plan_hold_pending(sealing: &amp;SecretBox, mode: KeyMode, change: &amp;SlackChange, by: Uuid, at: OffsetDateTime) -&gt; Option&lt;PendingSlackAppSave&gt;</p>
+
+<p>Store::hold_pending_slack_app</p>
+
+<p>async fn hold_pending_slack_app(&amp;self, app: &amp;PendingSlackAppSave) -&gt; Result&lt;SlackSaveOutcome, StoreError&gt;</p>
+
+<p>Store::apply_pending_slack_app</p>
+
+<p>async fn apply_pending_slack_app(&amp;self, actor: Uuid, now: OffsetDateTime) -&gt; Result&lt;PendingApplied, StoreError&gt;</p>
+
+<p>Store::remove_slack_app</p>
+
+<p>async fn remove_slack_app(&amp;self, actor: Uuid, now: OffsetDateTime) -&gt; Result&lt;RemoveOutcome, StoreError&gt;</p>
+
+<p>Store::connected_slack_workspaces</p>
+
+<p>async fn connected_slack_workspaces(&amp;self) -&gt; Result&lt;i64, StoreError&gt;</p>
+
+<p>Store::prune_pending_slack_app</p>
+
+<p>async fn prune_pending_slack_app(&amp;self, now: OffsetDateTime) -&gt; Result&lt;(), StoreError&gt;</p>
+
+<p>SlackOffer::applies</p>
+
+<p>fn applies(self, effect: AppInEffect, mode: KeyMode) -&gt; bool</p>
+
+<p>confirm_lines</p>
+
+<p>fn confirm_lines(current_client_id: &amp;str, connected: u32) -&gt; String</p>
+
+<p>remove_lines</p>
+
+<p>fn remove_lines(connected: u32) -&gt; String</p>
+
+<h3>Laws</h3>
+
+<h4>L1</h4>
+
+<pre><code>A submission whose trimmed client ID equals the current app&#x27;s is a Rotate, and a blank secret field in a Rotate keeps the saved value; a submission with a different client ID is a NewApp and refuses a blank secret field with I-11 naming that field.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Domain</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>same client ID, both secret fields blank: both saved secrets kept
+</code></pre>
+
+<pre><code>same client ID, only the signing secret given: the client secret kept, the signing secret replaced
+</code></pre>
+
+<pre><code>same client ID, both secrets given: both replaced
+</code></pre>
+
+<pre><code>different client ID, client secret blank: I-11 for the client secret, nothing stored
+</code></pre>
+
+<pre><code>different client ID, signing secret blank: I-11 for the signing secret, nothing stored
+</code></pre>
+
+<pre><code>different client ID, both secrets given: accepted as a NewApp
+</code></pre>
+
+<pre><code>same client ID over a saved app that does not open, a secret blank: I-11 for that field, because there is nothing to keep
+</code></pre>
+
+<pre><code>The form has three fields over a closed verdict, so the whole relation is a finite table rather than a sampled domain.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<h4>L2</h4>
+
+<pre><code>Field shapes and trimming are unchanged by the replace path: a value&#x27;s verdict is the same with surrounding whitespace, any 32 lowercase hex value is a secret, and any character outside a field&#x27;s alphabet is malformed rather than blank.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Domain</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Broad</p>
+
+<h6>Generator</h6>
+
+<pre><code>each of the three form fields, over the alphabet 0-9 a-f and the dot, plus arbitrary Unicode, each value wrapped in up to four whitespace characters, and the blank value
+</code></pre>
+
+<p>40 characters per field value and 4 whitespace characters on each side</p>
+
+<p>the runner&#x27;s default seed, printed on failure so the case replays</p>
+
+<h6>Must include</h6>
+
+<pre><code>a blank field
+</code></pre>
+
+<pre><code>a 32 lowercase hex secret
+</code></pre>
+
+<pre><code>an uppercase hex secret
+</code></pre>
+
+<pre><code>a client ID with two dots and one with no dot
+</code></pre>
+
+<pre><code>a value holding one character outside its field&#x27;s alphabet
+</code></pre>
+
+<p>one field per generated case</p>
+
+<pre><code>the native generator&#x27;s shrinking to the shortest refused value, with the case printed for replay
+</code></pre>
+
+<pre><code>a hand-written alphabet-and-length predicate over the trimmed value, written apart from the production check
+</code></pre>
+
+<pre><code>a value the predicate accepts that the field check refuses, or a value the predicate rejects that it accepts
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<h4>L3</h4>
+
+<pre><code>The I-14 gate holds exactly when the submission is a NewApp and the connected-workspace count is above zero; a NewApp with no connected workspace saves at once, and a Rotate never reaches the confirm.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>NewApp with 0 connected workspaces: saved at once, no pending row
+</code></pre>
+
+<pre><code>NewApp with 1 connected workspace: held pending, I-14&#x27;s n = 1 form
+</code></pre>
+
+<pre><code>NewApp with 3 connected workspaces: held pending, I-14&#x27;s n &gt;= 2 form
+</code></pre>
+
+<pre><code>Rotate with 3 connected workspaces: saved at once, no pending row
+</code></pre>
+
+<pre><code>NewApp with 1 connected workspace while the environment&#x27;s app is in effect: held pending, I-14 naming the environment&#x27;s client ID
+</code></pre>
+
+<pre><code>The gate is a pure function of two closed facts, so every combination is tabled.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<h4>L4</h4>
+
+<pre><code>The pending row is applied only for the requester that holds it and only while the injected clock is before its expiry, and applying it deletes it, so a second apply, another admin&#x27;s apply and an expired apply all change nothing.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>the holder confirms one minute in: applied, the row deleted, one activity line, one version bump
+</code></pre>
+
+<pre><code>the holder confirms at the expiry instant: nothing applied
+</code></pre>
+
+<pre><code>the holder confirms eleven minutes in: nothing applied
+</code></pre>
+
+<pre><code>another instance admin confirms one minute in: nothing applied, the row left as it is
+</code></pre>
+
+<pre><code>the holder confirms twice: the second confirm finds no row
+</code></pre>
+
+<pre><code>no pending row exists: the confirm changes nothing
+</code></pre>
+
+<pre><code>The decision reads three facts with a closed outcome, so the table is the whole relation.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_app_provenance.qnt</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_app_provenance.receipt.txt</p>
+
+<h4>L5</h4>
+
+<pre><code>With the environment&#x27;s app in effect neither Replace nor Remove is offered, and the GET and the POST of the remove door delete no row, write no activity line and bump no version.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>the environment&#x27;s app in effect with a saved row present: no Replace or Remove control; the POST changes nothing and answers the page
+</code></pre>
+
+<pre><code>the environment&#x27;s app in effect with no saved row: no Replace or Remove control; the POST changes nothing
+</code></pre>
+
+<pre><code>the saved app in effect: both controls offered and the POST removes it
+</code></pre>
+
+<pre><code>no app in effect: neither control offered, and the POST changes nothing
+</code></pre>
+
+<pre><code>The offer set is a pure function of the app in effect and the key mode, both closed enums.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<h4>L6</h4>
+
+<pre><code>A GET of the confirm door or of the remove door leaves the stored rows, the activity table and the config version exactly as they were.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>GET the confirm door twice with a pending row: the row, the activity list and the version unchanged
+</code></pre>
+
+<pre><code>GET the confirm door with no pending row: nothing changed, the page answered
+</code></pre>
+
+<pre><code>GET the remove door twice with a saved app: the row, the activity list and the version unchanged
+</code></pre>
+
+<pre><code>The two GET handlers reach only read methods, which the table and the capability set together decide.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<h4>L7</h4>
+
+<pre><code>Removing the saved app changes no connection row, writes no lost_reason, sends no notice and cancels no delivery; afterwards a workspace integrations page reads W-2 and POST /integrations/slack/events answers 401.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Infrastructure</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>one connected workspace: its connection state and lost_reason unchanged, no email recorded, its pending delivery still pending
+</code></pre>
+
+<pre><code>no connected workspace: nothing to preserve, the removal still answers I-16
+</code></pre>
+
+<pre><code>after removal: the workspace integrations page reads W-2 and an event signed with the removed signing secret answers 401
+</code></pre>
+
+<pre><code>The preserved set is the shipped connection and delivery rows; the cases are the presence or absence of one connection.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<h4>L8</h4>
+
+<pre><code>A Rotate that keeps a secret re-seals the secret the server already holds opened, so the app in effect opens afterwards to the same secrets it opened to before, except for the fields the Rotate replaced.
+</code></pre>
+
+<p>RoundTrip</p>
+
+<p>Domain</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>both fields blank: both opened secrets equal to before
+</code></pre>
+
+<pre><code>the signing secret replaced: the opened client secret equal to before, the signing secret the new one
+</code></pre>
+
+<pre><code>both replaced: both opened secrets the new ones
+</code></pre>
+
+<pre><code>Three cases cover the closed set of kept-or-replaced combinations for two fields, with the blank-blank case the identity.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<h4>L9</h4>
+
+<pre><code>A saved, replaced or removed app is in effect on every replica within 60 seconds of its commit, with no restart.
+</code></pre>
+
+<p>Temporal</p>
+
+<p>Infrastructure</p>
+
+<p>crates/foundry-app/src/integrations/reload.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>two replicas on one database, the shared clock advanced past one reload interval, each replica asked directly after a replace
+</code></pre>
+
+<pre><code>the same after a removal: both replicas answer 401 to an event signed with the removed secret
+</code></pre>
+
+<pre><code>The shipped version poll and reload carry it; the finite observation is the two-replica scenario. The quantified-over-time form of this claim is the TLA+/TLC obligation recorded as INDETERMINATE.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/iis-slack-replace-remove/design/replica_convergence.tla</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/replica_convergence.receipt.txt</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_sweep.tla</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_sweep.receipt.txt</p>
+
+<h4>L10</h4>
+
+<pre><code>Every write in this design is refused when the key it sealed under is no longer the sealing key, and the pending row&#x27;s secrets are re-sealed with every other sealed value when the secrets key moves.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Infrastructure</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>a save sealed under a superseded key: refused, nothing stored, the handler reloads and retries once
+</code></pre>
+
+<pre><code>a pending hold sealed under a superseded key: refused, no pending row
+</code></pre>
+
+<pre><code>a Move while a pending row exists: the pending secrets re-sealed with the rest, and still openable at the confirm
+</code></pre>
+
+<pre><code>a Move while a pending row exists: the I-22 credential count unchanged by the pending row
+</code></pre>
+
+<pre><code>The fence and the re-seal set are decided per write; the cases are the superseded-key write and the re-seal with and without a pending row.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_app_provenance.qnt</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_app_provenance.receipt.txt</p>
+
+<h4>L11</h4>
+
+<pre><code>I-14 and I-15 each read the form the connected-workspace count selects: no workspace, exactly one, or more than one.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>0 connected workspaces: I-15&#x27;s n = 0 form; I-14 is not reached
+</code></pre>
+
+<pre><code>1 connected workspace: I-14&#x27;s n = 1 form; I-15&#x27;s n = 1 form
+</code></pre>
+
+<pre><code>2 connected workspaces: I-14&#x27;s n &gt;= 2 form; I-15&#x27;s n &gt;= 2 form reading 2
+</code></pre>
+
+<pre><code>3 connected workspaces: I-14&#x27;s n &gt;= 2 form; I-15&#x27;s n &gt;= 2 form reading 3
+</code></pre>
+
+<pre><code>The count partitions into the three locked forms at 0, at 1 and above 1, so four cases decide the whole mapping.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<h3>Refuted</h3>
+
+<pre><code>A blank secret field can always keep the saved value, whatever client ID the form submitted.
+</code></pre>
+
+<pre><code>The carrier was one three-field form with no notion of which app it names. The saved secrets belong to the saved app, so keeping them under a different client ID would seal the old app&#x27;s secrets to a new app&#x27;s ID. The missing distinction is the submission&#x27;s own kind, not a guard added over the unchanged form.
+</code></pre>
+
+<pre><code>Client ID 6123456789012.8888888888888 with both secret fields blank over the saved app 6123456789012.7234567890123: the save would store the new ID with the old app&#x27;s secrets, and every event and every code exchange would then fail.
+</code></pre>
+
+<pre><code>The submitted app awaiting its confirm can be held in the session table.
+</code></pre>
+
+<pre><code>The session table sits outside the seal fence and outside the re-seal set, so its ciphertext is not re-sealed when the sealing key changes; the law that every sealed value is re-sealed does not hold over that carrier.
+</code></pre>
+
+<pre><code>A Move between the submission and the confirm re-seals every sealed value but not the session row, so the confirm opens nothing and the admin&#x27;s submission is silently lost.
+</code></pre>
+
+<pre><code>The connected-workspace count can be read from this server&#x27;s rebuilt integrations.
+</code></pre>
+
+<pre><code>A workspace connection does not bump the config version, so the rebuilt value is stale by construction; the count must be read from the store at the moment it is used, which is a different observation than the reload&#x27;s snapshot.
+</code></pre>
+
+<pre><code>A workspace connects after the last version bump: the gate reads zero connected workspaces and saves a different app at once, with no I-14 at all.
+</code></pre>
+
+<h3>Claims</h3>
+
+<h4>C1</h4>
+
+<pre><code>The saved Slack app only ever becomes an app that an instance admin submitted and, where that submission named a different client ID while workspaces were connected, that the same instance admin confirmed before its 10-minute expiry.
+</code></pre>
+
+<pre><code>A switched app that nobody confirmed silently breaks every connected workspace&#x27;s posting and every event&#x27;s verification, with no warning and no record of who chose it.
+</code></pre>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<pre><code>a POST body of three trimmed form fields from an authenticated instance admin, plus the stored pending row and the injected clock&#x27;s now
+</code></pre>
+
+<p>Store::apply_pending_slack_app</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs confirm_slack_app, and the page, events and install paths through IntegrationsHandle::current</p>
+
+<pre><code>GET /admin/instance/integrations names the app in effect and its activity line names who replaced it; Add to Slack&#x27;s client ID and the event verification follow the same app
+</code></pre>
+
+<pre><code>An outside writer of instance_slack_app or instance_slack_app_pending, a restore of the database from backup, or a previous-release replica during a roll that does not know the pending table.
+</code></pre>
+
+<h4>C2</h4>
+
+<pre><code>No confirm page, remove page, activity line or log line can carry a Slack secret.
+</code></pre>
+
+<pre><code>A leaked client or signing secret lets anyone impersonate this Foundry to Slack and forge its events.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<pre><code>the stored sealed secrets and the submitted form values
+</code></pre>
+
+<p>the typed page state structs, which hold no secret field, and the activity row, which has only an action, a client ID and a count</p>
+
+<p>crates/foundry-app/templates/integrations/instance.html, slack_confirm.html and slack_remove.html</p>
+
+<pre><code>The rendered pages hold the client ID and never a secret, and the acceptance lane greps the page and the audit table for planted secrets
+</code></pre>
+
+<pre><code>A template interpolating a sealed value or a form field directly instead of the typed page state, a log line formatting the submission, or a database dump.
+</code></pre>
+
+<h4>C3</h4>
+
+<pre><code>A GET of the confirm door or the remove door is side-effect free.
+</code></pre>
+
+<pre><code>A link prefetch or a crawler would otherwise switch or remove the Slack app for the whole instance without anyone choosing it.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<pre><code>an authenticated instance admin&#x27;s GET with no body
+</code></pre>
+
+<p>the read-only path through the store capability&#x27;s read methods</p>
+
+<p>the confirm and remove templates</p>
+
+<pre><code>After two GETs of either door, the instance page, its activity list and the config version read exactly as before
+</code></pre>
+
+<pre><code>A handler that calls a write method from a GET, which only rustc&#x27;s capability split and the review can exclude.
+</code></pre>
+
+<h3>States</h3>
+
+<p>Admitted</p>
+
+<pre><code>A pending row whose expiry has passed and whose retention sweep has not yet run: present, and applicable to nobody.
+</code></pre>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>Admitted</p>
+
+<pre><code>A saved app in effect and a pending row for a different app at the same time: the saved app stays in effect until the confirm.
+</code></pre>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>Admitted</p>
+
+<pre><code>The environment&#x27;s app in effect with a saved app also stored: the environment wins, and Replace and Remove are withheld.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<p>Admitted</p>
+
+<pre><code>No app in effect after a removal, with Slack connections still holding their bot tokens.
+</code></pre>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>Excluded</p>
+
+<pre><code>Two pending apps at once: excluded by the single-row primary key with CHECK (id = 1).
+</code></pre>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>Excluded</p>
+
+<pre><code>A saved or pending app with only one of its two secrets written: excluded by the NOT NULL columns and the single upsert.
+</code></pre>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>Excluded</p>
+
+<pre><code>A confirm that applies a row it did not read in the same transaction: excluded by the exclusive advisory lock held across the read, the write and the delete.
+</code></pre>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>Excluded</p>
+
+<pre><code>A pending app sealed under a key that is not the sealing key: excluded by the fence on the hold.
+</code></pre>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>Unknown</p>
+
+<pre><code>A pending row that no held key opens after an outside restore of the database: the confirm cannot open it. The confirm treats it as absent and the boot probe names it.
+</code></pre>
+
+<p>the instance operator</p>
+
+<p>Unknown</p>
+
+<pre><code>Events from a replaced app arriving after the switch: they fail verification, and uninstall detection for those workspaces falls back to refusals.
+</code></pre>
+
+<p>the instance admin</p>
+
+<p>Unknown</p>
+
+<pre><code>How long a workspace admin takes to reconnect Slack after a replace or a removal.
+</code></pre>
+
+<p>the workspace admin</p>
+
+<h3>Models</h3>
+
+<p>Quint</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_app_provenance.qnt</p>
+
+<h5>Properties</h5>
+
+<p>provenanceInv</p>
+
+<p>Invariant</p>
+
+<pre><code>The saved app, whenever present, was either saved directly by an admin whose submission named the app in effect or found no connected workspace, or applied by the same admin who held the pending row, read before its expiry.
+</code></pre>
+
+<p>provenanceInv</p>
+
+<p>Store::apply_pending_slack_app and save_slack_app in crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>pendingSealedInv</p>
+
+<p>Invariant</p>
+
+<pre><code>A held pending row is always sealed under the current sealing key, because a secrets-key Move re-seals it with every other sealed value.
+</code></pre>
+
+<p>pendingSealedInv</p>
+
+<p>reseal_sealed_values in crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>noSaveReachable</p>
+
+<p>Invariant</p>
+
+<pre><code>A reachability witness, expected to be violated: its counterexample is the trace that constructs a saved app, so the safety claim is not vacuous.
+</code></pre>
+
+<p>noSaveReachable</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs save_slack_app</p>
+
+<p>noConfirmRouteReachable</p>
+
+<p>Invariant</p>
+
+<pre><code>A reachability witness, expected to be violated: its counterexample is the trace that constructs a saved app through the confirm route.
+</code></pre>
+
+<p>noConfirmRouteReachable</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs confirm_slack_app</p>
+
+<h5>Atoms</h5>
+
+<p>State</p>
+
+<p>saved</p>
+
+<p>instance_slack_app.client_id</p>
+
+<p>crates/foundry-store/migrations/0033_instance_integrations.sql:30</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>envApp</p>
+
+<p>Settings.slack.client_id</p>
+
+<p>crates/foundry-app/src/integrations/config.rs:1</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>pending</p>
+
+<p>instance_slack_app_pending.client_id</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>pendingBy</p>
+
+<p>instance_slack_app_pending.requested_by</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>pendingExpires</p>
+
+<p>instance_slack_app_pending.expires_at</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>pendingSealedUnder</p>
+
+<p>the sealing key id the pending secrets were sealed under</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:136</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>sealingKey</p>
+
+<p>integration_secrets_key.key_id, as stored_key_id reads it</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:409</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>now</p>
+
+<p>Arc&lt;dyn Clock&gt;::now</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:502</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>connected</p>
+
+<p>Store::connected_slack_workspaces</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:452</p>
+
+<p>None.</p>
+
+<p>Action</p>
+
+<p>submit</p>
+
+<p>save_slack_app</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:502</p>
+
+<pre><code>One transaction under the advisory lock: the gate, then either the fenced upsert with its activity line and version bump, or the fenced pending hold.
+</code></pre>
+
+<p>Action</p>
+
+<p>confirm</p>
+
+<p>Store::apply_pending_slack_app</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:406</p>
+
+<pre><code>One transaction under the exclusive advisory lock: the read of the pending row, the requester and expiry decision, the upsert, the delete, the activity line and the version bump.
+</code></pre>
+
+<p>Action</p>
+
+<p>remove</p>
+
+<p>Store::remove_slack_app</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:406</p>
+
+<pre><code>One transaction under the exclusive advisory lock: the delete, the activity line and the version bump.
+</code></pre>
+
+<p>Action</p>
+
+<p>sweep</p>
+
+<p>Retention::tick</p>
+
+<p>crates/foundry-app/src/integrations/worker.rs:290</p>
+
+<pre><code>One statement deleting expired pending rows, outside any other write.
+</code></pre>
+
+<p>Action</p>
+
+<p>move</p>
+
+<p>Store::store_secrets_key</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:293</p>
+
+<pre><code>One transaction under the exclusive advisory lock, re-sealing every sealed value including the pending row.
+</code></pre>
+
+<p>Action</p>
+
+<p>reconnect</p>
+
+<p>upsert_connection</p>
+
+<p>crates/foundry-store/src/integrations/connections.rs:247</p>
+
+<pre><code>One transaction under the shared advisory lock; it bumps no config version.
+</code></pre>
+
+<p>Constant</p>
+
+<p>Ttl</p>
+
+<p>the 10-minute pending expiry (ADR-IIS-003 r4)</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<p>None.</p>
+
+<h5>Assumptions</h5>
+
+<pre><code>Every instance write serialises on one Postgres advisory exclusive lock (ADR-IIS-004 r1), so one model action is one committed transaction; the model explores the orderings of those transactions, not interleavings inside one.
+</code></pre>
+
+<pre><code>The injected clock is monotone on a single server; skew between replicas is outside the model and is carried as a residual risk.
+</code></pre>
+
+<pre><code>Two apps and two instance admins, a clock horizon of 4 and an expiry of 2 ticks, with up to 2 connected workspaces, are enough to exhibit every ordering the claim quantifies over; the exhaustive check runs to computation length 12.
+</code></pre>
+
+<pre><code>The environment&#x27;s app is fixed for a run, which is how a server reads it: its trio is read at boot and a change needs a restart.
+</code></pre>
+
+<h5>Mutants</h5>
+
+<h6>N1</h6>
+
+<pre><code>A confirm that applies the pending row for any instance admin, not only its requester: the requester check is removed from the applying branch.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>provenanceInv</p>
+
+<h6>N2</h6>
+
+<pre><code>A confirm that applies the pending row whatever the clock says: the expiry check is removed from the applying branch.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>provenanceInv</p>
+
+<h6>N3</h6>
+
+<pre><code>A secrets-key Move that re-seals every sealed value but forgets the pending row.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>pendingSealedInv</p>
+
+<h6>N4</h6>
+
+<pre><code>A submit that saves a different client ID at once even while workspaces are connected, so the confirm is never reached.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>provenanceInv</p>
+
+<p>TlaPlus</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_sweep.tla</p>
+
+<h5>Properties</h5>
+
+<p>SweptEventually</p>
+
+<p>Temporal</p>
+
+<pre><code>Whenever the pending row is expired, it eventually stops being expired: the sweep, a confirm or a fresh hold removes it.
+</code></pre>
+
+<p>SweptEventually</p>
+
+<p>crates/foundry-app/src/integrations/worker.rs:290</p>
+
+<p>TypeOK</p>
+
+<p>Invariant</p>
+
+<pre><code>The pending row, its requester, the clock and the expiry stay inside their declared ranges.
+</code></pre>
+
+<p>TypeOK</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<h5>Atoms</h5>
+
+<p>State</p>
+
+<p>pending</p>
+
+<p>instance_slack_app_pending.client_id</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>now</p>
+
+<p>Arc&lt;dyn Clock&gt;::now</p>
+
+<p>crates/foundry-app/src/integrations/worker.rs:267</p>
+
+<p>None.</p>
+
+<p>Action</p>
+
+<p>Sweep</p>
+
+<p>Retention::tick</p>
+
+<p>crates/foundry-app/src/integrations/worker.rs:290</p>
+
+<pre><code>One delete statement of its own.
+</code></pre>
+
+<p>Action</p>
+
+<p>Hold</p>
+
+<p>Store::hold_pending_slack_app</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:406</p>
+
+<pre><code>One fenced transaction under the shared advisory lock.
+</code></pre>
+
+<p>Constant</p>
+
+<p>Ttl</p>
+
+<p>the 10-minute pending expiry</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<p>None.</p>
+
+<h5>Assumptions</h5>
+
+<pre><code>Weak fairness on the retention sweep and on the clock: the worker runs and time advances. Without that fairness the claim is false, which the no-fairness run shows.
+</code></pre>
+
+<pre><code>Two admins, two apps, an expiry of 2 ticks and a clock horizon of 3 bound the state space to 44 distinct states, so the check is over the complete state space rather than a sample.
+</code></pre>
+
+<pre><code>A hold, a confirm and a sweep are each one committed transaction, as in the Quint model.
+</code></pre>
+
+<h5>Mutants</h5>
+
+<h6>N5</h6>
+
+<pre><code>The same specification with no fairness at all, so the sweep may stutter forever while a row is expired.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>SweptEventually</p>
+
+<h6>N6</h6>
+
+<pre><code>A progress mutant under fairness: a sweep that only deletes rows held by one named admin, so another admin&#x27;s expired row survives.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>SweptEventually</p>
+
+<p>TlaPlus</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/replica_convergence.tla</p>
+
+<h5>Properties</h5>
+
+<p>Converges</p>
+
+<p>Temporal</p>
+
+<pre><code>Whenever a replica&#x27;s applied version differs from the committed config version, that replica eventually applies the committed version, with no restart.
+</code></pre>
+
+<p>Converges</p>
+
+<p>crates/foundry-app/src/integrations/reload.rs:1</p>
+
+<p>TypeOK</p>
+
+<p>Invariant</p>
+
+<pre><code>The committed version and every replica&#x27;s applied version stay inside their declared range.
+</code></pre>
+
+<p>TypeOK</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:278</p>
+
+<h5>Atoms</h5>
+
+<p>State</p>
+
+<p>version</p>
+
+<p>integration_config_version.version</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:278</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>applied</p>
+
+<p>integration_replica_states.applied_version</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:542</p>
+
+<p>None.</p>
+
+<p>Action</p>
+
+<p>Commit</p>
+
+<p>commit_recorded</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:775</p>
+
+<pre><code>One transaction that writes the change, its activity line and the version bump together.
+</code></pre>
+
+<p>Action</p>
+
+<p>Reload</p>
+
+<p>the reload task&#x27;s rebuild from one snapshot</p>
+
+<p>crates/foundry-app/src/integrations/reload.rs:1</p>
+
+<pre><code>One REPEATABLE READ snapshot read, with the version read first (ADR-IIS-004 r4).
+</code></pre>
+
+<h5>Assumptions</h5>
+
+<pre><code>Weak fairness on each replica&#x27;s reload task: every replica&#x27;s reload runs. Without it the claim is false, which the no-fairness run shows.
+</code></pre>
+
+<pre><code>Two replicas and at most three committed versions bound the state space to 60 distinct states, so the check is over the complete state space.
+</code></pre>
+
+<pre><code>The model carries eventual convergence only. The 60-second figure of the promise follows from the configured poll interval, FOUNDRY_INTEGRATIONS_RELOAD_MS with its 5000 ms default, and is observed by the two-replica acceptance scenario, not proved here.
+</code></pre>
+
+<h5>Mutants</h5>
+
+<h6>N7</h6>
+
+<pre><code>The same specification with no fairness, so a replica may stutter forever and never apply the committed version.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>Converges</p>
+
+<h6>N8</h6>
+
+<pre><code>A progress mutant under fairness: a replica that reloads only when the committed version is even, so an odd version never reaches it.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>Converges</p>
+
+<h3>Closure</h3>
+
+<pre><code>The pending-app provenance claim: the saved app only ever becomes a submitted and same-admin-confirmed app
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Quint 0.33.1 with the Apalache 0.62.4 backend checked provenanceInv exhaustively over init and step to length 12 with the outcome NoError, and each of four behavioural mutants - a confirm ignoring the requester, a confirm ignoring the expiry, a Move forgetting to re-seal the pending row, and a submit saving while workspaces are connected - is refuted, by simulation and exhaustively. Two reachability witnesses are violated as intended, so the claim is not vacuous: both a save and a confirm-route save are constructed.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_app_provenance.qnt</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_app_provenance.receipt.txt</p>
+
+<pre><code>No secret on a page, in the activity table or in a log line
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>rustc over the typed page-state structs, which declare no secret field, plus the exhaustive page table; the one route no checker closes is a template writing a sealed value literally, recorded as a Bypass risk.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<pre><code>A GET of either door changes nothing
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>rustc over the read-only capability the GET handlers hold, plus the finite table over two GETs of each door.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<pre><code>The submission verdict is total over the three-field form
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>rustc rejects a non-exhaustive match over the closed SlackChange and Refusal enums, and the exhaustive table decides the whole relation.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<pre><code>The offer set and the remove gate are total over the app in effect
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>rustc over the closed AppInEffect and KeyMode enums, with the finite table covering every pair.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<pre><code>A replaced app exists: a submitted and confirmed app becomes the saved app
+</code></pre>
+
+<p>Inhabitation</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Admitted input: a POST of client ID 6123456789012.8888888888888 with both secrets by an instance admin. Constructor: SlackSubmission::judge then plan_hold_pending then Store::hold_pending_slack_app then Store::apply_pending_slack_app. Consumer: the page, events and install through IntegrationsHandle::current. Acyclic from the POST body, with no bootstrap needed.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<pre><code>A removed app exists: no app in effect with connections intact
+</code></pre>
+
+<p>Inhabitation</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Admitted input: an instance admin&#x27;s POST of /admin/instance/integrations/slack/remove with a saved app in effect. Constructor: Store::remove_slack_app. Consumer: NoConnectionCause::words on the workspace page and the event verification. Acyclic from the POST.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<pre><code>The I-14 confirm reaches a public observation
+</code></pre>
+
+<p>PublicReachability</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>POST /admin/instance/integrations/slack reaches save_slack_app in handlers/instance.rs, which holds the pending row and answers the confirm page; GET /admin/instance/integrations/slack/confirm renders slack_confirm.html; POST of it reaches confirm_slack_app and the saved app is then observed on GET /admin/instance/integrations and through Add to Slack&#x27;s client ID.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<pre><code>The I-15 remove confirm and I-16 reach a public observation
+</code></pre>
+
+<p>PublicReachability</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>GET /admin/instance/integrations/slack/remove renders slack_remove.html with the count from Store::connected_slack_workspaces; POST of the same path reaches remove_slack_app and answers I-16, observed on the instance page, on GET /workspace/integrations as W-2 and as a 401 from POST /integrations/slack/events.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>None.</p>
+
+<pre><code>An expired pending app is eventually deleted
+</code></pre>
+
+<p>Liveness</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>TLC 1.7.4 checked SweptEventually over the complete state space of pending_sweep.tla: no error under weak fairness on the sweep and the clock, a counterexample with no fairness at all, and a counterexample for a sweep that only deletes one admin&#x27;s rows. The fairness assumption is load-bearing and named, and the single-row table bounds the residue to one row.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_sweep.tla</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/pending_sweep.receipt.txt</p>
+
+<pre><code>A committed change is in effect on every replica within 60 seconds
+</code></pre>
+
+<p>Liveness</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>TLC 1.7.4 checked Converges over the complete state space of replica_convergence.tla: no error under weak fairness on each replica&#x27;s reload, a counterexample with no fairness, and a counterexample for a replica reloading only on an even version. The model carries the eventual convergence; the 60-second figure follows from the configured 5000 ms poll interval and is observed by the two-replica scenario.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/iis-slack-replace-remove/design/replica_convergence.tla</p>
+
+<p>docs/feature/iis-slack-replace-remove/design/replica_convergence.receipt.txt</p>
+
+<h3>Risks</h3>
+
+<h4>Y1</h4>
+
+<p>Stressor</p>
+
+<pre><code>Assumption negated: every replica&#x27;s clock agrees. A replica whose clock lags judges a pending row unexpired after the holder&#x27;s ten minutes have passed.
+</code></pre>
+
+<pre><code>Only the requester can apply it, and it applies at most once.
+</code></pre>
+
+<pre><code>A confirm succeeding slightly after the ten minutes on a lagging replica.
+</code></pre>
+
+<pre><code>Another instance admin applying it, or an applied row surviving its own application.
+</code></pre>
+
+<pre><code>The expiry is only as sharp as the worst clock skew between replicas.
+</code></pre>
+
+<p>the instance operator</p>
+
+<h4>Y2</h4>
+
+<p>Stressor</p>
+
+<pre><code>Assumption negated: a worker is running. With no worker, expired pending rows are never swept.
+</code></pre>
+
+<pre><code>No expired row can ever be applied, because the confirm judges the expiry itself.
+</code></pre>
+
+<pre><code>One stale row sitting in the single-row table.
+</code></pre>
+
+<pre><code>An expired row applying.
+</code></pre>
+
+<pre><code>None beyond one row of sealed bytes, which the next hold overwrites.
+</code></pre>
+
+<p>the design</p>
+
+<h4>Y3</h4>
+
+<p>Stressor</p>
+
+<pre><code>Assumption negated: the store answers. The connected-workspace count read fails while I-14 or I-15 is being rendered.
+</code></pre>
+
+<pre><code>Nothing is written.
+</code></pre>
+
+<pre><code>The door answering the instance page with the reason logged and no count rendered.
+</code></pre>
+
+<pre><code>A failed read rendered as a count of zero, so I-15&#x27;s n = 0 form stands in for an unknown count.
+</code></pre>
+
+<pre><code>The design must carry an unread count as its own case, not as zero.
+</code></pre>
+
+<p>the crafter</p>
+
+<h4>Y4</h4>
+
+<p>Stressor</p>
+
+<pre><code>Assumption negated: only this Foundry writes its tables. An operator edits instance_slack_app_pending by hand or restores it from a backup.
+</code></pre>
+
+<pre><code>The fence refuses a row sealed under another key, and the confirm opens nothing it cannot open.
+</code></pre>
+
+<pre><code>The confirm finding nothing to apply and answering the page.
+</code></pre>
+
+<pre><code>Applying a row no held key opens.
+</code></pre>
+
+<pre><code>An unopenable pending row is named by the boot probe and must be cleared by the operator.
+</code></pre>
+
+<p>the instance operator</p>
+
+<h4>Y5</h4>
+
+<p>Stressor</p>
+
+<pre><code>Assumption negated: the connected set is stable while a confirm is open. A workspace connects or disconnects between the I-14 count and the confirm.
+</code></pre>
+
+<pre><code>The confirm still applies for its requester.
+</code></pre>
+
+<pre><code>I-14 having named a count that has since changed.
+</code></pre>
+
+<pre><code>The count deciding whether the confirm applies.
+</code></pre>
+
+<pre><code>I-14&#x27;s count is a reading taken at render time, by design.
+</code></pre>
+
+<p>the design</p>
+
+<h4>Y6</h4>
+
+<p>SinglePointOfFailure</p>
+
+<pre><code>The one instance-integrations advisory lock serializes every instance write: Replace, the pending hold, the confirm, Remove, Generate and Move.
+</code></pre>
+
+<pre><code>Correctness: no two instance writes interleave.
+</code></pre>
+
+<pre><code>A door waiting for the lock.
+</code></pre>
+
+<pre><code>A write proceeding without the lock, or a row lock taken before it.
+</code></pre>
+
+<pre><code>A long transaction stalls every instance write for its duration.
+</code></pre>
+
+<p>the design</p>
+
+<h4>Y7</h4>
+
+<p>SinglePointOfFailure</p>
+
+<pre><code>The single-row instance_slack_app row is the only saved app, so a removal leaves the instance with no app until one is saved again.
+</code></pre>
+
+<pre><code>Every connection and its bot token.
+</code></pre>
+
+<pre><code>Slack being unavailable instance-wide until an app is saved.
+</code></pre>
+
+<pre><code>Connections being marked lost, workspace admins being emailed, or deliveries being cancelled.
+</code></pre>
+
+<pre><code>The gap is the instance admin&#x27;s own intent, which I-15 states before the removal.
+</code></pre>
+
+<p>the instance admin</p>
+
+<h4>Y8</h4>
+
+<p>Bypass</p>
+
+<pre><code>A template interpolating a sealed value or a submitted form field directly instead of the typed page state.
+</code></pre>
+
+<pre><code>Nothing: the claim would be broken.
+</code></pre>
+
+<pre><code>Nothing.
+</code></pre>
+
+<pre><code>Any secret in a response body.
+</code></pre>
+
+<pre><code>No checker decides a template&#x27;s literals; the acceptance grep for planted secrets and the implementation review carry it.
+</code></pre>
+
+<p>the implementation reviewer</p>
+
+<h4>Y9</h4>
+
+<p>Bypass</p>
+
+<pre><code>SQL naming an instance table outside crates/foundry-store/src/integrations/instance.rs, or a sealed-column write outside the fenced writers.
+</code></pre>
+
+<pre><code>One writer per table and the fence on every sealed write.
+</code></pre>
+
+<pre><code>Nothing.
+</code></pre>
+
+<pre><code>An unfenced sealed write or a second writer of the pending table.
+</code></pre>
+
+<pre><code>check-arch decides it lexically over string literals, so a query assembled at runtime escapes it.
+</code></pre>
+
+<p>the crafter</p>
+
+<h4>Y10</h4>
+
+<p>Bypass</p>
+
+<pre><code>Process failure between the pending hold and the confirm, or inside a write between the delete and the version bump.
+</code></pre>
+
+<pre><code>Each write is one transaction, so a failure leaves the previous state whole.
+</code></pre>
+
+<pre><code>A lost pending row, which the admin can submit again.
+</code></pre>
+
+<pre><code>A committed app with no version bump or no activity line.
+</code></pre>
+
+<pre><code>None within one transaction; across the two steps the admin repeats the submission.
+</code></pre>
+
+<p>the design</p>
+
+<h4>Y11</h4>
+
+<p>Stressor</p>
+
+<pre><code>Second walk: a replica rolls back to a previous release while a pending row exists, so the older code does not know the pending table.
+</code></pre>
+
+<pre><code>The pending row and the saved app are untouched by the older code.
+</code></pre>
+
+<pre><code>The confirm door answering the uniform 404 on the old replica.
+</code></pre>
+
+<pre><code>An old replica saving the new app with no confirm.
+</code></pre>
+
+<pre><code>The confirm door must exist on every replica before an admin is sent to it; the roll order is the operator&#x27;s.
+</code></pre>
+
+<p>the instance operator</p>
+
+<h4>Y12</h4>
+
+<p>Stressor</p>
+
+<pre><code>Second walk: the same instance admin opens two tabs on the confirm page and posts both.
+</code></pre>
+
+<pre><code>Exactly one save.
+</code></pre>
+
+<pre><code>The second tab answering the page with nothing changed.
+</code></pre>
+
+<pre><code>Two saves or two activity lines for one submission.
+</code></pre>
+
+<pre><code>None: the row is deleted inside the applying transaction.
+</code></pre>
+
+<p>the design</p>
+
+<h4>Y13</h4>
+
+<p>Stressor</p>
+
+<pre><code>Second walk: a workspace admin connects Slack through the old app between the submission and the confirm.
+</code></pre>
+
+<pre><code>The new connection keeps its own bot token and its state.
+</code></pre>
+
+<pre><code>I-14&#x27;s count being one short of the truth at the moment of the confirm.
+</code></pre>
+
+<pre><code>The new connection being marked lost or dropped.
+</code></pre>
+
+<pre><code>The count is a reading, and the new workspace keeps posting through the old app like the others.
+</code></pre>
+
+<p>the design</p>
+
+<h4>Y14</h4>
+
+<p>Stressor</p>
+
+<pre><code>Second walk: an instance admin is removed as an instance admin between the submission and the confirm.
+</code></pre>
+
+<pre><code>The pending row stays unapplied.
+</code></pre>
+
+<pre><code>The confirm answering the uniform 404 and the row expiring unapplied.
+</code></pre>
+
+<pre><code>A confirm applying for someone who is no longer an instance admin.
+</code></pre>
+
+<pre><code>None: the guard runs before the body on every door.
+</code></pre>
+
+<p>the design</p>
+
+<h3>Architectural tests</h3>
+
+<h4>T1</h4>
+
+<pre><code>SQL naming instance_slack_app_pending appears only in crates/foundry-store/src/integrations/instance.rs, and every write of a sealed column stands inside a listed fenced writer, the new pending hold included (ADR-IIS-001 Enforcement, ADR-IIS-004 r2). The check covers every crate&#x27;s src, members added later included.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<pre><code>scripts/test-in-lima.sh cargo xtask check-arch
+</code></pre>
+
+<h3>Contract tests</h3>
+
+<h4>T2</h4>
+
+<pre><code>A stored activity action written by the store renders as I-18 words it, so a persisted slack_app_replaced or slack_app_removed row written by one release reads correctly in another; the generic underscore fallback must not answer for either.
+</code></pre>
+
+<p>instance_integration_audit_events.action wire names (ADR-IIS-005 r1)</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs save_slack_app and remove_slack_app</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs activity_line</p>
+
+<pre><code>After the real store writes carry out a replace and a removal, GET /admin/instance/integrations Activity reads the two I-18 lines with their client IDs, not &#x27;slack app replaced&#x27; or &#x27;slack app removed&#x27;.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature</p>
+
+<pre><code>scripts/test-in-lima.sh bash -c &#x27;source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-05&#x27;
+</code></pre>
+
+<h2>Slices</h2>
+
+<h3>S1</h3>
+
+<h4>Targets</h4>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The submission kind, the replace-aware verdict and the plan that re-seals a kept saved secret.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The replace form&#x27;s pre-filled client ID, the replace notice and the I-18 replaced arm.
+</code></pre>
+
+<p>crates/foundry-app/templates/integrations/instance.html</p>
+
+<p>Extend</p>
+
+<pre><code>The replace form over a saved app in effect: the client ID pre-filled, both secret fields empty.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature</p>
+
+<h4>Verification</h4>
+
+<pre><code>scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::slack_app
+scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::handlers::instance
+scripts/test-in-lima.sh bash -c &#x27;source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-05&#x27;
+scripts/test-in-lima.sh cargo xtask check-arch
+</code></pre>
+
+<h4>Supports</h4>
+
+<p>crates/foundry-acceptance/src/steps/feature_instance_integration_setup.rs</p>
+
+<p>crates/foundry-acceptance/src/support/instance_integration_setup.rs</p>
+
+<p>crates/foundry-acceptance/src/support/external_integration_plugins.rs</p>
+
+<h4>Public oracle</h4>
+
+<pre><code>With the Slack app 6123456789012.7234567890123 saved and in effect and no workspace connected to Slack, Priya Raman POSTs /admin/instance/integrations/slack through the production router behind require_instance_admin, with her CSRF token, the same client ID, a blank client secret and the new signing secret b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05. In a second run she POSTs the client ID 6123456789012.8888888888888 with a blank client secret.
+</code></pre>
+
+<pre><code>The first response reads &#x27;Saved. Workspace admins can now choose Add to Slack.&#x27;, the page still reads app 6123456789012.7234567890123 with both secrets set, and the Activity list reads &#x27;21 Oct 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)&#x27;. Within 60 seconds and with no restart, POST /integrations/slack/events signed with the new signing secret verifies on each replica asked directly, while Add to Slack still exchanges Slack&#x27;s code with the kept client secret. The second response reads &#x27;Enter the client secret from the Slack app&#x27;s Basic Information.&#x27;, keeps the typed client ID in the form with both secret fields empty, and the saved app, the activity list and the config version are unchanged.
+</code></pre>
+
+<pre><code>A blank client secret that clears or replaces the saved client secret, so Add to Slack&#x27;s code exchange fails; a replace whose activity line reads &#x27;saved the Slack app&#x27; or &#x27;slack app replaced&#x27;; a different client ID with a blank secret that saves; or a new signing secret that verifies on the posting replica but not on the other within 60 seconds.
+</code></pre>
+
+<h5>Promises</h5>
+
+<p>P1</p>
+
+<p>P2</p>
+
+<p>P6</p>
+
+<h4>Prefactoring</h4>
+
+<pre><code>L2: move the three per-field shape checks and the first-failing-field order out of SlackAppForm::refusal into a SlackFields value object that judges one named field at a time, with no verdict changed. It makes the follow-up change easier: the replace path asks the same object a different question - which fields this submission requires - instead of duplicating the checks.
+</code></pre>
+
+<pre><code>Every verdict of SlackField::check and SlackAppForm::refusal, including the trimming, the form order and the Refusal variants; the module&#x27;s existing table test and its three property tests are unchanged in content.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs</p>
+
+<h5>Verification</h5>
+
+<pre><code>scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::slack_app
+</code></pre>
+
+<h4>Records</h4>
+
+<h5>Decisions</h5>
+
+<p>None.</p>
+
+<h5>Constraints</h5>
+
+<p>None.</p>
+
+<h5>Reuse</h5>
+
+<p>refusal</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs:186</p>
+
+<p>Extend</p>
+
+<pre><code>The verdict now depends on which app the submission names, so the one refusal rule is extended rather than copied into a replace-only rule.
+</code></pre>
+
+<p>refused</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:536</p>
+
+<p>Extend</p>
+
+<pre><code>It is the one map from a Refusal to its I-11 or I-12 words; the replace path refuses with the same words.
+</code></pre>
+
+<p>SavedSlackLines</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:163</p>
+
+<p>Reuse</p>
+
+<pre><code>I-6 and the two secret-set lines already describe the saved app, and the replace form sits beside them unchanged.
+</code></pre>
+
+<p>open_saved</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs:87</p>
+
+<p>Reuse</p>
+
+<pre><code>It already opens both saved secrets, which is exactly what a kept field needs; nothing new opens a stored secret.
+</code></pre>
+
+<h5>Impact</h5>
+
+<p>template, the Slack section</p>
+
+<p>crates/foundry-app/templates/integrations/instance.html:45</p>
+
+<p>Changed</p>
+
+<pre><code>The saved-app section gains the replace form with its pre-filled client ID.
+</code></pre>
+
+<p>pure decision module</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs:186</p>
+
+<p>Changed</p>
+
+<pre><code>The verdict reads the current app and the saved secrets.
+</code></pre>
+
+<p>handler, the save door</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:502</p>
+
+<p>Changed</p>
+
+<pre><code>The save door reads the current app before judging, and the notice and the activity arm follow.
+</code></pre>
+
+<h5>Agreement</h5>
+
+<p>None.</p>
+
+<h5>Not applicable</h5>
+
+<p>None.</p>
+
+<h5>Boundaries</h5>
+
+<p>None.</p>
+
+<h5>Observations</h5>
+
+<p>None.</p>
+
+<h5>Equality</h5>
+
+<p>None.</p>
+
+<h5>Constructors</h5>
+
+<p>None.</p>
+
+<h5>Laws</h5>
+
+<p>None.</p>
+
+<h5>Refuted</h5>
+
+<p>None.</p>
+
+<h5>Claims</h5>
+
+<p>None.</p>
+
+<h5>States</h5>
+
+<p>None.</p>
+
+<h5>Models</h5>
+
+<p>None.</p>
+
+<h5>Closure</h5>
+
+<p>None.</p>
+
+<h5>Risks</h5>
+
+<p>None.</p>
+
+<h5>Architectural tests</h5>
+
+<p>None.</p>
+
+<h5>Contract tests</h5>
+
+<p>None.</p>
+
+<h3>S2</h3>
+
+<h4>Targets</h4>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql</p>
+
+<p>Create</p>
+
+<pre><code>The single-row pending table with its 10-minute expiry column, in its own migration.
+</code></pre>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The fenced pending hold, the apply-and-delete, the connected-workspace count, the pending row in the re-seal set and in the snapshot.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/store_capabilities.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The hold, confirm, count and prune methods on the one instance-write capability.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The two pending sealing slots and the sealed pending plan.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/mod.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The sealed_slot arms for the two pending secrets and the boot probe&#x27;s view of them.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The I-14 gate on the save door, and the confirm door&#x27;s GET and POST.
+</code></pre>
+
+<p>crates/foundry-app/templates/integrations/slack_confirm.html</p>
+
+<p>Create</p>
+
+<pre><code>I-14 with its count and the current client ID, one Save the new app control and no secret.
+</code></pre>
+
+<p>crates/foundry-app/src/lib.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The GET and POST routes for the confirm door, behind the same guard and CSRF.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/worker.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The hourly sweep also deletes expired pending rows.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The pending hold joins SEAL_FENCED_WRITERS.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature</p>
+
+<h4>Verification</h4>
+
+<pre><code>scripts/test-in-lima.sh cargo test -p foundry-store --test iis_instance_store
+scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations
+scripts/test-in-lima.sh bash -c &#x27;source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-05&#x27;
+scripts/test-in-lima.sh cargo xtask check-arch
+</code></pre>
+
+<h4>Supports</h4>
+
+<p>crates/foundry-acceptance/src/steps/feature_instance_integration_setup.rs</p>
+
+<p>crates/foundry-acceptance/src/support/instance_integration_setup.rs</p>
+
+<p>crates/foundry-acceptance/src/support/external_integration_plugins.rs</p>
+
+<h4>Public oracle</h4>
+
+<pre><code>With Canzan Labs connected to Slack through the saved app 6123456789012.7234567890123, Priya Raman POSTs /admin/instance/integrations/slack with client ID 6123456789012.8888888888888 and both of its secrets, GETs /admin/instance/integrations/slack/confirm, then POSTs it. In further runs Tomas Rivera, also an instance admin, POSTs the confirm instead; Priya POSTs it eleven minutes later on the shared clock; and the whole run is repeated with all three SLACK_ settings in the environment so the environment&#x27;s app is the current one.
+</code></pre>
+
+<pre><code>The first POST answers the confirm page reading &#x27;1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?&#x27; with a Save the new app control and no secret anywhere in it, while GET /admin/instance/integrations still names app 6123456789012.7234567890123 and the config version is unchanged. Priya&#x27;s confirm then saves 6123456789012.8888888888888, the Activity reads &#x27;Priya Raman replaced the Slack app (6123456789012.8888888888888)&#x27; and Add to Slack sends her to that client ID. Tomas&#x27;s confirm changes nothing and answers the page; so does Priya&#x27;s confirm eleven minutes later. With the environment&#x27;s app current, the same POST answers the same I-14 line with the environment&#x27;s client ID and the same confirm saves the new app.
+</code></pre>
+
+<pre><code>The first POST saving the new app or bumping the version; the confirm page carrying either secret; the count reading 0 or 3 for one connected workspace, or using the n &gt;= 2 wording for it; another instance admin&#x27;s confirm saving it; an expired pending app still applying; a second confirm saving a second time; or the environment-app run skipping the confirm.
+</code></pre>
+
+<h5>Promises</h5>
+
+<p>P3</p>
+
+<p>P6</p>
+
+<h4>Prefactoring</h4>
+
+<p>None.</p>
+
+<h4>Records</h4>
+
+<h5>Decisions</h5>
+
+<p>None.</p>
+
+<h5>Constraints</h5>
+
+<p>None.</p>
+
+<h5>Reuse</h5>
+
+<p>save_slack_app</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:406</p>
+
+<p>Extend</p>
+
+<pre><code>The confirm&#x27;s apply is the same fenced upsert with its source the pending row, so the write is not duplicated.
+</code></pre>
+
+<p>SlackSaveOutcome</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:175</p>
+
+<p>Extend</p>
+
+<pre><code>The hold and the apply report through the same outcome type the shipped save uses, so the handler keeps one retry rule.
+</code></pre>
+
+<p>retried</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:600</p>
+
+<p>Reuse</p>
+
+<pre><code>The stale-key retry is already defined once; the hold and the apply use it unchanged.
+</code></pre>
+
+<p>prune_replica_states</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:587</p>
+
+<p>Reuse</p>
+
+<pre><code>It is the shape a timed prune on the retention tick takes, so the pending prune follows it rather than inventing a second sweep shape.
+</code></pre>
+
+<p>client_secret_slot</p>
+
+<p>crates/foundry-app/src/integrations/slack_app.rs:20</p>
+
+<p>Reuse</p>
+
+<pre><code>The slot construction is already defined; the pending slots are two more of the same kind, bound to the pending row.
+</code></pre>
+
+<p>route</p>
+
+<p>crates/foundry-app/src/lib.rs:858</p>
+
+<p>Extend</p>
+
+<pre><code>The router is the one public door list, behind the same session, CSRF and instance-admin layers as the shipped instance doors, so the confirm door&#x27;s GET and POST is added there rather than in a second router or a nested route group.
+</code></pre>
+
+<h5>Impact</h5>
+
+<p>database schema, a new table</p>
+
+<p>crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1</p>
+
+<p>Changed</p>
+
+<pre><code>A new single-row table; no shipped table is altered.
+</code></pre>
+
+<p>router, the public door list</p>
+
+<p>crates/foundry-app/src/lib.rs:858</p>
+
+<p>Changed</p>
+
+<pre><code>GET and POST of the confirm door are added.
+</code></pre>
+
+<p>worker tick</p>
+
+<p>crates/foundry-app/src/integrations/worker.rs:300</p>
+
+<p>Changed</p>
+
+<pre><code>The sweep gains the expired-pending prune.
+</code></pre>
+
+<p>architecture guard</p>
+
+<p>xtask/src/check_arch.rs:15043</p>
+
+<p>Changed</p>
+
+<pre><code>The pending hold is listed as a fenced writer.
+</code></pre>
+
+<p>snapshot type, read by the reload and the boot probe</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:199</p>
+
+<p>Migrated</p>
+
+<pre><code>The pending row joins the snapshot; the reload ignores it and the boot probe counts its secrets among the values a held key must open.
+</code></pre>
+
+<p>module, the sealed-slot map</p>
+
+<p>crates/foundry-app/src/integrations/mod.rs:129</p>
+
+<p>Changed</p>
+
+<pre><code>sealed_slot gains the two pending arms, and the boot probe counts the pending secrets among the values a held key must open.
+</code></pre>
+
+<p>template, the confirm page</p>
+
+<p>crates/foundry-app/templates/integrations/slack_confirm.html:1</p>
+
+<p>Changed</p>
+
+<pre><code>A new template: I-14 with its count and the current client ID, one Save the new app control, and no secret or form field.
+</code></pre>
+
+<h5>Agreement</h5>
+
+<p>None.</p>
+
+<h5>Not applicable</h5>
+
+<p>prefactoring</p>
+
+<pre><code>S2 adds a table, a door and store functions beside the shipped ones and moves no shipped behaviour: the save door&#x27;s existing body keeps its shape and gains a gate before it. The one preserving move this Request needs is S1&#x27;s field-object extraction, declared there, and repeating it here would be a second claim over the same move.
+</code></pre>
+
+<h5>Boundaries</h5>
+
+<p>None.</p>
+
+<h5>Observations</h5>
+
+<p>None.</p>
+
+<h5>Equality</h5>
+
+<p>None.</p>
+
+<h5>Constructors</h5>
+
+<p>None.</p>
+
+<h5>Laws</h5>
+
+<p>None.</p>
+
+<h5>Refuted</h5>
+
+<p>None.</p>
+
+<h5>Claims</h5>
+
+<p>None.</p>
+
+<h5>States</h5>
+
+<p>None.</p>
+
+<h5>Models</h5>
+
+<p>None.</p>
+
+<h5>Closure</h5>
+
+<p>None.</p>
+
+<h5>Risks</h5>
+
+<p>None.</p>
+
+<h5>Architectural tests</h5>
+
+<p>None.</p>
+
+<h5>Contract tests</h5>
+
+<p>None.</p>
+
+<h3>S3</h3>
+
+<h4>Targets</h4>
+
+<p>crates/foundry-store/src/integrations/instance.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The fenced remove: delete the row, record slack_app_removed, bump the version, in one transaction.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/store_capabilities.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The remove method on the one instance-write capability.
+</code></pre>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The remove door&#x27;s GET and POST, I-15, I-16, the Replace and Remove offers and the I-18 removed arm.
+</code></pre>
+
+<p>crates/foundry-app/templates/integrations/slack_remove.html</p>
+
+<p>Create</p>
+
+<pre><code>I-15 with its count and one Remove control.
+</code></pre>
+
+<p>crates/foundry-app/templates/integrations/instance.html</p>
+
+<p>Extend</p>
+
+<pre><code>The Replace and Remove controls over a saved app in effect, and neither under the environment&#x27;s app.
+</code></pre>
+
+<p>crates/foundry-app/src/lib.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The GET and POST routes for the remove door, behind the same guard and CSRF.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature</p>
+
+<h4>Verification</h4>
+
+<pre><code>scripts/test-in-lima.sh cargo test -p foundry-store --test iis_instance_store
+scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::handlers::instance
+scripts/test-in-lima.sh bash -c &#x27;source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-05&#x27;
+scripts/test-in-lima.sh bash -c &#x27;source scripts/eip-lanes.sh; eip_lane instance-integration-setup&#x27;
+scripts/test-in-lima.sh cargo xtask check-arch
+</code></pre>
+
+<h4>Supports</h4>
+
+<p>crates/foundry-acceptance/src/steps/feature_instance_integration_setup.rs</p>
+
+<p>crates/foundry-acceptance/src/support/instance_integration_setup.rs</p>
+
+<p>crates/foundry-acceptance/src/support/external_integration_plugins.rs</p>
+
+<h4>Public oracle</h4>
+
+<pre><code>With Canzan Labs connected to Slack through the saved app 6123456789012.7234567890123 and a pending delivery on one of its routes, Priya Raman GETs /admin/instance/integrations/slack/remove twice and then POSTs it, each through the production router with her CSRF token. In a second run all three SLACK_ settings are in the environment and she GETs and POSTs the same door. In a third run no workspace is connected.
+</code></pre>
+
+<pre><code>Each GET reads &#x27;Remove the Slack app from this Foundry? 1 workspace&#x27;s Slack routes stop posting until it is set up again, and no workspace can connect Slack.&#x27; and Slack is still set up after both of them, with the activity list and the config version unchanged. The POST answers &#x27;Removed. Slack is not set up on this Foundry.&#x27;, the Activity reads &#x27;21 Oct 2026 . Priya Raman removed the Slack app (6123456789012.7234567890123)&#x27;, Canzan Labs&#x27; workspace integrations page reads &#x27;Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once.&#x27; with its Slack connection not marked lost, the mail double has recorded no email, the pending delivery is still pending under the 24-hour give-up, and POST /integrations/slack/events answers 401 on each replica asked directly. With the environment&#x27;s app in effect the instance page offers neither Replace nor Remove and both the GET and the POST change nothing and answer the page. With no workspace connected the GET reads &#x27;Remove the Slack app from this Foundry? No workspace is connected to Slack.&#x27;
+</code></pre>
+
+<pre><code>A GET that removes the app or bumps the version; a removal that marks the connection lost, writes a lost_reason, records an email or cancels the pending delivery; a removal while the environment&#x27;s app is in effect; the n = 0 wording for one connected workspace, the n = 1 wording for none, or the n &gt;= 2 plural wording for one; an event still verifying after the removal; or an activity line reading &#x27;slack app removed&#x27;.
+</code></pre>
+
+<h5>Promises</h5>
+
+<p>P4</p>
+
+<p>P5</p>
+
+<p>P6</p>
+
+<p>P7</p>
+
+<h4>Prefactoring</h4>
+
+<p>None.</p>
+
+<h4>Records</h4>
+
+<h5>Decisions</h5>
+
+<p>None.</p>
+
+<h5>Constraints</h5>
+
+<p>None.</p>
+
+<h5>Reuse</h5>
+
+<p>applies</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:217</p>
+
+<p>Reuse</p>
+
+<pre><code>The shape of an offer that knows its label, its door and when it applies is already here; SlackOffer follows it so the page keeps one way of offering a control.
+</code></pre>
+
+<p>commit_recorded</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:775</p>
+
+<p>Reuse</p>
+
+<pre><code>The remove ends like every other instance write: one activity line, one version bump, one commit.
+</code></pre>
+
+<p>NoConnectionCause</p>
+
+<p>crates/foundry-app/src/integrations/no_connection.rs:120</p>
+
+<p>Reuse</p>
+
+<pre><code>After the removal the workspace page&#x27;s W-2 comes from the shipped cause set with no new words, as Request 1 left it.
+</code></pre>
+
+<p>stored_notice</p>
+
+<p>crates/foundry-app/src/integrations/handlers/instance.rs:225</p>
+
+<p>Reuse</p>
+
+<pre><code>It is the shape a door&#x27;s notice takes; I-16 is one more notice of that kind.
+</code></pre>
+
+<p>route</p>
+
+<p>crates/foundry-app/src/lib.rs:858</p>
+
+<p>Extend</p>
+
+<pre><code>The router is the one public door list, behind the same session, CSRF and instance-admin layers as the shipped instance doors, so the remove door&#x27;s GET and POST is added there rather than in a second router or a nested route group.
+</code></pre>
+
+<h5>Impact</h5>
+
+<p>template, the Slack section</p>
+
+<p>crates/foundry-app/templates/integrations/instance.html:45</p>
+
+<p>Changed</p>
+
+<pre><code>The saved-app section gains the Replace and Remove controls, withheld under the environment&#x27;s app.
+</code></pre>
+
+<p>router, the public door list</p>
+
+<p>crates/foundry-app/src/lib.rs:858</p>
+
+<p>Changed</p>
+
+<pre><code>GET and POST of the remove door are added.
+</code></pre>
+
+<p>store module, the only writer of the instance tables</p>
+
+<p>crates/foundry-store/src/integrations/instance.rs:406</p>
+
+<p>Changed</p>
+
+<pre><code>The fenced remove joins the writes beside the save.
+</code></pre>
+
+<p>workspace page, the downstream reader</p>
+
+<p>crates/foundry-app/src/integrations/handlers/workspace.rs:262</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It already reads W-2 from the shipped cause when no app is in effect, so a removal needs no change there.
+</code></pre>
+
+<p>template, the remove page</p>
+
+<p>crates/foundry-app/templates/integrations/slack_remove.html:1</p>
+
+<p>Changed</p>
+
+<pre><code>A new template: I-15 in the form the connected-workspace count selects, with one Remove control.
+</code></pre>
+
+<h5>Agreement</h5>
+
+<p>None.</p>
+
+<h5>Not applicable</h5>
+
+<p>prefactoring</p>
+
+<pre><code>S3 adds one store write, one door and two page offers beside the shipped ones; no shipped behaviour moves first. The page&#x27;s offer decision follows the shipped KeyOffer shape already in place, so there is nothing to extract, and S1 declares this Request&#x27;s one preserving move.
+</code></pre>
+
+<h5>Boundaries</h5>
+
+<p>None.</p>
+
+<h5>Observations</h5>
+
+<p>None.</p>
+
+<h5>Equality</h5>
+
+<p>None.</p>
+
+<h5>Constructors</h5>
+
+<p>None.</p>
+
+<h5>Laws</h5>
+
+<p>None.</p>
+
+<h5>Refuted</h5>
+
+<p>None.</p>
+
+<h5>Claims</h5>
+
+<p>None.</p>
+
+<h5>States</h5>
+
+<p>None.</p>
+
+<h5>Models</h5>
+
+<p>None.</p>
+
+<h5>Closure</h5>
+
+<p>None.</p>
+
+<h5>Risks</h5>
+
+<p>None.</p>
+
+<h5>Architectural tests</h5>
+
+<p>None.</p>
+
+<h5>Contract tests</h5>
+
+<p>None.</p>
+
+<h2>ADRs</h2>
+
+<p>None.</p>
+
+</body></html>

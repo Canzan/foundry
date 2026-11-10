@@ -1,0 +1,145 @@
+RECEIPT pending_sweep.tla
+model sha256: e94caed8035f40a2b0f79c8368fa288a18385220a1b3620b66c81c47c3316bd4  pending_sweep.tla
+config sha256: cc60b60a8f05e4d06ad64a7168da87bc5336d8656ace0dec23dc67f5b5a0f752  pending_sweep.cfg
+config sha256: 527e96b3e0c5856c265bf7698c6ed522e4c4a1cc33327156526e587930bd465b  pending_sweep_nofair.cfg
+config sha256: abfeb0b17efd40f16a038d1f5572b18db3337aa08febc877a41237d010be6e99  pending_sweep_mutant.cfg
+host: Lima VM local-dev, aarch64, Docker 29.9.2, containers only; nothing installed on the Mac
+TLC: tla2tools.jar v1.7.4, sha256 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  tla2tools.jar
+JVM image: eclipse-temurin@sha256:ebfbb18d11ff163ee83b21258acf12248af48d22a0fdfdc68fa1a1516c05976a
+## Three runs of the liveness protocol: fairness (expect no error), no fairness (expect a violation), progress mutant with fairness (expect a violation). -metadir is unique per run because TLC names its metadata directory by the second and two runs in one second collide.
+
+ARGV: java -cp tla2tools.jar tlc2.TLC -config pending_sweep.cfg -workers 4 -deadlock -metadir /w/states/pending_sweep-pending_sweep pending_sweep.tla
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 16 and seed -3822495423099271400 with 4 workers on 8 cores with 5996MB heap and 64MB offheap memory [pid: 1] (Linux 7.0.0-42-generic aarch64, Eclipse Adoptium 21.0.13 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /w/pending_sweep.tla
+Parsing file /tmp/Naturals.tla
+Semantic processing of module Naturals
+Semantic processing of module pending_sweep
+Starting... (2026-11-10 03:24:59)
+Implied-temporal checking--satisfiability problem has 1 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-10 03:24:59.
+Progress(6) at 2026-11-10 03:24:59: 244 states generated, 44 distinct states found, 0 states left on queue.
+Checking temporal properties for the complete state space with 44 total distinct states at (2026-11-10 03:24:59)
+Finished checking temporal properties in 00s at 2026-11-10 03:24:59
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 4.8E-16
+244 states generated, 44 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 6.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 5 and the 95th percentile is 4).
+Finished in 00s at (2026-11-10 03:24:59)
+EXIT: 0
+
+ARGV: java -cp tla2tools.jar tlc2.TLC -config pending_sweep_nofair.cfg -workers 4 -deadlock -metadir /w/states/pending_sweep-pending_sweep_nofair pending_sweep.tla
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 129 and seed 2620395956958045736 with 4 workers on 8 cores with 5996MB heap and 64MB offheap memory [pid: 1] (Linux 7.0.0-42-generic aarch64, Eclipse Adoptium 21.0.13 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /w/pending_sweep.tla
+Parsing file /tmp/Naturals.tla
+Semantic processing of module Naturals
+Semantic processing of module pending_sweep
+Starting... (2026-11-10 03:24:59)
+Implied-temporal checking--satisfiability problem has 1 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-10 03:25:00.
+Progress(6) at 2026-11-10 03:25:00: 244 states generated, 44 distinct states found, 0 states left on queue.
+Checking temporal properties for the complete state space with 44 total distinct states at (2026-11-10 03:25:00)
+Error: Temporal properties were violated.
+
+Error: The following behavior constitutes a counter-example:
+
+State 1: <Initial predicate>
+/\ pending = "none"
+/\ now = 0
+/\ pendingExpires = 0
+/\ pendingBy = "nobody"
+
+State 2: <Hold line 28, col 15 to line 31, col 27 of module pending_sweep>
+/\ pending = "A2"
+/\ now = 0
+/\ pendingExpires = 2
+/\ pendingBy = "priya"
+
+State 3: <Tick line 38, col 9 to line 40, col 59 of module pending_sweep>
+/\ pending = "A2"
+/\ now = 1
+/\ pendingExpires = 2
+/\ pendingBy = "priya"
+
+State 4: <Tick line 38, col 9 to line 40, col 59 of module pending_sweep>
+/\ pending = "A2"
+/\ now = 2
+/\ pendingExpires = 2
+/\ pendingBy = "priya"
+
+State 5: <Tick line 38, col 9 to line 40, col 59 of module pending_sweep>
+/\ pending = "A2"
+/\ now = 3
+/\ pendingExpires = 2
+/\ pendingBy = "priya"
+
+State 6: Stuttering
+Finished checking temporal properties in 00s at 2026-11-10 03:25:00
+244 states generated, 44 distinct states found, 0 states left on queue.
+Finished in 00s at (2026-11-10 03:25:00)
+EXIT: 13
+
+ARGV: java -cp tla2tools.jar tlc2.TLC -config pending_sweep_mutant.cfg -workers 4 -deadlock -metadir /w/states/pending_sweep-pending_sweep_mutant pending_sweep.tla
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 107 and seed -2936518878740633206 with 4 workers on 8 cores with 5996MB heap and 64MB offheap memory [pid: 1] (Linux 7.0.0-42-generic aarch64, Eclipse Adoptium 21.0.13 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /w/pending_sweep.tla
+Parsing file /tmp/Naturals.tla
+Semantic processing of module Naturals
+Semantic processing of module pending_sweep
+Starting... (2026-11-10 03:25:00)
+Implied-temporal checking--satisfiability problem has 1 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-10 03:25:00.
+Progress(6) at 2026-11-10 03:25:00: 238 states generated, 44 distinct states found, 0 states left on queue.
+Checking temporal properties for the complete state space with 44 total distinct states at (2026-11-10 03:25:00)
+Error: Temporal properties were violated.
+
+Error: The following behavior constitutes a counter-example:
+
+State 1: <Initial predicate>
+/\ pending = "none"
+/\ now = 0
+/\ pendingExpires = 0
+/\ pendingBy = "nobody"
+
+State 2: <Tick line 38, col 9 to line 40, col 59 of module pending_sweep>
+/\ pending = "none"
+/\ now = 1
+/\ pendingExpires = 0
+/\ pendingBy = "nobody"
+
+State 3: <Hold line 28, col 15 to line 31, col 27 of module pending_sweep>
+/\ pending = "A2"
+/\ now = 1
+/\ pendingExpires = 3
+/\ pendingBy = "tomas"
+
+State 4: <Tick line 38, col 9 to line 40, col 59 of module pending_sweep>
+/\ pending = "A2"
+/\ now = 2
+/\ pendingExpires = 3
+/\ pendingBy = "tomas"
+
+State 5: <Tick line 38, col 9 to line 40, col 59 of module pending_sweep>
+/\ pending = "A2"
+/\ now = 3
+/\ pendingExpires = 3
+/\ pendingBy = "tomas"
+
+State 6: Stuttering
+Finished checking temporal properties in 00s at 2026-11-10 03:25:00
+238 states generated, 44 distinct states found, 0 states left on queue.
+Finished in 00s at (2026-11-10 03:25:00)
+EXIT: 13

@@ -1,0 +1,125 @@
+RECEIPT replica_convergence.tla
+model sha256: ce2bdccad8dfe983acdd09d046503cd738fd94e549b3c6937371b17ea372be94  replica_convergence.tla
+config sha256: 3de7f030d971bafeee110f9c08072d5dc8fe65a99c69752ba73d6d8047b3509e  replica_convergence.cfg
+config sha256: 8fb4d75ca5865c3c26bac84c91b6f8c0b3e3ee901c0ef7d541cba1c9428c76f5  replica_convergence_nofair.cfg
+config sha256: 4100948f933950a1c1b41933034b0e6bfbd44413ce82030ed227e9465c72fc98  replica_convergence_mutant.cfg
+host: Lima VM local-dev, aarch64, Docker 29.9.2, containers only; nothing installed on the Mac
+TLC: tla2tools.jar v1.7.4, sha256 936a262061c914694dfd669a543be24573c45d5aa0ff20a8b96b23d01e050e88  tla2tools.jar
+JVM image: eclipse-temurin@sha256:ebfbb18d11ff163ee83b21258acf12248af48d22a0fdfdc68fa1a1516c05976a
+## Three runs of the liveness protocol: fairness (expect no error), no fairness (expect a violation), progress mutant with fairness (expect a violation). -metadir is unique per run because TLC names its metadata directory by the second and two runs in one second collide.
+
+ARGV: java -cp tla2tools.jar tlc2.TLC -config replica_convergence.cfg -workers 4 -deadlock -metadir /w/states/replica_convergence-replica_convergence replica_convergence.tla
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 36 and seed 1552809077789543166 with 4 workers on 8 cores with 5996MB heap and 64MB offheap memory [pid: 1] (Linux 7.0.0-42-generic aarch64, Eclipse Adoptium 21.0.13 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /w/replica_convergence.tla
+Parsing file /tmp/Naturals.tla
+Semantic processing of module Naturals
+Semantic processing of module replica_convergence
+Starting... (2026-11-10 03:25:01)
+Implied-temporal checking--satisfiability problem has 2 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-10 03:25:01.
+Progress(6) at 2026-11-10 03:25:01: 55 states generated, 30 distinct states found, 0 states left on queue.
+Checking 2 branches of temporal properties for the complete state space with 60 total distinct states at (2026-11-10 03:25:01)
+Finished checking temporal properties in 00s at 2026-11-10 03:25:01
+Model checking completed. No error has been found.
+  Estimates of the probability that TLC did not check all reachable states
+  because two distinct states had the same fingerprint:
+  calculated (optimistic):  val = 4.1E-17
+55 states generated, 30 distinct states found, 0 states left on queue.
+The depth of the complete state graph search is 6.
+The average outdegree of the complete state graph is 1 (minimum is 0, the maximum 3 and the 95th percentile is 3).
+Finished in 00s at (2026-11-10 03:25:01)
+EXIT: 0
+
+ARGV: java -cp tla2tools.jar tlc2.TLC -config replica_convergence_nofair.cfg -workers 4 -deadlock -metadir /w/states/replica_convergence-replica_convergence_nofair replica_convergence.tla
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 17 and seed -5756535547485332839 with 4 workers on 8 cores with 5996MB heap and 64MB offheap memory [pid: 1] (Linux 7.0.0-42-generic aarch64, Eclipse Adoptium 21.0.13 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /w/replica_convergence.tla
+Parsing file /tmp/Naturals.tla
+Semantic processing of module Naturals
+Semantic processing of module replica_convergence
+Starting... (2026-11-10 03:25:02)
+Implied-temporal checking--satisfiability problem has 2 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-10 03:25:02.
+Progress(6) at 2026-11-10 03:25:02: 55 states generated, 30 distinct states found, 0 states left on queue.
+Checking 2 branches of temporal properties for the complete state space with 60 total distinct states at (2026-11-10 03:25:02)
+Error: Temporal properties were violated.
+
+Error: The following behavior constitutes a counter-example:
+
+State 1: <Initial predicate>
+/\ applied = [r1 |-> 0, r2 |-> 0]
+/\ version = 0
+
+State 2: <Commit line 25, col 11 to line 27, col 31 of module replica_convergence>
+/\ applied = [r1 |-> 0, r2 |-> 0]
+/\ version = 1
+
+State 3: <Commit line 25, col 11 to line 27, col 31 of module replica_convergence>
+/\ applied = [r1 |-> 0, r2 |-> 0]
+/\ version = 2
+
+State 4: <Commit line 25, col 11 to line 27, col 31 of module replica_convergence>
+/\ applied = [r1 |-> 0, r2 |-> 0]
+/\ version = 3
+
+State 5: <Reload line 29, col 14 to line 31, col 34 of module replica_convergence>
+/\ applied = [r1 |-> 0, r2 |-> 3]
+/\ version = 3
+
+State 6: Stuttering
+Finished checking temporal properties in 00s at 2026-11-10 03:25:02
+55 states generated, 30 distinct states found, 0 states left on queue.
+Finished in 00s at (2026-11-10 03:25:02)
+EXIT: 13
+
+ARGV: java -cp tla2tools.jar tlc2.TLC -config replica_convergence_mutant.cfg -workers 4 -deadlock -metadir /w/states/replica_convergence-replica_convergence_mutant replica_convergence.tla
+TLC2 Version 2.19 of 08 August 2024 (rev: 5a47802)
+Warning: Please run the Java VM which executes TLC with a throughput optimized garbage collector by passing the "-XX:+UseParallelGC" property.
+(Use the -nowarning option to disable this warning.)
+Running breadth-first search Model-Checking with fp 61 and seed 6982332609956341268 with 4 workers on 8 cores with 5996MB heap and 64MB offheap memory [pid: 1] (Linux 7.0.0-42-generic aarch64, Eclipse Adoptium 21.0.13 x86_64, MSBDiskFPSet, DiskStateQueue).
+Parsing file /w/replica_convergence.tla
+Parsing file /tmp/Naturals.tla
+Semantic processing of module Naturals
+Semantic processing of module replica_convergence
+Starting... (2026-11-10 03:25:03)
+Implied-temporal checking--satisfiability problem has 2 branches.
+Computing initial states...
+Finished computing initial states: 1 distinct state generated at 2026-11-10 03:25:03.
+Progress(6) at 2026-11-10 03:25:03: 11 states generated, 10 distinct states found, 0 states left on queue.
+Checking 2 branches of temporal properties for the complete state space with 20 total distinct states at (2026-11-10 03:25:03)
+Error: Temporal properties were violated.
+
+Error: The following behavior constitutes a counter-example:
+
+State 1: <Initial predicate>
+/\ applied = [r1 |-> 0, r2 |-> 0]
+/\ version = 0
+
+State 2: <Commit line 25, col 11 to line 27, col 31 of module replica_convergence>
+/\ applied = [r1 |-> 0, r2 |-> 0]
+/\ version = 1
+
+State 3: <Commit line 25, col 11 to line 27, col 31 of module replica_convergence>
+/\ applied = [r1 |-> 0, r2 |-> 0]
+/\ version = 2
+
+State 4: <ReloadEvenOnly line 45, col 22 to line 45, col 49 of module replica_convergence>
+/\ applied = [r1 |-> 2, r2 |-> 0]
+/\ version = 2
+
+State 5: <Commit line 25, col 11 to line 27, col 31 of module replica_convergence>
+/\ applied = [r1 |-> 2, r2 |-> 0]
+/\ version = 3
+
+State 6: Stuttering
+Finished checking temporal properties in 00s at 2026-11-10 03:25:03
+11 states generated, 10 distinct states found, 0 states left on queue.
+Finished in 00s at (2026-11-10 03:25:03)
+EXIT: 13

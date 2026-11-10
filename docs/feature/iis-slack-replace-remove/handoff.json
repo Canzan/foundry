@@ -1,0 +1,2674 @@
+{
+"counters": {
+"B": 5,
+"C": 3,
+"D": 15,
+"E": 25,
+"F": 456,
+"K": 12,
+"L": 11,
+"N": 8,
+"P": 7,
+"S": 3,
+"T": 2,
+"Y": 14
+},
+"design": {
+"paradigm": "object_oriented",
+"shared": {
+"agreement": [
+{
+"contract": "instance_slack_app_pending row shape: client_id, both sealed secrets, requested_by and expires_at (ADR-IIS-003 r4)",
+"decision": "Migrated",
+"locator": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"party": "Producer",
+"reason": "F114"
+},
+{
+"contract": "instance_slack_app_pending row shape: client_id, both sealed secrets, requested_by and expires_at (ADR-IIS-003 r4)",
+"decision": "Migrated",
+"locator": "crates/foundry-store/src/integrations/instance.rs:406",
+"party": "Consumer",
+"reason": "F115"
+},
+{
+"contract": "instance_integration_audit_events.action wire names (ADR-IIS-005 r1)",
+"decision": "Migrated",
+"locator": "crates/foundry-store/src/integrations/instance.rs:232",
+"party": "Producer",
+"reason": "F116"
+},
+{
+"contract": "instance_integration_audit_events.action wire names (ADR-IIS-005 r1)",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:352",
+"party": "Consumer",
+"reason": "F117"
+},
+{
+"contract": "SealedSlot, the set of sealed values the fence and the re-seal agree on (ADR-IIS-004 r2)",
+"decision": "Migrated",
+"locator": "crates/foundry-store/src/integrations/instance.rs:136",
+"party": "Producer",
+"reason": "F118"
+},
+{
+"contract": "SealedSlot, the set of sealed values the fence and the re-seal agree on (ADR-IIS-004 r2)",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/integrations/mod.rs:129",
+"party": "Consumer",
+"reason": "F119"
+},
+{
+"contract": "SealedSlot, the set of sealed values the fence and the re-seal agree on (ADR-IIS-004 r2)",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:478",
+"party": "Consumer",
+"reason": "F120"
+},
+{
+"contract": "InstanceSnapshot, what a reload and the boot probe rebuild from (ADR-IIS-004 r4)",
+"decision": "Migrated",
+"locator": "crates/foundry-store/src/integrations/instance.rs:199",
+"party": "Producer",
+"reason": "F121"
+},
+{
+"contract": "InstanceSnapshot, what a reload and the boot probe rebuild from (ADR-IIS-004 r4)",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/src/integrations/reload.rs:1",
+"party": "Consumer",
+"reason": "F122"
+},
+{
+"contract": "InstanceSnapshot, what a reload and the boot probe rebuild from (ADR-IIS-004 r4)",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/integrations/mod.rs:583",
+"party": "Consumer",
+"reason": "F123"
+},
+{
+"contract": "The instance store capability trait, the only writer of the instance tables (DDR-26)",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/integrations/store_capabilities.rs:203",
+"party": "Producer",
+"reason": "F124"
+},
+{
+"contract": "The instance store capability trait, the only writer of the instance tables (DDR-26)",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:502",
+"party": "Consumer",
+"reason": "F125"
+},
+{
+"contract": "The instance store capability trait, the only writer of the instance tables (DDR-26)",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-services/src/integrations/store_impls.rs:2",
+"party": "Consumer",
+"reason": "F126"
+},
+{
+"contract": "The acceptance harness contract: the production router in process, real Postgres and the Slack double driven through HTTP",
+"decision": "Migrated",
+"locator": "crates/foundry-acceptance/src/support/instance_integration_setup.rs:838",
+"party": "Consumer",
+"reason": "F127"
+}
+],
+"architectural_tests": [
+{
+"command": "scripts/test-in-lima.sh cargo xtask check-arch",
+"id": "T1",
+"obligation": "F393",
+"oracle": "xtask/src/check_arch.rs"
+}
+],
+"boundaries": {
+"dependency_direction": "F133",
+"driven_ports": [
+"F129",
+"F130",
+"F131",
+"F132"
+],
+"driving_port": "F128",
+"failures": [
+{
+"condition": "F134",
+"id": "B1",
+"observation": "F135",
+"outcome": "Indeterminate"
+},
+{
+"condition": "F136",
+"id": "B2",
+"observation": "F137",
+"outcome": "Refusal"
+},
+{
+"condition": "F138",
+"id": "B3",
+"observation": "F139",
+"outcome": "Refusal"
+},
+{
+"condition": "F140",
+"id": "B4",
+"observation": "F141",
+"outcome": "Refusal"
+},
+{
+"condition": "F142",
+"id": "B5",
+"observation": "F143",
+"outcome": "Retry"
+}
+]
+},
+"claims": [
+{
+"admitted_input": "F242",
+"bypass": "F244",
+"constructor": "Store::apply_pending_slack_app",
+"consumer": "crates/foundry-app/src/integrations/handlers/instance.rs confirm_slack_app, and the page, events and install paths through IntegrationsHandle::current",
+"harm": "F241",
+"id": "C1",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"proposition": "F240",
+"public_observation": "F243"
+},
+{
+"admitted_input": "F247",
+"bypass": "F249",
+"constructor": "the typed page state structs, which hold no secret field, and the activity row, which has only an action, a client ID and a count",
+"consumer": "crates/foundry-app/templates/integrations/instance.html, slack_confirm.html and slack_remove.html",
+"harm": "F246",
+"id": "C2",
+"owner": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"proposition": "F245",
+"public_observation": "F248"
+},
+{
+"admitted_input": "F252",
+"bypass": "F254",
+"constructor": "the read-only path through the store capability's read methods",
+"consumer": "the confirm and remove templates",
+"harm": "F251",
+"id": "C3",
+"owner": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"proposition": "F250",
+"public_observation": "F253"
+}
+],
+"closure": [
+{
+"axis": "Safety",
+"basis": "F303",
+"design": "Pass",
+"evidence": [
+"docs/feature/iis-slack-replace-remove/design/pending_app_provenance.qnt",
+"docs/feature/iis-slack-replace-remove/design/pending_app_provenance.receipt.txt"
+],
+"runtime": "DesignedNotBuilt",
+"subject": "F302"
+},
+{
+"axis": "Safety",
+"basis": "F305",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F304"
+},
+{
+"axis": "Safety",
+"basis": "F307",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F306"
+},
+{
+"axis": "Safety",
+"basis": "F309",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F308"
+},
+{
+"axis": "Safety",
+"basis": "F311",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F310"
+},
+{
+"axis": "Inhabitation",
+"basis": "F313",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F312"
+},
+{
+"axis": "Inhabitation",
+"basis": "F315",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F314"
+},
+{
+"axis": "PublicReachability",
+"basis": "F317",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F316"
+},
+{
+"axis": "PublicReachability",
+"basis": "F319",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F318"
+},
+{
+"axis": "Liveness",
+"basis": "F321",
+"design": "Pass",
+"evidence": [
+"docs/feature/iis-slack-replace-remove/design/pending_sweep.tla",
+"docs/feature/iis-slack-replace-remove/design/pending_sweep.receipt.txt"
+],
+"runtime": "DesignedNotBuilt",
+"subject": "F320"
+},
+{
+"axis": "Liveness",
+"basis": "F323",
+"design": "Pass",
+"evidence": [
+"docs/feature/iis-slack-replace-remove/design/replica_convergence.tla",
+"docs/feature/iis-slack-replace-remove/design/replica_convergence.receipt.txt"
+],
+"runtime": "DesignedNotBuilt",
+"subject": "F322"
+}
+],
+"constraints": [
+{
+"id": "K1",
+"text": "F60"
+},
+{
+"id": "K2",
+"text": "F61"
+},
+{
+"id": "K3",
+"text": "F62"
+},
+{
+"id": "K4",
+"text": "F63"
+},
+{
+"id": "K5",
+"text": "F64"
+},
+{
+"id": "K6",
+"text": "F65"
+},
+{
+"id": "K7",
+"text": "F66"
+},
+{
+"id": "K8",
+"text": "F67"
+},
+{
+"id": "K9",
+"text": "F68"
+},
+{
+"id": "K10",
+"text": "F69"
+},
+{
+"id": "K11",
+"text": "F70"
+},
+{
+"id": "K12",
+"text": "F71"
+}
+],
+"constructors": [
+{
+"name": "SlackSubmission::from_fields",
+"signature": "fn from_fields(fields: &[(String, String)]) -> SlackSubmission"
+},
+{
+"name": "SlackSubmission::judge",
+"signature": "fn judge(&self, current: Option<&str>, saved_secrets: Option<&SavedSecrets>) -> Result<SlackChange, Refusal>"
+},
+{
+"name": "plan_replace",
+"signature": "fn plan_replace(sealing: &SecretBox, mode: KeyMode, change: &SlackChange, by: Uuid, at: OffsetDateTime) -> Option<SlackAppSave>"
+},
+{
+"name": "plan_hold_pending",
+"signature": "fn plan_hold_pending(sealing: &SecretBox, mode: KeyMode, change: &SlackChange, by: Uuid, at: OffsetDateTime) -> Option<PendingSlackAppSave>"
+},
+{
+"name": "Store::hold_pending_slack_app",
+"signature": "async fn hold_pending_slack_app(&self, app: &PendingSlackAppSave) -> Result<SlackSaveOutcome, StoreError>"
+},
+{
+"name": "Store::apply_pending_slack_app",
+"signature": "async fn apply_pending_slack_app(&self, actor: Uuid, now: OffsetDateTime) -> Result<PendingApplied, StoreError>"
+},
+{
+"name": "Store::remove_slack_app",
+"signature": "async fn remove_slack_app(&self, actor: Uuid, now: OffsetDateTime) -> Result<RemoveOutcome, StoreError>"
+},
+{
+"name": "Store::connected_slack_workspaces",
+"signature": "async fn connected_slack_workspaces(&self) -> Result<i64, StoreError>"
+},
+{
+"name": "Store::prune_pending_slack_app",
+"signature": "async fn prune_pending_slack_app(&self, now: OffsetDateTime) -> Result<(), StoreError>"
+},
+{
+"name": "SlackOffer::applies",
+"signature": "fn applies(self, effect: AppInEffect, mode: KeyMode) -> bool"
+},
+{
+"name": "confirm_lines",
+"signature": "fn confirm_lines(current_client_id: &str, connected: u32) -> String"
+},
+{
+"name": "remove_lines",
+"signature": "fn remove_lines(connected: u32) -> String"
+}
+],
+"contract_tests": [
+{
+"command": "scripts/test-in-lima.sh bash -c 'source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-05'",
+"consumer": "crates/foundry-app/src/integrations/handlers/instance.rs activity_line",
+"contract": "instance_integration_audit_events.action wire names (ADR-IIS-005 r1)",
+"id": "T2",
+"obligation": "F394",
+"observation": "F395",
+"oracle": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+"producer": "crates/foundry-store/src/integrations/instance.rs save_slack_app and remove_slack_app"
+}
+],
+"decisions": [
+{
+"id": "D1",
+"text": "F45"
+},
+{
+"id": "D2",
+"text": "F46"
+},
+{
+"id": "D3",
+"text": "F47"
+},
+{
+"id": "D4",
+"text": "F48"
+},
+{
+"id": "D5",
+"text": "F49"
+},
+{
+"id": "D6",
+"text": "F50"
+},
+{
+"id": "D7",
+"text": "F51"
+},
+{
+"id": "D8",
+"text": "F52"
+},
+{
+"id": "D9",
+"text": "F53"
+},
+{
+"id": "D10",
+"text": "F54"
+},
+{
+"id": "D11",
+"text": "F55"
+},
+{
+"id": "D12",
+"text": "F56"
+},
+{
+"id": "D13",
+"text": "F57"
+},
+{
+"id": "D14",
+"text": "F58"
+},
+{
+"id": "D15",
+"text": "F59"
+}
+],
+"equality": [
+{
+"definition": "F156",
+"under": "SlackSubmission"
+},
+{
+"definition": "F157",
+"under": "the app in effect"
+},
+{
+"definition": "F158",
+"under": "the pending app"
+},
+{
+"definition": "F159",
+"under": "the instance page"
+}
+],
+"impact": [
+{
+"decision": "Changed",
+"kind": "module, the decision owner",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:113",
+"reason": "F99"
+},
+{
+"decision": "Migrated",
+"kind": "public interface of the store capability",
+"locator": "crates/foundry-app/src/integrations/store_capabilities.rs:203",
+"reason": "F100"
+},
+{
+"decision": "Changed",
+"kind": "handler and its template",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:502",
+"reason": "F101"
+},
+{
+"decision": "Changed",
+"kind": "router, the public door list",
+"locator": "crates/foundry-app/src/lib.rs:858",
+"reason": "F102"
+},
+{
+"decision": "Changed",
+"kind": "store module, the only writer of the instance tables",
+"locator": "crates/foundry-store/src/integrations/instance.rs:406",
+"reason": "F103"
+},
+{
+"decision": "Migrated",
+"kind": "public types of the store module",
+"locator": "crates/foundry-store/src/integrations/instance.rs:164",
+"reason": "F104"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "migration set",
+"locator": "crates/foundry-store/migrations/0033_instance_integrations.sql:9",
+"reason": "F105"
+},
+{
+"decision": "Changed",
+"kind": "worker tick",
+"locator": "crates/foundry-app/src/integrations/worker.rs:290",
+"reason": "F106"
+},
+{
+"decision": "Changed",
+"kind": "architecture guard",
+"locator": "xtask/src/check_arch.rs:15043",
+"reason": "F107"
+},
+{
+"decision": "Changed",
+"kind": "acceptance support, the oracle's driver",
+"locator": "crates/foundry-acceptance/src/support/instance_integration_setup.rs:838",
+"reason": "F108"
+},
+{
+"decision": "Changed",
+"kind": "acceptance steps",
+"locator": "crates/foundry-acceptance/src/steps/feature_instance_integration_setup.rs:179",
+"reason": "F109"
+},
+{
+"decision": "Changed",
+"kind": "store integration test",
+"locator": "crates/foundry-store/tests/iis_instance_store.rs:377",
+"reason": "F110"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "app reload test",
+"locator": "crates/foundry-app/tests/iis_reload.rs:58",
+"reason": "F111"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "build and package metadata",
+"locator": "crates/foundry-app/Cargo.toml:1",
+"reason": "F112"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "operator documentation",
+"locator": "RELEASING.md:419",
+"reason": "F113"
+}
+],
+"laws": [
+{
+"id": "L1",
+"kind": "Invariant",
+"layer": "Domain",
+"owner": "crates/foundry-app/src/integrations/slack_app.rs",
+"statement": "F160",
+"treatment": {
+"cases": [
+"F161",
+"F162",
+"F163",
+"F164",
+"F165",
+"F166",
+"F167"
+],
+"kind": "Finite",
+"reason": "F168"
+}
+},
+{
+"id": "L2",
+"kind": "Invariant",
+"layer": "Domain",
+"owner": "crates/foundry-app/src/integrations/slack_app.rs",
+"statement": "F169",
+"treatment": {
+"falsifier": "F178",
+"generator": {
+"depth_bound": "one field per generated case",
+"domain": "F170",
+"must_include": [
+"F171",
+"F172",
+"F173",
+"F174",
+"F175"
+],
+"seed_policy": "the runner's default seed, printed on failure so the case replays",
+"shrinking": "F176",
+"size_bound": "40 characters per field value and 4 whitespace characters on each side"
+},
+"independent_observation": "F177",
+"kind": "Broad"
+}
+},
+{
+"id": "L3",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"statement": "F179",
+"treatment": {
+"cases": [
+"F180",
+"F181",
+"F182",
+"F183",
+"F184"
+],
+"kind": "Finite",
+"reason": "F185"
+}
+},
+{
+"evidence": [
+"docs/feature/iis-slack-replace-remove/design/pending_app_provenance.qnt",
+"docs/feature/iis-slack-replace-remove/design/pending_app_provenance.receipt.txt"
+],
+"id": "L4",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"statement": "F186",
+"treatment": {
+"cases": [
+"F187",
+"F188",
+"F189",
+"F190",
+"F191",
+"F192"
+],
+"kind": "Finite",
+"reason": "F193"
+}
+},
+{
+"id": "L5",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"statement": "F194",
+"treatment": {
+"cases": [
+"F195",
+"F196",
+"F197",
+"F198"
+],
+"kind": "Finite",
+"reason": "F199"
+}
+},
+{
+"id": "L6",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"statement": "F200",
+"treatment": {
+"cases": [
+"F201",
+"F202",
+"F203"
+],
+"kind": "Finite",
+"reason": "F204"
+}
+},
+{
+"id": "L7",
+"kind": "Invariant",
+"layer": "Infrastructure",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"statement": "F205",
+"treatment": {
+"cases": [
+"F206",
+"F207",
+"F208"
+],
+"kind": "Finite",
+"reason": "F209"
+}
+},
+{
+"id": "L8",
+"kind": "RoundTrip",
+"layer": "Domain",
+"owner": "crates/foundry-app/src/integrations/slack_app.rs",
+"statement": "F210",
+"treatment": {
+"cases": [
+"F211",
+"F212",
+"F213"
+],
+"kind": "Finite",
+"reason": "F214"
+}
+},
+{
+"evidence": [
+"docs/feature/iis-slack-replace-remove/design/replica_convergence.tla",
+"docs/feature/iis-slack-replace-remove/design/replica_convergence.receipt.txt",
+"docs/feature/iis-slack-replace-remove/design/pending_sweep.tla",
+"docs/feature/iis-slack-replace-remove/design/pending_sweep.receipt.txt"
+],
+"id": "L9",
+"kind": "Temporal",
+"layer": "Infrastructure",
+"owner": "crates/foundry-app/src/integrations/reload.rs",
+"statement": "F215",
+"treatment": {
+"cases": [
+"F216",
+"F217"
+],
+"kind": "Finite",
+"reason": "F218"
+}
+},
+{
+"evidence": [
+"docs/feature/iis-slack-replace-remove/design/pending_app_provenance.qnt",
+"docs/feature/iis-slack-replace-remove/design/pending_app_provenance.receipt.txt"
+],
+"id": "L10",
+"kind": "Invariant",
+"layer": "Infrastructure",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"statement": "F219",
+"treatment": {
+"cases": [
+"F220",
+"F221",
+"F222",
+"F223"
+],
+"kind": "Finite",
+"reason": "F224"
+}
+},
+{
+"id": "L11",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"statement": "F225",
+"treatment": {
+"cases": [
+"F226",
+"F227",
+"F228",
+"F229"
+],
+"kind": "Finite",
+"reason": "F230"
+}
+}
+],
+"models": [
+{
+"assumptions": [
+"F276",
+"F277",
+"F278",
+"F279"
+],
+"atoms": [
+{
+"kind": "State",
+"name": "saved",
+"site": "crates/foundry-store/migrations/0033_instance_integrations.sql:30",
+"symbol": "instance_slack_app.client_id"
+},
+{
+"kind": "State",
+"name": "envApp",
+"site": "crates/foundry-app/src/integrations/config.rs:1",
+"symbol": "Settings.slack.client_id"
+},
+{
+"kind": "State",
+"name": "pending",
+"site": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"symbol": "instance_slack_app_pending.client_id"
+},
+{
+"kind": "State",
+"name": "pendingBy",
+"site": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"symbol": "instance_slack_app_pending.requested_by"
+},
+{
+"kind": "State",
+"name": "pendingExpires",
+"site": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"symbol": "instance_slack_app_pending.expires_at"
+},
+{
+"kind": "State",
+"name": "pendingSealedUnder",
+"site": "crates/foundry-store/src/integrations/instance.rs:136",
+"symbol": "the sealing key id the pending secrets were sealed under"
+},
+{
+"kind": "State",
+"name": "sealingKey",
+"site": "crates/foundry-store/src/integrations/instance.rs:409",
+"symbol": "integration_secrets_key.key_id, as stored_key_id reads it"
+},
+{
+"kind": "State",
+"name": "now",
+"site": "crates/foundry-app/src/integrations/handlers/instance.rs:502",
+"symbol": "Arc<dyn Clock>::now"
+},
+{
+"kind": "State",
+"name": "connected",
+"site": "crates/foundry-store/src/integrations/instance.rs:452",
+"symbol": "Store::connected_slack_workspaces"
+},
+{
+"atomicity": "F270",
+"kind": "Action",
+"name": "submit",
+"site": "crates/foundry-app/src/integrations/handlers/instance.rs:502",
+"symbol": "save_slack_app"
+},
+{
+"atomicity": "F271",
+"kind": "Action",
+"name": "confirm",
+"site": "crates/foundry-store/src/integrations/instance.rs:406",
+"symbol": "Store::apply_pending_slack_app"
+},
+{
+"atomicity": "F272",
+"kind": "Action",
+"name": "remove",
+"site": "crates/foundry-store/src/integrations/instance.rs:406",
+"symbol": "Store::remove_slack_app"
+},
+{
+"atomicity": "F273",
+"kind": "Action",
+"name": "sweep",
+"site": "crates/foundry-app/src/integrations/worker.rs:290",
+"symbol": "Retention::tick"
+},
+{
+"atomicity": "F274",
+"kind": "Action",
+"name": "move",
+"site": "crates/foundry-store/src/integrations/instance.rs:293",
+"symbol": "Store::store_secrets_key"
+},
+{
+"atomicity": "F275",
+"kind": "Action",
+"name": "reconnect",
+"site": "crates/foundry-store/src/integrations/connections.rs:247",
+"symbol": "upsert_connection"
+},
+{
+"kind": "Constant",
+"name": "Ttl",
+"site": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"symbol": "the 10-minute pending expiry (ADR-IIS-003 r4)"
+}
+],
+"language": "Quint",
+"mutants": [
+{
+"description": "F280",
+"id": "N1",
+"kills": [
+"provenanceInv"
+]
+},
+{
+"description": "F281",
+"id": "N2",
+"kills": [
+"provenanceInv"
+]
+},
+{
+"description": "F282",
+"id": "N3",
+"kills": [
+"pendingSealedInv"
+]
+},
+{
+"description": "F283",
+"id": "N4",
+"kills": [
+"provenanceInv"
+]
+}
+],
+"path": "docs/feature/iis-slack-replace-remove/design/pending_app_provenance.qnt",
+"properties": [
+{
+"kind": "Invariant",
+"name": "provenanceInv",
+"site": "Store::apply_pending_slack_app and save_slack_app in crates/foundry-store/src/integrations/instance.rs",
+"statement": "F266",
+"symbol": "provenanceInv"
+},
+{
+"kind": "Invariant",
+"name": "pendingSealedInv",
+"site": "reseal_sealed_values in crates/foundry-store/src/integrations/instance.rs",
+"statement": "F267",
+"symbol": "pendingSealedInv"
+},
+{
+"kind": "Invariant",
+"name": "noSaveReachable",
+"site": "crates/foundry-app/src/integrations/handlers/instance.rs save_slack_app",
+"statement": "F268",
+"symbol": "noSaveReachable"
+},
+{
+"kind": "Invariant",
+"name": "noConfirmRouteReachable",
+"site": "crates/foundry-app/src/integrations/handlers/instance.rs confirm_slack_app",
+"statement": "F269",
+"symbol": "noConfirmRouteReachable"
+}
+]
+},
+{
+"assumptions": [
+"F288",
+"F289",
+"F290"
+],
+"atoms": [
+{
+"kind": "State",
+"name": "pending",
+"site": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"symbol": "instance_slack_app_pending.client_id"
+},
+{
+"kind": "State",
+"name": "now",
+"site": "crates/foundry-app/src/integrations/worker.rs:267",
+"symbol": "Arc<dyn Clock>::now"
+},
+{
+"atomicity": "F286",
+"kind": "Action",
+"name": "Sweep",
+"site": "crates/foundry-app/src/integrations/worker.rs:290",
+"symbol": "Retention::tick"
+},
+{
+"atomicity": "F287",
+"kind": "Action",
+"name": "Hold",
+"site": "crates/foundry-store/src/integrations/instance.rs:406",
+"symbol": "Store::hold_pending_slack_app"
+},
+{
+"kind": "Constant",
+"name": "Ttl",
+"site": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"symbol": "the 10-minute pending expiry"
+}
+],
+"language": "TlaPlus",
+"mutants": [
+{
+"description": "F291",
+"id": "N5",
+"kills": [
+"SweptEventually"
+]
+},
+{
+"description": "F292",
+"id": "N6",
+"kills": [
+"SweptEventually"
+]
+}
+],
+"path": "docs/feature/iis-slack-replace-remove/design/pending_sweep.tla",
+"properties": [
+{
+"kind": "Temporal",
+"name": "SweptEventually",
+"site": "crates/foundry-app/src/integrations/worker.rs:290",
+"statement": "F284",
+"symbol": "SweptEventually"
+},
+{
+"kind": "Invariant",
+"name": "TypeOK",
+"site": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"statement": "F285",
+"symbol": "TypeOK"
+}
+]
+},
+{
+"assumptions": [
+"F297",
+"F298",
+"F299"
+],
+"atoms": [
+{
+"kind": "State",
+"name": "version",
+"site": "crates/foundry-store/src/integrations/instance.rs:278",
+"symbol": "integration_config_version.version"
+},
+{
+"kind": "State",
+"name": "applied",
+"site": "crates/foundry-store/src/integrations/instance.rs:542",
+"symbol": "integration_replica_states.applied_version"
+},
+{
+"atomicity": "F295",
+"kind": "Action",
+"name": "Commit",
+"site": "crates/foundry-store/src/integrations/instance.rs:775",
+"symbol": "commit_recorded"
+},
+{
+"atomicity": "F296",
+"kind": "Action",
+"name": "Reload",
+"site": "crates/foundry-app/src/integrations/reload.rs:1",
+"symbol": "the reload task's rebuild from one snapshot"
+}
+],
+"language": "TlaPlus",
+"mutants": [
+{
+"description": "F300",
+"id": "N7",
+"kills": [
+"Converges"
+]
+},
+{
+"description": "F301",
+"id": "N8",
+"kills": [
+"Converges"
+]
+}
+],
+"path": "docs/feature/iis-slack-replace-remove/design/replica_convergence.tla",
+"properties": [
+{
+"kind": "Temporal",
+"name": "Converges",
+"site": "crates/foundry-app/src/integrations/reload.rs:1",
+"statement": "F293",
+"symbol": "Converges"
+},
+{
+"kind": "Invariant",
+"name": "TypeOK",
+"site": "crates/foundry-store/src/integrations/instance.rs:278",
+"statement": "F294",
+"symbol": "TypeOK"
+}
+]
+}
+],
+"observations": [
+{
+"cannot_distinguish": "F145",
+"description": "F144",
+"result_type": "HTTP status and HTML response body"
+},
+{
+"cannot_distinguish": "F147",
+"description": "F146",
+"result_type": "HTTP status and HTML response body"
+},
+{
+"cannot_distinguish": "F149",
+"description": "F148",
+"result_type": "HTTP status and HTML response body"
+},
+{
+"cannot_distinguish": "F151",
+"description": "F150",
+"result_type": "HTTP status and the redirect target's client_id parameter"
+},
+{
+"cannot_distinguish": "F153",
+"description": "F152",
+"result_type": "HTML response body and the recorded email list"
+},
+{
+"cannot_distinguish": "F155",
+"description": "F154",
+"result_type": "an ordered list of rendered lines"
+}
+],
+"refuted": [
+{
+"cause": "F232",
+"counterexample": "F233",
+"statement": "F231"
+},
+{
+"cause": "F235",
+"counterexample": "F236",
+"statement": "F234"
+},
+{
+"cause": "F238",
+"counterexample": "F239",
+"statement": "F237"
+}
+],
+"reuse": [
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:113",
+"reason": "F72",
+"symbol": "SlackAppForm"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:156",
+"reason": "F73",
+"symbol": "check"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:198",
+"reason": "F74",
+"symbol": "plan_save"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:59",
+"reason": "F75",
+"symbol": "app_in_effect"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:255",
+"reason": "F76",
+"symbol": "page_state"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:190",
+"reason": "F77",
+"symbol": "KeyOffer"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:352",
+"reason": "F78",
+"symbol": "activity_line"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-store/src/integrations/instance.rs:406",
+"reason": "F79",
+"symbol": "save_slack_app"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-store/src/integrations/instance.rs:715",
+"reason": "F80",
+"symbol": "reseal_sealed_values"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-store/src/integrations/instance.rs:775",
+"reason": "F81",
+"symbol": "commit_recorded"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-store/src/integrations/instance.rs:272",
+"reason": "F82",
+"symbol": "lock_exclusive"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-store/src/integrations/instance.rs:409",
+"reason": "F83",
+"symbol": "stored_key_id"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-store/src/integrations/instance.rs:232",
+"reason": "F84",
+"symbol": "Activity"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-store/src/integrations/instance.rs:199",
+"reason": "F85",
+"symbol": "InstanceSnapshot"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/mod.rs:129",
+"reason": "F86",
+"symbol": "sealed_slot"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/store_capabilities.rs:203",
+"reason": "F87",
+"symbol": "StoreCapabilities"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/no_connection.rs:202",
+"reason": "F88",
+"symbol": "words"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/instance_admin.rs:1",
+"reason": "F89",
+"symbol": "require_instance_admin"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/csrf.rs:1",
+"reason": "F90",
+"symbol": "ensure_csrf_cookie"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/worker.rs:290",
+"reason": "F91",
+"symbol": "Retention"
+},
+{
+"decision": "Extend",
+"locator": "xtask/src/check_arch.rs:15043",
+"reason": "F92",
+"symbol": "SEAL_FENCED_WRITERS"
+},
+{
+"decision": "Reuse",
+"locator": "xtask/src/check_arch.rs:14764",
+"reason": "F93",
+"symbol": "INSTANCE_TABLES"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/integrations/instance.html:45",
+"reason": "F94",
+"symbol": "page.saved_slack"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"reason": "F95",
+"symbol": "0034_instance_slack_app_pending.sql"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-app/templates/integrations/slack_confirm.html:1",
+"reason": "F96",
+"symbol": "slack_confirm.html"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-app/templates/integrations/slack_remove.html:1",
+"reason": "F97",
+"symbol": "slack_remove.html"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-store/src/integrations/instance.rs:452",
+"reason": "F98",
+"symbol": "connected_slack_workspaces"
+}
+],
+"risks": [
+{
+"allowed": "F326",
+"forbidden": "F327",
+"id": "Y1",
+"kind": "Stressor",
+"owner": "the instance operator",
+"preserved": "F325",
+"residue": "F328",
+"source": "F324"
+},
+{
+"allowed": "F331",
+"forbidden": "F332",
+"id": "Y2",
+"kind": "Stressor",
+"owner": "the design",
+"preserved": "F330",
+"residue": "F333",
+"source": "F329"
+},
+{
+"allowed": "F336",
+"forbidden": "F337",
+"id": "Y3",
+"kind": "Stressor",
+"owner": "the crafter",
+"preserved": "F335",
+"residue": "F338",
+"source": "F334"
+},
+{
+"allowed": "F341",
+"forbidden": "F342",
+"id": "Y4",
+"kind": "Stressor",
+"owner": "the instance operator",
+"preserved": "F340",
+"residue": "F343",
+"source": "F339"
+},
+{
+"allowed": "F346",
+"forbidden": "F347",
+"id": "Y5",
+"kind": "Stressor",
+"owner": "the design",
+"preserved": "F345",
+"residue": "F348",
+"source": "F344"
+},
+{
+"allowed": "F351",
+"forbidden": "F352",
+"id": "Y6",
+"kind": "SinglePointOfFailure",
+"owner": "the design",
+"preserved": "F350",
+"residue": "F353",
+"source": "F349"
+},
+{
+"allowed": "F356",
+"forbidden": "F357",
+"id": "Y7",
+"kind": "SinglePointOfFailure",
+"owner": "the instance admin",
+"preserved": "F355",
+"residue": "F358",
+"source": "F354"
+},
+{
+"allowed": "F361",
+"forbidden": "F362",
+"id": "Y8",
+"kind": "Bypass",
+"owner": "the implementation reviewer",
+"preserved": "F360",
+"residue": "F363",
+"source": "F359"
+},
+{
+"allowed": "F361",
+"forbidden": "F366",
+"id": "Y9",
+"kind": "Bypass",
+"owner": "the crafter",
+"preserved": "F365",
+"residue": "F367",
+"source": "F364"
+},
+{
+"allowed": "F370",
+"forbidden": "F371",
+"id": "Y10",
+"kind": "Bypass",
+"owner": "the design",
+"preserved": "F369",
+"residue": "F372",
+"source": "F368"
+},
+{
+"allowed": "F375",
+"forbidden": "F376",
+"id": "Y11",
+"kind": "Stressor",
+"owner": "the instance operator",
+"preserved": "F374",
+"residue": "F377",
+"source": "F373"
+},
+{
+"allowed": "F380",
+"forbidden": "F381",
+"id": "Y12",
+"kind": "Stressor",
+"owner": "the design",
+"preserved": "F379",
+"residue": "F382",
+"source": "F378"
+},
+{
+"allowed": "F385",
+"forbidden": "F386",
+"id": "Y13",
+"kind": "Stressor",
+"owner": "the design",
+"preserved": "F384",
+"residue": "F387",
+"source": "F383"
+},
+{
+"allowed": "F390",
+"forbidden": "F391",
+"id": "Y14",
+"kind": "Stressor",
+"owner": "the design",
+"preserved": "F389",
+"residue": "F392",
+"source": "F388"
+}
+],
+"states": [
+{
+"kind": "Admitted",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"state": "F255"
+},
+{
+"kind": "Admitted",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"state": "F256"
+},
+{
+"kind": "Admitted",
+"owner": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"state": "F257"
+},
+{
+"kind": "Admitted",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"state": "F258"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"state": "F259"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"state": "F260"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"state": "F261"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-store/src/integrations/instance.rs",
+"state": "F262"
+},
+{
+"kind": "Unknown",
+"owner": "the instance operator",
+"state": "F263"
+},
+{
+"kind": "Unknown",
+"owner": "the instance admin",
+"state": "F264"
+},
+{
+"kind": "Unknown",
+"owner": "the workspace admin",
+"state": "F265"
+}
+]
+},
+"slices": {
+"S1": {
+"oracle": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+"prefactoring": {
+"existing_oracle": "crates/foundry-app/src/integrations/slack_app.rs",
+"move": "F402",
+"preserved": "F403",
+"verification": [
+"scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::slack_app"
+]
+},
+"public_oracle": {
+"expected": "F400",
+"falsifier": "F401",
+"promises": [
+"P1",
+"P2",
+"P6"
+],
+"stimulus": "F399"
+},
+"records": {
+"impact": [
+{
+"decision": "Changed",
+"kind": "template, the Slack section",
+"locator": "crates/foundry-app/templates/integrations/instance.html:45",
+"reason": "F408"
+},
+{
+"decision": "Changed",
+"kind": "pure decision module",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:186",
+"reason": "F409"
+},
+{
+"decision": "Changed",
+"kind": "handler, the save door",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:502",
+"reason": "F410"
+}
+],
+"reuse": [
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:186",
+"reason": "F404",
+"symbol": "refusal"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:536",
+"reason": "F405",
+"symbol": "refused"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:163",
+"reason": "F406",
+"symbol": "SavedSlackLines"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:87",
+"reason": "F407",
+"symbol": "open_saved"
+}
+]
+},
+"supports": [
+"crates/foundry-acceptance/src/steps/feature_instance_integration_setup.rs",
+"crates/foundry-acceptance/src/support/instance_integration_setup.rs",
+"crates/foundry-acceptance/src/support/external_integration_plugins.rs"
+],
+"targets": [
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/slack_app.rs",
+"reason": "F396"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"reason": "F397"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/integrations/instance.html",
+"reason": "F398"
+}
+],
+"verification": [
+"scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::slack_app",
+"scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::handlers::instance",
+"scripts/test-in-lima.sh bash -c 'source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-05'",
+"scripts/test-in-lima.sh cargo xtask check-arch"
+]
+},
+"S2": {
+"oracle": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+"public_oracle": {
+"expected": "F421",
+"falsifier": "F422",
+"promises": [
+"P3",
+"P6"
+],
+"stimulus": "F420"
+},
+"records": {
+"impact": [
+{
+"decision": "Changed",
+"kind": "database schema, a new table",
+"locator": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql:1",
+"reason": "F429"
+},
+{
+"decision": "Changed",
+"kind": "router, the public door list",
+"locator": "crates/foundry-app/src/lib.rs:858",
+"reason": "F430"
+},
+{
+"decision": "Changed",
+"kind": "worker tick",
+"locator": "crates/foundry-app/src/integrations/worker.rs:300",
+"reason": "F431"
+},
+{
+"decision": "Changed",
+"kind": "architecture guard",
+"locator": "xtask/src/check_arch.rs:15043",
+"reason": "F432"
+},
+{
+"decision": "Migrated",
+"kind": "snapshot type, read by the reload and the boot probe",
+"locator": "crates/foundry-store/src/integrations/instance.rs:199",
+"reason": "F433"
+},
+{
+"decision": "Changed",
+"kind": "module, the sealed-slot map",
+"locator": "crates/foundry-app/src/integrations/mod.rs:129",
+"reason": "F434"
+},
+{
+"decision": "Changed",
+"kind": "template, the confirm page",
+"locator": "crates/foundry-app/templates/integrations/slack_confirm.html:1",
+"reason": "F435"
+}
+],
+"not_applicable": [
+{
+"analysis": "prefactoring",
+"reason": "F436"
+}
+],
+"reuse": [
+{
+"decision": "Extend",
+"locator": "crates/foundry-store/src/integrations/instance.rs:406",
+"reason": "F423",
+"symbol": "save_slack_app"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-store/src/integrations/instance.rs:175",
+"reason": "F424",
+"symbol": "SlackSaveOutcome"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:600",
+"reason": "F425",
+"symbol": "retried"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-store/src/integrations/instance.rs:587",
+"reason": "F426",
+"symbol": "prune_replica_states"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:20",
+"reason": "F427",
+"symbol": "client_secret_slot"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/lib.rs:858",
+"reason": "F428",
+"symbol": "route"
+}
+]
+},
+"supports": [
+"crates/foundry-acceptance/src/steps/feature_instance_integration_setup.rs",
+"crates/foundry-acceptance/src/support/instance_integration_setup.rs",
+"crates/foundry-acceptance/src/support/external_integration_plugins.rs"
+],
+"targets": [
+{
+"change": "Create",
+"path": "crates/foundry-store/migrations/0034_instance_slack_app_pending.sql",
+"reason": "F411"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-store/src/integrations/instance.rs",
+"reason": "F412"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/store_capabilities.rs",
+"reason": "F413"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/slack_app.rs",
+"reason": "F414"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/mod.rs",
+"reason": "F415"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"reason": "F416"
+},
+{
+"change": "Create",
+"path": "crates/foundry-app/templates/integrations/slack_confirm.html",
+"reason": "F417"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/lib.rs",
+"reason": "F418"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/worker.rs",
+"reason": "F106"
+},
+{
+"change": "Extend",
+"path": "xtask/src/check_arch.rs",
+"reason": "F419"
+}
+],
+"verification": [
+"scripts/test-in-lima.sh cargo test -p foundry-store --test iis_instance_store",
+"scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations",
+"scripts/test-in-lima.sh bash -c 'source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-05'",
+"scripts/test-in-lima.sh cargo xtask check-arch"
+]
+},
+"S3": {
+"oracle": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
+"public_oracle": {
+"expected": "F444",
+"falsifier": "F445",
+"promises": [
+"P4",
+"P5",
+"P6",
+"P7"
+],
+"stimulus": "F443"
+},
+"records": {
+"impact": [
+{
+"decision": "Changed",
+"kind": "template, the Slack section",
+"locator": "crates/foundry-app/templates/integrations/instance.html:45",
+"reason": "F451"
+},
+{
+"decision": "Changed",
+"kind": "router, the public door list",
+"locator": "crates/foundry-app/src/lib.rs:858",
+"reason": "F452"
+},
+{
+"decision": "Changed",
+"kind": "store module, the only writer of the instance tables",
+"locator": "crates/foundry-store/src/integrations/instance.rs:406",
+"reason": "F453"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "workspace page, the downstream reader",
+"locator": "crates/foundry-app/src/integrations/handlers/workspace.rs:262",
+"reason": "F454"
+},
+{
+"decision": "Changed",
+"kind": "template, the remove page",
+"locator": "crates/foundry-app/templates/integrations/slack_remove.html:1",
+"reason": "F455"
+}
+],
+"not_applicable": [
+{
+"analysis": "prefactoring",
+"reason": "F456"
+}
+],
+"reuse": [
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:217",
+"reason": "F446",
+"symbol": "applies"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-store/src/integrations/instance.rs:775",
+"reason": "F447",
+"symbol": "commit_recorded"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/no_connection.rs:120",
+"reason": "F448",
+"symbol": "NoConnectionCause"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/integrations/handlers/instance.rs:225",
+"reason": "F449",
+"symbol": "stored_notice"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/lib.rs:858",
+"reason": "F450",
+"symbol": "route"
+}
+]
+},
+"supports": [
+"crates/foundry-acceptance/src/steps/feature_instance_integration_setup.rs",
+"crates/foundry-acceptance/src/support/instance_integration_setup.rs",
+"crates/foundry-acceptance/src/support/external_integration_plugins.rs"
+],
+"targets": [
+{
+"change": "Extend",
+"path": "crates/foundry-store/src/integrations/instance.rs",
+"reason": "F437"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/store_capabilities.rs",
+"reason": "F438"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/handlers/instance.rs",
+"reason": "F439"
+},
+{
+"change": "Create",
+"path": "crates/foundry-app/templates/integrations/slack_remove.html",
+"reason": "F440"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/integrations/instance.html",
+"reason": "F441"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/lib.rs",
+"reason": "F442"
+}
+],
+"verification": [
+"scripts/test-in-lima.sh cargo test -p foundry-store --test iis_instance_store",
+"scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::handlers::instance",
+"scripts/test-in-lima.sh bash -c 'source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-05'",
+"scripts/test-in-lima.sh bash -c 'source scripts/eip-lanes.sh; eip_lane instance-integration-setup'",
+"scripts/test-in-lima.sh cargo xtask check-arch"
+]
+}
+}
+},
+"expectations": {
+"rows": [
+{
+"id": "E1",
+"promises": [
+"P1"
+],
+"text": "F19"
+},
+{
+"id": "E2",
+"promises": [
+"P1"
+],
+"text": "F20"
+},
+{
+"id": "E3",
+"promises": [
+"P1"
+],
+"text": "F21"
+},
+{
+"id": "E4",
+"promises": [
+"P1"
+],
+"text": "F22"
+},
+{
+"id": "E5",
+"promises": [
+"P1"
+],
+"text": "F23"
+},
+{
+"id": "E6",
+"promises": [
+"P2"
+],
+"text": "F24"
+},
+{
+"id": "E7",
+"promises": [
+"P2"
+],
+"text": "F25"
+},
+{
+"id": "E8",
+"promises": [
+"P3"
+],
+"text": "F26"
+},
+{
+"id": "E9",
+"promises": [
+"P3"
+],
+"text": "F27"
+},
+{
+"id": "E10",
+"promises": [
+"P3"
+],
+"text": "F28"
+},
+{
+"id": "E11",
+"promises": [
+"P3"
+],
+"text": "F29"
+},
+{
+"id": "E12",
+"promises": [
+"P3"
+],
+"text": "F30"
+},
+{
+"id": "E13",
+"promises": [
+"P3"
+],
+"text": "F31"
+},
+{
+"id": "E14",
+"promises": [
+"P3"
+],
+"text": "F32"
+},
+{
+"id": "E15",
+"promises": [
+"P4"
+],
+"text": "F33"
+},
+{
+"id": "E16",
+"promises": [
+"P4"
+],
+"text": "F34"
+},
+{
+"id": "E17",
+"promises": [
+"P4"
+],
+"text": "F35"
+},
+{
+"id": "E18",
+"promises": [
+"P5"
+],
+"text": "F36"
+},
+{
+"id": "E19",
+"promises": [
+"P5"
+],
+"text": "F37"
+},
+{
+"id": "E20",
+"promises": [
+"P5"
+],
+"text": "F38"
+},
+{
+"id": "E21",
+"promises": [
+"P5"
+],
+"text": "F39"
+},
+{
+"id": "E22",
+"promises": [
+"P6"
+],
+"text": "F40"
+},
+{
+"id": "E23",
+"promises": [
+"P6"
+],
+"text": "F41"
+},
+{
+"id": "E24",
+"promises": [
+"P7"
+],
+"text": "F42"
+},
+{
+"id": "E25",
+"promises": [
+"P7"
+],
+"text": "F43"
+}
+]
+},
+"facts": {
+"F1": "User request (verbatim): \"Let's continue delivering any nWave 3 feature in nWave 4 from @docs/feature/\"\n\nSelected scope (user-approved split, 2026-11-08): instance-integration-setup Deliverable B, Request 2 of 3 — US-IIS-05 \"Replace or remove the Slack app, knowing what it affects\" and US-IIS-06 AC 6, as written in docs/feature/instance-integration-setup/discuss/user-stories.md (US-IIS-05 lines 716-828; US-IIS-06 AC 6), with the locked copy I-11, I-14, I-15, I-16, I-17 and I-18 from that file's \"Copy (locked once approved)\" table. Request 1 (US-IIS-04, feature iis-setup-links) is delivered at 3659b9c. Request 3 (US-IIS-07) follows separately. Carried forward from Deliverable A (docs/evolution/2026-11-07-instance-integration-setup.md): item 10 (Replace activity wording) is in scope; items 27, 32 and 35 stay out unless the design needs them.",
+"F10": "US-IIS-05 AC 1-6 and US-IIS-06 AC 6: Replace (same app, other app), the I-14 confirm with the sealed pending app (instance_slack_app_pending in its own migration, per the evolution doc), Remove with the I-15 confirm and I-16, after-removal effects, I-18 replaced/removed activity, and the environment-app rules; KPI-IIS-4.",
+"F100": "Five methods are added and every implementation follows; no shipped method's signature changes.",
+"F101": "The gate, the two new doors, the offers, I-14, I-15, I-16 and the two I-18 arms.",
+"F102": "Four routes are added: GET and POST of the confirm door and of the remove door.",
+"F103": "The pending hold, the confirm, the remove, the count, the prune and the pending row in the re-seal set.",
+"F104": "PendingSlackAppSave, PendingApplied and RemoveOutcome are added and SlackSaveOutcome gains no variant that a shipped caller must handle differently.",
+"F105": "0033 already admits the two activity actions and reserves the pending table for its own migration, so it is not edited.",
+"F106": "The hourly sweep also deletes expired pending rows.",
+"F107": "The pending hold joins the fenced writers; the instance-tables list already names the table.",
+"F108": "It gains the replace, confirm and remove requests and the connected-workspace setup the new scenarios drive.",
+"F109": "It gains the step definitions those scenarios compose.",
+"F11": "US-IIS-07 (Replace secrets key, Start over) is Request 3. No change to the Slack app manifest, to workspace connect/disconnect flows, or to W-2/W-3/K-2/K-19 words; Deliverable A items 27, 32 and 35 unless the design needs them.",
+"F110": "The lock, fence, activity and version obligations of the new writes are asserted beside the shipped ones.",
+"F111": "The snapshot gains a field it does not read; the shipped reload assertions still hold.",
+"F112": "No dependency, feature or binary changes.",
+"F113": "The runbook already sends an instance admin to the integrations page; Replace and Remove add no operator step.",
+"F114": "The migration defines the columns, the single-row CHECK and the NOT NULLs the store relies on.",
+"F115": "The only module that reads or writes the table, in the same commit as the migration.",
+"F116": "It writes slack_app_replaced and adds slack_app_removed, both already admitted by the 0033 CHECK.",
+"F117": "It renders both actions as I-18 words them instead of falling back to the generic form; rows written by another release are read by this arm.",
+"F118": "Two variants are added for the pending secrets.",
+"F119": "It maps each slot to its sealing slot and gains the two arms; rustc refuses a missing one.",
+"F12": "Copy I-11, I-14, I-15, I-16, I-17 and I-18 are the locked copy approved in instance-integration-setup DISCUSS (discuss/user-stories.md \"Copy (locked once approved)\"); D7 narrowed (different client ID requires both secrets) was approved by the user 2026-11-05.",
+"F120": "Generate and Move pass their re-seal closure through unchanged; the new slots reach it through the same map.",
+"F121": "It gains the pending row so the boot probe sees its sealed bytes.",
+"F122": "The reload rebuilds from the snapshot and ignores the new field.",
+"F123": "The boot probe counts the pending secrets among the values a held key must open, and direct_seals keeps counting credentials only.",
+"F124": "Five methods are added to the trait.",
+"F125": "The new doors call only those methods.",
+"F126": "The services implementations hold no instance-write capability, so nothing there changes.",
+"F127": "The driver gains the new requests; the harness itself is unchanged.",
+"F128": "HTTP on the production axum router in crates/foundry-app/src/lib.rs: GET and POST /admin/instance/integrations/slack/confirm, GET and POST /admin/instance/integrations/slack/remove, POST /admin/instance/integrations/slack and GET /admin/instance/integrations, each behind require_instance_admin with the uniform 404 for everyone else and CSRF on every POST.",
+"F129": "The instance integrations store capability over Postgres (crates/foundry-app/src/integrations/store_capabilities.rs), the only writer of the instance tables.",
+"F13": "An instance admin rotates a secret of the saved Slack app, or saves another app with both secrets, from the instance integrations page, and the change takes effect on every replica without a restart.",
+"F130": "The injected clock, Arc<dyn Clock>, which decides the pending row's expiry.",
+"F131": "The credential box that seals and opens the Slack secrets (foundry_auth::secret_box).",
+"F132": "The shipped Slack adapter and the mail notifier, neither of which a removal calls.",
+"F133": "The crates/foundry-app handlers depend inward on the pure slack_app decision module and outward only through the store capability trait and the clock. crates/foundry-store names no handler, and SQL on the instance tables never leaves crates/foundry-store/src/integrations/instance.rs.",
+"F134": "The condition that the store cannot be read while a confirm or remove page is being rendered",
+"F135": "The door answers the instance page with the reason logged and no count rendered; an unread count is never rendered as zero, so I-15's n = 0 form cannot stand in for it.",
+"F136": "A submission with a different client ID and a blank client secret or signing secret",
+"F137": "I-11 naming that field, the typed client ID kept in the form and both secret fields empty; no row, activity line or version changes.",
+"F138": "A confirm posted by another instance admin, posted twice, or posted after the pending app expired",
+"F139": "The instance page as it is, with the saved app, the activity list and the config version unchanged.",
+"F14": "Rotate a leaked or regenerated Slack secret in the browser",
+"F140": "A remove posted while the environment's app is in effect",
+"F141": "The instance page as it is, offering neither Replace nor Remove, with the stored row, the activity list and the version unchanged.",
+"F142": "A write whose sealing key is no longer the sealing key when its transaction checks the fence",
+"F143": "The handler reloads its integrations and tries once more; a second turn-back answers the page with nothing saved.",
+"F144": "The rendered instance integrations page: its notice line, its Slack lines, whether a Replace or a Remove control is offered, and its Activity list.",
+"F145": "Which sealed bytes a row holds, which key sealed them, and in which order two serialized writes committed.",
+"F146": "The confirm page at GET /admin/instance/integrations/slack/confirm: the I-14 line with its count and the current client ID, and the Save the new app control.",
+"F147": "The pending row's secrets, its requester and its exact expiry instant.",
+"F148": "The remove page at GET /admin/instance/integrations/slack/remove: the I-15 line with its count.",
+"F149": "Whether the saved app's secrets open, and which workspaces the count stands for.",
+"F15": "Saving a different Slack app while workspaces are connected first shows how many are connected through the current app and saves only when the same instance admin confirms, also when the current app comes from the environment.",
+"F150": "The app in effect, read through POST /integrations/slack/events signed with a given signing secret and through Add to Slack's client ID on a workspace integrations page.",
+"F151": "Which replica answered and how recently it reloaded.",
+"F152": "A workspace's Slack connection line on GET /workspace/integrations and the mail double's recorded emails, after a removal.",
+"F153": "A delivery's internal retry timing inside the 24-hour give-up.",
+"F154": "The instance activity list on GET /admin/instance/integrations.",
+"F155": "The actor's identity beyond the display name, and two lines committed in the same second.",
+"F156": "Two submissions are equal when their trimmed client IDs are equal and each secret field is equally blank or equally the same text; the form's surrounding whitespace is not observable.",
+"F157": "Two servers hold the same app in effect when the same source wins and the winning app's client ID and both opened secrets are equal; the sealed bytes and the sealing key id are not observable through it.",
+"F158": "Two pending states are equal when both are absent, or both hold the same client ID, the same requester and the same expiry instant; the sealed bytes are not observable.",
+"F159": "Two pages are equal when their notice, their Slack lines, their offered controls and their activity lines are equal; the template's whitespace is not observable.",
+"F16": "Switch Slack apps knowing which workspaces keep the old one",
+"F160": "A submission whose trimmed client ID equals the current app's is a Rotate, and a blank secret field in a Rotate keeps the saved value; a submission with a different client ID is a NewApp and refuses a blank secret field with I-11 naming that field.",
+"F161": "same client ID, both secret fields blank: both saved secrets kept",
+"F162": "same client ID, only the signing secret given: the client secret kept, the signing secret replaced",
+"F163": "same client ID, both secrets given: both replaced",
+"F164": "different client ID, client secret blank: I-11 for the client secret, nothing stored",
+"F165": "different client ID, signing secret blank: I-11 for the signing secret, nothing stored",
+"F166": "different client ID, both secrets given: accepted as a NewApp",
+"F167": "same client ID over a saved app that does not open, a secret blank: I-11 for that field, because there is nothing to keep",
+"F168": "The form has three fields over a closed verdict, so the whole relation is a finite table rather than a sampled domain.",
+"F169": "Field shapes and trimming are unchanged by the replace path: a value's verdict is the same with surrounding whitespace, any 32 lowercase hex value is a secret, and any character outside a field's alphabet is malformed rather than blank.",
+"F17": "An instance admin removes the saved Slack app after reading what it stops; afterwards workspaces read that Slack is not set up, events are refused, and nobody is told a connection was lost.",
+"F170": "each of the three form fields, over the alphabet 0-9 a-f and the dot, plus arbitrary Unicode, each value wrapped in up to four whitespace characters, and the blank value",
+"F171": "a blank field",
+"F172": "a 32 lowercase hex secret",
+"F173": "an uppercase hex secret",
+"F174": "a client ID with two dots and one with no dot",
+"F175": "a value holding one character outside its field's alphabet",
+"F176": "the native generator's shrinking to the shortest refused value, with the case printed for replay",
+"F177": "a hand-written alphabet-and-length predicate over the trimmed value, written apart from the production check",
+"F178": "a value the predicate accepts that the field check refuses, or a value the predicate rejects that it accepts",
+"F179": "The I-14 gate holds exactly when the submission is a NewApp and the connected-workspace count is above zero; a NewApp with no connected workspace saves at once, and a Rotate never reaches the confirm.",
+"F18": "Retire Slack knowing what stops",
+"F180": "NewApp with 0 connected workspaces: saved at once, no pending row",
+"F181": "NewApp with 1 connected workspace: held pending, I-14's n = 1 form",
+"F182": "NewApp with 3 connected workspaces: held pending, I-14's n >= 2 form",
+"F183": "Rotate with 3 connected workspaces: saved at once, no pending row",
+"F184": "NewApp with 1 connected workspace while the environment's app is in effect: held pending, I-14 naming the environment's client ID",
+"F185": "The gate is a pure function of two closed facts, so every combination is tabled.",
+"F186": "The pending row is applied only for the requester that holds it and only while the injected clock is before its expiry, and applying it deletes it, so a second apply, another admin's apply and an expired apply all change nothing.",
+"F187": "the holder confirms one minute in: applied, the row deleted, one activity line, one version bump",
+"F188": "the holder confirms at the expiry instant: nothing applied",
+"F189": "the holder confirms eleven minutes in: nothing applied",
+"F19": "Opening the Slack replace form shows the saved app's client ID already filled in, so Priya does not have to retype it.",
+"F190": "another instance admin confirms one minute in: nothing applied, the row left as it is",
+"F191": "the holder confirms twice: the second confirm finds no row",
+"F192": "no pending row exists: the confirm changes nothing",
+"F193": "The decision reads three facts with a closed outcome, so the table is the whole relation.",
+"F194": "With the environment's app in effect neither Replace nor Remove is offered, and the GET and the POST of the remove door delete no row, write no activity line and bump no version.",
+"F195": "the environment's app in effect with a saved row present: no Replace or Remove control; the POST changes nothing and answers the page",
+"F196": "the environment's app in effect with no saved row: no Replace or Remove control; the POST changes nothing",
+"F197": "the saved app in effect: both controls offered and the POST removes it",
+"F198": "no app in effect: neither control offered, and the POST changes nothing",
+"F199": "The offer set is a pure function of the app in effect and the key mode, both closed enums.",
+"F2": "An instance admin rotates a Slack secret, switches to another Slack app, or removes Slack from the browser, seeing how many connected workspaces each change affects before anything changes",
+"F20": "Submitting the replace form with the saved app's own client ID and the secret field left blank keeps the secret already saved: nothing is cleared and Slack is not left without a secret.",
+"F200": "A GET of the confirm door or of the remove door leaves the stored rows, the activity table and the config version exactly as they were.",
+"F201": "GET the confirm door twice with a pending row: the row, the activity list and the version unchanged",
+"F202": "GET the confirm door with no pending row: nothing changed, the page answered",
+"F203": "GET the remove door twice with a saved app: the row, the activity list and the version unchanged",
+"F204": "The two GET handlers reach only read methods, which the table and the capability set together decide.",
+"F205": "Removing the saved app changes no connection row, writes no lost_reason, sends no notice and cancels no delivery; afterwards a workspace integrations page reads W-2 and POST /integrations/slack/events answers 401.",
+"F206": "one connected workspace: its connection state and lost_reason unchanged, no email recorded, its pending delivery still pending",
+"F207": "no connected workspace: nothing to preserve, the removal still answers I-16",
+"F208": "after removal: the workspace integrations page reads W-2 and an event signed with the removed signing secret answers 401",
+"F209": "The preserved set is the shipped connection and delivery rows; the cases are the presence or absence of one connection.",
+"F21": "A replace that keeps the same client ID is saved straight away, with no confirmation page or extra confirming step in between.",
+"F210": "A Rotate that keeps a secret re-seals the secret the server already holds opened, so the app in effect opens afterwards to the same secrets it opened to before, except for the fields the Rotate replaced.",
+"F211": "both fields blank: both opened secrets equal to before",
+"F212": "the signing secret replaced: the opened client secret equal to before, the signing secret the new one",
+"F213": "both replaced: both opened secrets the new ones",
+"F214": "Three cases cover the closed set of kept-or-replaced combinations for two fields, with the blank-blank case the identity.",
+"F215": "A saved, replaced or removed app is in effect on every replica within 60 seconds of its commit, with no restart.",
+"F216": "two replicas on one database, the shared clock advanced past one reload interval, each replica asked directly after a replace",
+"F217": "the same after a removal: both replicas answer 401 to an event signed with the removed secret",
+"F218": "The shipped version poll and reload carry it; the finite observation is the two-replica scenario. The quantified-over-time form of this claim is the TLA+/TLC obligation recorded as INDETERMINATE.",
+"F219": "Every write in this design is refused when the key it sealed under is no longer the sealing key, and the pending row's secrets are re-sealed with every other sealed value when the secrets key moves.",
+"F22": "Within 60 seconds of such a save, every replica accepts Slack's events using the signing secret now in effect, so Slack keeps working whichever replica answers.",
+"F220": "a save sealed under a superseded key: refused, nothing stored, the handler reloads and retries once",
+"F221": "a pending hold sealed under a superseded key: refused, no pending row",
+"F222": "a Move while a pending row exists: the pending secrets re-sealed with the rest, and still openable at the confirm",
+"F223": "a Move while a pending row exists: the I-22 credential count unchanged by the pending row",
+"F224": "The fence and the re-seal set are decided per write; the cases are the superseded-key write and the re-seal with and without a pending row.",
+"F225": "I-14 and I-15 each read the form the connected-workspace count selects: no workspace, exactly one, or more than one.",
+"F226": "0 connected workspaces: I-15's n = 0 form; I-14 is not reached",
+"F227": "1 connected workspace: I-14's n = 1 form; I-15's n = 1 form",
+"F228": "2 connected workspaces: I-14's n >= 2 form; I-15's n >= 2 form reading 2",
+"F229": "3 connected workspaces: I-14's n >= 2 form; I-15's n >= 2 form reading 3",
+"F23": "After that save Priya reads \"Saved. Workspace admins can now choose Add to Slack.\"",
+"F230": "The count partitions into the three locked forms at 0, at 1 and above 1, so four cases decide the whole mapping.",
+"F231": "A blank secret field can always keep the saved value, whatever client ID the form submitted.",
+"F232": "The carrier was one three-field form with no notion of which app it names. The saved secrets belong to the saved app, so keeping them under a different client ID would seal the old app's secrets to a new app's ID. The missing distinction is the submission's own kind, not a guard added over the unchanged form.",
+"F233": "Client ID 6123456789012.8888888888888 with both secret fields blank over the saved app 6123456789012.7234567890123: the save would store the new ID with the old app's secrets, and every event and every code exchange would then fail.",
+"F234": "The submitted app awaiting its confirm can be held in the session table.",
+"F235": "The session table sits outside the seal fence and outside the re-seal set, so its ciphertext is not re-sealed when the sealing key changes; the law that every sealed value is re-sealed does not hold over that carrier.",
+"F236": "A Move between the submission and the confirm re-seals every sealed value but not the session row, so the confirm opens nothing and the admin's submission is silently lost.",
+"F237": "The connected-workspace count can be read from this server's rebuilt integrations.",
+"F238": "A workspace connection does not bump the config version, so the rebuilt value is stale by construction; the count must be read from the store at the moment it is used, which is a different observation than the reload's snapshot.",
+"F239": "A workspace connects after the last version bump: the gate reads zero connected workspaces and saves a different app at once, with no I-14 at all.",
+"F24": "Switching to a client ID different from the current app's is accepted only when Priya supplies both secrets.",
+"F240": "The saved Slack app only ever becomes an app that an instance admin submitted and, where that submission named a different client ID while workspaces were connected, that the same instance admin confirmed before its 10-minute expiry.",
+"F241": "A switched app that nobody confirmed silently breaks every connected workspace's posting and every event's verification, with no warning and no record of who chose it.",
+"F242": "a POST body of three trimmed form fields from an authenticated instance admin, plus the stored pending row and the injected clock's now",
+"F243": "GET /admin/instance/integrations names the app in effect and its activity line names who replaced it; Add to Slack's client ID and the event verification follow the same app",
+"F244": "An outside writer of instance_slack_app or instance_slack_app_pending, a restore of the database from backup, or a previous-release replica during a roll that does not know the pending table.",
+"F245": "No confirm page, remove page, activity line or log line can carry a Slack secret.",
+"F246": "A leaked client or signing secret lets anyone impersonate this Foundry to Slack and forge its events.",
+"F247": "the stored sealed secrets and the submitted form values",
+"F248": "The rendered pages hold the client ID and never a secret, and the acceptance lane greps the page and the audit table for planted secrets",
+"F249": "A template interpolating a sealed value or a form field directly instead of the typed page state, a log line formatting the submission, or a database dump.",
+"F25": "If either secret is left blank with a different client ID, Priya reads \"Enter the {field} from the Slack app's Basic Information.\" naming the field she left blank, and the Slack app in use is unchanged.",
+"F250": "A GET of the confirm door or the remove door is side-effect free.",
+"F251": "A link prefetch or a crawler would otherwise switch or remove the Slack app for the whole instance without anyone choosing it.",
+"F252": "an authenticated instance admin's GET with no body",
+"F253": "After two GETs of either door, the instance page, its activity list and the config version read exactly as before",
+"F254": "A handler that calls a write method from a GET, which only rustc's capability split and the review can exclude.",
+"F255": "A pending row whose expiry has passed and whose retention sweep has not yet run: present, and applicable to nobody.",
+"F256": "A saved app in effect and a pending row for a different app at the same time: the saved app stays in effect until the confirm.",
+"F257": "The environment's app in effect with a saved app also stored: the environment wins, and Replace and Remove are withheld.",
+"F258": "No app in effect after a removal, with Slack connections still holding their bot tokens.",
+"F259": "Two pending apps at once: excluded by the single-row primary key with CHECK (id = 1).",
+"F26": "While at least one workspace is connected to Slack, submitting a different client ID takes Priya to a separate confirmation page instead of saving.",
+"F260": "A saved or pending app with only one of its two secrets written: excluded by the NOT NULL columns and the single upsert.",
+"F261": "A confirm that applies a row it did not read in the same transaction: excluded by the exclusive advisory lock held across the read, the write and the delete.",
+"F262": "A pending app sealed under a key that is not the sealing key: excluded by the fence on the hold.",
+"F263": "A pending row that no held key opens after an outside restore of the database: the confirm cannot open it. The confirm treats it as absent and the boot probe names it.",
+"F264": "Events from a replaced app arriving after the switch: they fail verification, and uninstall detection for those workspaces falls back to refusals.",
+"F265": "How long a workspace admin takes to reconnect Slack after a replace or a removal.",
+"F266": "The saved app, whenever present, was either saved directly by an admin whose submission named the app in effect or found no connected workspace, or applied by the same admin who held the pending row, read before its expiry.",
+"F267": "A held pending row is always sealed under the current sealing key, because a secrets-key Move re-seals it with every other sealed value.",
+"F268": "A reachability witness, expected to be violated: its counterexample is the trace that constructs a saved app, so the safety claim is not vacuous.",
+"F269": "A reachability witness, expected to be violated: its counterexample is the trace that constructs a saved app through the confirm route.",
+"F27": "The confirmation page tells Priya how many workspaces are connected, worded in the singular when exactly one is connected, and names the client ID of the app currently in effect.",
+"F270": "One transaction under the advisory lock: the gate, then either the fenced upsert with its activity line and version bump, or the fenced pending hold.",
+"F271": "One transaction under the exclusive advisory lock: the read of the pending row, the requester and expiry decision, the upsert, the delete, the activity line and the version bump.",
+"F272": "One transaction under the exclusive advisory lock: the delete, the activity line and the version bump.",
+"F273": "One statement deleting expired pending rows, outside any other write.",
+"F274": "One transaction under the exclusive advisory lock, re-sealing every sealed value including the pending row.",
+"F275": "One transaction under the shared advisory lock; it bumps no config version.",
+"F276": "Every instance write serialises on one Postgres advisory exclusive lock (ADR-IIS-004 r1), so one model action is one committed transaction; the model explores the orderings of those transactions, not interleavings inside one.",
+"F277": "The injected clock is monotone on a single server; skew between replicas is outside the model and is carried as a residual risk.",
+"F278": "Two apps and two instance admins, a clock horizon of 4 and an expiry of 2 ticks, with up to 2 connected workspaces, are enough to exhibit every ordering the claim quantifies over; the exhaustive check runs to computation length 12.",
+"F279": "The environment's app is fixed for a run, which is how a server reads it: its trio is read at boot and a change needs a restart.",
+"F28": "Nothing changes while that confirmation is pending: Slack keeps working with the current app until Priya chooses \"Save the new app\".",
+"F280": "A confirm that applies the pending row for any instance admin, not only its requester: the requester check is removed from the applying branch.",
+"F281": "A confirm that applies the pending row whatever the clock says: the expiry check is removed from the applying branch.",
+"F282": "A secrets-key Move that re-seals every sealed value but forgets the pending row.",
+"F283": "A submit that saves a different client ID at once even while workspaces are connected, so the confirm is never reached.",
+"F284": "Whenever the pending row is expired, it eventually stops being expired: the sweep, a confirm or a fresh hold removes it.",
+"F285": "The pending row, its requester, the clock and the expiry stay inside their declared ranges.",
+"F286": "One delete statement of its own.",
+"F287": "One fenced transaction under the shared advisory lock.",
+"F288": "Weak fairness on the retention sweep and on the clock: the worker runs and time advances. Without that fairness the claim is false, which the no-fairness run shows.",
+"F289": "Two admins, two apps, an expiry of 2 ticks and a clock horizon of 3 bound the state space to 44 distinct states, so the check is over the complete state space rather than a sample.",
+"F29": "The confirmation page shows neither of the secrets Priya just submitted.",
+"F290": "A hold, a confirm and a sweep are each one committed transaction, as in the Quint model.",
+"F291": "The same specification with no fairness at all, so the sweep may stutter forever while a row is expired.",
+"F292": "A progress mutant under fairness: a sweep that only deletes rows held by one named admin, so another admin's expired row survives.",
+"F293": "Whenever a replica's applied version differs from the committed config version, that replica eventually applies the committed version, with no restart.",
+"F294": "The committed version and every replica's applied version stay inside their declared range.",
+"F295": "One transaction that writes the change, its activity line and the version bump together.",
+"F296": "One REPEATABLE READ snapshot read, with the version read first (ADR-IIS-004 r4).",
+"F297": "Weak fairness on each replica's reload task: every replica's reload runs. Without it the claim is false, which the no-fairness run shows.",
+"F298": "Two replicas and at most three committed versions bound the state space to 60 distinct states, so the check is over the complete state space.",
+"F299": "The model carries eventual convergence only. The 60-second figure of the promise follows from the configured poll interval, FOUNDRY_INTEGRATIONS_RELOAD_MS with its 5000 ms default, and is observed by the two-replica acceptance scenario, not proved here.",
+"F3": "POST /admin/instance/integrations/slack (replace) with the saved app's client ID: the form shows the client ID pre-filled; a blank secret field keeps the saved value; there is no confirm; the change applies as in US-IIS-03 AC 1 (Slack events verify with the new signing secret on every replica within 60 seconds); Priya reads \"Saved. Workspace admins can now choose Add to Slack.\"",
+"F30": "The submitted app is held for only 10 minutes: confirming after that does not save the new app.",
+"F300": "The same specification with no fairness, so a replica may stutter forever and never apply the committed version.",
+"F301": "A progress mutant under fairness: a replica that reloads only when the committed version is even, so an odd version never reaches it.",
+"F302": "The pending-app provenance claim: the saved app only ever becomes a submitted and same-admin-confirmed app",
+"F303": "Quint 0.33.1 with the Apalache 0.62.4 backend checked provenanceInv exhaustively over init and step to length 12 with the outcome NoError, and each of four behavioural mutants - a confirm ignoring the requester, a confirm ignoring the expiry, a Move forgetting to re-seal the pending row, and a submit saving while workspaces are connected - is refuted, by simulation and exhaustively. Two reachability witnesses are violated as intended, so the claim is not vacuous: both a save and a confirm-route save are constructed.",
+"F304": "No secret on a page, in the activity table or in a log line",
+"F305": "rustc over the typed page-state structs, which declare no secret field, plus the exhaustive page table; the one route no checker closes is a template writing a sealed value literally, recorded as a Bypass risk.",
+"F306": "A GET of either door changes nothing",
+"F307": "rustc over the read-only capability the GET handlers hold, plus the finite table over two GETs of each door.",
+"F308": "The submission verdict is total over the three-field form",
+"F309": "rustc rejects a non-exhaustive match over the closed SlackChange and Refusal enums, and the exhaustive table decides the whole relation.",
+"F31": "Only the same instance admin who submitted the change can complete the confirmation; a confirmation sent by anyone else does not save the app.",
+"F310": "The offer set and the remove gate are total over the app in effect",
+"F311": "rustc over the closed AppInEffect and KeyMode enums, with the finite table covering every pair.",
+"F312": "A replaced app exists: a submitted and confirmed app becomes the saved app",
+"F313": "Admitted input: a POST of client ID 6123456789012.8888888888888 with both secrets by an instance admin. Constructor: SlackSubmission::judge then plan_hold_pending then Store::hold_pending_slack_app then Store::apply_pending_slack_app. Consumer: the page, events and install through IntegrationsHandle::current. Acyclic from the POST body, with no bootstrap needed.",
+"F314": "A removed app exists: no app in effect with connections intact",
+"F315": "Admitted input: an instance admin's POST of /admin/instance/integrations/slack/remove with a saved app in effect. Constructor: Store::remove_slack_app. Consumer: NoConnectionCause::words on the workspace page and the event verification. Acyclic from the POST.",
+"F316": "The I-14 confirm reaches a public observation",
+"F317": "POST /admin/instance/integrations/slack reaches save_slack_app in handlers/instance.rs, which holds the pending row and answers the confirm page; GET /admin/instance/integrations/slack/confirm renders slack_confirm.html; POST of it reaches confirm_slack_app and the saved app is then observed on GET /admin/instance/integrations and through Add to Slack's client ID.",
+"F318": "The I-15 remove confirm and I-16 reach a public observation",
+"F319": "GET /admin/instance/integrations/slack/remove renders slack_remove.html with the count from Store::connected_slack_workspaces; POST of the same path reaches remove_slack_app and answers I-16, observed on the instance page, on GET /workspace/integrations as W-2 and as a 401 from POST /integrations/slack/events.",
+"F32": "The same confirmation step guards replacing a Slack app that came from the environment, not only one saved through the admin UI.",
+"F320": "An expired pending app is eventually deleted",
+"F321": "TLC 1.7.4 checked SweptEventually over the complete state space of pending_sweep.tla: no error under weak fairness on the sweep and the clock, a counterexample with no fairness at all, and a counterexample for a sweep that only deletes one admin's rows. The fairness assumption is load-bearing and named, and the single-row table bounds the residue to one row.",
+"F322": "A committed change is in effect on every replica within 60 seconds",
+"F323": "TLC 1.7.4 checked Converges over the complete state space of replica_convergence.tla: no error under weak fairness on each replica's reload, a counterexample with no fairness, and a counterexample for a replica reloading only on an even version. The model carries the eventual convergence; the 60-second figure follows from the configured 5000 ms poll interval and is observed by the two-replica scenario.",
+"F324": "Assumption negated: every replica's clock agrees. A replica whose clock lags judges a pending row unexpired after the holder's ten minutes have passed.",
+"F325": "Only the requester can apply it, and it applies at most once.",
+"F326": "A confirm succeeding slightly after the ten minutes on a lagging replica.",
+"F327": "Another instance admin applying it, or an applied row surviving its own application.",
+"F328": "The expiry is only as sharp as the worst clock skew between replicas.",
+"F329": "Assumption negated: a worker is running. With no worker, expired pending rows are never swept.",
+"F33": "Opening the remove page only shows information and removes nothing, including when a browser or link preview prefetches it.",
+"F330": "No expired row can ever be applied, because the confirm judges the expiry itself.",
+"F331": "One stale row sitting in the single-row table.",
+"F332": "An expired row applying.",
+"F333": "None beyond one row of sealed bytes, which the next hold overwrites.",
+"F334": "Assumption negated: the store answers. The connected-workspace count read fails while I-14 or I-15 is being rendered.",
+"F335": "Nothing is written.",
+"F336": "The door answering the instance page with the reason logged and no count rendered.",
+"F337": "A failed read rendered as a count of zero, so I-15's n = 0 form stands in for an unknown count.",
+"F338": "The design must carry an unread count as its own case, not as zero.",
+"F339": "Assumption negated: only this Foundry writes its tables. An operator edits instance_slack_app_pending by hand or restores it from a backup.",
+"F34": "The remove page tells Priya how many workspaces are connected to Slack, with its own wording for the case where no workspace is connected.",
+"F340": "The fence refuses a row sealed under another key, and the confirm opens nothing it cannot open.",
+"F341": "The confirm finding nothing to apply and answering the page.",
+"F342": "Applying a row no held key opens.",
+"F343": "An unopenable pending row is named by the boot probe and must be cleared by the operator.",
+"F344": "Assumption negated: the connected set is stable while a confirm is open. A workspace connects or disconnects between the I-14 count and the confirm.",
+"F345": "The confirm still applies for its requester.",
+"F346": "I-14 having named a count that has since changed.",
+"F347": "The count deciding whether the confirm applies.",
+"F348": "I-14's count is a reading taken at render time, by design.",
+"F349": "The one instance-integrations advisory lock serializes every instance write: Replace, the pending hold, the confirm, Remove, Generate and Move.",
+"F35": "Submitting the removal removes the saved Slack app and Priya reads \"Removed. Slack is not set up on this Foundry.\"",
+"F350": "Correctness: no two instance writes interleave.",
+"F351": "A door waiting for the lock.",
+"F352": "A write proceeding without the lock, or a row lock taken before it.",
+"F353": "A long transaction stalls every instance write for its duration.",
+"F354": "The single-row instance_slack_app row is the only saved app, so a removal leaves the instance with no app until one is saved again.",
+"F355": "Every connection and its bot token.",
+"F356": "Slack being unavailable instance-wide until an app is saved.",
+"F357": "Connections being marked lost, workspace admins being emailed, or deliveries being cancelled.",
+"F358": "The gap is the instance admin's own intent, which I-15 states before the removal.",
+"F359": "A template interpolating a sealed value or a submitted form field directly instead of the typed page state.",
+"F36": "After removal a workspace admin opening the workspace integrations page sees Slack presented in its W-2 state rather than as an app available to add.",
+"F360": "Nothing: the claim would be broken.",
+"F361": "Nothing.",
+"F362": "Any secret in a response body.",
+"F363": "No checker decides a template's literals; the acceptance grep for planted secrets and the implementation review carry it.",
+"F364": "SQL naming an instance table outside crates/foundry-store/src/integrations/instance.rs, or a sealed-column write outside the fenced writers.",
+"F365": "One writer per table and the fence on every sealed write.",
+"F366": "An unfenced sealed write or a second writer of the pending table.",
+"F367": "check-arch decides it lexically over string literals, so a query assembled at runtime escapes it.",
+"F368": "Process failure between the pending hold and the confirm, or inside a write between the delete and the version bump.",
+"F369": "Each write is one transaction, so a failure leaves the previous state whole.",
+"F37": "After removal Slack's event callbacks are refused with 401, so the removed app can no longer deliver events.",
+"F370": "A lost pending row, which the admin can submit again.",
+"F371": "A committed app with no version bump or no activity line.",
+"F372": "None within one transaction; across the two steps the admin repeats the submission.",
+"F373": "Second walk: a replica rolls back to a previous release while a pending row exists, so the older code does not know the pending table.",
+"F374": "The pending row and the saved app are untouched by the older code.",
+"F375": "The confirm door answering the uniform 404 on the old replica.",
+"F376": "An old replica saving the new app with no confirm.",
+"F377": "The confirm door must exist on every replica before an admin is sent to it; the roll order is the operator's.",
+"F378": "Second walk: the same instance admin opens two tabs on the confirm page and posts both.",
+"F379": "Exactly one save.",
+"F38": "After removal the Slack connection states already shown on the workspace integrations page are not marked lost or broken, and no workspace admin is emailed about the removal.",
+"F380": "The second tab answering the page with nothing changed.",
+"F381": "Two saves or two activity lines for one submission.",
+"F382": "None: the row is deleted inside the applying transaction.",
+"F383": "Second walk: a workspace admin connects Slack through the old app between the submission and the confirm.",
+"F384": "The new connection keeps its own bot token and its state.",
+"F385": "I-14's count being one short of the truth at the moment of the confirm.",
+"F386": "The new connection being marked lost or dropped.",
+"F387": "The count is a reading, and the new workspace keeps posting through the old app like the others.",
+"F388": "Second walk: an instance admin is removed as an instance admin between the submission and the confirm.",
+"F389": "The pending row stays unapplied.",
+"F39": "Slack deliveries already pending when the app is removed keep waiting on the route history instead of failing at once, still bounded by the 24-hour give-up.",
+"F390": "The confirm answering the uniform 404 and the row expiring unapplied.",
+"F391": "A confirm applying for someone who is no longer an instance admin.",
+"F392": "None: the guard runs before the body on every door.",
+"F393": "SQL naming instance_slack_app_pending appears only in crates/foundry-store/src/integrations/instance.rs, and every write of a sealed column stands inside a listed fenced writer, the new pending hold included (ADR-IIS-001 Enforcement, ADR-IIS-004 r2). The check covers every crate's src, members added later included.",
+"F394": "A stored activity action written by the store renders as I-18 words it, so a persisted slack_app_replaced or slack_app_removed row written by one release reads correctly in another; the generic underscore fallback must not answer for either.",
+"F395": "After the real store writes carry out a replace and a removal, GET /admin/instance/integrations Activity reads the two I-18 lines with their client IDs, not 'slack app replaced' or 'slack app removed'.",
+"F396": "The submission kind, the replace-aware verdict and the plan that re-seals a kept saved secret.",
+"F397": "The replace form's pre-filled client ID, the replace notice and the I-18 replaced arm.",
+"F398": "The replace form over a saved app in effect: the client ID pre-filled, both secret fields empty.",
+"F399": "With the Slack app 6123456789012.7234567890123 saved and in effect and no workspace connected to Slack, Priya Raman POSTs /admin/instance/integrations/slack through the production router behind require_instance_admin, with her CSRF token, the same client ID, a blank client secret and the new signing secret b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05. In a second run she POSTs the client ID 6123456789012.8888888888888 with a blank client secret.",
+"F4": "POST /admin/instance/integrations/slack with a client ID different from the current app's requires both secrets; a blank one answers I-11 (\"Enter the {field} from the Slack app's Basic Information.\") and changes nothing.",
+"F40": "After a replace, the instance integrations Activity list shows a dated line naming the person who replaced the Slack app and the client ID involved.",
+"F400": "The first response reads 'Saved. Workspace admins can now choose Add to Slack.', the page still reads app 6123456789012.7234567890123 with both secrets set, and the Activity list reads '21 Oct 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)'. Within 60 seconds and with no restart, POST /integrations/slack/events signed with the new signing secret verifies on each replica asked directly, while Add to Slack still exchanges Slack's code with the kept client secret. The second response reads 'Enter the client secret from the Slack app's Basic Information.', keeps the typed client ID in the form with both secret fields empty, and the saved app, the activity list and the config version are unchanged.",
+"F401": "A blank client secret that clears or replaces the saved client secret, so Add to Slack's code exchange fails; a replace whose activity line reads 'saved the Slack app' or 'slack app replaced'; a different client ID with a blank secret that saves; or a new signing secret that verifies on the posting replica but not on the other within 60 seconds.",
+"F402": "L2: move the three per-field shape checks and the first-failing-field order out of SlackAppForm::refusal into a SlackFields value object that judges one named field at a time, with no verdict changed. It makes the follow-up change easier: the replace path asks the same object a different question - which fields this submission requires - instead of duplicating the checks.",
+"F403": "Every verdict of SlackField::check and SlackAppForm::refusal, including the trimming, the form order and the Refusal variants; the module's existing table test and its three property tests are unchanged in content.",
+"F404": "The verdict now depends on which app the submission names, so the one refusal rule is extended rather than copied into a replace-only rule.",
+"F405": "It is the one map from a Refusal to its I-11 or I-12 words; the replace path refuses with the same words.",
+"F406": "I-6 and the two secret-set lines already describe the saved app, and the replace form sits beside them unchanged.",
+"F407": "It already opens both saved secrets, which is exactly what a kept field needs; nothing new opens a stored secret.",
+"F408": "The saved-app section gains the replace form with its pre-filled client ID.",
+"F409": "The verdict reads the current app and the saved secrets.",
+"F41": "After a removal, the instance integrations Activity list shows a dated line naming the person who removed the Slack app and the client ID involved.",
+"F410": "The save door reads the current app before judging, and the notice and the activity arm follow.",
+"F411": "The single-row pending table with its 10-minute expiry column, in its own migration.",
+"F412": "The fenced pending hold, the apply-and-delete, the connected-workspace count, the pending row in the re-seal set and in the snapshot.",
+"F413": "The hold, confirm, count and prune methods on the one instance-write capability.",
+"F414": "The two pending sealing slots and the sealed pending plan.",
+"F415": "The sealed_slot arms for the two pending secrets and the boot probe's view of them.",
+"F416": "The I-14 gate on the save door, and the confirm door's GET and POST.",
+"F417": "I-14 with its count and the current client ID, one Save the new app control and no secret.",
+"F418": "The GET and POST routes for the confirm door, behind the same guard and CSRF.",
+"F419": "The pending hold joins SEAL_FENCED_WRITERS.",
+"F42": "While the environment supplies the Slack app in effect, the instance integrations page offers Priya neither Replace nor Remove.",
+"F420": "With Canzan Labs connected to Slack through the saved app 6123456789012.7234567890123, Priya Raman POSTs /admin/instance/integrations/slack with client ID 6123456789012.8888888888888 and both of its secrets, GETs /admin/instance/integrations/slack/confirm, then POSTs it. In further runs Tomas Rivera, also an instance admin, POSTs the confirm instead; Priya POSTs it eleven minutes later on the shared clock; and the whole run is repeated with all three SLACK_ settings in the environment so the environment's app is the current one.",
+"F421": "The first POST answers the confirm page reading '1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?' with a Save the new app control and no secret anywhere in it, while GET /admin/instance/integrations still names app 6123456789012.7234567890123 and the config version is unchanged. Priya's confirm then saves 6123456789012.8888888888888, the Activity reads 'Priya Raman replaced the Slack app (6123456789012.8888888888888)' and Add to Slack sends her to that client ID. Tomas's confirm changes nothing and answers the page; so does Priya's confirm eleven minutes later. With the environment's app current, the same POST answers the same I-14 line with the environment's client ID and the same confirm saves the new app.",
+"F422": "The first POST saving the new app or bumping the version; the confirm page carrying either secret; the count reading 0 or 3 for one connected workspace, or using the n >= 2 wording for it; another instance admin's confirm saving it; an expired pending app still applying; a second confirm saving a second time; or the environment-app run skipping the confirm.",
+"F423": "The confirm's apply is the same fenced upsert with its source the pending row, so the write is not duplicated.",
+"F424": "The hold and the apply report through the same outcome type the shipped save uses, so the handler keeps one retry rule.",
+"F425": "The stale-key retry is already defined once; the hold and the apply use it unchanged.",
+"F426": "It is the shape a timed prune on the retention tick takes, so the pending prune follows it rather than inventing a second sweep shape.",
+"F427": "The slot construction is already defined; the pending slots are two more of the same kind, bound to the pending row.",
+"F428": "The router is the one public door list, behind the same session, CSRF and instance-admin layers as the shipped instance doors, so the confirm door's GET and POST is added there rather than in a second router or a nested route group.",
+"F429": "A new single-row table; no shipped table is altered.",
+"F43": "In that state a removal Priya submits anyway changes nothing and answers with the integrations page rather than removing the app or showing a dead end.",
+"F430": "GET and POST of the confirm door are added.",
+"F431": "The sweep gains the expired-pending prune.",
+"F432": "The pending hold is listed as a fenced writer.",
+"F433": "The pending row joins the snapshot; the reload ignores it and the boot probe counts its secrets among the values a held key must open.",
+"F434": "sealed_slot gains the two pending arms, and the boot probe counts the pending secrets among the values a held key must open.",
+"F435": "A new template: I-14 with its count and the current client ID, one Save the new app control, and no secret or form field.",
+"F436": "S2 adds a table, a door and store functions beside the shipped ones and moves no shipped behaviour: the save door's existing body keeps its shape and gains a gate before it. The one preserving move this Request needs is S1's field-object extraction, declared there, and repeating it here would be a second claim over the same move.",
+"F437": "The fenced remove: delete the row, record slack_app_removed, bump the version, in one transaction.",
+"F438": "The remove method on the one instance-write capability.",
+"F439": "The remove door's GET and POST, I-15, I-16, the Replace and Remove offers and the I-18 removed arm.",
+"F44": "I-15 gains an n = 1 form, approved by the user 2026-11-09: \"Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack.\" (n ≥ 2 and n = 0 forms unchanged).",
+"F440": "I-15 with its count and one Remove control.",
+"F441": "The Replace and Remove controls over a saved app in effect, and neither under the environment's app.",
+"F442": "The GET and POST routes for the remove door, behind the same guard and CSRF.",
+"F443": "With Canzan Labs connected to Slack through the saved app 6123456789012.7234567890123 and a pending delivery on one of its routes, Priya Raman GETs /admin/instance/integrations/slack/remove twice and then POSTs it, each through the production router with her CSRF token. In a second run all three SLACK_ settings are in the environment and she GETs and POSTs the same door. In a third run no workspace is connected.",
+"F444": "Each GET reads 'Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack.' and Slack is still set up after both of them, with the activity list and the config version unchanged. The POST answers 'Removed. Slack is not set up on this Foundry.', the Activity reads '21 Oct 2026 . Priya Raman removed the Slack app (6123456789012.7234567890123)', Canzan Labs' workspace integrations page reads 'Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once.' with its Slack connection not marked lost, the mail double has recorded no email, the pending delivery is still pending under the 24-hour give-up, and POST /integrations/slack/events answers 401 on each replica asked directly. With the environment's app in effect the instance page offers neither Replace nor Remove and both the GET and the POST change nothing and answer the page. With no workspace connected the GET reads 'Remove the Slack app from this Foundry? No workspace is connected to Slack.'",
+"F445": "A GET that removes the app or bumps the version; a removal that marks the connection lost, writes a lost_reason, records an email or cancels the pending delivery; a removal while the environment's app is in effect; the n = 0 wording for one connected workspace, the n = 1 wording for none, or the n >= 2 plural wording for one; an event still verifying after the removal; or an activity line reading 'slack app removed'.",
+"F446": "The shape of an offer that knows its label, its door and when it applies is already here; SlackOffer follows it so the page keeps one way of offering a control.",
+"F447": "The remove ends like every other instance write: one activity line, one version bump, one commit.",
+"F448": "After the removal the workspace page's W-2 comes from the shipped cause set with no new words, as Request 1 left it.",
+"F449": "It is the shape a door's notice takes; I-16 is one more notice of that kind.",
+"F45": "Claim-to-checker mapping, each claim checked by the checker that decides it. Quint with the Apalache backend decides the pending-app lifecycle, whose safety is quantified over orderings of separate atomic transactions (submit, confirm, remove, the retention sweep, a secrets-key Move) and which exhaustive finite tables over single-transition pure functions cannot decide: the model is pending_app_provenance.qnt, checked exhaustively to length 12 with no error, with four behavioural mutants each refuted by the property it targets and two reachability witnesses violated as intended. TLA+/TLC decides the two temporal claims that need fairness: pending_sweep.tla for the eventual sweep of an expired pending row and replica_convergence.tla for a committed change reaching every replica, each run three times - with fairness, without fairness and with a progress mutant under fairness - where only the fairness run is free of a counterexample. Agda is not selected: no obligation here exceeds a decidable finite relation. Every local, pure, finite claim - the field shapes, the submission kind, the app in effect, the I-14 and I-15 count forms, the offer set, the side-effect-free GET - is decided by the repository own checker, rustc, over closed enums plus exhaustive tables. Every checker runs in a pinned container inside the shared local-dev Lima VM, with nothing installed on the Mac.",
+"F450": "The router is the one public door list, behind the same session, CSRF and instance-admin layers as the shipped instance doors, so the remove door's GET and POST is added there rather than in a second router or a nested route group.",
+"F451": "The saved-app section gains the Replace and Remove controls, withheld under the environment's app.",
+"F452": "GET and POST of the remove door are added.",
+"F453": "The fenced remove joins the writes beside the save.",
+"F454": "It already reads W-2 from the shipped cause when no app is in effect, so a removal needs no change there.",
+"F455": "A new template: I-15 in the form the connected-workspace count selects, with one Remove control.",
+"F456": "S3 adds one store write, one door and two page offers beside the shipped ones; no shipped behaviour moves first. The page's offer decision follows the shipped KeyOffer shape already in place, so there is nothing to extract, and S1 declares this Request's one preserving move.",
+"F46": "The submitted app awaiting confirmation lives in its own single-row table instance_slack_app_pending (client_id, sealed_client_secret, sealed_signing_secret, requested_by, expires_at), added by its own migration 0034, never in the session table (ADR-IIS-003 r4).",
+"F47": "The current app a submission is compared against is the app in effect: the environment's when its trio is set, else the saved app whose secrets open. So the I-14 gate and I-14's old client ID read the same client ID the page names in I-6 or I-7.",
+"F48": "A blank secret field keeps the saved value by re-sealing the secret the app layer already holds opened, so SlackAppSave keeps both sealed columns required and all sealing stays in slack_app.rs. Where the saved app does not open (I-13) a blank field has nothing to keep and answers I-11 for that field.",
+"F49": "The pending row's two secrets join the three shipped sealed-value sets - the seal fence, reseal_sealed_values and the boot probe - as ADR-IIS-003 r4 requires, but they are not credentials in I-22's count, which stays connections plus the saved app (ADR-IIS-001).",
+"F5": "POST /admin/instance/integrations/slack with a different client ID while Slack connections exist redirects to GET /admin/instance/integrations/slack/confirm, which shows I-14 with the connected-workspace count and the current client ID (the n = 1 form for one workspace) and changes nothing until \"Save the new app\"; the submitted app is held sealed for 10 minutes so the confirm page holds no secret; only the same instance admin's POST /admin/instance/integrations/slack/confirm saves it. This applies equally when the current app is the environment's (US-IIS-06 AC 6).",
+"F50": "Carriers and owners. The submission and its verdict are SlackSubmission, SlackChange and the shipped Refusal, owned by crates/foundry-app/src/integrations/slack_app.rs; the page's Replace and Remove controls are a closed SlackOffer set shaped like the shipped KeyOffer, owned by crates/foundry-app/src/integrations/handlers/instance.rs; effects are the fenced writes save_slack_app, hold_pending_slack_app, apply_pending_slack_app and remove_slack_app, owned by crates/foundry-store/src/integrations/instance.rs; errors are SlackSaveOutcome extended with the pending and remove outcomes plus StoreError, owned by that same module; per-process state stays the shipped Integrations held by IntegrationsHandle in crates/foundry-app/src/integrations/mod.rs, rebuilt by the shipped reload.",
+"F51": "With the environment's app in effect the page offers neither Replace nor Remove, and both the GET and the POST of the remove door change nothing and answer the page (ADR-IIS-003 r5). The shipped save form stays where the environment's app is in effect (US-IIS-06 AC 4, I-17), and a POST through it with a client ID different from the environment's while workspaces are connected answers I-14 first (US-IIS-06 AC 6).",
+"F52": "Remove deletes the instance_slack_app row, records slack_app_removed and bumps the config version in one locked transaction, and touches nothing else: no connection row, no lost_reason, no notice, no delivery. Afterwards workspaces read W-2 through the shipped NoConnectionCause, POST /integrations/slack/events answers 401 through the shipped verification, and pending deliveries keep failing transiently under the shipped 24-hour give-up.",
+"F53": "activity_line gains its slack_app_replaced and slack_app_removed arms, so I-18 reads 'replaced the Slack app (client_id)' and 'removed the Slack app (client_id)' instead of the generic underscore fallback. The stored action names and their CHECK are already in migration 0033, so the activity table needs no migration.",
+"F54": "The connected-workspace count is one read in crates/foundry-store/src/integrations/instance.rs over integration_connections with kind slack and a state other than disconnected, counting distinct workspace_id. The I-14 gate reads it inside the write's own locked transaction; the I-14 and I-15 pages read it per request, never from a rebuilt Integrations, because a workspace connection does not bump the config version.",
+"F55": "POST of the confirm door applies the pending row only when its requester is the posting instance admin and its expiry is after the injected clock's now, and deletes it in that same transaction. A second confirm, another instance admin's confirm and an expired confirm therefore all find nothing and answer the page. A new submission overwrites the row.",
+"F56": "GET of the confirm door and GET of the remove door read and render only: a prefetch of either changes no row, writes no activity line and bumps no version.",
+"F57": "ADR-IIS-001, ADR-IIS-003, ADR-IIS-004 and ADR-IIS-005 carry this design unchanged, including their Proposed status; this Request adds no ADR and changes no ADR body.",
+"F58": "What the replica model carries and what it does not: replica_convergence.tla proves that every committed version eventually reaches every replica under weak fairness on each replica's reload task. The 60-second figure of the promise is that eventual convergence under the configured poll interval, FOUNDRY_INTEGRATIONS_RELOAD_MS with its 5000 ms default; it is a consequence of that configuration, not a theorem of the model, and the two-replica acceptance scenario is what observes it.",
+"F59": "I-14's count is a reading taken when the page is rendered, not a gate on the confirm: a workspace connecting or disconnecting between the submission and the confirm changes the number Priya read, never whether her confirm applies.",
+"F6": "GET /admin/instance/integrations/slack/remove shows I-15 (with the connected-workspace count; the n = 0 form when none is connected) and changes nothing, including when prefetched; POST of the same path removes the saved app and answers I-16 \"Removed. Slack is not set up on this Foundry.\"",
+"F60": "Field bounds are ADR-IIS-003 r3's, unchanged: a client ID is digits, a dot and digits; each secret is exactly 32 lowercase hex characters; leading and trailing whitespace is trimmed. No authority bounds a field's total length beyond that shape and this design adds none.",
+"F61": "The pending app expires exactly 10 minutes after it is held, judged by the injected Clock.",
+"F62": "I-15 has three locked forms by the connected-workspace count: the n = 0 form, the n = 1 form (Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack.) and the counted n >= 2 form. I-14 likewise has separate n = 1 and n >= 2 forms.",
+"F63": "No authority bounds the connected-workspace count; the count is whatever the store holds and the counted forms carry it verbatim.",
+"F64": "Copy I-11, I-14, I-15, I-16, I-17 and I-18 is locked verbatim. W-2, W-3, K-2 and K-19, the Slack app manifest and every workspace connect and disconnect flow are unchanged.",
+"F65": "A committed change is in effect on every replica within 60 seconds without a restart, through the shipped version poll and reload whose default interval is 5000 ms (ADR-IIS-004 r3 and r4).",
+"F66": "Removal leaves the shipped 24-hour delivery give-up untouched: pending deliveries meet no app and keep failing transiently.",
+"F67": "Every write in this design takes the one instance-integrations advisory lock exclusively, fences on the sealing key id and bumps the config version in its own transaction; the pending hold takes that lock shared and fences the same way (ADR-IIS-004 r1, r2, r3).",
+"F68": "The design runs on a standalone deploy: no setting, host, cluster or DNS name beyond the documented FOUNDRY_ settings, and no dependency on any particular environment.",
+"F69": "Default test budgets apply and no feature derogation is requested; the acceptance lane runs in the isolated Lima VM through scripts/test-in-lima.sh.",
+"F7": "After removal: GET /workspace/integrations reads W-2 for Slack; POST /integrations/slack/events answers 401; existing Slack connection states on GET /workspace/integrations are not marked lost and no workspace admin is emailed; pending deliveries on the route history wait under the 24-hour give-up.",
+"F70": "No secret, key or key id reaches the confirm page, the remove page, the activity table or a log line.",
+"F71": "Out of scope and unchanged by this design: US-IIS-07's Replace secrets key and Start over, and Deliverable A carried-forward items 32 and 35.",
+"F72": "It already reads and trims the three fields; the replace path needs the same reading plus which app the submission names, so the submission kind is added to this owner instead of a second form type.",
+"F73": "The shapes and the trimming are unchanged by Replace and Remove, and its table and property tests already decide the whole field relation.",
+"F74": "It already seals both secrets into their slots and sets the fence; keeping a saved secret and holding a pending app are the same sealing with a different source and a different target row.",
+"F75": "The current app the gate compares against and the app the offers follow are exactly this function's answer, so no second rule is written.",
+"F76": "It already decides every line and offer of the page from one PageFacts; the Replace and Remove controls are two more offers of the same pure decision.",
+"F77": "Its shape - a closed offer carrying its label, its door and when it applies - is the shape SlackOffer follows, so the page keeps one way of offering a control.",
+"F78": "It is the one place a stored action becomes I-18 words; the replaced and removed arms belong there rather than in a second renderer.",
+"F79": "It already holds the lock, the fence, the upsert, the activity line and the version bump; a replace is that same write with the saved-secret source decided upstream.",
+"F8": "GET /admin/instance/integrations Activity shows I-18 lines \"{date} · {name} replaced the Slack app ({client_id})\" and \"{date} · {name} removed the Slack app ({client_id})\".",
+"F80": "It is the one definition of the sealed-value set, so the pending secrets join it there rather than being re-sealed by a second path.",
+"F81": "Every write in this design ends the same way - one activity line, one version bump, one commit - so none of them writes that ending again.",
+"F82": "The one instance-integrations lock is already taken here; the new writes take the same one.",
+"F83": "The fence comparison is already defined; the pending hold and the confirm use it unchanged.",
+"F84": "Its SlackAppReplaced variant already exists and SlackAppRemoved is the only missing action of ADR-IIS-005's closed list, so the enum is extended rather than replaced.",
+"F85": "The boot probe and the reload read the sealed-value set from this one snapshot, so the pending row is added to it rather than read by a second path.",
+"F86": "It is the one map from a stored slot to its sealing slot; the two pending slots are added there.",
+"F87": "It is the only writer of the instance tables from the app crate, so the hold, the confirm, the remove, the count and the prune are methods on it.",
+"F88": "W-2 after a removal is exactly its NotSetUp cause, delivered by Request 1; the removal writes no new words.",
+"F89": "Every new door is behind the same guard with the same uniform 404, so no second authorization rule exists.",
+"F9": "With the environment's Slack app in effect, GET /admin/instance/integrations offers neither Replace nor Remove, and POST /admin/instance/integrations/slack/remove changes nothing and answers the page.",
+"F90": "Each new POST carries the same CSRF token as the shipped ones.",
+"F91": "The hourly sweep already prunes replica states and deliveries; deleting expired pending rows is one more prune on that tick rather than a new task.",
+"F92": "The list is the definition of a fenced writer, so the pending hold is added to it; a new rule would compete with it.",
+"F93": "It already names instance_slack_app_pending, so the one-module rule covers the new table unchanged.",
+"F94": "The saved-app section is where Replace and Remove belong; a second Slack section would compete with it.",
+"F95": "No shipped table can hold the pending app: instance_slack_app is the app in effect and the session table sits outside the fence and the re-seal set (ADR-IIS-003 r4). The evolution doc requires its own migration.",
+"F96": "No shipped template renders a one-question confirm, and I-14 must render with no secret and no form field, so it cannot reuse the save form's template.",
+"F97": "Same reason for I-15: a counted question with one control, which no shipped template offers.",
+"F98": "No shipped read answers how many workspaces hold a live Slack connection: integration_census groups every kind and state for gauges, and the disconnect preview is scoped to one workspace.",
+"F99": "The submission kind, the replace-aware verdict and the keep-a-saved-secret plan live here."
+},
+"product": {
+"decisions": [
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F12"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F44"
+}
+],
+"promises": [
+{
+"id": "P1",
+"kind": "Outcome",
+"text": "F3"
+},
+{
+"id": "P2",
+"kind": "Outcome",
+"text": "F4"
+},
+{
+"id": "P3",
+"kind": "Outcome",
+"text": "F5"
+},
+{
+"id": "P4",
+"kind": "Outcome",
+"text": "F6"
+},
+{
+"id": "P5",
+"kind": "Outcome",
+"text": "F7"
+},
+{
+"id": "P6",
+"kind": "Outcome",
+"text": "F8"
+},
+{
+"id": "P7",
+"kind": "Outcome",
+"text": "F9"
+}
+],
+"scope_in": [
+"F10"
+],
+"scope_out": [
+"F11"
+],
+"slices": [
+{
+"id": "S1",
+"observation": "F13",
+"promises": [
+"P1",
+"P2",
+"P6"
+],
+"work": {
+"size": "S",
+"value": "F14"
+}
+},
+{
+"depends_on": [
+"S1"
+],
+"id": "S2",
+"observation": "F15",
+"promises": [
+"P3",
+"P6"
+],
+"work": {
+"size": "M",
+"value": "F16"
+}
+},
+{
+"depends_on": [
+"S1"
+],
+"id": "S3",
+"observation": "F17",
+"promises": [
+"P4",
+"P5",
+"P6",
+"P7"
+],
+"work": {
+"size": "M",
+"value": "F18"
+}
+}
+]
+},
+"request": "F1",
+"schema": "nwdes.handoff",
+"scope": {
+"id": "iis-slack-replace-remove",
+"kind": "Feature"
+},
+"version": 4,
+"work": {
+"size": "M",
+"value": "F2"
+}
+}
