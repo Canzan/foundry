@@ -118,7 +118,7 @@ container through `FOUNDRY_PG_RESTORE`. See
 
 ### Testing on macOS: the isolated Lima VM
 
-Run tests and both gates in the `foundry-test` Lima VM, not on Docker on the Mac.
+Run tests and both gates in the shared `local-dev` Lima VM, not on Docker on the Mac.
 The VM has no host mounts and runs its own Docker, so other projects' containers
 and ports cannot reach a run.
 
@@ -152,12 +152,19 @@ scripts/examine-foundry stop
 ```
 
 On macOS, `start` syncs and builds through `test-in-lima.sh`, then runs
-`postgres:16-alpine` and the release binary in the `foundry-test` VM on ports
+`postgres:16-alpine` and the release binary in the `local-dev` VM on ports
 18480 to 18482, under `~/test.lock`. On Linux it uses this host. Paths may omit the
 leading slash, and under `nwdes` they must omit it. `post` adds the form's
 CSRF token itself. To add a state, add a line to `states_table` and a
 `seed_<name>` function in the script, plus an `env_<name>` function when the
 server needs settings of its own (a Slack double's `SLACK_API_BASE_URL`, say).
+
+A Slack double runs with every probe instance on port 18483, and Foundry gets
+`SLACK_API_BASE_URL` and `SLACK_AUTHORIZE_URL` pointing at it, so Add to Slack,
+the channel picker and posting work offline. `slack-info` prints its addresses,
+the planted app values and the calls Foundry made to it. `slack-event <secret>`
+posts a signed Events API request (`url-verification`, or `app-uninstalled
+<Slack workspace>`) to `/integrations/slack/events` as Slack would.
 
 `start <state> --before` boots the release binary built from the commit in
 `.nwave/examine-baseline` instead, so a page can be compared before and after

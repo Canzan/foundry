@@ -13,7 +13,7 @@
 # the VM's own `target/` and rebuilds only what changed.
 set -euo pipefail
 
-VM="${FOUNDRY_TEST_VM:-foundry-test}"
+VM="${FOUNDRY_TEST_VM:-local-dev}"
 SSH_CONFIG="$HOME/.lima/$VM/ssh.config"
 
 if [ "$#" -eq 0 ]; then

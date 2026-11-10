@@ -5,5 +5,5 @@
       "path": "scripts/examine-foundry"
     }
   ],
-  "build": "chmod +x scripts/examine-foundry (the probe is a committed bash script; its start subcommand syncs the checkout into the Lima VM foundry-test through scripts/test-in-lima.sh, or uses this host on Linux, builds the release binary there with cargo build --release -p foundry-app --bin foundry, and boots it against a throwaway postgres:16-alpine container; create the VM once with scripts/test-vm-setup.sh)"
+  "build": "chmod +x scripts/examine-foundry (the probe is a committed bash script; its start subcommand syncs the checkout into the Lima VM local-dev through scripts/test-in-lima.sh, or uses this host on Linux, builds the release binary there with cargo build --release -p foundry-app --bin foundry, and boots it against a throwaway postgres:16-alpine container; create the VM once with scripts/test-vm-setup.sh)"
 }

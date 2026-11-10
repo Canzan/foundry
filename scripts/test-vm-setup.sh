@@ -6,7 +6,7 @@
 # ports cannot reach a test run.
 set -euo pipefail
 
-VM="${FOUNDRY_TEST_VM:-foundry-test}"
+VM="${FOUNDRY_TEST_VM:-local-dev}"
 
 timeout 900 limactl start --name="$VM" --cpus=8 --memory=24 --disk=200 --vm-type=vz \
   --mount-none --tty=false template:docker-rootful

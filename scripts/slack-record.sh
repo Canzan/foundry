@@ -14,7 +14,7 @@
 # the link to approve, then records once someone clicks Allow.
 set -euo pipefail
 
-VM="${FOUNDRY_TEST_VM:-foundry-test}"
+VM="${FOUNDRY_TEST_VM:-local-dev}"
 TUNNEL_IMAGE="cloudflare/cloudflared:2025.10.1"
 TUNNEL=foundry-slack-record
 SECRETS=/tmp/foundry-slack-record-secrets

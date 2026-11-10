@@ -7,13 +7,15 @@
 #     scripts/examine-foundry start secrets-key-no-slack --before
 #     scripts/examine-foundry get Priya workspace/integrations
 #     scripts/examine-foundry post Priya admin/instance/integrations/secrets-key
+#     scripts/examine-foundry slack-info
+#     scripts/examine-foundry slack-event planted url-verification
 #     scripts/examine-foundry stop
 #
 # Paths may be written with or without the leading slash; under
 # `nwdes examine probe` they must be written without it, since nwdes admits only
 # workspace-relative arguments.
 #
-# On macOS everything runs in the Lima VM (default foundry-test, or
+# On macOS everything runs in the Lima VM (default local-dev, or
 # FOUNDRY_TEST_VM), never on the Mac's Docker: `start` syncs and builds the
 # release binary through scripts/test-in-lima.sh, then boots a postgres:16-alpine
 # container and the binary in the VM. On Linux it runs on this host. `start`
@@ -31,13 +33,17 @@
 # To add a state: add a line to `states_table` and a `seed_<name>` function (dashes
 # become underscores) that runs after the shared people, team and project exist.
 # A state whose server needs settings of its own also gets `env_<name>`, which
-# prints them as KEY=VALUE lines (for example SLACK_API_BASE_URL and
-# SLACK_AUTHORIZE_URL for a Slack double that a future slack-connected state
-# starts before the server boots).
+# prints them as KEY=VALUE lines.
+#
+# A Slack double (a small Python server in the VM) runs with every probe
+# instance, and Foundry is given SLACK_API_BASE_URL and SLACK_AUTHORIZE_URL
+# pointing at it, so Add to Slack, the channel picker and posting work offline.
+# Slack's client is not held to the outbound address rules, so plain http on
+# loopback is accepted.
 set -euo pipefail
 
 PROG=examine-foundry
-VM="${FOUNDRY_TEST_VM:-foundry-test}"
+VM="${FOUNDRY_TEST_VM:-local-dev}"
 PUBLIC_URL=https://foundry.example.org
 WORKSPACE_NAME="Canzan Labs"
 PASSWORD=examine-foundry-password
@@ -54,6 +60,10 @@ PG_NAME=foundry-examine-pg
 SLACK_ID=6123456789012.7234567890123
 SLACK_SECRET=3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8
 SLACK_SIGNING=b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05
+# Another well-formed signing secret, for a rotation.
+SLACK_SIGNING_ROTATED=4c2e9a7f1b3d5e8c0a6f2d4b9e1c7a35
+SLACK_PORT=18483
+SLACK_BASE="http://127.0.0.1:$SLACK_PORT"
 
 die() {
   printf '%s: %s\n' "$PROG" "$*" >&2
@@ -65,6 +75,8 @@ usage() {
 usage: examine-foundry start <state> [--before]
        examine-foundry get <viewer> <path>
        examine-foundry post <viewer> <path> [key=value ...]
+       examine-foundry slack-info
+       examine-foundry slack-event <planted|rotated|none|SECRET> [url-verification | app-uninstalled <Slack workspace>]
        examine-foundry stop
        examine-foundry states | viewers
 USAGE
@@ -76,6 +88,9 @@ secrets-key-no-slack	This Foundry made its own instance key file and Priya gener
 instance-key-no-secrets-key	This Foundry made its own instance key file and has no secrets key yet; nothing is set up for Slack or Matrix.
 env-slack-no-secrets-key	Foundry's environment sets the Slack app (SLACK_CLIENT_ID 6123456789012.7234567890123 and its two secrets); this Foundry made its own instance key file and has no secrets key; nothing is connected.
 slack-app-saved	This Foundry made its own instance key file, Priya generated the secrets key and saved the Slack app with client ID 6123456789012.7234567890123 on the instance integrations page; no workspace is connected.
+slack-connected	As slack-app-saved, and Priya connected Canzan Labs to the Slack workspace Canzan Labs through the saved app (Add to Slack); Lena routed New issue on Identity Platform to #auth-dev, and one issue was created, so one message was delivered.
+slack-connected-three	As slack-connected, and Priya also made the workspaces Ops Guild (admin Omar) and Reading Club (admin Rosa) on the instance workspaces page; Omar and Rosa each connected theirs to Slack through the saved app, so 3 workspaces are connected.
+env-slack-connected	Foundry's environment sets the Slack app (SLACK_CLIENT_ID 6123456789012.7234567890123); Priya generated the secrets key and connected Canzan Labs to Slack through that app; no app is saved on the instance page.
 STATES
 }
 
@@ -84,6 +99,8 @@ viewers_table() {
 Priya	Priya Raman: this Foundry's instance admin and an admin of the Canzan Labs workspace; lead of the teams General and Backend.
 Tomás	Tomás Rivera: an admin of the Canzan Labs workspace, not an instance admin; on no team.
 Lena	Lena Park: a member of the Canzan Labs workspace, lead of team Backend (project Identity Platform); neither kind of admin.
+Omar	Omar Haddad: the admin of the workspace Ops Guild, and nothing else; only in slack-connected-three.
+Rosa	Rosa Lind: the admin of the workspace Reading Club, and nothing else; only in slack-connected-three.
 signed-out	Nobody signed in.
 VIEWERS
 }
@@ -106,6 +123,8 @@ viewer_key() {
     priya | "priya raman") echo priya ;;
     tomás | tomas | "tomás rivera" | "tomas rivera") echo tomas ;;
     lena | "lena park") echo lena ;;
+    omar | "omar haddad") echo omar ;;
+    rosa | "rosa lind") echo rosa ;;
     signed-out | nobody | anonymous) echo signed-out ;;
     *) return 1 ;;
   esac
@@ -238,6 +257,16 @@ host_main() {
       run_op 120 "$cmd" "$viewer" "$path" "$@"
       ;;
     stop) run_op 120 stop ;;
+    slack-info) run_op 60 slack-info ;;
+    slack-event)
+      [ "$#" -ge 1 ] || die "usage: examine-foundry slack-event <planted|rotated|none|SECRET> [url-verification | app-uninstalled <Slack workspace>]"
+      case "${2:-url-verification}" in
+        url-verification) [ "$#" -le 2 ] || die "url-verification takes nothing more" ;;
+        app-uninstalled) [ "$#" -eq 3 ] || die "app-uninstalled names one Slack workspace, such as \"Canzan Labs\"" ;;
+        *) die "no Slack event named $2; use url-verification or app-uninstalled" ;;
+      esac
+      run_op 60 slack-event "$@"
+      ;;
     "" | -h | --help | help) usage ;;
     *)
       usage >&2
@@ -308,6 +337,225 @@ vm_build_before() {
     die "building the release foundry binary at $commit failed"
 }
 
+# ---- the Slack double -----------------------------------------------------------
+
+start_slack_double() {
+  slack_double_py >"$STATE_DIR/slack-double.py"
+  setsid python3 -I "$STATE_DIR/slack-double.py" "$SLACK_PORT" "$STATE_DIR/slack-next-team" \
+    "$STATE_DIR/slack-double.log" >"$STATE_DIR/slack-double.err" 2>&1 </dev/null 9>&- &
+  printf '%s\n' "$!" >"$STATE_DIR/slack-double.pid"
+  local _
+  for _ in $(seq 1 40); do
+    if curl -s -o /dev/null --max-time 2 "$SLACK_BASE/api/api.test"; then
+      return 0
+    fi
+    sleep 0.25
+  done
+  die "the Slack double did not start: $(tail -n 3 "$STATE_DIR/slack-double.err")"
+}
+
+slack_info() {
+  cat <<INFO
+Slack double: $SLACK_BASE (Foundry's SLACK_API_BASE_URL is $SLACK_BASE/api, SLACK_AUTHORIZE_URL is $SLACK_BASE/oauth/v2/authorize)
+Slack workspaces its approval screen knows: Canzan Labs (T0CANZANLABS), Ops Guild (T0OPSGUILD), Reading Club (T0READINGCLUB); it approves $(cat "$STATE_DIR/slack-next-team" 2>/dev/null || echo "Canzan Labs") next
+Channels in every Slack workspace: #auth-dev (C0AUTHDEV), #auth-releases (C0AUTHREL), #general (C0GENERAL), #ops-alerts (C0OPSALRT)
+Planted Slack app: client ID $SLACK_ID, client secret $SLACK_SECRET, signing secret $SLACK_SIGNING
+Another app's client ID: 6123456789012.8888888888888; another signing secret (rotated): $SLACK_SIGNING_ROTATED
+The double accepts any client secret and signs nothing; slack-event signs the events it sends.
+Calls Foundry made to the double, oldest first:
+INFO
+  if [ -s "$STATE_DIR/slack-double.log" ]; then
+    python3 -I -c '
+import json, sys
+for line in open(sys.argv[1], encoding="utf-8"):
+    c = json.loads(line)
+    extra = " ".join(f"{k}={v}" for k, v in c.items() if k not in ("method",))
+    print("  " + c["method"] + (" " + extra if extra else ""))
+' "$STATE_DIR/slack-double.log"
+  else
+    echo "  none"
+  fi
+}
+
+# slack_event SECRET [KIND [TEAM]]: an Events API post as Slack sends it, signed
+# with SECRET (planted, rotated, none, or the secret itself).
+slack_event() {
+  local which="$1" kind="${2:-url-verification}" team="${3:-}" secret
+  case "$which" in
+    planted) secret="$SLACK_SIGNING" ;;
+    rotated) secret="$SLACK_SIGNING_ROTATED" ;;
+    none) secret= ;;
+    *) secret="$which" ;;
+  esac
+  python3 -I -c '
+import hashlib, hmac, json, sys, time, urllib.error, urllib.request
+base, secret, kind, team = sys.argv[1:5]
+teams = {"Canzan Labs": "T0CANZANLABS", "Ops Guild": "T0OPSGUILD", "Reading Club": "T0READINGCLUB"}
+if kind == "url-verification":
+    envelope = {"token": "deprecated-verification-token", "challenge": "probe-challenge-1", "type": "url_verification"}
+else:
+    if team not in teams:
+        sys.exit("examine-foundry: the Slack double knows Canzan Labs, Ops Guild and Reading Club, not " + team)
+    envelope = {"token": "deprecated-verification-token", "team_id": teams[team], "api_app_id": "A0PROBEFOUNDRY",
+                "type": "event_callback", "event_id": "EvProbe%d" % time.time_ns(), "event_time": int(time.time()),
+                "event": {"type": "app_uninstalled"}}
+body = json.dumps(envelope).encode()
+request = urllib.request.Request(base + "/integrations/slack/events", data=body, method="POST",
+                                 headers={"Content-Type": "application/json"})
+if secret:
+    ts = str(int(time.time()))
+    mac = hmac.new(secret.encode(), b"v0:" + ts.encode() + b":" + body, hashlib.sha256).hexdigest()
+    request.add_header("X-Slack-Request-Timestamp", ts)
+    request.add_header("X-Slack-Signature", "v0=" + mac)
+try:
+    answer = urllib.request.urlopen(request, timeout=30)
+except urllib.error.HTTPError as error:
+    answer = error
+print("sent: " + kind + (" for " + team if team else "") + (" signed" if secret else " unsigned"))
+print("status: %d %s" % (answer.status, answer.reason))
+print("content-type: " + (answer.headers.get("Content-Type") or "none"))
+print()
+print(answer.read().decode("utf-8", "replace").strip()[:2000])
+' "$BASE" "$secret" "$kind" "$team"
+}
+
+slack_double_py() {
+  cat <<'PY'
+import json, sys, time, uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlsplit, urlencode
+
+port, next_team_file, log_file = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+TEAMS = {
+    "Canzan Labs": ("T0CANZANLABS", "canzanlabs"),
+    "Ops Guild": ("T0OPSGUILD", "opsguild"),
+    "Reading Club": ("T0READINGCLUB", "readingclub"),
+}
+BY_ID = {team_id: (name, domain) for name, (team_id, domain) in TEAMS.items()}
+CHANNELS = [("C0AUTHDEV", "auth-dev"), ("C0AUTHREL", "auth-releases"),
+            ("C0GENERAL", "general"), ("C0OPSALRT", "ops-alerts")]
+APP_ID = "A0PROBEFOUNDRY"
+
+def log(method, **fields):
+    with open(log_file, "a", encoding="utf-8") as f:
+        f.write(json.dumps({"method": method, **fields}) + "\n")
+
+def next_team():
+    try:
+        name = open(next_team_file, encoding="utf-8").read().strip()
+    except OSError:
+        name = ""
+    return name if name in TEAMS else "Canzan Labs"
+
+def channel(cid, name):
+    return {"id": cid, "name": name, "is_channel": True, "is_group": False, "is_private": False,
+            "is_archived": False, "is_ext_shared": False, "is_shared": False, "is_member": True}
+
+class Slack(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, *args):
+        pass
+
+    def answer(self, status, body, headers=()):
+        data = json.dumps(body).encode() if body is not None else b""
+        self.send_response(status)
+        if body is not None:
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+        for k, v in headers:
+            self.send_header(k, v)
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def args(self):
+        url = urlsplit(self.path)
+        pairs = {k: v[0] for k, v in parse_qs(url.query).items()}
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length).decode("utf-8", "replace") if length else ""
+        if raw.strip().startswith("{"):
+            try:
+                pairs.update(json.loads(raw))
+            except ValueError:
+                pass
+        else:
+            pairs.update({k: v[0] for k, v in parse_qs(raw).items()})
+        return url.path, pairs
+
+    def team(self):
+        token = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
+        return BY_ID.get(token.removeprefix("xoxb-probe-")) and token.removeprefix("xoxb-probe-")
+
+    def do_GET(self):
+        self.handle_call()
+
+    def do_POST(self):
+        self.handle_call()
+
+    def handle_call(self):
+        path, a = self.args()
+        if path == "/oauth/v2/authorize":
+            name = next_team()
+            team_id = TEAMS[name][0]
+            log("oauth.v2.authorize", approved=name)
+            code = "probe-code-%s-%s" % (team_id, uuid.uuid4().hex[:8])
+            back = a.get("redirect_uri", "")
+            sep = "&" if "?" in back else "?"
+            return self.answer(302, None, [("Location", back + sep + urlencode({"code": code, "state": a.get("state", "")}))])
+        if not path.startswith("/api/"):
+            return self.answer(404, {"ok": False, "error": "unknown_method"})
+        method = path[len("/api/"):]
+        if method == "api.test":
+            return self.answer(200, {"ok": True})
+        if method == "oauth.v2.access":
+            parts = a.get("code", "").split("-")
+            team_id = parts[2] if len(parts) > 3 else ""
+            if team_id not in BY_ID or not a.get("client_secret"):
+                log(method, refused="invalid_code")
+                return self.answer(200, {"ok": False, "error": "invalid_code"})
+            log(method, team=BY_ID[team_id][0], client_id=a.get("client_id", ""))
+            return self.answer(200, {"ok": True, "access_token": "xoxb-probe-" + team_id, "token_type": "bot",
+                                     "scope": "chat:write,chat:write.public,channels:read,groups:read",
+                                     "bot_user_id": "U0FOUNDRYBOT", "app_id": APP_ID,
+                                     "team": {"id": team_id, "name": BY_ID[team_id][0]},
+                                     "enterprise": None, "is_enterprise_install": False})
+        team_id = self.team()
+        if not team_id:
+            log(method, refused="invalid_auth")
+            return self.answer(200, {"ok": False, "error": "invalid_auth"})
+        name, domain = BY_ID[team_id]
+        if method == "auth.test":
+            log(method, team=name)
+            return self.answer(200, {"ok": True, "url": "https://%s.slack.com/" % domain, "team": name,
+                                     "user": "foundry", "team_id": team_id, "user_id": "U0FOUNDRYBOT",
+                                     "bot_id": "B0FOUNDRYBOT", "is_enterprise_install": False})
+        if method == "conversations.list":
+            log(method, team=name)
+            return self.answer(200, {"ok": True, "channels": [channel(*c) for c in CHANNELS],
+                                     "response_metadata": {"next_cursor": ""}})
+        if method == "conversations.info":
+            found = [c for c in CHANNELS if c[0] == a.get("channel")]
+            log(method, team=name, channel=a.get("channel", ""))
+            if not found:
+                return self.answer(200, {"ok": False, "error": "channel_not_found"})
+            return self.answer(200, {"ok": True, "channel": channel(*found[0])})
+        if method == "chat.postMessage":
+            text = a.get("text") or ""
+            log(method, team=name, channel=a.get("channel", ""), text=" ".join(str(text).split())[:200])
+            return self.answer(200, {"ok": True, "channel": a.get("channel", ""), "ts": "%.6f" % time.time()})
+        if method == "chat.delete":
+            log(method, team=name, channel=a.get("channel", ""))
+            return self.answer(200, {"ok": True, "channel": a.get("channel", ""), "ts": a.get("ts", "")})
+        if method == "apps.uninstall":
+            log(method, team=name)
+            return self.answer(200, {"ok": True})
+        log(method, refused="unknown_method")
+        return self.answer(200, {"ok": False, "error": "unknown_method"})
+
+ThreadingHTTPServer(("127.0.0.1", port), Slack).serve_forever()
+PY
+}
+
 vm_teardown() {
   if [ -f "$STATE_DIR/foundry.pid" ]; then
     local pid
@@ -321,6 +569,10 @@ vm_teardown() {
     kill -9 "$pid" 2>/dev/null || true
   fi
   pkill -9 -f "$STATE_DIR/bin/foundry" 2>/dev/null || true
+  if [ -f "$STATE_DIR/slack-double.pid" ]; then
+    kill -9 "$(cat "$STATE_DIR/slack-double.pid")" 2>/dev/null || true
+  fi
+  pkill -9 -f "$STATE_DIR/slack-double.py" 2>/dev/null || true
   docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
   if [ -f "$STATE_DIR/data-dir" ]; then
     rm -rf "$(cat "$STATE_DIR/data-dir")"
@@ -345,7 +597,7 @@ vm_start() {
   [ -x "$binary" ] || die "no release binary at $binary"
   vm_teardown
   local p
-  for p in "$PORT" "$METRICS_PORT" "$PG_PORT"; do
+  for p in "$PORT" "$METRICS_PORT" "$PG_PORT" "$SLACK_PORT"; do
     port_free "$p" || die "port $p is in use in this machine; stop whatever listens there"
   done
   mkdir -p "$STATE_DIR/bin" "$JARS"
@@ -377,6 +629,8 @@ vm_start() {
   openssl pkey -in "$STATE_DIR/machine-token.pem" -pubout -out "$STATE_DIR/machine-token.pub" ||
     die "openssl could not derive the machine-token public key"
 
+  start_slack_double
+
   local extra=() hook="env_${state//-/_}"
   if declare -F "$hook" >/dev/null; then
     mapfile -t extra < <("$hook")
@@ -395,6 +649,8 @@ vm_start() {
     FOUNDRY_PUBLIC_URL="$PUBLIC_URL" \
     FOUNDRY_INTEGRATIONS_RELOAD_MS=200 \
     RUST_LOG=info \
+    SLACK_API_BASE_URL="$SLACK_BASE/api" \
+    SLACK_AUTHORIZE_URL="$SLACK_BASE/oauth/v2/authorize" \
     "${extra[@]+"${extra[@]}"}" \
     setsid "$STATE_DIR/bin/foundry" >"$STATE_DIR/foundry.log" 2>&1 </dev/null 9>&- &
   printf '%s\n' "$!" >"$STATE_DIR/foundry.pid"
@@ -435,6 +691,8 @@ local_url() {
   case "$target" in
     "$PUBLIC_URL"/* | "$PUBLIC_URL") printf '%s%s\n' "$BASE" "${target#"$PUBLIC_URL"}" ;;
     "$BASE"/* | "$BASE") printf '%s\n' "$target" ;;
+    # The Slack double's approval screen, as a browser would visit Slack's.
+    "$SLACK_BASE"/*) printf '%s\n' "$target" ;;
     //* | http://* | https://*) return 1 ;;
     /*) printf '%s%s\n' "$BASE" "$target" ;;
     \?*) printf '%s%s\n' "${current%%\?*}" "$target" ;;
@@ -522,6 +780,8 @@ email_of() {
     priya) echo priya.raman@example.org ;;
     tomas) echo tomas.rivera@example.org ;;
     lena) echo lena.park@example.org ;;
+    omar) echo omar.haddad@example.org ;;
+    rosa) echo rosa.lind@example.org ;;
   esac
 }
 
@@ -824,9 +1084,15 @@ seed_people_team_project() {
 }
 
 invite_and_accept() {
-  local viewer="$1" link
+  local viewer="$1"
   http priya POST /workspace/invites "email=$(email_of "$viewer")"
   expect "inviting $viewer" 200
+  accept_invite "$viewer"
+}
+
+# VIEWER accepts the invite link the last page showed.
+accept_invite() {
+  local viewer="$1" link
   link=$(grep -o "$PUBLIC_URL/invites/accept?[^\"<]*" "$STATE_DIR/last.body" | head -n1)
   [ -n "$link" ] || die "seeding: the invite page shows no accept link for $viewer"
   link=$(python3 -I -c 'import html,sys; print(html.unescape(sys.argv[1]))' "$link")
@@ -870,6 +1136,70 @@ seed_env_slack_no_secrets_key() {
   instance_key_made
 }
 
+# VIEWER chooses Add to Slack on their workspace's integrations page; the
+# double's approval screen approves the Slack workspace SLACK_TEAM and sends
+# the browser back to Foundry.
+connect_slack() {
+  local viewer="$1" team="$2"
+  printf '%s\n' "$team" >"$STATE_DIR/slack-next-team"
+  http "$viewer" GET /workspace/integrations/slack/install
+  expect "$viewer's Add to Slack" 200
+  expect_text "$viewer's Add to Slack" "Connected to $team"
+}
+
+# Lena routes New issue on Identity Platform to #auth-dev through the
+# route form, then creates an issue so one message is delivered.
+seed_slack_route() {
+  local form=/team/backend/project/identity-platform/integrations/routes
+  http lena GET "$form/new?kind=slack"
+  expect "Lena's Slack route form" 200
+  expect_text "Lena's Slack route form" 'value="issue.created"'
+  http lena POST "$form" kind=slack destination=C0AUTHDEV "channel_label.C0AUTHDEV=#auth-dev" \
+    events=issue.created content_level=summary
+  expect "Lena saving the Slack route" 200
+  http lena POST /team/backend/project/identity-platform/issues "title=Rotate the signing key"
+  expect "Lena creating an issue" 200
+  local _
+  for _ in $(seq 1 60); do
+    grep -q '"method": "chat.postMessage"' "$STATE_DIR/slack-double.log" 2>/dev/null && return 0
+    sleep 0.5
+  done
+  die "seeding: no message reached the Slack double within 30 seconds"
+}
+
+seed_slack_connected() {
+  seed_slack_app_saved
+  connect_slack priya "Canzan Labs"
+  seed_slack_route
+}
+
+# Priya makes each workspace on the instance workspaces page, naming its first
+# admin, who accepts the invite and connects it to Slack.
+seed_slack_connected_three() {
+  seed_slack_connected
+  provision_and_connect "Ops Guild" omar "Omar Haddad"
+  provision_and_connect "Reading Club" rosa "Rosa Lind"
+}
+
+provision_and_connect() {
+  local workspace="$1" viewer="$2" name="$3"
+  http priya POST /admin/instance/workspaces "name=$workspace" "email=$(email_of "$viewer")"
+  expect "making the workspace $workspace" 200
+  accept_invite "$viewer"
+  # Direct SQL, as for Tomás and Lena: no public flow changes a display name.
+  psql_exec "UPDATE users SET display_name = '$name' WHERE email_lower = '$(email_of "$viewer")';"
+  connect_slack "$viewer" "$workspace"
+}
+
+env_env_slack_connected() {
+  env_env_slack_no_secrets_key
+}
+
+seed_env_slack_connected() {
+  seed_secrets_key_no_slack
+  connect_slack priya "Canzan Labs"
+}
+
 seed_slack_app_saved() {
   seed_secrets_key_no_slack
   http priya POST /admin/instance/integrations/slack "client_id=$SLACK_ID" \
@@ -886,6 +1216,11 @@ vm_main() {
     start) vm_start "$@" ;;
     build-before) vm_build_before "$@" ;;
     stop) vm_stop ;;
+    slack-info) vm_require_running && slack_info ;;
+    slack-event)
+      vm_require_running
+      slack_event "$@"
+      ;;
     get) vm_request GET "$1" "$2" ;;
     post)
       local viewer="$1" path="$2"
