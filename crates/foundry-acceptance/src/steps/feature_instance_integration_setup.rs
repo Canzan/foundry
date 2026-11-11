@@ -42,7 +42,7 @@ fn sentences(step: &Step) -> Vec<String> {
 
 // =========================================================================== instance
 
-#[given(regex = r"^(Priya Raman|Lena Park) is this Foundry's instance admin$")]
+#[given(regex = r"^(Priya Raman|Tomás Rivera|Lena Park) is this Foundry's instance admin$")]
 async fn instance_admin(world: &mut FoundryWorld, person: String) {
     iis::given_instance_admin(world, &person).await;
 }
@@ -185,14 +185,51 @@ async fn save_app(
 }
 
 #[when(
-    regex = r"^(Priya|Tomás|Lena|a signed-out visitor) posts a (generate|move|Slack app save) request(?: anyway| again)?$"
+    regex = r"^(Priya|Tomás|Lena|a signed-out visitor) posts a (generate|move|Slack app save|Slack confirm) request(?: anyway| again)?$"
 )]
 async fn post_door(world: &mut FoundryWorld, who: String, door: String) {
     iis::when_post_door(world, &who, InstanceDoor::parse(&door)).await;
 }
 
+#[given(
+    regex = r"^Priya has submitted the Slack app 6123456789012\.8888888888888 with both of its secrets$"
+)]
+async fn submitted_other_app(world: &mut FoundryWorld) {
+    iis::given_submitted_other_app(world).await;
+}
+
+#[given(regex = r"^Priya has opened the confirm page twice without choosing anything$")]
+async fn prefetched_confirm(world: &mut FoundryWorld) {
+    iis::given_prefetched_confirm(world).await;
+}
+
+#[given(regex = r"^(Tomás) has posted a Slack confirm request$")]
+async fn posted_confirm(world: &mut FoundryWorld, who: String) {
+    iis::given_posted_confirm(world, &who).await;
+}
+
+#[given(regex = r#"^Priya has saved the new app from the confirm page$"#)]
+async fn chose_save_new_app(world: &mut FoundryWorld) {
+    iis::given_chose_save_new_app(world).await;
+}
+
+#[when(regex = r#"^(Priya) chooses "(Save the new app)" on the confirm page$"#)]
+async fn choose_on_confirm(world: &mut FoundryWorld, who: String, button: String) {
+    iis::when_choose_on_confirm(world, &who, Button::parse(&button)).await;
+}
+
+#[then(regex = r"^(Priya) is on the Slack confirm page$")]
+async fn on_confirm_page(world: &mut FoundryWorld, who: String) {
+    iis::then_on_confirm_page(world, &who);
+}
+
+#[then(regex = r"^(Priya|Tomás)'s answer is this Foundry's integrations page$")]
+async fn answers_integrations_page(world: &mut FoundryWorld, who: String) {
+    iis::then_answers_integrations_page(world, &who);
+}
+
 #[then(
-    regex = r#"^(Priya) is (offered|not offered) "(Generate secrets key|Move to a secrets key|Replace secrets key|Start over)"$"#
+    regex = r#"^(Priya) is (offered|not offered) "(Generate secrets key|Move to a secrets key|Replace secrets key|Start over|Save the new app)"$"#
 )]
 async fn button_offered(world: &mut FoundryWorld, who: String, offered: String, button: String) {
     iis::then_button(world, &who, Button::parse(&button), Offer::parse(&offered));

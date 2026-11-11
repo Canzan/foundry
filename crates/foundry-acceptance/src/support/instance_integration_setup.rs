@@ -68,6 +68,9 @@ pub const INSTANCE_INTEGRATIONS: &str = "/admin/instance/integrations";
 pub const SECRETS_KEY_DOOR: &str = "/admin/instance/integrations/secrets-key";
 pub const MOVE_DOOR: &str = "/admin/instance/integrations/secrets-key/move";
 pub const SLACK_APP_DOOR: &str = "/admin/instance/integrations/slack";
+/// Where a submission of another app waits while workspaces are connected
+/// through the current one (US-IIS-05 AC 2).
+pub const SLACK_CONFIRM_DOOR: &str = "/admin/instance/integrations/slack/confirm";
 pub const INSTANCE_DASHBOARD: &str = "/admin/instance/workspaces";
 
 /// The operator's instance key (32 bytes, base64url; a planted value).
@@ -184,6 +187,10 @@ pub enum InstanceDoor {
     Generate,
     Move,
     SlackSave,
+    /// The confirm of a submission waiting behind I-14: it carries nothing but
+    /// the form token, so a stale tab, a forged form and the page's own
+    /// control all post the same thing.
+    SlackConfirm,
 }
 
 impl InstanceDoor {
@@ -192,6 +199,7 @@ impl InstanceDoor {
             "generate" => Self::Generate,
             "move" => Self::Move,
             "Slack app save" => Self::SlackSave,
+            "Slack confirm" => Self::SlackConfirm,
             other => panic!("unknown instance door {other:?}"),
         }
     }
@@ -201,12 +209,13 @@ impl InstanceDoor {
             Self::Generate => SECRETS_KEY_DOOR,
             Self::Move => MOVE_DOOR,
             Self::SlackSave => SLACK_APP_DOOR,
+            Self::SlackConfirm => SLACK_CONFIRM_DOOR,
         }
     }
 
     fn fields(self) -> Vec<(String, String)> {
         match self {
-            Self::Generate | Self::Move => Vec::new(),
+            Self::Generate | Self::Move | Self::SlackConfirm => Vec::new(),
             Self::SlackSave => slack_fields(CLIENT_ID, CLIENT_SECRET, SIGNING_SECRET),
         }
     }
@@ -219,6 +228,8 @@ pub enum Button {
     Move,
     Replace,
     StartOver,
+    /// I-14's own control, on the confirm page (US-IIS-05 AC 2).
+    SaveNewApp,
 }
 
 impl Button {
@@ -228,6 +239,7 @@ impl Button {
             "Move to a secrets key" => Self::Move,
             "Replace secrets key" => Self::Replace,
             "Start over" => Self::StartOver,
+            "Save the new app" => Self::SaveNewApp,
             other => panic!("unknown button {other:?}"),
         }
     }
@@ -238,6 +250,7 @@ impl Button {
             Self::Move => "Move to a secrets key",
             Self::Replace => "Replace secrets key",
             Self::StartOver => "Start over",
+            Self::SaveNewApp => "Save the new app",
         }
     }
 }
@@ -951,6 +964,135 @@ pub async fn given_connected(world: &mut FoundryWorld) {
     assert!(
         eip::text(&answer).contains("Connected to Canzan Labs"),
         "precondition: Priya reads that Canzan Labs is connected; {}",
+        tm::describe(&answer)
+    );
+}
+
+// ---- the confirm a submission waits behind (I-14) ---------------------------
+
+/// The words I-14 carries whatever the count is and whichever app is current:
+/// the submission is waiting and nothing is saved yet.
+const WAITING: [&str; 2] = [
+    "is connected through the current Slack app",
+    "Save the new app?",
+];
+
+/// "Priya has submitted the Slack app <id> with both of its secrets": the save
+/// form filled in and posted as she would, which with a workspace connected
+/// through the current app leaves the submission waiting on the confirm page.
+pub async fn given_submitted_other_app(world: &mut FoundryWorld) {
+    let answer = save_slack_app(
+        world,
+        "Priya",
+        OTHER_CLIENT_ID,
+        OTHER_CLIENT_SECRET,
+        OTHER_SIGNING_SECRET,
+    )
+    .await;
+    let text = eip::text(&answer);
+    assert!(
+        WAITING.iter().all(|words| text.contains(words)),
+        "precondition: Priya's submission of the Slack app {OTHER_CLIENT_ID} waits for her \
+         confirmation instead of taking effect, because a workspace is connected through the \
+         app in effect: she must read what the change costs those workspaces before anything \
+         moves. Answer the save of a different client ID with the confirm page while Slack \
+         connections exist; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// The confirm page as `who` opens it.
+async fn confirm_page(world: &mut FoundryWorld, who: &str) -> Answer {
+    eip::get(world, who, SLACK_CONFIRM_DOOR).await
+}
+
+/// "Priya has opened the confirm page twice without choosing anything": a
+/// browser prefetch and a reload, neither of which may change a thing.
+pub async fn given_prefetched_confirm(world: &mut FoundryWorld) {
+    for _ in 0..2 {
+        let page = confirm_page(world, "Priya").await;
+        let text = eip::text(&page);
+        assert!(
+            page.status.is_success() && WAITING.iter().all(|words| text.contains(words)),
+            "precondition: opening the confirm page shows Priya the submission still waiting, \
+             and reading a page never decides anything; {}",
+            tm::describe(&page)
+        );
+    }
+}
+
+/// Post the confirm door as `who` would from a stale tab: nothing but the
+/// form token, and the answer followed as a browser follows it.
+async fn post_confirm(world: &mut FoundryWorld, who: &str) -> Answer {
+    let posted = eip::post(world, who, SLACK_CONFIRM_DOOR, &[], true).await;
+    eip::follow(world, who, posted).await
+}
+
+/// "<who> has posted a Slack confirm request": another instance admin's
+/// confirm, which must decide nothing about Priya's submission.
+pub async fn given_posted_confirm(world: &mut FoundryWorld, who: &str) {
+    let answer = post_confirm(world, who).await;
+    eip::went_through(&answer, &format!("{who}'s confirm"));
+}
+
+/// Submit the confirm page's own form, as a click would, and follow it.
+async fn choose_on_confirm(world: &mut FoundryWorld, who: &str, button: Button) -> Answer {
+    let page = confirm_page(world, who).await;
+    answered(&page, "the Slack confirm page");
+    let (action, fields) = form_with_button(&page.body, button.copy()).unwrap_or_else(|| {
+        panic!(
+            "{who} finds {:?} on the confirm page, the one control that lets a waiting \
+             submission take effect: without it she has read what the change costs and has no \
+             way to make it, and the app she entered is lost. Offer the control on the confirm \
+             page, posting the confirm door; {}",
+            button.copy(),
+            tm::describe(&page)
+        )
+    });
+    let posted = eip::post(world, who, &action, &fields, true).await;
+    eip::follow(world, who, posted).await
+}
+
+/// "Priya chooses "Save the new app" on the confirm page".
+pub async fn when_choose_on_confirm(world: &mut FoundryWorld, who: &str, button: Button) {
+    eip::capture_before(world).await;
+    let answer = choose_on_confirm(world, who, button).await;
+    world.eip.when_answer = Some(answer);
+}
+
+/// "Priya has saved the new app from the confirm page".
+pub async fn given_chose_save_new_app(world: &mut FoundryWorld) {
+    let answer = choose_on_confirm(world, "Priya", Button::SaveNewApp).await;
+    assert!(
+        eip::text(&answer).contains("Saved."),
+        "precondition: Priya's confirmation saved the Slack app {OTHER_CLIENT_ID}; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// "<who> is on the Slack confirm page": the submission is waiting at its own
+/// address, so a reload of the answer never re-posts the secrets she typed.
+pub fn then_on_confirm_page(world: &FoundryWorld, who: &str) {
+    let answer = answer(world);
+    assert!(
+        answer.status.is_success() && answer.path.split('?').next() == Some(SLACK_CONFIRM_DOOR),
+        "{who} reads the waiting submission on the confirm page at its own address, reached by a \
+         redirect: answered in place, a reload posts both secrets again, and she has no address \
+         to come back to. Redirect the save of a different client ID to the confirm page while \
+         Slack connections exist; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// "<who>'s answer is this Foundry's integrations page": the door answered
+/// with the page, not an error and not a dead end.
+pub fn then_answers_integrations_page(world: &FoundryWorld, who: &str) {
+    let answer = answer(world);
+    assert!(
+        answer.status.is_success() && eip::text(&answer).contains("Integrations for this Foundry"),
+        "{who} is answered with this Foundry's integrations page: a confirm that decides nothing \
+         still tells its reader where she is, instead of an error or a blank end. Answer the \
+         page; {}",
         tm::describe(&answer)
     );
 }

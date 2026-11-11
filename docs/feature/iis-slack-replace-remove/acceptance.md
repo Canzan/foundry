@@ -300,6 +300,306 @@ A Foundry that leaked the replaced secret only on a page this sweep does not ope
 
 None.
 
+### S2
+
+##### Covers
+
+P3
+
+```text
+One workspace is connected to Slack through the Slack app this Foundry has in effect, and the instance admin submits a different Slack app with both of its secrets.
+```
+
+```text
+Nothing is switched yet: she is taken to a page of its own that tells her one workspace is connected through the current app, names that app, says it keeps posting through it until a workspace admin reconnects Slack, and asks whether to save the new app, with one control to do it and neither secret she just typed anywhere on it. The app in effect is untouched - the page still names it with both secrets set, nothing is recorded as replaced, Add to Slack still asks Slack for it, and its events still verify.
+```
+
+```text
+Priya learns how many workspaces her switch costs before it happens, and can still walk away leaving Slack exactly as it was.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Another Slack app waits while a workspace is connected through the current one
+
+```text
+A hold that bumped this Foundry's configuration version while changing nothing a reader can see would still pass this row, and so would a count that read the number of workspaces rather than the workspaces connected through Slack: one workspace exists here. The page's own table of the count forms reads the other counts.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P3
+
+P6
+
+```text
+With that submission waiting, the same instance admin opens the page twice without choosing anything, and two minutes later chooses to save the new app.
+```
+
+```text
+She reads that it is saved and that workspace admins can now choose Add to Slack, on the integrations page itself; the page names the new app, shows no key and no secret, Add to Slack now asks Slack approval for the new app, and the Activity list reads, newest first, that she replaced the Slack app naming the new one, then that she saved the first one, then that she generated the secrets key, and nothing else.
+```
+
+```text
+Priya switches apps in one deliberate step, reads the record of what she did, and workspace admins are sent to the new app from then on.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: The admin who submitted the other app saves it from the confirm page
+
+```text
+An apply that re-read the submitted fields from the request instead of the app held sealed would still pass this row; the expired-submission row is what observes that the held one is the source.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P3
+
+```text
+With that submission waiting, a second instance admin of this Foundry confirms it instead.
+```
+
+```text
+His confirm decides nothing: he is answered with this Foundry's integrations page, and the app in effect is untouched - the page still names it with both secrets set, nothing is recorded as replaced, Add to Slack still asks Slack for it, and its events still verify.
+```
+
+```text
+A switch Priya started cannot be completed by someone else who happens to open the page.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Another instance admin\'s confirm saves nothing
+
+```text
+A confirm door that turned away every instance admin, Priya included, would still pass this row; the row below saves through that same door after his attempt.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+After that second instance admin's confirm, the admin who submitted the app chooses to save the new app.
+```
+
+```text
+Her own confirm still saves it: she reads that it is saved and that workspace admins can now choose Add to Slack, and the page names the new app.
+```
+
+```text
+Someone else's attempt does not throw Priya's waiting submission away: she still only has to confirm it once.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: After another instance admin\'s confirm the submitting admin still saves the new app
+
+```text
+A confirm that ignored who submitted the app would still pass this row; the row above is what turns the other admin away.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+With that submission waiting, eleven minutes pass before the same instance admin confirms it.
+```
+
+```text
+Her confirm decides nothing: she is answered with this Foundry's integrations page, and the app in effect is untouched - the page still names it with both secrets set, nothing is recorded as replaced, Add to Slack still asks Slack for it, and its events still verify.
+```
+
+```text
+A switch left half-finished does not go through by itself much later; Priya enters it again if she still wants it.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: A confirm eleven minutes after the submission saves nothing
+
+```text
+A submission that expired the instant it was made would still pass this row; the saving rows confirm inside the ten minutes it is held.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+After the new app is saved from that page, the same confirm is sent once more, as a stale tab or a reload would send it.
+```
+
+```text
+Nothing is saved a second time: she is answered with this Foundry's integrations page, which names the new app, and the Activity list still reads exactly the replacement, the first save and the secrets key, newest first.
+```
+
+```text
+A reload or a forgotten tab cannot record Priya's switch twice or re-run it behind her.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: A second confirm does not save the new app twice
+
+```text
+An implementation that left the submission stored but refused to apply it twice would still pass this row: nothing a reader sees tells a discarded submission from an unusable one.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+With a Slack app in effect, a workspace connected through it and nothing submitted, the instance admin sends a confirm anyway.
+```
+
+```text
+It decides nothing: she is answered with this Foundry's integrations page, and the app in effect is untouched - the page still names it with both secrets set, nothing is recorded as replaced, Add to Slack still asks Slack for it, and its events still verify.
+```
+
+```text
+Reaching the confirm address with nothing waiting tells Priya where she is instead of changing Slack or showing an error.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: A confirm with nothing submitted changes nothing
+
+```text
+A door that answered the page for every confirm would still pass this row; the saving rows observe a confirm that does take effect.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P3
+
+```text
+The Slack app in effect is the one Foundry's environment sets, one workspace is connected through it, and the instance admin submits a different Slack app with both of its secrets.
+```
+
+```text
+The same wait applies: she is taken to the page that tells her one workspace is connected through the current app, naming the app the environment set, with one control to save the new app and neither secret on it, and nothing is recorded - the Activity list still reads only that she generated the secrets key.
+```
+
+```text
+An operator-set Slack app is not switched out from under connected workspaces without Priya reading the cost first.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: The app Foundry\'s environment sets also waits for the confirm
+
+```text
+A gate that compared the submission with a saved app rather than with the app in effect would still pass this row, because no app is saved here; the row above, where the current app is the saved one, is what reads the app in effect.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+With that submission waiting while the environment sets the app in effect, the same instance admin chooses to save the new app.
+```
+
+```text
+It is stored: she reads that it is saved and that the app in Foundry's environment stays in effect until those three settings are removed and Foundry restarts, she is on the integrations page, the Activity list names the app she stored, and Add to Slack still asks Slack approval for the environment's app.
+```
+
+```text
+Priya can prepare the app that takes over when the operator drops the environment settings, and until then nothing about Slack changes.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: The confirm stores the other app while the environment\'s stays in effect
+
+```text
+A store that kept the new app's client ID and dropped both of its secrets would still pass this row: nothing reads them while the environment's app is the one in effect.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+Two or three workspaces, or none, are connected through the Slack app in effect when a different app is submitted.
+```
+
+```text
+With none connected the app is saved at once with no page in between; with two or three the page reads the counted wording naming how many are connected, never the wording that fits exactly one.
+```
+
+```text
+The number Priya reads is the number of workspaces that keep posting through the old app, and she is not stopped when nobody is connected.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/src\/integrations\/handlers\/instance\.rs \:\: the table of the count forms I\-14 and I\-15 read\, and of the gate the connected count decides
+
+```text
+A page that read the counted wording from a number nobody counted would still pass that table; the connected count itself is the store's own read, and the saved-at-once case is read through the public page.
+```
+
+###### Obligations
+
+
+
+
+
 ## Expectations
 
 ### Rows

@@ -787,3 +787,136 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya is on the instance integrations page
     And Priya reads "Slack: set up here · app 6123456789012.8888888888888"
     And Add to Slack on Canzan Labs' workspace integrations page sends Priya to Slack's approval for client ID 6123456789012.8888888888888
+
+  # Switching apps while Canzan Labs is connected through the current one: the
+  # submission waits on its own page until the admin who made it confirms it,
+  # and it is held for ten minutes only. The scenario above - the same
+  # submission with nobody connected - is what tells the count apart from a
+  # confirm that always appears. The app in the environment is the current app
+  # in the last two scenarios (US-IIS-06 AC 6), so the same wait applies to it.
+
+  @us-iis-05 @driving_port @kpi-iis-4
+  Scenario: Another Slack app waits while a workspace is connected through the current one
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    When Priya saves the Slack app with client ID "6123456789012.8888888888888", client secret "0a1b2c3d4e5f60718293a4b5c6d7e8f9" and signing secret "9f8e7d6c5b4a39281706f5e4d3c2b1a0"
+    Then Priya is on the Slack confirm page
+    And Priya reads "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?"
+    And Priya is offered "Save the new app"
+    And the page shows no key and no Slack secret
+    And the Slack app 6123456789012.7234567890123 is still in effect, with its secrets and its activity unchanged
+
+  @us-iis-05 @driving_port @kpi-iis-1 @kpi-iis-4
+  Scenario: The admin who submitted the other app saves it from the confirm page
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Priya has submitted the Slack app 6123456789012.8888888888888 with both of its secrets
+    And Priya has opened the confirm page twice without choosing anything
+    And 2 minutes have passed
+    When Priya chooses "Save the new app" on the confirm page
+    Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
+    And Priya is on the instance integrations page
+    And Priya reads "Slack: set up here · app 6123456789012.8888888888888"
+    And the page shows no key and no Slack secret
+    And Add to Slack on Canzan Labs' workspace integrations page sends Priya to Slack's approval for client ID 6123456789012.8888888888888
+    And the instance integrations activity reads these lines in this order
+      | line                                                                           |
+      | 21 Oct 2026 · Priya Raman replaced the Slack app (6123456789012.8888888888888) |
+      | 21 Oct 2026 · Priya Raman saved the Slack app (6123456789012.7234567890123)    |
+      | 21 Oct 2026 · Priya Raman generated the secrets key                            |
+
+  @us-iis-05 @error @kpi-iis-4
+  Scenario: Another instance admin's confirm saves nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Tomás Rivera is this Foundry's instance admin
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Priya has submitted the Slack app 6123456789012.8888888888888 with both of its secrets
+    When Tomás posts a Slack confirm request
+    Then Tomás's answer is this Foundry's integrations page
+    And the Slack app 6123456789012.7234567890123 is still in effect, with its secrets and its activity unchanged
+
+  @us-iis-05 @kpi-iis-4
+  Scenario: After another instance admin's confirm the submitting admin still saves the new app
+    Given this Foundry starts with its instance key set by the operator
+    And Tomás Rivera is this Foundry's instance admin
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Priya has submitted the Slack app 6123456789012.8888888888888 with both of its secrets
+    And Tomás has posted a Slack confirm request
+    When Priya chooses "Save the new app" on the confirm page
+    Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
+    And Priya reads "Slack: set up here · app 6123456789012.8888888888888"
+
+  @us-iis-05 @error @kpi-iis-4
+  Scenario: A confirm eleven minutes after the submission saves nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Priya has submitted the Slack app 6123456789012.8888888888888 with both of its secrets
+    And 11 minutes have passed
+    When Priya posts a Slack confirm request
+    Then Priya's answer is this Foundry's integrations page
+    And the Slack app 6123456789012.7234567890123 is still in effect, with its secrets and its activity unchanged
+
+  @us-iis-05 @error @kpi-iis-4
+  Scenario: A second confirm does not save the new app twice
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Priya has submitted the Slack app 6123456789012.8888888888888 with both of its secrets
+    And Priya has saved the new app from the confirm page
+    When Priya posts a Slack confirm request again
+    Then Priya's answer is this Foundry's integrations page
+    And the instance integrations page reads "Slack: set up here · app 6123456789012.8888888888888"
+    And the instance integrations activity reads these lines in this order
+      | line                                                                           |
+      | 21 Oct 2026 · Priya Raman replaced the Slack app (6123456789012.8888888888888) |
+      | 21 Oct 2026 · Priya Raman saved the Slack app (6123456789012.7234567890123)    |
+      | 21 Oct 2026 · Priya Raman generated the secrets key                            |
+
+  @us-iis-05 @error @kpi-iis-4
+  Scenario: A confirm with nothing submitted changes nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    When Priya posts a Slack confirm request anyway
+    Then Priya's answer is this Foundry's integrations page
+    And the Slack app 6123456789012.7234567890123 is still in effect, with its secrets and its activity unchanged
+
+  @us-iis-05 @us-iis-06 @driving_port @kpi-iis-4 @kpi-iis-5
+  Scenario: The app Foundry's environment sets also waits for the confirm
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Foundry's environment sets the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    When Priya saves the Slack app with client ID "6123456789012.8888888888888", client secret "0a1b2c3d4e5f60718293a4b5c6d7e8f9" and signing secret "9f8e7d6c5b4a39281706f5e4d3c2b1a0"
+    Then Priya is on the Slack confirm page
+    And Priya reads "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?"
+    And Priya is offered "Save the new app"
+    And the page shows no key and no Slack secret
+    And the instance integrations activity reads these lines in this order
+      | line                                                |
+      | 21 Oct 2026 · Priya Raman generated the secrets key |
+
+  @us-iis-05 @us-iis-06 @kpi-iis-4 @kpi-iis-5
+  Scenario: The confirm stores the other app while the environment's stays in effect
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Foundry's environment sets the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Priya has submitted the Slack app 6123456789012.8888888888888 with both of its secrets
+    When Priya chooses "Save the new app" on the confirm page
+    Then Priya reads "Saved. The app in Foundry's environment stays in effect until SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from it and Foundry restarts; then this one is used."
+    And Priya is on the instance integrations page
+    And the instance integrations activity reads "21 Oct 2026 · Priya Raman saved the Slack app (6123456789012.8888888888888)"
+    And Add to Slack on Canzan Labs' workspace integrations page sends Priya to Slack's approval for client ID 6123456789012.7234567890123
