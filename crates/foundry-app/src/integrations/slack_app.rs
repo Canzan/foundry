@@ -3,6 +3,13 @@
 //! applies, and the app in effect: the environment's when all three
 //! `SLACK_*` are set, else the saved app when both its secrets open, else
 //! none ([`app_in_effect`], pure and total).
+//!
+//! A submission is judged against that app (US-IIS-05): naming its client ID
+//! is a rotation of its secrets, where a field left blank keeps the secret
+//! the saved app already holds; naming another client ID is another app,
+//! which is accepted only with both of its secrets ([`SlackSubmission::judge`],
+//! pure and total). Only its verdict can be sealed, and every sealing of a
+//! Slack secret - a kept one included - happens here.
 
 use super::config::{SlackSettings, SlackUrls};
 use super::keys::{CredentialBox, KeyMode};
@@ -64,6 +71,17 @@ pub fn app_in_effect(environment: bool, saved: SavedApp) -> AppInEffect {
     }
 }
 
+/// The client ID of the app in effect: the `environment`'s where its trio is
+/// set, else the `saved` app's where it is the one in effect, else none. It
+/// is the app the page names in I-7 or I-6, so the replace form, the verdict
+/// and the page all read one app.
+pub fn client_id_in_effect<'app>(
+    environment: Option<&'app str>,
+    saved: Option<&'app str>,
+) -> Option<&'app str> {
+    environment.or(saved)
+}
+
 /// What the instance page says of the saved app in effect (I-6). Never a
 /// secret.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -110,13 +128,13 @@ pub fn open_saved(
 }
 
 /// The app as the form submitted it (each value trimmed).
-pub struct SlackAppForm {
+pub struct SlackSubmission {
     pub client_id: String,
     pub client_secret: SecretString,
     pub signing_secret: SecretString,
 }
 
-impl SlackAppForm {
+impl SlackSubmission {
     /// The form's three fields, each trimmed; a missing one reads empty.
     pub fn from_fields(fields: &[(String, String)]) -> Self {
         let field = |name: &str| {
@@ -171,6 +189,140 @@ impl SlackField {
         };
         fits.then_some(()).ok_or(Refusal::Malformed(self))
     }
+
+    /// The value the save seals for this field: the text submitted where it
+    /// has this field's shape, or `kept` where the field was left blank and
+    /// there is a secret to keep (ADR-IIS-003, US-IIS-05 AC 1). A blank
+    /// field with nothing to keep is refused as blank (I-11), and a value
+    /// off its shape as malformed (I-12).
+    fn sealed_value(
+        self,
+        submitted: &str,
+        kept: Option<&SecretString>,
+    ) -> Result<SecretString, Refusal> {
+        match kept.filter(|_| submitted.trim().is_empty()) {
+            Some(secret) => Ok(secret.clone()),
+            None => {
+                self.check(submitted)?;
+                Ok(SecretString::from(submitted.trim().to_string()))
+            }
+        }
+    }
+}
+
+/// Which app a submission names, against the app in effect.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SubmissionKind {
+    /// The client ID of the app in effect: a rotation of that app's own
+    /// secrets, where a field left blank keeps the secret already saved.
+    Rotate,
+    /// Another client ID, or any client ID with no app in effect: another
+    /// app, accepted only with both of its own secrets (DISCUSS D7).
+    NewApp,
+}
+
+impl SubmissionKind {
+    /// Which app a submission naming `client_id` names, against the client
+    /// ID of the app in effect (`current`): its own ID is a rotation, any
+    /// other ID - and any ID at all with no app in effect - is another app.
+    fn of(client_id: &str, current: Option<&str>) -> Self {
+        match current {
+            Some(current) if current.trim() == client_id.trim() => Self::Rotate,
+            _ => Self::NewApp,
+        }
+    }
+}
+
+/// The saved app's two secrets as the held keys opened them ([`open_saved`]):
+/// which app they belong to, and the secret each field already holds. It is
+/// what a field left blank keeps. No `Debug`: it carries two secrets in the
+/// clear.
+#[derive(Clone)]
+pub struct SavedSecrets {
+    client_id: String,
+    client_secret: SecretString,
+    signing_secret: SecretString,
+}
+
+impl SavedSecrets {
+    /// The secrets of the saved app, as [`open_saved`] opened it.
+    pub fn opened(saved: &SlackSettings) -> Self {
+        Self {
+            client_id: saved.client_id.clone(),
+            client_secret: saved.client_secret.clone(),
+            signing_secret: saved.signing_secret.clone(),
+        }
+    }
+
+    /// Whether these are the secrets of the app `client_id` names.
+    fn belong_to(&self, client_id: &str) -> bool {
+        self.client_id == client_id.trim()
+    }
+
+    /// The secret this field already holds; none for the client ID, which is
+    /// no secret.
+    fn secret(&self, field: SlackField) -> Option<&SecretString> {
+        match field {
+            SlackField::ClientId => None,
+            SlackField::ClientSecret => Some(&self.client_secret),
+            SlackField::SigningSecret => Some(&self.signing_secret),
+        }
+    }
+}
+
+/// What a field left blank keeps: the secret the saved app already holds,
+/// where the submission rotates the app in effect and the saved secrets are
+/// that same app's. Nothing otherwise, so a blank field is refused with I-11
+/// because there is nothing to keep: the saved secrets are the saved app's,
+/// and keeping them under another app's client ID would leave every event
+/// and every code exchange failing.
+struct Kept<'saved> {
+    secrets: Option<&'saved SavedSecrets>,
+}
+
+impl<'saved> Kept<'saved> {
+    /// Nothing is kept: every field answers for itself.
+    fn nothing() -> Self {
+        Self { secrets: None }
+    }
+
+    /// What a blank field of a `kind` submission naming `client_id` keeps,
+    /// over the saved app's opened `secrets`.
+    fn over(kind: SubmissionKind, client_id: &str, secrets: Option<&'saved SavedSecrets>) -> Self {
+        Self {
+            secrets: secrets
+                .filter(|saved| kind == SubmissionKind::Rotate && saved.belong_to(client_id)),
+        }
+    }
+
+    /// The secret this field keeps, when there is one.
+    fn secret(&self, field: SlackField) -> Option<&SecretString> {
+        self.secrets.and_then(|saved| saved.secret(field))
+    }
+}
+
+/// An accepted submission: which app it names, and for each secret the value
+/// the save seals - the one submitted, or the one the saved app already holds
+/// where the field was left blank. Built only by
+/// [`SlackSubmission::judge`], so nothing is sealed without that verdict. No
+/// `Debug`: it carries two secrets in the clear.
+pub struct SlackChange {
+    kind: SubmissionKind,
+    client_id: String,
+    client_secret: SecretString,
+    signing_secret: SecretString,
+}
+
+impl SlackChange {
+    /// Which app this change names.
+    pub fn kind(&self) -> SubmissionKind {
+        self.kind
+    }
+
+    /// The app's client ID, as the save stores it.
+    pub fn client_id(&self) -> &str {
+        &self.client_id
+    }
 }
 
 /// Each Slack secret's length in hex characters.
@@ -192,15 +344,27 @@ pub struct SlackFields<'submission> {
 impl SlackFields<'_> {
     /// What the save refuses: the first field, in form order, whose value is
     /// blank (I-11) or off its shape (I-12); `None` when every field has its
-    /// shape.
+    /// shape. It is [`Self::secrets_to_seal`] with nothing kept, so one rule
+    /// answers for both questions.
     pub fn refusal(&self) -> Option<Refusal> {
-        self.in_form_order
-            .iter()
-            .find_map(|&(field, value)| field.check(value).err())
+        self.secrets_to_seal(&Kept::nothing()).err()
+    }
+
+    /// The two secrets the save seals, in form order, where a field left
+    /// blank keeps the secret `kept` holds for it: the client ID answers
+    /// first, then the client secret, then the signing secret, so a refusal
+    /// names the first failing field in form order.
+    fn secrets_to_seal(&self, kept: &Kept<'_>) -> Result<(SecretString, SecretString), Refusal> {
+        let [(id, client_id), (first, first_value), (second, second_value)] = self.in_form_order;
+        id.check(client_id)?;
+        Ok((
+            first.sealed_value(first_value, kept.secret(first))?,
+            second.sealed_value(second_value, kept.secret(second))?,
+        ))
     }
 }
 
-impl SlackAppForm {
+impl SlackSubmission {
     /// This submission's values under their field names, in form order.
     pub fn fields(&self) -> SlackFields<'_> {
         SlackFields {
@@ -220,15 +384,40 @@ impl SlackAppForm {
     pub fn refusal(&self) -> Option<Refusal> {
         self.fields().refusal()
     }
+
+    /// The verdict over the client ID of the app in effect (`current`) and
+    /// the saved app's opened secrets (`saved`): which app this submission
+    /// names, and the two secrets the save seals, a field left blank keeping
+    /// the secret the saved app already holds where there is one
+    /// (US-IIS-05 AC 1). Refused on the first failing field in form order
+    /// (I-11, I-12). Pure and total: no call to Slack and no store read.
+    pub fn judge(
+        &self,
+        current: Option<&str>,
+        saved: Option<&SavedSecrets>,
+    ) -> Result<SlackChange, Refusal> {
+        let kind = SubmissionKind::of(&self.client_id, current);
+        let (client_secret, signing_secret) =
+            self.fields()
+                .secrets_to_seal(&Kept::over(kind, &self.client_id, saved))?;
+        Ok(SlackChange {
+            kind,
+            client_id: self.client_id.clone(),
+            client_secret,
+            signing_secret,
+        })
+    }
 }
 
-/// Both secrets sealed with `sealing`, fenced on its key id when `mode` is
-/// `Sealed` (the stored secrets key's) and on none when `Direct`. `None`
-/// when sealing fails.
-pub fn plan_save(
+/// Both of the change's secrets sealed with `sealing`, fenced on its key id
+/// when `mode` is `Sealed` (the stored secrets key's) and on none when
+/// `Direct`. A secret a blank field kept is re-sealed here like a submitted
+/// one, so every sealing of a Slack secret stays in this module. `None` when
+/// sealing fails.
+pub fn plan_replace(
     sealing: &SecretBox,
     mode: KeyMode,
-    form: &SlackAppForm,
+    change: &SlackChange,
     saved_by: Uuid,
     saved_at: OffsetDateTime,
 ) -> Option<SlackAppSave> {
@@ -239,9 +428,9 @@ pub fn plan_save(
             .map(|sealed| sealed.as_bytes().to_vec())
     };
     Some(SlackAppSave {
-        client_id: form.client_id.clone(),
-        sealed_client_secret: seal(&form.client_secret, client_secret_slot())?,
-        sealed_signing_secret: seal(&form.signing_secret, signing_secret_slot())?,
+        client_id: change.client_id.clone(),
+        sealed_client_secret: seal(&change.client_secret, client_secret_slot())?,
+        sealed_signing_secret: seal(&change.signing_secret, signing_secret_slot())?,
         sealed_under: (mode == KeyMode::Sealed).then(|| sealing.current_key_id().to_string()),
         saved_by,
         saved_at,
@@ -257,9 +446,9 @@ mod tests {
     const SECRET: &str = "3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8";
     const SIGNING: &str = "b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05";
 
-    fn form(client_id: &str, client_secret: &str, signing_secret: &str) -> SlackAppForm {
+    fn form(client_id: &str, client_secret: &str, signing_secret: &str) -> SlackSubmission {
         let field = |name: &str, value: &str| (name.to_string(), value.to_string());
-        SlackAppForm::from_fields(&[
+        SlackSubmission::from_fields(&[
             field("client_id", client_id),
             field("client_secret", client_secret),
             field("signing_secret", signing_secret),
@@ -401,7 +590,8 @@ mod tests {
                 .map(|text| text.expose_secret().to_string())
                 .ok()
         };
-        let sealed = plan_save(&sealing, KeyMode::Sealed, &form, by, at).expect("planned");
+        let change = form.judge(None, None).expect("both secrets submitted");
+        let sealed = plan_replace(&sealing, KeyMode::Sealed, &change, by, at).expect("planned");
         assert_eq!(sealed.client_id, ID);
         assert_eq!(
             open(&sealed.sealed_client_secret, client_secret_slot()),
@@ -416,7 +606,7 @@ mod tests {
             Some(sealing.current_key_id().to_string())
         );
         assert_eq!((sealed.saved_by, sealed.saved_at), (by, at));
-        let direct = plan_save(&sealing, KeyMode::Direct, &form, by, at).expect("planned");
+        let direct = plan_replace(&sealing, KeyMode::Direct, &change, by, at).expect("planned");
         assert_eq!(direct.sealed_under, None);
     }
 }

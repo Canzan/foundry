@@ -174,6 +174,9 @@ pub struct Integrations {
     slack: Option<Arc<SlackApp>>,
     /// The saved app's facts, when it is the app in effect.
     saved_slack: Option<slack_app::SavedAppFacts>,
+    /// The saved app's secrets as the held keys opened them, whichever app
+    /// is in effect: what a replace's blank field keeps (US-IIS-05 AC 1).
+    saved_secrets: Option<slack_app::SavedSecrets>,
     /// The saved app as the held keys open it (I-13 when it does not).
     saved_app: slack_app::SavedApp,
     /// The key file as boot found it (consulted only without an operator key).
@@ -315,6 +318,7 @@ impl Integrations {
         integrations.key_file = self.key_file;
         integrations.rewrapped_from = self.rewrapped_from.clone();
         integrations.saved_slack = self.saved_slack.clone();
+        integrations.saved_secrets = self.saved_secrets.clone();
         integrations.saved_app = self.saved_app;
         integrations.reload_nudge = self.reload_nudge.clone();
         integrations.probed(snapshot, self.keyring.secrets_key())
@@ -332,6 +336,7 @@ impl Integrations {
             settings,
             slack,
             saved_slack: None,
+            saved_secrets: None,
             saved_app: slack_app::SavedApp::Absent,
             key_file: KeyFile::Unwritable,
             rewrapped_from: None,
@@ -414,6 +419,10 @@ impl Integrations {
         let saved_app = saved
             .as_ref()
             .map_or(slack_app::SavedApp::Absent, |(_, state, _)| *state);
+        let saved_secrets = saved
+            .as_ref()
+            .and_then(|(_, _, opened)| opened.as_ref())
+            .map(slack_app::SavedSecrets::opened);
         let in_effect = slack_app::app_in_effect(environment, saved_app);
         let (slack, saved_slack) = match (in_effect, saved) {
             (slack_app::AppInEffect::Environment, _) => (self.slack.clone(), None),
@@ -431,6 +440,7 @@ impl Integrations {
         Self {
             slack,
             saved_slack,
+            saved_secrets,
             saved_app,
             ..self
         }
@@ -450,6 +460,25 @@ impl Integrations {
     /// The saved Slack app's facts, when it is the app in effect (I-6).
     pub fn saved_slack(&self) -> Option<&slack_app::SavedAppFacts> {
         self.saved_slack.as_ref()
+    }
+
+    /// The saved Slack app's secrets as the held keys opened them: the
+    /// secrets a replace's blank field keeps, already opened here, so no
+    /// other path opens a stored secret.
+    pub fn saved_secrets(&self) -> Option<&slack_app::SavedSecrets> {
+        self.saved_secrets.as_ref()
+    }
+
+    /// The client ID of the Slack app in effect on this server: the
+    /// environment's where its trio is set, else the saved app's.
+    pub fn client_id_in_effect(&self) -> Option<&str> {
+        slack_app::client_id_in_effect(
+            self.settings
+                .slack
+                .as_ref()
+                .map(|app| app.client_id.as_str()),
+            self.saved_slack.as_ref().map(|app| app.client_id.as_str()),
+        )
     }
 
     /// The key mode and the probe's verdict over `snapshot`.

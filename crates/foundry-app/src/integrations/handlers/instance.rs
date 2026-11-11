@@ -24,12 +24,25 @@
 //! secrets are sealed and handed to the one write use-case, fenced on the
 //! sealing key, and this server's integrations are rebuilt and installed
 //! before it answers I-10 with I-6 (ADR-IIS-003).
+//!
+//! The same door replaces the app (US-IIS-05): it reads the client ID in
+//! effect before judging, so a submission naming that app may leave a secret
+//! field blank and keep the secret already saved, while another client ID
+//! needs both of its own secrets. The form is offered wherever credentials
+//! seal, over a saved app too, holding the client ID in effect so a rotation
+//! needs no retyping. A save that stored the app answers a redirect onto the
+//! page itself naming the notice she lands on (I-10 or I-17), as every other
+//! door of this feature's handlers answers a write, so a reload never posts
+//! the secrets again; a refusal and a save that stored nothing answer the
+//! page in place. The Activity reads a replacement in I-18's words.
 
 use super::{reinstall, render};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyFile, KeyMode, NoKeyReason};
-use crate::integrations::slack_app::{plan_save, Refusal, SavedApp, SlackAppForm, SlackField};
+use crate::integrations::slack_app::{
+    client_id_in_effect, plan_replace, Refusal, SavedApp, SlackChange, SlackField, SlackSubmission,
+};
 use crate::integrations::store_capabilities::{
     InstanceKeyWrites, KeyProbe, ResealRefused, StoreCapabilities,
 };
@@ -37,12 +50,13 @@ use crate::integrations::{sealed_slot, slack, Integrations};
 use crate::AppState;
 use askama::Template;
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{RawQuery, State};
 use axum::http::HeaderMap;
-use axum::response::Response;
+use axum::response::{IntoResponse, Redirect, Response};
 use foundry_store::integrations::{
     InstanceActivityRow, KeyWrapper, SecretsKeyOutcome, SlackSaveOutcome,
 };
+use serde::Deserialize;
 use time::OffsetDateTime;
 use tower_sessions::Session;
 use uuid::Uuid;
@@ -222,6 +236,49 @@ impl KeyOffer {
     }
 }
 
+/// What a save that stored the Slack app answers, and the only thing its
+/// redirect carries: a closed set of notices, each with its own wire name, so
+/// the admin lands on the instance page itself (post, redirect, get) with the
+/// words the save earned and no submitted value in the address.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SavedNotice {
+    /// I-10: the app saved here is the one in effect.
+    InEffect,
+    /// I-17: the environment's app stays in effect until it is removed.
+    EnvironmentWins,
+}
+
+impl SavedNotice {
+    /// How the page's address names it.
+    fn wire(self) -> &'static str {
+        match self {
+            Self::InEffect => "app",
+            Self::EnvironmentWins => "app-environment",
+        }
+    }
+
+    /// The notice the admin lands on.
+    fn words(self) -> &'static str {
+        match self {
+            Self::InEffect => SLACK_APP_SAVED,
+            Self::EnvironmentWins => SLACK_SAVED_ENVIRONMENT_WINS,
+        }
+    }
+
+    /// The notice a `saved` wire name asks for; none for anything else, so an
+    /// address nobody was sent to reads as the page itself.
+    fn of_wire(wire: &str) -> Option<Self> {
+        [Self::InEffect, Self::EnvironmentWins]
+            .into_iter()
+            .find(|saved| saved.wire() == wire)
+    }
+
+    /// Where the save sends the admin to read it.
+    fn door(self) -> String {
+        format!("{INSTANCE_PATH}?saved={}", self.wire())
+    }
+}
+
 /// What a Generate or Move that stored the key answers: I-21 when nothing
 /// was re-sealed, else I-22 over the `moved` credentials.
 pub fn stored_notice(moved: usize) -> String {
@@ -251,9 +308,24 @@ pub struct PageState {
     pub saved_unreadable: Option<&'static str>,
     /// I-7: the environment's app in effect.
     pub environment_slack: Option<String>,
-    /// The Slack app form: wherever credentials seal and no saved app is in
-    /// effect (under I-5, I-7, or no Slack line in Direct mode).
+    /// The Slack app form: wherever credentials seal - under I-5, I-7, I-13
+    /// and beside I-6, where it is the replace form (US-IIS-05 AC 1).
     pub slack_form: bool,
+    /// The client ID of the app in effect (I-6, I-7), which the form offers.
+    pub current_client_id: Option<String>,
+}
+
+impl PageState {
+    /// The client ID the Slack app form holds: what a refused save typed
+    /// (I-11, I-12), else the client ID of the app in effect, so a rotation
+    /// of its secrets needs no retyping (US-IIS-05 AC 1).
+    pub fn form_client_id<'page>(&'page self, typed: &'page str) -> &'page str {
+        if typed.is_empty() {
+            self.current_client_id.as_deref().unwrap_or_default()
+        } else {
+            typed
+        }
+    }
 }
 
 /// The page of `facts` (pure and total).
@@ -284,7 +356,12 @@ pub fn page_state(facts: &PageFacts) -> PageState {
         } else {
             MATRIX_NEEDS_KEY
         },
-        slack_form: facts.mode.seals() && (environment_slack.is_some() || !facts.slack_app),
+        slack_form: facts.mode.seals(),
+        current_client_id: client_id_in_effect(
+            facts.environment_slack.as_deref(),
+            facts.saved_slack.as_ref().map(|app| app.client_id.as_str()),
+        )
+        .map(str::to_string),
         slack,
         environment_slack,
         saved_slack: facts.saved_slack.as_ref().map(|app| SavedSlackLines {
@@ -371,13 +448,20 @@ fn activity_line(row: &InstanceActivityRow) -> String {
             1 => "moved 1 credential under a secrets key".to_string(),
             n => format!("moved {n} credentials under a secrets key"),
         },
-        "slack_app_saved" => format!(
-            "saved the Slack app ({})",
-            row.client_id.as_deref().unwrap_or_default()
-        ),
+        "slack_app_saved" => slack_app_line("saved", row),
+        "slack_app_replaced" => slack_app_line("replaced", row),
         other => other.replace('_', " "),
     };
     format!("{} · {actor} {what}", display_date(row.created_at))
+}
+
+/// I-18's Slack app lines: what was done to the app, naming the app it was
+/// done to.
+fn slack_app_line(what: &str, row: &InstanceActivityRow) -> String {
+    format!(
+        "{what} the Slack app ({})",
+        row.client_id.as_deref().unwrap_or_default()
+    )
 }
 
 /// "21 Oct 2026".
@@ -395,21 +479,42 @@ struct InstancePage {
     slack_door: &'static str,
     /// What the post just did (I-21, I-22, I-10 …).
     notice: Option<String>,
-    /// The client ID a refused save typed, kept in the form (I-11, I-12).
-    kept_client_id: String,
+    /// The client ID the form holds: the one a refused save typed (I-11,
+    /// I-12), else the app in effect's (US-IIS-05 AC 1).
+    form_client_id: String,
     page: PageState,
     activity: Vec<String>,
+}
+
+/// What a save that stored the app sends the admin back to read: the only
+/// thing the page's own address carries, so nothing she submitted reaches a
+/// URL.
+#[derive(Debug, Default, Deserialize)]
+struct PageQuery {
+    saved: Option<String>,
+}
+
+/// The notice the page's own address asks for, where a save sent the admin
+/// here to read it; nothing for any other address. An address nothing can
+/// read is no notice and never a refusal: every reader this door turns away
+/// gets the uniform 404 and nothing else.
+fn saved_notice(query: Option<&str>) -> Option<SavedNotice> {
+    let query: PageQuery =
+        serde_urlencoded::from_str(query.unwrap_or_default()).unwrap_or_default();
+    SavedNotice::of_wire(query.saved.as_deref()?)
 }
 
 pub async fn show_instance(
     State(state): State<AppState>,
     session: Session,
     headers: HeaderMap,
+    RawQuery(query): RawQuery,
 ) -> Response {
     let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
-    answer(&state, &user, &headers, None, String::new()).await
+    let notice = saved_notice(query.as_deref()).map(|saved| saved.words().to_string());
+    answer(&state, &user, &headers, notice, String::new()).await
 }
 
 /// `POST /admin/instance/integrations/secrets-key`: Generate.
@@ -502,8 +607,10 @@ async fn store_secrets_key(state: &AppState, actor: Uuid, door: KeyOffer) -> Opt
     notice
 }
 
-/// `POST /admin/instance/integrations/slack`: save the Slack app. The form
-/// is read only past the guard, so every refusal is the uniform 404.
+/// `POST /admin/instance/integrations/slack`: save or replace the Slack app.
+/// The form is read only past the guard, so every refusal is the uniform
+/// 404. The app in effect on this server is read before the submission is
+/// judged, so a field left blank keeps the secret that app already holds.
 pub async fn save_slack_app(
     State(state): State<AppState>,
     session: Session,
@@ -514,26 +621,35 @@ pub async fn save_slack_app(
         return resource_not_found_page();
     };
     let fields: Vec<(String, String)> = serde_urlencoded::from_bytes(&body).unwrap_or_default();
-    let form = SlackAppForm::from_fields(&fields);
-    if let Some(refusal) = form.refusal() {
-        return answer(
-            &state,
-            &user,
-            &headers,
-            Some(refused(refusal).to_string()),
-            form.client_id,
-        )
-        .await;
+    let submission = SlackSubmission::from_fields(&fields);
+    let in_effect = state.integrations.current();
+    let change = match submission.judge(in_effect.client_id_in_effect(), in_effect.saved_secrets())
+    {
+        Ok(change) => change,
+        Err(refusal) => {
+            return answer(
+                &state,
+                &user,
+                &headers,
+                Some(refused(refusal).to_string()),
+                submission.client_id,
+            )
+            .await
+        }
+    };
+    match save_slack(&state, user.user_id, &change).await {
+        SaveAnswer::Stored(saved) => Redirect::to(&saved.door()).into_response(),
+        SaveAnswer::InPlace(notice) => {
+            answer(
+                &state,
+                &user,
+                &headers,
+                notice.map(str::to_string),
+                String::new(),
+            )
+            .await
+        }
     }
-    let notice = save_slack(&state, user.user_id, &form).await;
-    answer(
-        &state,
-        &user,
-        &headers,
-        notice.map(str::to_string),
-        String::new(),
-    )
-    .await
 }
 
 /// What a refused save answers: I-11 for a blank field, I-12 for a
@@ -553,51 +669,63 @@ fn refused(refusal: Refusal) -> &'static str {
 /// server's integrations rebuilt and installed: I-10 once it is saved. When
 /// the seal fence finds a newer sealing key, the integrations are rebuilt
 /// and the save tried once more.
-async fn save_slack(state: &AppState, actor: Uuid, form: &SlackAppForm) -> Option<&'static str> {
+async fn save_slack(state: &AppState, actor: Uuid, change: &SlackChange) -> SaveAnswer {
     let store = &StoreCapabilities::new(state.store.clone());
     retried(|| async move {
         let integrations = state.integrations.current();
         let Some(sealing) = integrations.sealing_box() else {
-            return Attempted::Answered(Some(NO_SECRETS_KEY));
+            return Attempted::Answered(SaveAnswer::InPlace(Some(NO_SECRETS_KEY)));
         };
-        let Some(plan) = plan_save(
+        let Some(plan) = plan_replace(
             sealing,
             integrations.key_mode(),
-            form,
+            change,
             actor,
             state.clock.now(),
         ) else {
             tracing::warn!(probe = "secrets", "sealing the Slack app failed");
-            return Attempted::Answered(None);
+            return Attempted::Answered(SaveAnswer::InPlace(None));
         };
         let outcome = store.save_slack_app(&plan).await;
         reinstall(state, &integrations).await;
         match outcome {
             Ok(SlackSaveOutcome::Saved { .. }) if integrations.settings().slack.is_some() => {
-                Attempted::Answered(Some(SLACK_SAVED_ENVIRONMENT_WINS))
+                Attempted::Answered(SaveAnswer::Stored(SavedNotice::EnvironmentWins))
             }
-            Ok(SlackSaveOutcome::Saved { .. }) => Attempted::Answered(Some(SLACK_APP_SAVED)),
+            Ok(SlackSaveOutcome::Saved { .. }) => {
+                Attempted::Answered(SaveAnswer::Stored(SavedNotice::InEffect))
+            }
             Ok(SlackSaveOutcome::StaleKey) => Attempted::StaleKey,
             Err(err) => {
                 tracing::warn!(error = %err, "saving the Slack app failed");
-                Attempted::Answered(None)
+                Attempted::Answered(SaveAnswer::InPlace(None))
             }
         }
     })
     .await
 }
 
+/// What a save answers: the app is stored, so the admin is sent to the page
+/// itself to read the notice it earned (post, redirect, get, so a reload
+/// never posts the submission again); or nothing was stored and the page is
+/// answered in place, with what to tell her (`None` where only the log knows).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SaveAnswer {
+    Stored(SavedNotice),
+    InPlace(Option<&'static str>),
+}
+
 /// One try at a fenced save: its answer, or the fence found a newer
 /// sealing key.
 enum Attempted {
-    Answered(Option<&'static str>),
+    Answered(SaveAnswer),
     StaleKey,
 }
 
 /// `attempt` up to [`SAVE_ATTEMPTS`] times while the fence finds a newer
 /// sealing key; the first answer otherwise, and [`SAVE_TURNED_BACK`] when
 /// every try was turned back.
-async fn retried<F, Fut>(mut attempt: F) -> Option<&'static str>
+async fn retried<F, Fut>(mut attempt: F) -> SaveAnswer
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Attempted>,
@@ -607,7 +735,7 @@ where
             return answer;
         }
     }
-    Some(SAVE_TURNED_BACK)
+    SaveAnswer::InPlace(Some(SAVE_TURNED_BACK))
 }
 
 /// Who saved the app in effect, by name.
@@ -646,13 +774,14 @@ async fn answer(
     user: &SessionUser,
     headers: &HeaderMap,
     notice: Option<String>,
-    kept_client_id: String,
+    typed_client_id: String,
 ) -> Response {
     let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
     let integrations = state.integrations.current();
     let saver = saver_name(state, &integrations).await;
     let direct_seals = direct_seals(state, &integrations).await;
     let page = page_state(&facts_of(&integrations, direct_seals, saver));
+    let form_client_id = page.form_client_id(&typed_client_id).to_string();
     let activity = match StoreCapabilities::new(state.store.clone())
         .instance_activity(ACTIVITY_LINES)
         .await
@@ -677,7 +806,7 @@ async fn answer(
             csrf,
             slack_door: SLACK_APP_PATH,
             notice,
-            kept_client_id,
+            form_client_id,
             page,
             activity,
         }
@@ -986,19 +1115,19 @@ mod tests {
         })
         .await;
         assert_eq!(tries.load(Ordering::SeqCst), SAVE_ATTEMPTS);
-        assert_eq!(answer, Some(SAVE_TURNED_BACK));
+        assert_eq!(answer, SaveAnswer::InPlace(Some(SAVE_TURNED_BACK)));
 
         let tries = &AtomicUsize::new(0);
         let answer = retried(|| async move {
             match tries.fetch_add(1, Ordering::SeqCst) {
                 0 => Attempted::StaleKey,
-                _ => Attempted::Answered(Some(SLACK_APP_SAVED)),
+                _ => Attempted::Answered(SaveAnswer::Stored(SavedNotice::InEffect)),
             }
         })
         .await;
         assert_eq!(
             (tries.load(Ordering::SeqCst), answer),
-            (2, Some(SLACK_APP_SAVED))
+            (2, SaveAnswer::Stored(SavedNotice::InEffect))
         );
     }
 
