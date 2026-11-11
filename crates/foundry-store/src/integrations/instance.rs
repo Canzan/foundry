@@ -238,6 +238,18 @@ pub enum PendingApplied<E> {
     Refused(E),
 }
 
+/// What a remove of the saved Slack app did (US-IIS-05 AC 3, D8).
+#[derive(Debug, PartialEq, Eq)]
+pub enum RemoveOutcome {
+    /// The saved app's row was deleted, one line recorded and the version
+    /// bumped, in one transaction. Nothing else was touched: no connection
+    /// row, no delivery, no notice.
+    Removed { version: i64 },
+    /// No app was saved here, so there was nothing to remove: nothing
+    /// changed.
+    NothingSaved,
+}
+
 /// The saved Slack app row. No `Debug`: it carries sealed secrets.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SavedSlackApp {
@@ -295,6 +307,7 @@ enum Activity {
     CredentialsMoved,
     SlackAppSaved,
     SlackAppReplaced,
+    SlackAppRemoved,
     SecretsKeyRewrapped,
 }
 
@@ -305,6 +318,7 @@ impl Activity {
             Self::CredentialsMoved => "credentials_moved",
             Self::SlackAppSaved => "slack_app_saved",
             Self::SlackAppReplaced => "slack_app_replaced",
+            Self::SlackAppRemoved => "slack_app_removed",
             Self::SecretsKeyRewrapped => "secrets_key_rewrapped",
         }
     }
@@ -466,6 +480,39 @@ impl Store {
         let mut tx = self.pool.begin().await?;
         lock_exclusive(&mut tx).await?;
         save_slack_app(tx, app).await
+    }
+
+    /// An instance admin's removal of the saved Slack app (US-IIS-05 AC 3,
+    /// D8): one transaction under the exclusive lock that deletes the row,
+    /// records one line naming the app it took away and bumps the version.
+    /// It seals nothing, so there is no key it was sealed under and no fence
+    /// to hold; it touches nothing else, so every connection keeps its state,
+    /// its `lost_reason` and its queued deliveries. With nothing saved it
+    /// removes nothing and records nothing.
+    pub async fn remove_slack_app(
+        &self,
+        actor: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<RemoveOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        lock_exclusive(&mut tx).await?;
+        let removed: Option<String> =
+            sqlx::query_scalar("DELETE FROM instance_slack_app WHERE id = 1 RETURNING client_id")
+                .fetch_optional(&mut *tx)
+                .await?;
+        let Some(client_id) = removed else {
+            tx.rollback().await?;
+            return Ok(RemoveOutcome::NothingSaved);
+        };
+        let line = ActivityLine {
+            actor: Some(actor),
+            activity: Activity::SlackAppRemoved,
+            client_id: Some(&client_id),
+            count: None,
+            at: now,
+        };
+        let version = commit_recorded(tx, &line).await?;
+        Ok(RemoveOutcome::Removed { version })
     }
 
     /// Hold the Slack app an admin submitted while workspaces are connected

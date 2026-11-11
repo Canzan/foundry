@@ -92,9 +92,9 @@ mod slack_setup;
 mod workspace;
 
 pub use instance::{
-    confirm_slack_app, generate_secrets_key, move_to_secrets_key, save_slack_app, show_instance,
-    show_slack_confirm, INSTANCE_PATH, MOVE_PATH, SECRETS_KEY_PATH, SLACK_APP_PATH,
-    SLACK_CONFIRM_PATH,
+    confirm_slack_app, generate_secrets_key, move_to_secrets_key, remove_slack_app, save_slack_app,
+    show_instance, show_slack_confirm, show_slack_remove, INSTANCE_PATH, MOVE_PATH,
+    SECRETS_KEY_PATH, SLACK_APP_PATH, SLACK_CONFIRM_PATH, SLACK_REMOVE_PATH,
 };
 pub use matrix_setup::connect_matrix;
 pub use routes::{

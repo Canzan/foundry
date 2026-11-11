@@ -944,7 +944,8 @@ mod retention_tests {
     use async_trait::async_trait;
     use foundry_store::integrations::{
         DeliveryTally, InstanceActivityRow, KeyCheck, NewSecretsKey, PendingApplied,
-        PendingSlackAppSave, Pruned, SecretsKeyOutcome, SlackAppSave, SlackSaveOutcome,
+        PendingSlackAppSave, Pruned, RemoveOutcome, SecretsKeyOutcome, SlackAppSave,
+        SlackSaveOutcome,
     };
     use foundry_store::StoreError;
 
@@ -1020,6 +1021,14 @@ mod retention_tests {
             _reseal: HeldResealer<'_>,
         ) -> Result<PendingApplied<ResealRefused>, StoreError> {
             unreachable!("the retention tick applies no held Slack app")
+        }
+
+        async fn remove_slack_app(
+            &self,
+            _actor: uuid::Uuid,
+            _now: OffsetDateTime,
+        ) -> Result<RemoveOutcome, StoreError> {
+            unreachable!("the retention tick removes no Slack app")
         }
 
         async fn connected_slack_workspaces(&self) -> Result<i64, StoreError> {

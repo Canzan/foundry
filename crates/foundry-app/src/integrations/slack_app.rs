@@ -676,6 +676,104 @@ mod tests {
         }
     }
 
+    /// L1 and L8: the whole relation between a submission and the two
+    /// secrets a save seals - which app the submission names, which field
+    /// keeps the secret the saved app already holds, and which replaces it.
+    /// A kept secret is re-sealed here from the value this server already
+    /// holds opened, so each accepted row's sealed bytes are opened again
+    /// and read: a kept field opens to the secret in effect before the save,
+    /// and a replaced field to the new one, so the replaced value cannot
+    /// verify or exchange afterwards. Where the saved app opens under no
+    /// held key it is not the app in effect, so there is nothing to keep and
+    /// a blank field is refused with I-11. The form has three fields over a
+    /// closed verdict, so this is the whole relation and not a sample.
+    #[test]
+    fn the_table_of_which_secrets_a_submission_keeps_and_which_it_replaces() {
+        use Refusal::Blank;
+        use SlackField::{ClientSecret, SigningSecret};
+        use SubmissionKind::{NewApp, Rotate};
+        const OTHER_ID: &str = "6123456789012.8888888888888";
+        /// A client secret this Foundry has never held.
+        const NEW_SECRET: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f0";
+        /// A signing secret this Foundry has never held.
+        const NEW_SIGNING: &str = "1a2b3c4d5e6f708192a3b4c5d6e7f809";
+
+        let generated = foundry_auth::secret_box::SecretsKey::generate().unwrap();
+        let sealing = SecretBox::new(generated.key, Vec::new());
+        let by = Uuid::now_v7();
+        let at = OffsetDateTime::UNIX_EPOCH;
+        let open = |sealed: &[u8], slot: SecretSlot| {
+            sealing
+                .open(
+                    &foundry_auth::secret_box::SealedSecret::from_bytes(sealed.to_vec()),
+                    &slot,
+                )
+                .map(|text| text.expose_secret().to_string())
+                .ok()
+        };
+        // The saved app's secrets as the held keys opened them: what a blank
+        // field keeps.
+        let saved = SavedSecrets {
+            client_id: ID.to_string(),
+            client_secret: SecretString::from(SECRET.to_string()),
+            signing_secret: SecretString::from(SIGNING.to_string()),
+        };
+
+        // The three submitted fields, whether the saved app opens (so its
+        // secrets are there to keep), then the verdict: a refusal naming its
+        // field, or the app the submission names with the two secrets the
+        // save seals.
+        type Verdict = Result<(SubmissionKind, &'static str, &'static str), Refusal>;
+        #[rustfmt::skip]
+        let table: [(&str, &str, &str, bool, Verdict); 9] = [
+            (ID,       "",         "",          true,  Ok((Rotate, SECRET,     SIGNING))),
+            (ID,       "",         NEW_SIGNING, true,  Ok((Rotate, SECRET,     NEW_SIGNING))),
+            (ID,       NEW_SECRET, NEW_SIGNING, true,  Ok((Rotate, NEW_SECRET, NEW_SIGNING))),
+            (OTHER_ID, "",         NEW_SIGNING, true,  Err(Blank(ClientSecret))),
+            (OTHER_ID, NEW_SECRET, "",          true,  Err(Blank(SigningSecret))),
+            (OTHER_ID, NEW_SECRET, NEW_SIGNING, true,  Ok((NewApp, NEW_SECRET, NEW_SIGNING))),
+            (ID,       "",         NEW_SIGNING, false, Err(Blank(ClientSecret))),
+            (ID,       NEW_SECRET, "",          false, Err(Blank(SigningSecret))),
+            (ID,       NEW_SECRET, NEW_SIGNING, false, Ok((NewApp, NEW_SECRET, NEW_SIGNING))),
+        ];
+        for (client_id, client_secret, signing_secret, opens, verdict) in table {
+            let row = format!("{client_id} with {client_secret:?} and {signing_secret:?}, saved app opens: {opens}");
+            let (current, secrets) = match opens {
+                true => (Some(ID), Some(&saved)),
+                false => (None, None),
+            };
+            let judged = form(client_id, client_secret, signing_secret).judge(current, secrets);
+            match (judged, verdict) {
+                (Ok(change), Ok((kind, client, signing))) => {
+                    assert_eq!(
+                        (change.kind(), change.client_id()),
+                        (kind, client_id),
+                        "{row}"
+                    );
+                    let sealed = plan_replace(&sealing, KeyMode::Sealed, &change, by, at)
+                        .unwrap_or_else(|| panic!("{row}: planned"));
+                    assert_eq!(
+                        open(&sealed.sealed_client_secret, client_secret_slot()).as_deref(),
+                        Some(client),
+                        "{row}: the client secret the save seals"
+                    );
+                    assert_eq!(
+                        open(&sealed.sealed_signing_secret, signing_secret_slot()).as_deref(),
+                        Some(signing),
+                        "{row}: the signing secret the save seals"
+                    );
+                }
+                (Err(refusal), Err(expected)) => assert_eq!(refusal, expected, "{row}"),
+                (Ok(_), Err(expected)) => {
+                    panic!("{row}: accepted, where {expected:?} is expected")
+                }
+                (Err(refusal), Ok(expected)) => {
+                    panic!("{row}: refused with {refusal:?}, where {expected:?} is expected")
+                }
+            }
+        }
+    }
+
     /// A save seals both secrets into their own slots, fenced on the sealing
     /// key's id in `Sealed` mode and on none in `Direct`.
     #[test]

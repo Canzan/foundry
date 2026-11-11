@@ -49,14 +49,28 @@
 //! holds it, before it expires, and answers the page with the notice the save
 //! earned; a second confirm, another admin's confirm and a late one change
 //! nothing and answer the page as it is.
+//!
+//! Retiring Slack on this Foundry (US-IIS-05 AC 3): the page offers Replace
+//! and Remove over the app saved here and neither over the app Foundry's
+//! environment sets ([`SlackOffer`], D7). Remove opens
+//! `GET …/slack/remove`, which reads I-15 in the form the
+//! connected-workspace count selects and offers the one control that carries
+//! the removal out; that door only reads ([`ReadOnlyDoor`]), so a prefetch
+//! and a reload take nothing away. Its `POST` deletes the saved app with its
+//! activity line and the version bump in one transaction, rebuilds this
+//! server's integrations and answers I-16. It touches nothing else: every
+//! workspace keeps its Slack connection, its queued deliveries and its
+//! silence - nobody is told a connection was lost - and the workspace page
+//! reads W-2 from the shipped cause afterwards. A remove while the
+//! environment's app is in effect changes nothing and answers the page.
 
 use super::{reinstall, render};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyFile, KeyMode, NoKeyReason};
 use crate::integrations::slack_app::{
-    client_id_in_effect, plan_hold_pending, plan_replace, reseal_held_for_save, Refusal, SavedApp,
-    SlackChange, SlackField, SlackSubmission, SubmissionKind,
+    app_in_effect, client_id_in_effect, plan_hold_pending, plan_replace, reseal_held_for_save,
+    AppInEffect, Refusal, SavedApp, SlackChange, SlackField, SlackSubmission, SubmissionKind,
 };
 use crate::integrations::store_capabilities::{
     InstanceKeyWrites, KeyProbe, ResealRefused, StoreCapabilities,
@@ -69,7 +83,8 @@ use axum::extract::{RawQuery, State};
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Redirect, Response};
 use foundry_store::integrations::{
-    InstanceActivityRow, KeyWrapper, PendingApplied, SecretsKeyOutcome, SlackSaveOutcome,
+    InstanceActivityRow, KeyWrapper, PendingApplied, RemoveOutcome, SecretsKeyOutcome,
+    SlackSaveOutcome,
 };
 use serde::Deserialize;
 use time::OffsetDateTime;
@@ -83,6 +98,9 @@ pub const SLACK_APP_PATH: &str = "/admin/instance/integrations/slack";
 /// Where a submission of another app waits while workspaces are connected
 /// through the current one (US-IIS-05 AC 2, I-14).
 pub const SLACK_CONFIRM_PATH: &str = "/admin/instance/integrations/slack/confirm";
+/// Where Priya reads what a removal stops before she decides (US-IIS-05
+/// AC 3, I-15), and where the removal itself is posted.
+pub const SLACK_REMOVE_PATH: &str = "/admin/instance/integrations/slack/remove";
 
 /// I-25, operator-set.
 const KEY_BY_OPERATOR: &str = "Instance key: set by the operator.";
@@ -143,6 +161,18 @@ const CONNECTED_ONE: &str = "1 workspace is connected through the current Slack 
 const CONNECTED_MANY: &str = "{n} workspaces are connected through the current Slack app ({client_id}). They keep posting through it until a workspace admin reconnects Slack. Save the new app?";
 /// I-14's one control.
 const SAVE_NEW_APP: &str = "Save the new app";
+/// I-15, n = 0: nobody is connected, so nothing stops posting.
+const REMOVE_NONE_CONNECTED: &str =
+    "Remove the Slack app from this Foundry? No workspace is connected to Slack.";
+/// I-15, n = 1.
+const REMOVE_ONE: &str = "Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack.";
+/// I-15, n >= 2.
+const REMOVE_MANY: &str = "Remove the Slack app from this Foundry? {n} workspaces' Slack routes stop posting until it is set up again, and no workspace can connect Slack.";
+/// I-16: what the removal answers.
+const SLACK_APP_REMOVED: &str = "Removed. Slack is not set up on this Foundry.";
+/// The Slack app form's own control where no app saved here is in effect:
+/// the first save of an app.
+const SAVE_SLACK_APP: &str = "Save Slack app";
 /// I-17: saved while the environment's app is in effect.
 const SLACK_SAVED_ENVIRONMENT_WINS: &str = "Saved. The app in Foundry's environment stays in effect until SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from it and Foundry restarts; then this one is used.";
 /// I-13: a saved app no held key opens.
@@ -182,6 +212,9 @@ pub struct PageFacts {
     pub unopenable_values: bool,
     /// A Slack app is in effect on this server.
     pub slack_app: bool,
+    /// Which app that is (D3): the controls the page offers over it, and the
+    /// remove door's own gate, follow from it.
+    pub app_in_effect: AppInEffect,
     /// The environment's app's client ID, when its trio is set: it wins.
     pub environment_slack: Option<String>,
     /// The saved app, when it is the one in effect.
@@ -260,16 +293,83 @@ impl KeyOffer {
     }
 }
 
-/// What a save that stored the Slack app answers, and the only thing its
+/// A control the page offers over the Slack app in effect (US-IIS-05): a
+/// closed set shaped like [`KeyOffer`], each offer carrying its words, the
+/// door it reaches and when it applies, so the page keeps one way of
+/// offering a control.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlackOffer {
+    /// Enter another app, or another secret of the app in effect: the Slack
+    /// app form's own control (US-IIS-05 AC 1).
+    Replace,
+    /// Take Slack off this Foundry, after I-15 says what stops
+    /// (US-IIS-05 AC 3).
+    Remove,
+}
+
+impl SlackOffer {
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Replace => "Replace",
+            Self::Remove => "Remove",
+        }
+    }
+
+    /// Where this control posts.
+    pub fn door(self) -> &'static str {
+        match self {
+            Self::Replace => SLACK_APP_PATH,
+            Self::Remove => SLACK_REMOVE_PATH,
+        }
+    }
+
+    /// The door this control opens by itself, where choosing it only asks a
+    /// question: Remove opens the remove page, which reads I-15 before
+    /// anything goes. Replace opens none, because it submits the app form
+    /// Priya filled in.
+    pub fn opens(self) -> Option<&'static str> {
+        match self {
+            Self::Replace => None,
+            Self::Remove => Some(self.door()),
+        }
+    }
+
+    /// Whether this control applies with `effect` in effect and the key in
+    /// `mode`: only the app saved here is Priya's to replace or to retire
+    /// from the browser, and only where credentials seal. Under the app
+    /// Foundry's environment sets, a control here would either do nothing
+    /// she can see or take the operator's Slack away behind their back, and
+    /// the next restart would bring it back anyway (D7, L5). The page and
+    /// the remove door read this one rule, so neither can offer what the
+    /// other refuses.
+    pub fn applies(self, effect: AppInEffect, mode: KeyMode) -> bool {
+        match self {
+            Self::Replace | Self::Remove => mode.seals() && effect == AppInEffect::Saved,
+        }
+    }
+
+    /// Every control the page offers with `effect` in effect, in the order it
+    /// reads them.
+    fn offered(effect: AppInEffect, mode: KeyMode) -> Vec<Self> {
+        [Self::Replace, Self::Remove]
+            .into_iter()
+            .filter(|offer| offer.applies(effect, mode))
+            .collect()
+    }
+}
+
+/// What a door that changed the Slack app answers, and the only thing its
 /// redirect carries: a closed set of notices, each with its own wire name, so
 /// the admin lands on the instance page itself (post, redirect, get) with the
-/// words the save earned and no submitted value in the address.
+/// words the change earned and no submitted value in the address.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SavedNotice {
     /// I-10: the app saved here is the one in effect.
     InEffect,
     /// I-17: the environment's app stays in effect until it is removed.
     EnvironmentWins,
+    /// I-16: the app saved here is gone, so Slack is not set up at all.
+    Removed,
 }
 
 impl SavedNotice {
@@ -278,6 +378,7 @@ impl SavedNotice {
         match self {
             Self::InEffect => "app",
             Self::EnvironmentWins => "app-environment",
+            Self::Removed => "app-removed",
         }
     }
 
@@ -286,13 +387,14 @@ impl SavedNotice {
         match self {
             Self::InEffect => SLACK_APP_SAVED,
             Self::EnvironmentWins => SLACK_SAVED_ENVIRONMENT_WINS,
+            Self::Removed => SLACK_APP_REMOVED,
         }
     }
 
     /// The notice a `saved` wire name asks for; none for anything else, so an
     /// address nobody was sent to reads as the page itself.
     fn of_wire(wire: &str) -> Option<Self> {
-        [Self::InEffect, Self::EnvironmentWins]
+        [Self::InEffect, Self::EnvironmentWins, Self::Removed]
             .into_iter()
             .find(|saved| saved.wire() == wire)
     }
@@ -315,12 +417,19 @@ enum SubmissionDoor {
 
 impl SubmissionDoor {
     /// Where a submission of `kind` goes with `connected` workspaces
-    /// connected through the app in effect: the gate, a pure function of two
-    /// closed facts.
-    fn of(kind: SubmissionKind, connected: u32) -> Self {
-        match (kind, connected) {
-            (SubmissionKind::NewApp, 1..) => Self::WaitForConfirm,
-            (SubmissionKind::NewApp | SubmissionKind::Rotate, _) => Self::SaveAtOnce,
+    /// connected and `in_effect` in effect: the gate, a pure function of
+    /// three closed facts. Another app waits only while some workspace is
+    /// still connected through an app that is actually in effect: that is
+    /// the app I-14 names and the one those workspaces keep posting through.
+    /// With no app in effect nothing is being switched - the app saved here
+    /// is this Foundry's first - so it is saved at once, however many
+    /// connections an app that is gone left behind.
+    fn of(kind: SubmissionKind, connected: u32, in_effect: AppInEffect) -> Self {
+        match (kind, connected, in_effect) {
+            (SubmissionKind::NewApp, 1.., AppInEffect::Environment | AppInEffect::Saved) => {
+                Self::WaitForConfirm
+            }
+            (SubmissionKind::NewApp | SubmissionKind::Rotate, _, _) => Self::SaveAtOnce,
         }
     }
 }
@@ -335,6 +444,18 @@ fn confirm_lines(current_client_id: &str, connected: u32) -> String {
         n => CONNECTED_MANY.replace("{n}", &n.to_string()),
     }
     .replace("{client_id}", current_client_id)
+}
+
+/// I-15 over the connected-workspace count: the n = 0 form where nobody is
+/// connected, the n = 1 form for exactly one workspace, the counted form
+/// above that. The count is read when the page is rendered, and an unread
+/// count never reaches here: it is not none connected (B1).
+fn remove_lines(connected: u32) -> String {
+    match connected {
+        0 => REMOVE_NONE_CONNECTED.to_string(),
+        1 => REMOVE_ONE.to_string(),
+        n => REMOVE_MANY.replace("{n}", &n.to_string()),
+    }
 }
 
 /// One store read a page of this feature's doors makes. Every variant is a
@@ -356,6 +477,9 @@ enum PageRead {
 enum ReadOnlyDoor {
     /// `GET /admin/instance/integrations/slack/confirm` (I-14).
     SlackConfirm,
+    /// `GET /admin/instance/integrations/slack/remove` (I-15): it asks what
+    /// a removal stops and takes nothing away (L6, C3).
+    SlackRemove,
 }
 
 impl ReadOnlyDoor {
@@ -364,6 +488,7 @@ impl ReadOnlyDoor {
     fn reads(self) -> &'static [PageRead] {
         match self {
             Self::SlackConfirm => &[PageRead::Snapshot, PageRead::ConnectedWorkspaces],
+            Self::SlackRemove => &[PageRead::ConnectedWorkspaces],
         }
     }
 
@@ -439,9 +564,28 @@ pub struct PageState {
     pub slack_form: bool,
     /// The client ID of the app in effect (I-6, I-7), which the form offers.
     pub current_client_id: Option<String>,
+    /// The controls the page offers over the app in effect (US-IIS-05):
+    /// Replace, which the Slack app form's own control carries, and Remove,
+    /// which opens the door that reads I-15 first.
+    pub slack_offers: Vec<SlackOffer>,
 }
 
 impl PageState {
+    /// Whether the page offers `offer` over the app in effect.
+    pub fn offers(&self, offer: SlackOffer) -> bool {
+        self.slack_offers.contains(&offer)
+    }
+
+    /// The Slack app form's own control: over the app saved here it is the
+    /// Replace control (US-IIS-05 AC 1); anywhere else the form enters an
+    /// app for the first time.
+    pub fn slack_form_control(&self) -> &'static str {
+        match self.offers(SlackOffer::Replace) {
+            true => SlackOffer::Replace.label(),
+            false => SAVE_SLACK_APP,
+        }
+    }
+
     /// The client ID the Slack app form holds: what a refused save typed
     /// (I-11, I-12), else the client ID of the app in effect, so a rotation
     /// of its secrets needs no retyping (US-IIS-05 AC 1).
@@ -499,6 +643,7 @@ pub fn page_state(facts: &PageFacts) -> PageState {
             signing_secret: SIGNING_SECRET_SET,
         }),
         saved_unreadable: facts.saved_unreadable.then_some(SLACK_SAVED_UNREADABLE),
+        slack_offers: SlackOffer::offered(facts.app_in_effect, facts.mode),
     }
 }
 
@@ -544,6 +689,7 @@ fn facts_of(integrations: &Integrations, direct_seals: usize, saver: Option<Stri
         saved_direct: direct_seals > 0,
         unopenable_values: integrations.secrets_check().degraded(),
         slack_app: integrations.slack().is_some(),
+        app_in_effect: app_in_effect_of(integrations),
         environment_slack: settings.slack.as_ref().map(|app| app.client_id.clone()),
         saved_slack: integrations.saved_slack().map(|app| SavedSlack {
             client_id: app.client_id.clone(),
@@ -562,6 +708,16 @@ fn facts_of(integrations: &Integrations, direct_seals: usize, saver: Option<Stri
     }
 }
 
+/// Which app is in effect on this server (D3): the environment's where its
+/// trio is set, else the saved app whose secrets both open, else none. The
+/// page's controls and the remove door's gate read this one answer.
+fn app_in_effect_of(integrations: &Integrations) -> AppInEffect {
+    app_in_effect(
+        integrations.settings().slack.is_some(),
+        integrations.saved_app(),
+    )
+}
+
 /// An activity line as I-18 reads it.
 fn activity_line(row: &InstanceActivityRow) -> String {
     let actor = row.actor_name.as_deref().unwrap_or("Foundry");
@@ -576,6 +732,7 @@ fn activity_line(row: &InstanceActivityRow) -> String {
         },
         "slack_app_saved" => slack_app_line("saved", row),
         "slack_app_replaced" => slack_app_line("replaced", row),
+        "slack_app_removed" => slack_app_line("removed", row),
         other => other.replace('_', " "),
     };
     format!("{} · {actor} {what}", display_date(row.created_at))
@@ -623,6 +780,22 @@ struct SlackConfirmPage {
     /// Where the one control posts.
     confirm_door: &'static str,
     /// I-14, in the form the connected-workspace count selects.
+    line: String,
+    /// The control's copy.
+    control: &'static str,
+}
+
+/// I-15: what a removal stops for the workspaces connected through the app
+/// in effect, and the one control that carries it out. Never a key and never
+/// a secret: the removal needs nothing typed.
+#[derive(Template)]
+#[template(path = "integrations/slack_remove.html")]
+struct SlackRemovePage {
+    nav: crate::nav::NavContext,
+    csrf: String,
+    /// Where the one control posts.
+    remove_door: &'static str,
+    /// I-15, in the form the connected-workspace count selects.
     line: String,
     /// The control's copy.
     control: &'static str,
@@ -787,7 +960,8 @@ pub async fn save_slack_app(
             return answer(&state, &user, &headers, None, String::new()).await;
         }
     };
-    let answered = match SubmissionDoor::of(change.kind(), connected) {
+    let answered = match SubmissionDoor::of(change.kind(), connected, app_in_effect_of(&in_effect))
+    {
         SubmissionDoor::WaitForConfirm => hold_slack(&state, user.user_id, &change).await,
         SubmissionDoor::SaveAtOnce => save_slack(&state, user.user_id, &change).await,
     };
@@ -877,6 +1051,101 @@ pub async fn confirm_slack_app(
                 String::new(),
             )
             .await
+        }
+    }
+}
+
+/// `GET /admin/instance/integrations/slack/remove`: I-15 over the
+/// connected-workspace count, with the one control that removes the app.
+/// It only reads ([`ReadOnlyDoor`]), so a prefetch, a link preview and a
+/// reload take nothing away. Where the app in effect is not Priya's to
+/// remove it answers the instance page instead of asking about a change it
+/// would refuse (D7), and so does a count this Foundry could not read: an
+/// unread count is not none connected (B1).
+pub async fn show_slack_remove(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    if !removable(&state.integrations.current()) {
+        return answer(&state, &user, &headers, None, String::new()).await;
+    }
+    let store = StoreCapabilities::new(state.store.clone());
+    let Some(connected) = ReadOnlyDoor::SlackRemove.read(&store).await.connected else {
+        return answer(&state, &user, &headers, None, String::new()).await;
+    };
+    let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
+    let nav = crate::nav::NavContext::home_for(
+        &state,
+        user.user_id,
+        user.workspace_id,
+        true,
+        csrf.clone(),
+    )
+    .await;
+    render(
+        SlackRemovePage {
+            nav,
+            csrf,
+            remove_door: SLACK_REMOVE_PATH,
+            line: remove_lines(connected),
+            control: SlackOffer::Remove.label(),
+        }
+        .render(),
+        set_cookie,
+    )
+}
+
+/// `POST /admin/instance/integrations/slack/remove`: the saved app removed
+/// where that control applies, and the admin sent to the page itself to read
+/// I-16 (post, redirect, get, so a reload never posts the removal again). A
+/// remove while the environment's app is in effect, and one with nothing
+/// saved, change nothing and answer the page as it is.
+pub async fn remove_slack_app(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    match remove_slack(&state, user.user_id).await {
+        Some(removed) => Redirect::to(&removed.door()).into_response(),
+        None => answer(&state, &user, &headers, None, String::new()).await,
+    }
+}
+
+/// Whether the Slack app in effect on this server is Priya's to remove: the
+/// same offer the page makes, so the door and the page cannot disagree
+/// (D7, L5).
+fn removable(integrations: &Integrations) -> bool {
+    SlackOffer::Remove.applies(app_in_effect_of(integrations), integrations.key_mode())
+}
+
+/// The removal where that control applies, then this server's integrations
+/// rebuilt and installed: I-16 once the app is gone. It seals nothing, so
+/// there is no fence to turn it back and nothing to retry. Nothing removed
+/// is nothing to tell.
+async fn remove_slack(state: &AppState, actor: Uuid) -> Option<SavedNotice> {
+    let integrations = state.integrations.current();
+    if !removable(&integrations) {
+        return None;
+    }
+    let removed = StoreCapabilities::new(state.store.clone())
+        .remove_slack_app(actor, state.clock.now())
+        .await;
+    match removed {
+        Ok(RemoveOutcome::Removed { .. }) => {
+            reinstall(state, &integrations).await;
+            Some(SavedNotice::Removed)
+        }
+        Ok(RemoveOutcome::NothingSaved) => None,
+        Err(err) => {
+            tracing::warn!(error = %err, "removing the Slack app failed");
+            None
         }
     }
 }
@@ -1163,6 +1432,7 @@ mod tests {
             saved_direct,
             unopenable_values: false,
             slack_app: false,
+            app_in_effect: AppInEffect::None,
             environment_slack: None,
             saved_slack: None,
             saved_unreadable: false,
@@ -1498,17 +1768,19 @@ mod tests {
         assert!(facts_of(&integrations, 2, None).saved_direct, "two");
     }
 
-    /// L3 and L11: the form I-14 reads at each connected-workspace count, and
-    /// where the gate sends a submission over that same count. The count
-    /// partitions at 0, at 1 and above 1, so these cases decide the whole
-    /// mapping. I-15's forms and the remove page arrive with the slice that
-    /// delivers that door (P4).
+    /// L3 and L11: the form I-14 and I-15 each read at the
+    /// connected-workspace count, and where the gate sends a submission over
+    /// that same count and the app in effect. The count partitions at 0, at 1 and above 1, so
+    /// these cases decide the whole mapping: a page that always read one
+    /// form, or read the plural form for one workspace, is caught here.
     #[test]
     fn the_count_forms_i14_and_i15_read_and_the_gate_the_connected_count_decides() {
         const CURRENT: &str = "6123456789012.7234567890123";
         use SubmissionDoor::{SaveAtOnce, WaitForConfirm};
         use SubmissionKind::{NewApp, Rotate};
-        // The connected count, then where each kind of submission goes.
+        // The connected count, then where each kind of submission goes while
+        // an app is in effect - the saved app or the environment's alike,
+        // because I-14 names whichever is in effect.
         #[rustfmt::skip]
         let gate = [
             (0, SaveAtOnce,     SaveAtOnce),
@@ -1518,12 +1790,26 @@ mod tests {
             (137, WaitForConfirm, SaveAtOnce),
         ];
         for (connected, new_app, rotate) in gate {
+            for in_effect in [AppInEffect::Saved, AppInEffect::Environment] {
+                assert_eq!(
+                    SubmissionDoor::of(NewApp, connected, in_effect),
+                    new_app,
+                    "{connected} connected, {in_effect:?} in effect"
+                );
+                assert_eq!(
+                    SubmissionDoor::of(Rotate, connected, in_effect),
+                    rotate,
+                    "{connected} connected, {in_effect:?} in effect"
+                );
+            }
+            // With no app in effect nothing is being switched and I-14 has
+            // no app to name, so this Foundry's first app is saved at once
+            // whatever a removed app left connected.
             assert_eq!(
-                SubmissionDoor::of(NewApp, connected),
-                new_app,
-                "{connected}"
+                SubmissionDoor::of(NewApp, connected, AppInEffect::None),
+                SaveAtOnce,
+                "{connected} connected, no app in effect"
             );
-            assert_eq!(SubmissionDoor::of(Rotate, connected), rotate, "{connected}");
         }
         // The count I-14 is rendered over, then the line it reads. A count of
         // none never reaches it: the gate above saves at once.
@@ -1533,20 +1819,135 @@ mod tests {
         for (connected, line) in [(1, one), (2, two), (3, three)] {
             assert_eq!(confirm_lines(CURRENT, connected), line, "n = {connected}");
         }
+        // The count I-15 is rendered over, then the line it reads. Nobody
+        // connected has its own form: no workspace's routes stop posting,
+        // and none can connect Slack afterwards either.
+        let removes_none =
+            "Remove the Slack app from this Foundry? No workspace is connected to Slack.";
+        let removes_one = "Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack.";
+        let removes_two = "Remove the Slack app from this Foundry? 2 workspaces' Slack routes stop posting until it is set up again, and no workspace can connect Slack.";
+        let removes_three = "Remove the Slack app from this Foundry? 3 workspaces' Slack routes stop posting until it is set up again, and no workspace can connect Slack.";
+        #[rustfmt::skip]
+        let forms = [
+            (0, removes_none),
+            (1, removes_one),
+            (2, removes_two),
+            (3, removes_three),
+        ];
+        for (connected, line) in forms {
+            assert_eq!(remove_lines(connected), line, "n = {connected}");
+        }
+    }
+
+    /// L5: the controls the page offers over each app that can be in effect,
+    /// read over the environment's trio and the saved row's own state, and
+    /// the gate the remove door judges over that same answer. Replace and
+    /// Remove are offered only where the app in effect is the one saved
+    /// here; under the app Foundry's environment sets - with an app also
+    /// saved here and with none - with a saved app no held key opens, and
+    /// with no app at all, neither control is offered and the remove door
+    /// refuses, so a POST through it changes nothing. The offer set is a
+    /// pure function of two closed enums, so every pair of them is read.
+    #[test]
+    fn the_table_of_the_controls_the_page_offers_over_each_app_in_effect() {
+        const ENV_APP: &str = "6123456789012.7234567890123";
+        const SAVED_APP: &str = "6123456789012.8888888888888";
+        let both = &[SlackOffer::Replace, SlackOffer::Remove][..];
+        let neither = &[][..];
+        // The environment's trio set, the saved row's state, the controls.
+        #[rustfmt::skip]
+        let table: [(bool, SavedApp, &[SlackOffer]); 5] = [
+            (true,  SavedApp::Opens,       neither),
+            (true,  SavedApp::Absent,      neither),
+            (true,  SavedApp::DoesNotOpen, neither),
+            (false, SavedApp::Opens,       both),
+            (false, SavedApp::Absent,      neither),
+        ];
+        for (environment, saved, offers) in table {
+            let effect = app_in_effect(environment, saved);
+            let facts = PageFacts {
+                app_in_effect: effect,
+                slack_app: effect != AppInEffect::None,
+                environment_slack: environment.then(|| ENV_APP.to_string()),
+                saved_slack: (effect == AppInEffect::Saved).then(|| SavedSlack {
+                    client_id: SAVED_APP.to_string(),
+                    saved_by: "Priya Raman".to_string(),
+                    saved_at: time::macros::datetime!(2026-10-21 14:02 UTC),
+                }),
+                saved_unreadable: !environment && saved == SavedApp::DoesNotOpen,
+                ..facts(KeyMode::Sealed, true, false)
+            };
+            let page = page_state(&facts);
+            assert_eq!(page.slack_offers, offers.to_vec(), "{facts:?}");
+            // The form's own control is the Replace control exactly where
+            // Replace applies, and a first save's words anywhere else.
+            assert_eq!(
+                page.slack_form_control(),
+                match offers.is_empty() {
+                    true => SAVE_SLACK_APP,
+                    false => "Replace",
+                },
+                "{facts:?}"
+            );
+            // The remove door reads the same rule, so a POST where no
+            // control is offered removes nothing.
+            assert_eq!(
+                SlackOffer::Remove.applies(effect, facts.mode),
+                !offers.is_empty(),
+                "{facts:?}"
+            );
+        }
+        // A saved app in effect in every mode: the controls follow the mode's
+        // own sealing, so neither is offered where credentials cannot seal.
+        for mode in ALL_MODES {
+            let facts = PageFacts {
+                app_in_effect: AppInEffect::Saved,
+                slack_app: true,
+                ..facts(mode, true, false)
+            };
+            let offered = !page_state(&facts).slack_offers.is_empty();
+            assert_eq!(offered, mode.seals(), "{facts:?}");
+            for offer in [SlackOffer::Replace, SlackOffer::Remove] {
+                assert_eq!(
+                    offer.applies(AppInEffect::Saved, mode),
+                    offered,
+                    "{offer:?} {facts:?}"
+                );
+            }
+        }
+    }
+
+    /// Each Slack control posts to its own door, and only the one that asks
+    /// a question first opens a door of its own.
+    #[test]
+    fn each_slack_offer_names_its_own_door() {
+        assert_eq!(SlackOffer::Replace.label(), "Replace");
+        assert_eq!(SlackOffer::Replace.door(), SLACK_APP_PATH);
+        assert_eq!(SlackOffer::Replace.opens(), None);
+        assert_eq!(SlackOffer::Remove.label(), "Remove");
+        assert_eq!(SlackOffer::Remove.door(), SLACK_REMOVE_PATH);
+        assert_eq!(SlackOffer::Remove.opens(), Some(SLACK_REMOVE_PATH));
     }
 
     /// L6: what the confirm and remove pages reach when they are only read.
-    /// Every call either door makes is a [`PageRead`], a type with no write
-    /// in it, so opening one of those pages changes no row, writes no
-    /// activity line and bumps no version. The remove page joins the table
-    /// with the slice that delivers its door (P4).
+    /// Every call either door makes is a [`PageRead`], a type that holds no
+    /// write at all, so opening either page - twice, as a prefetch and a
+    /// reload do - changes no row, writes no activity line and bumps no
+    /// config version. A handler reaching a write would have to name it
+    /// here, and no [`PageRead`] names one.
     #[test]
     fn the_table_of_what_the_confirm_and_remove_pages_reach_when_they_are_only_read() {
         #[rustfmt::skip]
-        let table = [(
-            ReadOnlyDoor::SlackConfirm,
-            [PageRead::Snapshot, PageRead::ConnectedWorkspaces].as_slice(),
-        )];
+        let table = [
+            (
+                ReadOnlyDoor::SlackConfirm,
+                [PageRead::Snapshot, PageRead::ConnectedWorkspaces].as_slice(),
+            ),
+            (
+                ReadOnlyDoor::SlackRemove,
+                [PageRead::ConnectedWorkspaces].as_slice(),
+            ),
+        ];
         for (door, reads) in table {
             assert_eq!(door.reads(), reads, "{door:?}");
         }

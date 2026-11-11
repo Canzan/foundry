@@ -866,6 +866,13 @@ pub fn build_router(state: AppState) -> Router {
             get(integrations::handlers::show_slack_confirm)
                 .post(integrations::handlers::confirm_slack_app),
         )
+        // US-IIS-05 AC 3: I-15's remove page and its one control, behind the
+        // same guard; the post carries `_csrf` and nothing else.
+        .route(
+            integrations::handlers::SLACK_REMOVE_PATH,
+            get(integrations::handlers::show_slack_remove)
+                .post(integrations::handlers::remove_slack_app),
+        )
         .route(
             integrations::handlers::WORKSPACE_PATH,
             get(integrations::handlers::show_workspace),

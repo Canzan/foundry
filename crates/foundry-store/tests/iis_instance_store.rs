@@ -824,19 +824,25 @@ async fn another_admin(pool: &PgPool) -> Id {
     id
 }
 
-/// The app `by` submitted, held sealed under `sk-1` until `at(10)`.
-async fn hold(store: &Store, by: Id) {
-    let outcome = store
+/// The app `by` submitted, offered sealed under `sealed_under` and held
+/// until `at(10)`: the outcome, so a hold the fence turns back is read too.
+async fn hold_offered(store: &Store, by: Id, sealed_under: Option<&str>) -> SlackSaveOutcome {
+    store
         .hold_pending_slack_app(&PendingSlackAppSave {
             client_id: "8.9".to_string(),
             sealed_client_secret: b"sealed-pending-client".to_vec(),
             sealed_signing_secret: b"sealed-pending-signing".to_vec(),
-            sealed_under: Some("sk-1".to_string()),
+            sealed_under: sealed_under.map(str::to_string),
             requested_by: by,
             expires_at: at(10),
         })
         .await
-        .expect("hold");
+        .expect("hold")
+}
+
+/// The app `by` submitted, held sealed under `sk-1` until `at(10)`.
+async fn hold(store: &Store, by: Id) {
+    let outcome = hold_offered(store, by, Some("sk-1")).await;
     assert!(
         matches!(outcome, SlackSaveOutcome::Saved { .. }),
         "the submission is held: {outcome:?}"
@@ -969,6 +975,116 @@ async fn the_finite_table_of_when_a_held_slack_app_may_still_be_applied() {
             .await
             .expect("prune at the expiry"),
         1
+    );
+}
+
+/// L10, what a superseded sealing key and a secrets-key Move do to the app
+/// held for its confirm: a Move re-seals the held secrets with every other
+/// sealed value, so the confirm still opens them afterwards, and it counts
+/// them for nobody - I-22 counts credentials, and a held submission is not
+/// one; a hold sealed under anything but the sealing key is refused in its
+/// own transaction and leaves no pending row at all. The Move is read in
+/// `Direct` mode, where every stored value is still sealed under the
+/// instance key, because that is the one state a Move moves out of.
+#[tokio::test]
+async fn the_table_of_what_a_superseded_sealing_key_and_a_secrets_key_move_do_to_a_held_slack_app()
+{
+    let pg = postgres().await;
+    let pool = pg.migrated().await;
+    let store = Store::from_pool(pool.clone());
+    let ws = workspace(&pool).await;
+    let ana = admin(&pool).await;
+    let slack = connection(&pool, ws, "slack", b"direct-slack").await;
+    store
+        .save_slack_app(&slack_app("1.2", None, ana))
+        .await
+        .expect("save in direct mode");
+    let held = hold_offered(&store, ana, None).await;
+    assert!(
+        matches!(held, SlackSaveOutcome::Saved { .. }),
+        "a submission is held in direct mode: {held:?}"
+    );
+
+    // A Move while a held app waits: every sealed value is re-sealed, the
+    // held secrets with the rest, and I-22 counts one connection and the
+    // saved app - never the held submission.
+    let outcome = store
+        .store_secrets_key(&new_key("sk-1", None), &canary("sk-1"), at(9), reseal_all)
+        .await
+        .expect("move");
+    assert!(
+        matches!(
+            outcome,
+            SecretsKeyOutcome::Stored {
+                resealed: 2,
+                version: 2
+            }
+        ),
+        "one connection and the saved app, and the held app counts for nobody: {outcome:?}"
+    );
+    let snapshot = store.instance_snapshot().await.expect("snapshot");
+    let pending = snapshot
+        .slack_app_pending
+        .expect("the held app is still held");
+    assert_eq!(pending.sealed_client_secret, b"sk:sealed-pending-client");
+    assert_eq!(pending.sealed_signing_secret, b"sk:sealed-pending-signing");
+    assert_eq!(
+        sealed_credentials(&pool).await[&slack],
+        b"sk:direct-slack",
+        "the connection moved with it"
+    );
+
+    // And the confirm still opens what the Move re-sealed: the held app
+    // applies under the new sealing key.
+    let applied = store
+        .apply_pending_slack_app(ana, at(9), Some("sk-1"), reseal_held)
+        .await
+        .expect("confirm after the move");
+    assert!(
+        matches!(
+            applied,
+            PendingApplied::Applied(SlackSaveOutcome::Saved { .. })
+        ),
+        "{applied:?}"
+    );
+    let app = store
+        .instance_snapshot()
+        .await
+        .expect("snapshot")
+        .slack_app
+        .expect("the applied app");
+    assert_eq!(app.sealed_client_secret, b"saved:sk:sealed-pending-client");
+    assert_eq!(
+        app.sealed_signing_secret,
+        b"saved:sk:sealed-pending-signing"
+    );
+
+    // A hold sealed under anything but the sealing key: refused, and no
+    // pending row is left behind.
+    let before = dump(&pool).await;
+    for stale in [None, Some("ik-1")] {
+        let outcome = hold_offered(&store, ana, stale).await;
+        assert_eq!(
+            outcome,
+            SlackSaveOutcome::StaleKey,
+            "a hold sealed under {stale:?}"
+        );
+        assert_eq!(dump(&pool).await, before, "sealed under {stale:?}");
+        assert!(
+            store
+                .instance_snapshot()
+                .await
+                .expect("snapshot")
+                .slack_app_pending
+                .is_none(),
+            "no pending row is left, sealed under {stale:?}"
+        );
+    }
+    hold(&store, ana).await;
+    assert_eq!(
+        changed(&before, &dump(&pool).await),
+        BTreeSet::from(["instance_slack_app_pending"]),
+        "a hold under the sealing key writes the pending row only"
     );
 }
 

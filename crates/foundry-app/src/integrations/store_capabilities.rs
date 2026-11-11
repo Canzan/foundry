@@ -30,8 +30,9 @@ use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
     DispatchOutcome, EmailSendFacts, InstanceActivityRow, InstanceSnapshot, KeyCheck,
     LostConnection, NewDelivery, NewSecretsKey, PendingApplied, PendingDelivery,
-    PendingSlackAppSave, Pruned, Pruning, RecordOutcome, ReplicaState, RetentionView,
-    RewrapOutcome, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackAppSave, SlackSaveOutcome,
+    PendingSlackAppSave, Pruned, Pruning, RecordOutcome, RemoveOutcome, ReplicaState,
+    RetentionView, RewrapOutcome, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackAppSave,
+    SlackSaveOutcome,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -227,8 +228,17 @@ pub trait InstanceKeyWrites: Send + Sync {
         reseal: HeldResealer<'_>,
     ) -> Result<PendingApplied<ResealRefused>, StoreError>;
 
-    /// How many workspaces hold a live Slack connection (what I-14 counts and
-    /// the I-14 gate reads).
+    /// Remove the saved Slack app, with its activity line and the version
+    /// bump: one transaction. It seals nothing, so it carries no fence, and
+    /// it touches no connection, delivery or notice (D8).
+    async fn remove_slack_app(
+        &self,
+        actor: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<RemoveOutcome, StoreError>;
+
+    /// How many workspaces hold a live Slack connection (what I-14 and I-15
+    /// count and the I-14 gate reads).
     async fn connected_slack_workspaces(&self) -> Result<i64, StoreError>;
 
     /// Delete the held app once `now` is at or past its expiry (the retention
@@ -458,6 +468,14 @@ impl InstanceKeyWrites for StoreCapabilities {
                 reseal(client, signing)
             })
             .await
+    }
+
+    async fn remove_slack_app(
+        &self,
+        actor: Uuid,
+        now: OffsetDateTime,
+    ) -> Result<RemoveOutcome, StoreError> {
+        self.0.remove_slack_app(actor, now).await
     }
 
     async fn connected_slack_workspaces(&self) -> Result<i64, StoreError> {

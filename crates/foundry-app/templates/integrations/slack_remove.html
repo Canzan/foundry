@@ -1,0 +1,12 @@
+{% extends "app_shell.html" %}
+{% block title %}Remove the Slack app?{% endblock %}
+{% block app_content %}
+<main data-slack-remove>
+  <h1>Remove the Slack app?</h1>
+  <p data-slack-remove-line>{{ line }}</p>
+  <form method="post" action="{{ remove_door }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button type="submit">{{ control }}</button>
+  </form>
+</main>
+{% endblock %}

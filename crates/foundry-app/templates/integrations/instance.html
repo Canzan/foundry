@@ -37,9 +37,12 @@
       <label>Client ID <input type="text" name="client_id" value="{{ form_client_id }}" autocomplete="off"></label>
       <label>Client secret <input type="password" name="client_secret" value="" autocomplete="off"></label>
       <label>Signing secret <input type="password" name="signing_secret" value="" autocomplete="off"></label>
-      <button type="submit">Save Slack app</button>
+      <button type="submit">{{ page.slack_form_control() }}</button>
     </form>
     {% endif %}
+    {% for offer in page.slack_offers %}{% if let Some(door) = offer.opens() %}
+    <a href="{{ door }}" data-slack-control>{{ offer.label() }}</a>
+    {% endif %}{% endfor %}
   </section>
   {% endif %}
   <section data-integration="matrix">
