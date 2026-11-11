@@ -447,6 +447,9 @@ pub struct IisState {
     pub dump: Option<String>,
     /// The key file's bytes before the When.
     pub file_before: Option<Vec<u8>>,
+    /// The address Priya landed on, query and all: what her own reload asks
+    /// for again.
+    pub landed: Option<String>,
     /// The secrets key stored before the When (through the key test seam):
     /// what a reading door may not change, and what a replacement must.
     pub key_before: Option<String>,
@@ -2822,4 +2825,32 @@ pub async fn given_replicas_have_the_key(world: &mut FoundryWorld) {
         |page| eip::text(page).contains("Secrets key: set."),
     )
     .await;
+}
+
+/// "Priya reloads the page she landed on": her browser asks for the address
+/// in front of her again, query and all - not the bare path, which is a
+/// different request and would hide a notice carried in the address.
+pub async fn when_reload_landed(world: &mut FoundryWorld, who: &str) {
+    let landed = answer(world).path.clone();
+    assert!(
+        landed.starts_with('/'),
+        "precondition: the When before this one left {who} on a page of this Foundry; she landed \
+         on {landed:?}"
+    );
+    world.iis.landed = Some(landed.clone());
+    eip::when_open(world, who, &landed).await;
+}
+
+/// "the address Priya landed on carries no notice": the address itself says
+/// nothing about what just happened.
+pub fn then_landing_address_plain(world: &FoundryWorld) {
+    let landed = answer(world).path.clone();
+    assert!(
+        !landed.contains('?'),
+        "the address Priya lands on is the page's own, with nothing appended: a notice carried in \
+         the address is read again by every reload, every bookmark and every shared link, so she \
+         is told the key was replaced each time she comes back, and a link anyone sends claims a \
+         replacement that never happened. Redirect to the page itself and let the notice wait \
+         once in her session; she landed on {landed:?}"
+    );
 }

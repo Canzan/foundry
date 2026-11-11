@@ -701,3 +701,13 @@ async fn replaced_key(world: &mut FoundryWorld) {
 async fn replicas_have_the_key(world: &mut FoundryWorld) {
     iis::given_replicas_have_the_key(world).await;
 }
+
+#[when(regex = r"^(Priya) reloads the page she landed on$")]
+async fn reload_landed(world: &mut FoundryWorld, who: String) {
+    iis::when_reload_landed(world, &who).await;
+}
+
+#[then(regex = r"^the address Priya landed on carries no notice$")]
+async fn landing_address_plain(world: &mut FoundryWorld) {
+    iis::then_landing_address_plain(world);
+}

@@ -210,11 +210,11 @@ A replacement whose re-seal refuses on the first connection credential or on the
 ```
 
 ```text
-Nothing is stored, nothing is recorded, the old key stays in effect with every credential still opening, and the page reads no replacement.
+Nothing is stored, nothing is recorded, the old key stays in effect with every credential still opening, and the page answers the confirm question again with no replaced message anywhere.
 ```
 
 ```text
-A replacement that cannot finish leaves Priya exactly where she was, with every credential still opening and nothing claiming otherwise.
+A replacement that cannot finish leaves Priya exactly where she was, reading the question again, with every credential still opening and nothing claiming otherwise.
 ```
 
 ##### Disposition
@@ -222,10 +222,10 @@ A replacement that cannot finish leaves Priya exactly where she was, with every 
 NotTested
 
 ```text
-No public door can make a re-seal refuse inside the write: the refusal is a fault of the sealing closure, not of anything a person can type or post, so the public port cannot construct it. The declared store verification over the instance write observes it with an injected refusal, as the equivalent obligation of the shipped Move already is. The losing half of the same law, the stored key id changing under the apply, is constructed publicly by the simultaneous replace requests and is covered by its own row.
+No public door can make a re-seal refuse inside the write: the refusal is a fault of the sealing closure, not of anything a person can type or post, and the state where the stored key cannot be opened withholds Replace altogether, so the public port cannot construct it. The unchanged state under an injected refusal belongs to the store write verification of this slice's commands; the answer itself, the confirm question read again and no replaced message, belongs to the handler verification of the same commands with a store double that refuses, because a database check cannot observe a response. The losing half of the same law, the stored key id changing under the apply, is constructed publicly by the simultaneous replace requests and is covered by its own row.
 ```
 
-DELIVER\, the store write verification named by this slice\'s verification commands
+DELIVER\, both halves as completion obligations of this slice\'s own verification\: the store write run over the instance store for the unchanged state under an injected refusal\, and the handler library run with a refusing store double for the answer and the absent notice
 
 ## Expectations
 

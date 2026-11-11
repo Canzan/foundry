@@ -1083,8 +1083,11 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya reads "Replace the secrets key? Foundry seals its 3 saved credentials again under a new key. Nobody needs to reconnect."
     And Priya is offered "Replace secrets key"
     And the stored secrets key and the Activity are as they were
+    When Priya opens the instance integrations page
+    Then nothing Priya reads there says "Replaced."
     When Priya chooses "Replace secrets key" on the replace secrets key page
     Then Priya reads "Replaced. 3 saved credentials are sealed under the new key."
+    And the address Priya landed on carries no notice
     And Priya is on the instance integrations page
     And the stored secrets key is a new one
     And the new secrets key appears nowhere Priya reads
@@ -1114,6 +1117,8 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya reads "<sentence>"
     And Priya is offered "Replace secrets key"
     And the stored secrets key and the Activity are as they were
+    When Priya opens the instance integrations page
+    Then nothing Priya reads there says "Replaced."
 
     Examples:
       | saved                                                    | sentence                                                                                                        |
@@ -1138,13 +1143,18 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
       | the Slack app Priya entered                              | Replaced. 1 saved credential is sealed under the new key.  |
       | one workspace connection and the Slack app Priya entered | Replaced. 2 saved credentials are sealed under the new key. |
 
+  # Her own reload is the address in front of her, query and all: a notice
+  # appended to it is read again by every reload, bookmark and shared link, so
+  # the scenario asks for that exact address and reads the plain one too.
   @us-iis-07 @error
   Scenario: A reload after the replacement reads the page with no notice and claims no second replacement
     Given this Foundry starts with its instance key set by the operator
     And Priya has generated the secrets key
     And this Foundry holds one workspace connection and the Slack app Priya entered
-    And Priya has replaced the secrets key
-    When Priya opens the instance integrations page
+    When Priya chooses "Replace secrets key" on the replace secrets key page
+    Then Priya reads "Replaced. 2 saved credentials are sealed under the new key."
+    And the address Priya landed on carries no notice
+    When Priya reloads the page she landed on
     Then Priya reads "Secrets key: set. Credentials entered here are sealed with it."
     And nothing Priya reads there says "Replaced."
     And the instance integrations activity reads "21 Oct 2026 · Priya Raman replaced the secrets key (2 credentials sealed again)" exactly once

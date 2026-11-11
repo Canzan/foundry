@@ -121,12 +121,12 @@
 ],
 "disposition": {
 "kind": "NotTested",
-"owner": "DELIVER, the store write verification named by this slice's verification commands",
-"reason": "F392"
+"owner": "DELIVER, both halves as completion obligations of this slice's own verification: the store write run over the instance store for the unchanged state under an injected refusal, and the handler library run with a refusing store double for the answer and the absent notice",
+"reason": "F395"
 },
-"expected": "F390",
+"expected": "F393",
 "stimulus": "F389",
-"user_result": "F391"
+"user_result": "F394"
 }
 ]
 },
@@ -135,7 +135,7 @@
 "C": 3,
 "D": 9,
 "E": 25,
-"F": 392,
+"F": 395,
 "K": 5,
 "L": 11,
 "N": 7,
@@ -2424,9 +2424,9 @@
 "F388": "A rotation that re-wraps the stored key but reports its count from the wrong population: the count is read as the command prints it, while the credentials are observed only through the connection that opens.",
 "F389": "A replacement whose re-seal refuses on the first connection credential or on the saved Slack app secrets, and the loss of the stored key id to another admin between the reading and the apply.",
 "F39": "See a confirmed way forward and its cost before she chooses between restoring the instance key and starting over.",
-"F390": "Nothing is stored, nothing is recorded, the old key stays in effect with every credential still opening, and the page reads no replacement.",
-"F391": "A replacement that cannot finish leaves Priya exactly where she was, with every credential still opening and nothing claiming otherwise.",
-"F392": "No public door can make a re-seal refuse inside the write: the refusal is a fault of the sealing closure, not of anything a person can type or post, so the public port cannot construct it. The declared store verification over the instance write observes it with an injected refusal, as the equivalent obligation of the shipped Move already is. The losing half of the same law, the stored key id changing under the apply, is constructed publicly by the simultaneous replace requests and is covered by its own row.",
+"F393": "Nothing is stored, nothing is recorded, the old key stays in effect with every credential still opening, and the page answers the confirm question again with no replaced message anywhere.",
+"F394": "A replacement that cannot finish leaves Priya exactly where she was, reading the question again, with every credential still opening and nothing claiming otherwise.",
+"F395": "No public door can make a re-seal refuse inside the write: the refusal is a fault of the sealing closure, not of anything a person can type or post, and the state where the stored key cannot be opened withholds Replace altogether, so the public port cannot construct it. The unchanged state under an injected refusal belongs to the store write verification of this slice's commands; the answer itself, the confirm question read again and no replaced message, belongs to the handler verification of the same commands with a store double that refuses, because a database check cannot observe a response. The losing half of the same law, the stored key id changing under the apply, is constructed publicly by the simultaneous replace requests and is covered by its own row.",
 "F4": "POST /admin/instance/integrations/secrets-key/replace generates a new secrets key, stores it encrypted under the instance key, re-seals every saved credential and the key check all-or-nothing, and redirects to GET /admin/instance/integrations, which reads I-24 once: \"Replaced. {n} saved credentials are sealed under the new key.\" for n >= 2, \"Replaced. 1 saved credential is sealed under the new key.\" for n = 1, and \"Replaced. This Foundry has a new secrets key.\" for n = 0. A reload posts nothing again and claims no second replacement.",
 "F40": "The instance admin confirms Start over with the typed confirmation: a new secrets key is made, the credentials this Foundry cannot open are discarded, the Activity records it, Matrix is ready, and every workspace integrations page shows no discarded connection as connected and tells its admin to reconnect Slack and re-enter the Matrix bot token; a wrong or empty confirmation changes nothing.",
 "F41": "Get out of a lost instance key with no backup, at a cost she read first.",
