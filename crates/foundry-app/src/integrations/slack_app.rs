@@ -10,18 +10,31 @@
 //! which is accepted only with both of its secrets ([`SlackSubmission::judge`],
 //! pure and total). Only its verdict can be sealed, and every sealing of a
 //! Slack secret - a kept one included - happens here.
+//!
+//! A verdict is sealed into one of two rows: the saved app ([`plan_replace`])
+//! or the app held for its confirm while workspaces are still connected
+//! through the app in effect ([`plan_hold_pending`], I-14), which expires
+//! [`PENDING_HELD_FOR`] after it is held.
 
 use super::config::{SlackSettings, SlackUrls};
 use super::keys::{CredentialBox, KeyMode};
 use foundry_auth::secret_box::{SealedSecret, SecretBox, SecretSlot};
-use foundry_store::integrations::{SavedSlackApp, SlackAppSave};
+use foundry_store::integrations::{PendingSlackAppSave, SavedSlackApp, SlackAppSave};
 use secrecy::{ExposeSecret, SecretString};
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 /// The row both secrets are bound to.
 const TABLE: &str = "instance_slack_app";
+/// The row a submitted app's secrets are bound to while it waits for its
+/// confirm (I-14): another row, so a held secret cannot be read as a saved
+/// one or the other way round.
+const PENDING_TABLE: &str = "instance_slack_app_pending";
 const ROW: &str = "1";
+
+/// How long a submitted app is held for its confirm (ADR-IIS-003 r4), judged
+/// by the injected clock.
+pub const PENDING_HELD_FOR: Duration = Duration::minutes(10);
 
 /// The slot the client secret is sealed in.
 pub fn client_secret_slot() -> SecretSlot {
@@ -31,6 +44,16 @@ pub fn client_secret_slot() -> SecretSlot {
 /// The slot the signing secret is sealed in.
 pub fn signing_secret_slot() -> SecretSlot {
     SecretSlot::new(TABLE, ROW, "sealed_signing_secret")
+}
+
+/// The slot a held app's client secret is sealed in.
+pub fn pending_client_secret_slot() -> SecretSlot {
+    SecretSlot::new(PENDING_TABLE, ROW, "sealed_client_secret")
+}
+
+/// The slot a held app's signing secret is sealed in.
+pub fn pending_signing_secret_slot() -> SecretSlot {
+    SecretSlot::new(PENDING_TABLE, ROW, "sealed_signing_secret")
 }
 
 /// The saved app, as far as the held keys go.
@@ -421,20 +444,101 @@ pub fn plan_replace(
     saved_by: Uuid,
     saved_at: OffsetDateTime,
 ) -> Option<SlackAppSave> {
+    let (sealed_client_secret, sealed_signing_secret) =
+        seal_both(sealing, change, client_secret_slot(), signing_secret_slot())?;
+    Some(SlackAppSave {
+        client_id: change.client_id.clone(),
+        sealed_client_secret,
+        sealed_signing_secret,
+        sealed_under: fence(sealing, mode),
+        saved_by,
+        saved_at,
+    })
+}
+
+/// The change held for `requested_by`'s confirm (I-14), sealed into the
+/// pending row's own slots and fenced as a save is, expiring
+/// [`PENDING_HELD_FOR`] after `held_at`. It is the same sealing as a save
+/// with another target row, so the confirm page needs neither secret and
+/// nothing is sealed outside this module. `None` when sealing fails.
+pub fn plan_hold_pending(
+    sealing: &SecretBox,
+    mode: KeyMode,
+    change: &SlackChange,
+    requested_by: Uuid,
+    held_at: OffsetDateTime,
+) -> Option<PendingSlackAppSave> {
+    let (sealed_client_secret, sealed_signing_secret) = seal_both(
+        sealing,
+        change,
+        pending_client_secret_slot(),
+        pending_signing_secret_slot(),
+    )?;
+    Some(PendingSlackAppSave {
+        client_id: change.client_id.clone(),
+        sealed_client_secret,
+        sealed_signing_secret,
+        sealed_under: fence(sealing, mode),
+        requested_by,
+        expires_at: held_at + PENDING_HELD_FOR,
+    })
+}
+
+/// The held app's two secrets opened from the pending row's slots under
+/// `credentials`, then sealed again with `sealing` into the saved app's
+/// slots: what a confirm stores. A sealed value is bound to the row it is
+/// stored in (ADR-EIP-004), so held bytes cannot be moved into the saved row
+/// as they are, and this is the one move - every sealing of a Slack secret
+/// still happens here. `None` when a secret does not open under a held key,
+/// or cannot be sealed again.
+pub fn reseal_held_for_save(
+    credentials: &CredentialBox<'_>,
+    sealing: &SecretBox,
+    held_client_secret: &[u8],
+    held_signing_secret: &[u8],
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    let open = |sealed: &[u8], slot: SecretSlot| {
+        credentials.open(&SealedSecret::from_bytes(sealed.to_vec()), &slot)
+    };
+    let client_secret = open(held_client_secret, pending_client_secret_slot())?;
+    let signing_secret = open(held_signing_secret, pending_signing_secret_slot())?;
     let seal = |secret: &SecretString, slot: SecretSlot| {
         sealing
             .seal(secret, &slot)
             .ok()
             .map(|sealed| sealed.as_bytes().to_vec())
     };
-    Some(SlackAppSave {
-        client_id: change.client_id.clone(),
-        sealed_client_secret: seal(&change.client_secret, client_secret_slot())?,
-        sealed_signing_secret: seal(&change.signing_secret, signing_secret_slot())?,
-        sealed_under: (mode == KeyMode::Sealed).then(|| sealing.current_key_id().to_string()),
-        saved_by,
-        saved_at,
-    })
+    Some((
+        seal(&client_secret, client_secret_slot())?,
+        seal(&signing_secret, signing_secret_slot())?,
+    ))
+}
+
+/// Both of the change's secrets sealed with `sealing` into `client` and
+/// `signing`, the slots of the row they are stored in; `None` when sealing
+/// fails.
+fn seal_both(
+    sealing: &SecretBox,
+    change: &SlackChange,
+    client: SecretSlot,
+    signing: SecretSlot,
+) -> Option<(Vec<u8>, Vec<u8>)> {
+    let seal = |secret: &SecretString, slot: SecretSlot| {
+        sealing
+            .seal(secret, &slot)
+            .ok()
+            .map(|sealed| sealed.as_bytes().to_vec())
+    };
+    Some((
+        seal(&change.client_secret, client)?,
+        seal(&change.signing_secret, signing)?,
+    ))
+}
+
+/// The key id a write sealed with `sealing` is fenced on: the stored secrets
+/// key's in `Sealed` mode, none in `Direct`.
+fn fence(sealing: &SecretBox, mode: KeyMode) -> Option<String> {
+    (mode == KeyMode::Sealed).then(|| sealing.current_key_id().to_string())
 }
 
 #[cfg(test)]

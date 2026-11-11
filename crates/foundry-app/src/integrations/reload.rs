@@ -284,6 +284,7 @@ mod tests {
             version: 1,
             secrets_key: None,
             slack_app: None,
+            slack_app_pending: None,
             key_checks: Vec::new(),
             sealed_credentials: Vec::new(),
         }

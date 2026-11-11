@@ -859,6 +859,13 @@ pub fn build_router(state: AppState) -> Router {
             integrations::handlers::SLACK_APP_PATH,
             post(integrations::handlers::save_slack_app),
         )
+        // US-IIS-05: I-14's confirm page and its one control, behind the same
+        // guard; the post carries `_csrf` and nothing else.
+        .route(
+            integrations::handlers::SLACK_CONFIRM_PATH,
+            get(integrations::handlers::show_slack_confirm)
+                .post(integrations::handlers::confirm_slack_app),
+        )
         .route(
             integrations::handlers::WORKSPACE_PATH,
             get(integrations::handlers::show_workspace),

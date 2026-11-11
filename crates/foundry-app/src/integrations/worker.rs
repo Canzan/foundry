@@ -35,6 +35,7 @@
 use super::project_emails::ProjectMail;
 use super::store_capabilities::{
     ConnectionCredentials, DeliveryClaims, DeliverySweeps, DispatchLog, EventViewReads,
+    InstanceKeyWrites,
 };
 use super::{chat_kind, Integrations, IntegrationsHandle};
 use crate::notify::{Notification, NotificationEvent, Notifier};
@@ -196,6 +197,7 @@ impl IntegrationsWorker {
             + DeliverySweeps
             + EventViewReads
             + ConnectionCredentials
+            + InstanceKeyWrites
             + 'static,
     {
         Self {
@@ -214,7 +216,8 @@ impl IntegrationsWorker {
                 project_mail: integrations.project_mail().clone(),
             },
             retention: Retention {
-                sweeps: capabilities,
+                sweeps: capabilities.clone(),
+                instance: capabilities,
                 last_swept: Mutex::new(None),
             },
             integrations,
@@ -284,6 +287,10 @@ impl IntegrationsWorker {
 /// The retention sweep (DD-10): once an hour of the clock, per worker.
 struct Retention {
     sweeps: Arc<dyn DeliverySweeps>,
+    /// The instance writes the sweep reaches: the held Slack app's prune
+    /// (ADR-IIS-003 r4), one more prune on this tick rather than a task of
+    /// its own.
+    instance: Arc<dyn InstanceKeyWrites>,
     last_swept: Mutex<Option<OffsetDateTime>>,
 }
 
@@ -302,6 +309,8 @@ impl Retention {
         self.sweeps
             .prune_replica_states(now - REPLICA_STATE_RETENTION)
             .await?;
+        // ADR-IIS-003 r4: a submitted Slack app nobody confirmed in time.
+        self.instance.prune_pending_slack_app(now).await?;
         *self.last_swept.lock().unwrap_or_else(|p| p.into_inner()) = Some(now);
         Ok(())
     }
@@ -929,9 +938,14 @@ fn delivery_result(settled: Settlement) -> DeliveryResult {
 #[cfg(test)]
 mod retention_tests {
     use super::*;
-    use crate::integrations::store_capabilities::{ExpiryPlanner, RetentionPlanner};
+    use crate::integrations::store_capabilities::{
+        ExpiryPlanner, HeldResealer, ResealRefused, Resealer, RetentionPlanner,
+    };
     use async_trait::async_trait;
-    use foundry_store::integrations::{DeliveryTally, Pruned};
+    use foundry_store::integrations::{
+        DeliveryTally, InstanceActivityRow, KeyCheck, NewSecretsKey, PendingApplied,
+        PendingSlackAppSave, Pruned, SecretsKeyOutcome, SlackAppSave, SlackSaveOutcome,
+    };
     use foundry_store::StoreError;
 
     /// The sweeps port, recording where each replica-state prune cut off.
@@ -971,6 +985,63 @@ mod retention_tests {
         }
     }
 
+    /// The instance writes the tick reaches: only the held Slack app's prune.
+    #[async_trait]
+    impl InstanceKeyWrites for RecordedSweeps {
+        async fn store_secrets_key(
+            &self,
+            _key: &NewSecretsKey,
+            _canary: &KeyCheck,
+            _at: OffsetDateTime,
+            _reseal: Resealer<'_>,
+        ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError> {
+            unreachable!("the retention tick stores no secrets key")
+        }
+
+        async fn save_slack_app(
+            &self,
+            _app: &SlackAppSave,
+        ) -> Result<SlackSaveOutcome, StoreError> {
+            unreachable!("the retention tick saves no Slack app")
+        }
+
+        async fn hold_pending_slack_app(
+            &self,
+            _app: &PendingSlackAppSave,
+        ) -> Result<SlackSaveOutcome, StoreError> {
+            unreachable!("the retention tick holds no Slack app")
+        }
+
+        async fn apply_pending_slack_app(
+            &self,
+            _actor: uuid::Uuid,
+            _now: OffsetDateTime,
+            _sealed_under: Option<&str>,
+            _reseal: HeldResealer<'_>,
+        ) -> Result<PendingApplied<ResealRefused>, StoreError> {
+            unreachable!("the retention tick applies no held Slack app")
+        }
+
+        async fn connected_slack_workspaces(&self) -> Result<i64, StoreError> {
+            unreachable!("the retention tick counts no connection")
+        }
+
+        async fn prune_pending_slack_app(&self, _now: OffsetDateTime) -> Result<u64, StoreError> {
+            Ok(0)
+        }
+
+        async fn instance_activity(
+            &self,
+            _limit: i64,
+        ) -> Result<Vec<InstanceActivityRow>, StoreError> {
+            unreachable!("the retention tick reads no activity")
+        }
+
+        async fn display_name(&self, _user_id: uuid::Uuid) -> Result<Option<String>, StoreError> {
+            unreachable!("the retention tick reads no name")
+        }
+    }
+
     /// Replica state rows older than an hour of the clock the tick is given
     /// are pruned, once per sweep period of that clock.
     #[tokio::test]
@@ -978,6 +1049,7 @@ mod retention_tests {
         let sweeps = Arc::new(RecordedSweeps::default());
         let retention = Retention {
             sweeps: sweeps.clone(),
+            instance: sweeps.clone(),
             last_swept: Mutex::new(None),
         };
         let now = OffsetDateTime::from_unix_timestamp(1_800_000_000).expect("a time");

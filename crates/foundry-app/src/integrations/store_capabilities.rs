@@ -18,7 +18,9 @@
 //!   its one write, the current instance key's check value;
 //! - [`InstanceKeyWrites`]: the instance page's Generate (one write
 //!   use-case, `store_secrets_key`), its Slack app save (`save_slack_app`),
-//!   its activity read and the saver's name;
+//!   the hold and the confirm of a submitted app with the connected-workspace
+//!   count the I-14 gate reads and the held app's prune, its activity read and
+//!   the saver's name;
 //! - [`IntegrationsReload`]: each replica's reload task (ADR-IIS-004 r4, r8):
 //!   the config version, the snapshot, and its one write, its own replica
 //!   state row.
@@ -27,9 +29,9 @@ use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
     DispatchOutcome, EmailSendFacts, InstanceActivityRow, InstanceSnapshot, KeyCheck,
-    LostConnection, NewDelivery, NewSecretsKey, PendingDelivery, Pruned, Pruning, RecordOutcome,
-    ReplicaState, RetentionView, RewrapOutcome, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap,
-    SlackAppSave, SlackSaveOutcome,
+    LostConnection, NewDelivery, NewSecretsKey, PendingApplied, PendingDelivery,
+    PendingSlackAppSave, Pruned, Pruning, RecordOutcome, ReplicaState, RetentionView,
+    RewrapOutcome, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackAppSave, SlackSaveOutcome,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -47,6 +49,12 @@ pub type ExpiryPlanner<'a> = &'a (dyn Fn(&[PendingDelivery]) -> Vec<i64> + Sync)
 /// `None` keeps it as it is; a refusal rolls the whole write back.
 pub type Resealer<'a> =
     &'a (dyn Fn(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, ResealRefused> + Sync);
+
+/// The re-seal a confirm applies to the held app's two sealed secrets: bound
+/// to the pending row, they are opened and sealed again for the saved app's
+/// row before the confirm stores them.
+pub type HeldResealer<'a> =
+    &'a (dyn Fn(&[u8], &[u8]) -> Result<(Vec<u8>, Vec<u8>), ResealRefused> + Sync);
 
 /// A stored value the re-seal could not open or seal again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -201,6 +209,32 @@ pub trait InstanceKeyWrites: Send + Sync {
     /// Save the Slack app, fenced on the key its secrets were sealed under,
     /// with its activity line and the version bump: one transaction.
     async fn save_slack_app(&self, app: &SlackAppSave) -> Result<SlackSaveOutcome, StoreError>;
+
+    /// Hold the submitted app for its confirm (I-14), fenced the same way:
+    /// nothing a reader sees changes, so no activity line and no version bump.
+    async fn hold_pending_slack_app(
+        &self,
+        app: &PendingSlackAppSave,
+    ) -> Result<SlackSaveOutcome, StoreError>;
+
+    /// `actor`'s confirm at `now`: apply the held app as a save and delete it,
+    /// in one transaction, where she holds it and it has not expired.
+    async fn apply_pending_slack_app(
+        &self,
+        actor: Uuid,
+        now: OffsetDateTime,
+        sealed_under: Option<&str>,
+        reseal: HeldResealer<'_>,
+    ) -> Result<PendingApplied<ResealRefused>, StoreError>;
+
+    /// How many workspaces hold a live Slack connection (what I-14 counts and
+    /// the I-14 gate reads).
+    async fn connected_slack_workspaces(&self) -> Result<i64, StoreError>;
+
+    /// Delete the held app once `now` is at or past its expiry (the retention
+    /// tick); how many rows went.
+    async fn prune_pending_slack_app(&self, now: OffsetDateTime) -> Result<u64, StoreError>;
+
     /// The instance's latest activity lines, newest first.
     async fn instance_activity(&self, limit: i64) -> Result<Vec<InstanceActivityRow>, StoreError>;
     /// A person's display name (who saved the Slack app, I-6).
@@ -403,6 +437,35 @@ impl InstanceKeyWrites for StoreCapabilities {
 
     async fn save_slack_app(&self, app: &SlackAppSave) -> Result<SlackSaveOutcome, StoreError> {
         self.0.save_slack_app(app).await
+    }
+
+    async fn hold_pending_slack_app(
+        &self,
+        app: &PendingSlackAppSave,
+    ) -> Result<SlackSaveOutcome, StoreError> {
+        self.0.hold_pending_slack_app(app).await
+    }
+
+    async fn apply_pending_slack_app(
+        &self,
+        actor: Uuid,
+        now: OffsetDateTime,
+        sealed_under: Option<&str>,
+        reseal: HeldResealer<'_>,
+    ) -> Result<PendingApplied<ResealRefused>, StoreError> {
+        self.0
+            .apply_pending_slack_app(actor, now, sealed_under, |client, signing| {
+                reseal(client, signing)
+            })
+            .await
+    }
+
+    async fn connected_slack_workspaces(&self) -> Result<i64, StoreError> {
+        self.0.connected_slack_workspaces().await
+    }
+
+    async fn prune_pending_slack_app(&self, now: OffsetDateTime) -> Result<u64, StoreError> {
+        self.0.prune_pending_slack_app(now).await
     }
 
     async fn instance_activity(&self, limit: i64) -> Result<Vec<InstanceActivityRow>, StoreError> {

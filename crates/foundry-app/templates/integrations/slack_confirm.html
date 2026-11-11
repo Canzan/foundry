@@ -1,0 +1,12 @@
+{% extends "app_shell.html" %}
+{% block title %}Save the new Slack app?{% endblock %}
+{% block app_content %}
+<main data-slack-confirm>
+  <h1>Save the new Slack app?</h1>
+  <p data-slack-confirm-line>{{ line }}</p>
+  <form method="post" action="{{ confirm_door }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <button type="submit">{{ control }}</button>
+  </form>
+</main>
+{% endblock %}

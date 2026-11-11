@@ -131,6 +131,8 @@ pub fn sealed_slot(slot: SealedSlot) -> SecretSlot {
         SealedSlot::Connection(connection_id) => credential_slot(connection_id),
         SealedSlot::SlackClientSecret => slack_app::client_secret_slot(),
         SealedSlot::SlackSigningSecret => slack_app::signing_secret_slot(),
+        SealedSlot::PendingSlackClientSecret => slack_app::pending_client_secret_slot(),
+        SealedSlot::PendingSlackSigningSecret => slack_app::pending_signing_secret_slot(),
     }
 }
 
@@ -619,7 +621,7 @@ impl Integrations {
             .as_ref()
             .map(|keys| keys.key_ids().iter().map(ToString::to_string).collect())
             .unwrap_or_default();
-        keys::direct_seal_count(&key_ids(&sealed_values(snapshot)), &held)
+        keys::direct_seal_count(&key_ids(&credential_values(snapshot)), &held)
     }
 
     /// What a workspace whose `unreadable` connections these are is offered
@@ -795,7 +797,21 @@ fn with_key_check(mut snapshot: InstanceSnapshot, recorded: Option<KeyCheck>) ->
     snapshot
 }
 
+/// Every sealed value a held key must open (the boot probe's view): the
+/// credentials, and the secrets of an app held for its confirm - which is no
+/// credential, so the probe sees it while I-22's count does not.
 fn sealed_values(snapshot: &InstanceSnapshot) -> Vec<Vec<u8>> {
+    let mut sealed = credential_values(snapshot);
+    if let Some(pending) = &snapshot.slack_app_pending {
+        sealed.push(pending.sealed_client_secret.clone());
+        sealed.push(pending.sealed_signing_secret.clone());
+    }
+    sealed
+}
+
+/// The stored credentials: each connection's, and the saved Slack app's two
+/// secrets (I-22 counts the app as one).
+fn credential_values(snapshot: &InstanceSnapshot) -> Vec<Vec<u8>> {
     let mut sealed = snapshot.sealed_credentials.clone();
     if let Some(app) = &snapshot.slack_app {
         sealed.push(app.sealed_client_secret.clone());
@@ -1010,6 +1026,7 @@ mod tests {
             version,
             secrets_key: None,
             slack_app: None,
+            slack_app_pending: None,
             key_checks: Vec::new(),
             sealed_credentials: sealed,
         }))
@@ -1279,6 +1296,7 @@ mod tests {
             version: 1,
             secrets_key: None,
             slack_app: None,
+            slack_app_pending: None,
             key_checks: Vec::new(),
             sealed_credentials: sealed,
         };
@@ -1339,6 +1357,7 @@ mod tests {
             version: 2,
             secrets_key: Some(stored),
             slack_app: None,
+            slack_app_pending: None,
             key_checks: Vec::new(),
             sealed_credentials: Vec::new(),
         }
@@ -1521,6 +1540,7 @@ mod tests {
                 version: 1,
                 secrets_key: None,
                 slack_app: None,
+                slack_app_pending: None,
                 key_checks: checks,
                 sealed_credentials: Vec::new(),
             };

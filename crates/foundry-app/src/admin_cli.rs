@@ -791,6 +791,9 @@ async fn rotate_secrets(
                 SealedSlot::SlackClientSecret | SealedSlot::SlackSigningSecret => {
                     "the saved Slack app".to_string()
                 }
+                SealedSlot::PendingSlackClientSecret | SealedSlot::PendingSlackSigningSecret => {
+                    "the Slack app waiting for an instance admin's confirmation".to_string()
+                }
             };
             eprintln!(
                 "{ROTATE}: {what} opens under neither the instance key nor a previous instance \

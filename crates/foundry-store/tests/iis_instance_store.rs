@@ -10,9 +10,9 @@
 //! byte strings.
 
 use foundry_store::integrations::{
-    ConnectionWriteOutcome, KeyCheck, KeyWrapper, NewConnection, NewSecretsKey, ReplicaState,
-    RewrapOutcome, RotateOutcome, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackAppSave,
-    SlackSaveOutcome, INSTANCE_INTEGRATIONS_LOCK,
+    ConnectionWriteOutcome, KeyCheck, KeyWrapper, NewConnection, NewSecretsKey, PendingApplied,
+    PendingSlackAppSave, ReplicaState, RewrapOutcome, RotateOutcome, SealedSlot, SecretsKeyOutcome,
+    SecretsKeyRewrap, SlackAppSave, SlackSaveOutcome, INSTANCE_INTEGRATIONS_LOCK,
 };
 use foundry_store::{run_migrations, run_migrations_from_dir, Store};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -32,9 +32,10 @@ const SCHEMA: &str = "iis";
 
 /// Every table an instance integrations write could reach, plus the
 /// workspace-level neighbours it must never touch.
-const OBSERVED: [&str; 10] = [
+const OBSERVED: [&str; 11] = [
     "integration_secrets_key",
     "instance_slack_app",
+    "instance_slack_app_pending",
     "integration_config_version",
     "integration_replica_states",
     "instance_integration_audit_events",
@@ -801,6 +802,173 @@ async fn slack_save_fences_on_the_sealing_key() {
     assert_eq!(
         activity(&pool).await.last().map(|line| line.1.as_str()),
         Some("slack_app_replaced")
+    );
+}
+
+// ---------------------------------------------------------------------------
+// The held Slack app and its confirm (ADR-IIS-003 r4, L4)
+// ---------------------------------------------------------------------------
+
+/// A second instance admin: the one who may not finish the switch somebody
+/// else started.
+async fn another_admin(pool: &PgPool) -> Id {
+    let id = Id::now_v7();
+    sqlx::query(
+        "INSERT INTO users (id, email_lower, email_display, display_name, password_hash)
+              VALUES ($1, 'bo@example.com', 'bo@example.com', 'Bo', 'not-a-real-hash')",
+    )
+    .bind(id)
+    .execute(pool)
+    .await
+    .expect("user");
+    id
+}
+
+/// The app `by` submitted, held sealed under `sk-1` until `at(10)`.
+async fn hold(store: &Store, by: Id) {
+    let outcome = store
+        .hold_pending_slack_app(&PendingSlackAppSave {
+            client_id: "8.9".to_string(),
+            sealed_client_secret: b"sealed-pending-client".to_vec(),
+            sealed_signing_secret: b"sealed-pending-signing".to_vec(),
+            sealed_under: Some("sk-1".to_string()),
+            requested_by: by,
+            expires_at: at(10),
+        })
+        .await
+        .expect("hold");
+    assert!(
+        matches!(outcome, SlackSaveOutcome::Saved { .. }),
+        "the submission is held: {outcome:?}"
+    );
+}
+
+/// The confirm's re-seal, as the app layer's is: the held bytes opened from
+/// the pending row's slots and sealed again for the saved app's row. Opaque
+/// here, so the stored bytes show they came through it.
+fn reseal_held(client: &[u8], signing: &[u8]) -> Result<(Vec<u8>, Vec<u8>), String> {
+    Ok((
+        [b"saved:".as_slice(), client].concat(),
+        [b"saved:".as_slice(), signing].concat(),
+    ))
+}
+
+/// L4, the whole relation the confirm decides over its three facts — who
+/// posts it, at which instant, and whether a row is there to apply. The hold
+/// itself writes the pending row and nothing a reader sees; the expiry
+/// instant is one of the cases, because the instant the hold ends is already
+/// too late.
+#[tokio::test]
+async fn the_finite_table_of_when_a_held_slack_app_may_still_be_applied() {
+    let pg = postgres().await;
+    let pool = pg.migrated().await;
+    let store = Store::from_pool(pool.clone());
+    let ana = admin(&pool).await;
+    let bo = another_admin(&pool).await;
+    store
+        .store_secrets_key(&new_key("sk-1", None), &canary("sk-1"), at(0), reseal_all)
+        .await
+        .expect("generate");
+
+    let before = dump(&pool).await;
+    hold(&store, ana).await;
+    assert_eq!(
+        changed(&before, &dump(&pool).await),
+        BTreeSet::from(["instance_slack_app_pending"]),
+        "the hold writes the pending row only: no activity line and no version bump"
+    );
+
+    // Who confirms, how many minutes after the hold, and whether it applies.
+    // The hold expires at at(10): that instant is already too late.
+    #[rustfmt::skip]
+    let table = [
+        (ana, 1,  true),
+        (ana, 9,  true),
+        (ana, 10, false),
+        (ana, 11, false),
+        (bo,  1,  false),
+    ];
+    for (actor, minutes, applies) in table {
+        hold(&store, ana).await;
+        let before = dump(&pool).await;
+        let outcome = store
+            .apply_pending_slack_app(actor, at(minutes), Some("sk-1"), reseal_held)
+            .await
+            .expect("confirm");
+        let after = dump(&pool).await;
+        if applies {
+            assert!(
+                matches!(
+                    outcome,
+                    PendingApplied::Applied(SlackSaveOutcome::Saved { .. })
+                ),
+                "minute {minutes}: {outcome:?}"
+            );
+            assert_eq!(
+                changed(&before, &after),
+                BTreeSet::from([
+                    "instance_slack_app",
+                    "instance_slack_app_pending",
+                    "instance_integration_audit_events",
+                    "integration_config_version",
+                ]),
+                "minute {minutes}: the app stored, the row deleted, one line, one bump"
+            );
+            let app = store
+                .instance_snapshot()
+                .await
+                .expect("snapshot")
+                .slack_app
+                .expect("the applied app");
+            assert_eq!(app.client_id, "8.9");
+            assert_eq!(app.sealed_client_secret, b"saved:sealed-pending-client");
+            assert_eq!(app.sealed_signing_secret, b"saved:sealed-pending-signing");
+            assert_eq!(app.saved_by, Some(actor));
+            assert_eq!(app.saved_at, at(minutes));
+        } else {
+            assert_eq!(outcome, PendingApplied::NotApplicable, "minute {minutes}");
+            assert_eq!(after, before, "minute {minutes}: nothing changed at all");
+        }
+    }
+
+    // The holder confirms twice: the second finds no row, as a confirm with
+    // nothing held does — the state this leaves.
+    hold(&store, ana).await;
+    assert!(matches!(
+        store
+            .apply_pending_slack_app(ana, at(1), Some("sk-1"), reseal_held)
+            .await
+            .expect("first confirm"),
+        PendingApplied::Applied(SlackSaveOutcome::Saved { .. })
+    ));
+    let before = dump(&pool).await;
+    for again in [at(1), at(2)] {
+        assert_eq!(
+            store
+                .apply_pending_slack_app(ana, again, Some("sk-1"), reseal_held)
+                .await
+                .expect("a confirm with nothing held"),
+            PendingApplied::NotApplicable
+        );
+        assert_eq!(dump(&pool).await, before, "nothing is applied twice");
+    }
+
+    // The prune deletes a held app at or past its expiry, and leaves one
+    // still inside its ten minutes.
+    hold(&store, ana).await;
+    assert_eq!(
+        store
+            .prune_pending_slack_app(at(9))
+            .await
+            .expect("prune inside the hold"),
+        0
+    );
+    assert_eq!(
+        store
+            .prune_pending_slack_app(at(10))
+            .await
+            .expect("prune at the expiry"),
+        1
     );
 }
 

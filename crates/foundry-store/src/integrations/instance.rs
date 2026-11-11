@@ -140,6 +140,12 @@ pub enum SealedSlot {
     SlackClientSecret,
     /// `instance_slack_app.sealed_signing_secret`.
     SlackSigningSecret,
+    /// `instance_slack_app_pending.sealed_client_secret`: the submission
+    /// waiting for its confirm is re-sealed with every other sealed value, so
+    /// it still opens at the confirm (ADR-IIS-003 r4).
+    PendingSlackClientSecret,
+    /// `instance_slack_app_pending.sealed_signing_secret`.
+    PendingSlackSigningSecret,
 }
 
 /// What Generate or Move did, or why it changed nothing.
@@ -182,6 +188,56 @@ pub enum SlackSaveOutcome {
     StaleKey,
 }
 
+/// A Slack app held for its confirm (I-14): the app an instance admin
+/// submitted while workspaces were still connected through the app in effect,
+/// sealed as a save is and fenced the same way, applicable only by
+/// `requested_by` and only before `expires_at` (ADR-IIS-003 r4). No `Debug`:
+/// it carries sealed secrets.
+#[derive(Clone)]
+pub struct PendingSlackAppSave {
+    pub client_id: String,
+    pub sealed_client_secret: Vec<u8>,
+    pub sealed_signing_secret: Vec<u8>,
+    pub sealed_under: Option<String>,
+    pub requested_by: Uuid,
+    pub expires_at: OffsetDateTime,
+}
+
+/// The pending Slack app row. No `Debug`: it carries sealed secrets.
+#[derive(Clone, PartialEq, Eq)]
+pub struct PendingSlackApp {
+    pub client_id: String,
+    pub sealed_client_secret: Vec<u8>,
+    pub sealed_signing_secret: Vec<u8>,
+    pub requested_by: Uuid,
+    pub expires_at: OffsetDateTime,
+}
+
+impl PendingSlackApp {
+    /// Whether `actor` may still apply this held app at `now`: its own
+    /// requester, before its expiry. The expiry instant itself is too late,
+    /// as every later instant is (K2).
+    fn applicable_by(&self, actor: Uuid, now: OffsetDateTime) -> bool {
+        self.requested_by == actor && now < self.expires_at
+    }
+}
+
+/// What a confirm of the held Slack app did, or why it changed nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PendingApplied<E> {
+    /// The held app was applied as a save and the row deleted, in one
+    /// transaction: the save's own outcome, so one retry rule answers for
+    /// both doors.
+    Applied(SlackSaveOutcome),
+    /// No held app this admin may apply at this instant - none held, another
+    /// admin's, or one at or past its expiry: nothing changed, and the row (if
+    /// any) was left as it was.
+    NotApplicable,
+    /// The caller could not open the held secrets or seal them again for the
+    /// saved app's row: the transaction was rolled back, so nothing changed.
+    Refused(E),
+}
+
 /// The saved Slack app row. No `Debug`: it carries sealed secrets.
 #[derive(Clone, PartialEq, Eq)]
 pub struct SavedSlackApp {
@@ -200,6 +256,9 @@ pub struct InstanceSnapshot {
     pub version: i64,
     pub secrets_key: Option<StoredSecretsKey>,
     pub slack_app: Option<SavedSlackApp>,
+    /// The app held for its confirm (I-14): the reload ignores it, and the
+    /// boot probe counts its secrets among the values a held key must open.
+    pub slack_app_pending: Option<PendingSlackApp>,
     pub key_checks: Vec<KeyCheck>,
     /// Every stored connection credential (the reload reads their key ids).
     pub sealed_credentials: Vec<Vec<u8>>,
@@ -406,46 +465,117 @@ impl Store {
     pub async fn save_slack_app(&self, app: &SlackAppSave) -> Result<SlackSaveOutcome, StoreError> {
         let mut tx = self.pool.begin().await?;
         lock_exclusive(&mut tx).await?;
-        if stored_key_id(&mut tx).await? != app.sealed_under {
+        save_slack_app(tx, app).await
+    }
+
+    /// Hold the Slack app an admin submitted while workspaces are connected
+    /// through the app in effect, for her confirm (I-14, ADR-IIS-003 r4):
+    /// this is no instance-level change, so it takes the lock shared, fences
+    /// on the sealing key (ADR-IIS-004 r2), and writes nothing a reader sees -
+    /// no activity line and no version bump. A new submission overwrites the
+    /// row. `Saved` reports the version as it stands, unbumped.
+    pub async fn hold_pending_slack_app(
+        &self,
+        app: &PendingSlackAppSave,
+    ) -> Result<SlackSaveOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        if !seal_fence_holds(&mut tx, app.sealed_under.as_deref()).await? {
             tx.rollback().await?;
             return Ok(SlackSaveOutcome::StaleKey);
         }
-        let replaced: bool =
-            sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM instance_slack_app WHERE id = 1)")
-                .fetch_one(&mut *tx)
-                .await?;
         sqlx::query(
-            "INSERT INTO instance_slack_app
-                    (id, client_id, sealed_client_secret, sealed_signing_secret, saved_by, saved_at)
+            "INSERT INTO instance_slack_app_pending
+                    (id, client_id, sealed_client_secret, sealed_signing_secret,
+                     requested_by, expires_at)
              VALUES (1, $1, $2, $3, $4, $5)
              ON CONFLICT (id) DO UPDATE SET
                     client_id = EXCLUDED.client_id,
                     sealed_client_secret = EXCLUDED.sealed_client_secret,
                     sealed_signing_secret = EXCLUDED.sealed_signing_secret,
-                    saved_by = EXCLUDED.saved_by,
-                    saved_at = EXCLUDED.saved_at",
+                    requested_by = EXCLUDED.requested_by,
+                    expires_at = EXCLUDED.expires_at",
         )
         .bind(&app.client_id)
         .bind(&app.sealed_client_secret)
         .bind(&app.sealed_signing_secret)
-        .bind(app.saved_by)
-        .bind(app.saved_at)
+        .bind(app.requested_by)
+        .bind(app.expires_at)
         .execute(&mut *tx)
         .await?;
-        let activity = if replaced {
-            Activity::SlackAppReplaced
-        } else {
-            Activity::SlackAppSaved
-        };
-        let line = ActivityLine {
-            actor: Some(app.saved_by),
-            activity,
-            client_id: Some(&app.client_id),
-            count: None,
-            at: app.saved_at,
-        };
-        let version = commit_recorded(tx, &line).await?;
+        let version = read_config_version(&mut tx).await?;
+        tx.commit().await?;
         Ok(SlackSaveOutcome::Saved { version })
+    }
+
+    /// `actor`'s confirm of the held Slack app at `now` (ADR-IIS-003 r4): one
+    /// transaction under the exclusive lock, so the row applied is the row
+    /// read. The held app is applied only for the requester that holds it and
+    /// only before its expiry; applying it deletes it, so a second confirm,
+    /// another admin's confirm and a confirm at or after the expiry all find
+    /// nothing to apply and change nothing.
+    ///
+    /// A sealed value is bound to the row it is stored in, so the held bytes
+    /// are handed to `reseal`, which answers with both secrets sealed for the
+    /// saved app's row; the store makes no plan and sees no plaintext. The
+    /// write is then the save's own, fenced on `sealed_under` as any save is.
+    /// A refusal from `reseal` rolls everything back.
+    pub async fn apply_pending_slack_app<E>(
+        &self,
+        actor: Uuid,
+        now: OffsetDateTime,
+        sealed_under: Option<&str>,
+        reseal: impl FnOnce(&[u8], &[u8]) -> Result<(Vec<u8>, Vec<u8>), E>,
+    ) -> Result<PendingApplied<E>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        lock_exclusive(&mut tx).await?;
+        let held = read_pending_slack_app(&mut tx, true).await?;
+        let Some(held) = held.filter(|held| held.applicable_by(actor, now)) else {
+            tx.rollback().await?;
+            return Ok(PendingApplied::NotApplicable);
+        };
+        let sealed = reseal(&held.sealed_client_secret, &held.sealed_signing_secret);
+        let (sealed_client_secret, sealed_signing_secret) = match sealed {
+            Ok(sealed) => sealed,
+            Err(why) => {
+                tx.rollback().await?;
+                return Ok(PendingApplied::Refused(why));
+            }
+        };
+        delete_pending_slack_app(&mut tx).await?;
+        let app = SlackAppSave {
+            client_id: held.client_id,
+            sealed_client_secret,
+            sealed_signing_secret,
+            sealed_under: sealed_under.map(str::to_string),
+            saved_by: actor,
+            saved_at: now,
+        };
+        Ok(PendingApplied::Applied(save_slack_app(tx, &app).await?))
+    }
+
+    /// How many workspaces hold a live Slack connection: what I-14 and I-15
+    /// count, and what the I-14 gate reads (ADR-IIS-003 r4). A disconnected
+    /// connection posts nothing, so it counts for neither.
+    pub async fn connected_slack_workspaces(&self) -> Result<i64, StoreError> {
+        Ok(sqlx::query_scalar(
+            "SELECT count(DISTINCT workspace_id) FROM integration_connections
+              WHERE kind = 'slack' AND state <> 'disconnected'",
+        )
+        .fetch_one(&self.pool)
+        .await?)
+    }
+
+    /// Delete the held Slack app once it has expired (the caller's clock,
+    /// never `now()`): the retention tick's prune, outside any other write.
+    /// The expiry instant itself is already too late, as the confirm reads it.
+    pub async fn prune_pending_slack_app(&self, now: OffsetDateTime) -> Result<u64, StoreError> {
+        Ok(
+            sqlx::query("DELETE FROM instance_slack_app_pending WHERE expires_at <= $1")
+                .bind(now)
+                .execute(&self.pool)
+                .await?
+                .rows_affected(),
+        )
     }
 
     /// The reload snapshot (ADR-IIS-004 rule 4).
@@ -475,6 +605,7 @@ impl Store {
         after_version_read(version).await;
         let secrets_key = read_secrets_key(&mut tx).await?;
         let slack_app = read_slack_app(&mut tx).await?;
+        let slack_app_pending = read_pending_slack_app(&mut tx, false).await?;
         let key_checks = sqlx::query_as::<_, (String, Vec<u8>)>(
             "SELECT key_id, sealed_canary FROM integration_key_checks ORDER BY key_id",
         )
@@ -497,6 +628,7 @@ impl Store {
             version,
             secrets_key,
             slack_app,
+            slack_app_pending,
             key_checks,
             sealed_credentials,
         })
@@ -598,6 +730,59 @@ impl Store {
     }
 }
 
+/// Store `app` in `tx`, which already holds the instance-integrations lock
+/// exclusive: refuse a save sealed under anything but the sealing key (the
+/// seal fence, ADR-IIS-004 r2), else the upsert, one line naming its client
+/// ID ("saved", or "replaced" over a saved app) and the version bump,
+/// committed together. The one writer of `instance_slack_app`, so an admin's
+/// save and the confirm's apply are one write, not two
+/// (check-arch `integrations-seal-fence`).
+async fn save_slack_app(
+    mut tx: Tx<'_>,
+    app: &SlackAppSave,
+) -> Result<SlackSaveOutcome, StoreError> {
+    if stored_key_id(&mut tx).await? != app.sealed_under {
+        tx.rollback().await?;
+        return Ok(SlackSaveOutcome::StaleKey);
+    }
+    let replaced: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM instance_slack_app WHERE id = 1)")
+            .fetch_one(&mut *tx)
+            .await?;
+    sqlx::query(
+        "INSERT INTO instance_slack_app
+                (id, client_id, sealed_client_secret, sealed_signing_secret, saved_by, saved_at)
+         VALUES (1, $1, $2, $3, $4, $5)
+         ON CONFLICT (id) DO UPDATE SET
+                client_id = EXCLUDED.client_id,
+                sealed_client_secret = EXCLUDED.sealed_client_secret,
+                sealed_signing_secret = EXCLUDED.sealed_signing_secret,
+                saved_by = EXCLUDED.saved_by,
+                saved_at = EXCLUDED.saved_at",
+    )
+    .bind(&app.client_id)
+    .bind(&app.sealed_client_secret)
+    .bind(&app.sealed_signing_secret)
+    .bind(app.saved_by)
+    .bind(app.saved_at)
+    .execute(&mut *tx)
+    .await?;
+    let activity = if replaced {
+        Activity::SlackAppReplaced
+    } else {
+        Activity::SlackAppSaved
+    };
+    let line = ActivityLine {
+        actor: Some(app.saved_by),
+        activity,
+        client_id: Some(&app.client_id),
+        count: None,
+        at: app.saved_at,
+    };
+    let version = commit_recorded(tx, &line).await?;
+    Ok(SlackSaveOutcome::Saved { version })
+}
+
 /// Take the instance-integrations lock exclusive for the transaction.
 async fn lock_exclusive(tx: &mut Tx<'_>) -> Result<(), sqlx::Error> {
     sqlx::query(
@@ -666,6 +851,48 @@ async fn update_wrapped_key(
     Ok(done.rows_affected() == 1)
 }
 
+/// The config version as it stands in `tx`, bumped by nobody.
+async fn read_config_version(tx: &mut Tx<'_>) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT version FROM integration_config_version WHERE id = 1")
+        .fetch_one(&mut **tx)
+        .await
+}
+
+/// The held Slack app, row-locked when `for_update` (the confirm reads and
+/// applies it in one transaction).
+async fn read_pending_slack_app(
+    tx: &mut Tx<'_>,
+    for_update: bool,
+) -> Result<Option<PendingSlackApp>, sqlx::Error> {
+    type Row = (String, Vec<u8>, Vec<u8>, Uuid, OffsetDateTime);
+    let sql = if for_update {
+        "SELECT client_id, sealed_client_secret, sealed_signing_secret, requested_by, expires_at
+           FROM instance_slack_app_pending WHERE id = 1 FOR UPDATE"
+    } else {
+        "SELECT client_id, sealed_client_secret, sealed_signing_secret, requested_by, expires_at
+           FROM instance_slack_app_pending WHERE id = 1"
+    };
+    let row: Option<Row> = sqlx::query_as(sql).fetch_optional(&mut **tx).await?;
+    Ok(row.map(
+        |(client_id, sealed_client_secret, sealed_signing_secret, requested_by, expires_at)| {
+            PendingSlackApp {
+                client_id,
+                sealed_client_secret,
+                sealed_signing_secret,
+                requested_by,
+                expires_at,
+            }
+        },
+    ))
+}
+
+async fn delete_pending_slack_app(tx: &mut Tx<'_>) -> Result<(), sqlx::Error> {
+    sqlx::query("DELETE FROM instance_slack_app_pending WHERE id = 1")
+        .execute(&mut **tx)
+        .await?;
+    Ok(())
+}
+
 async fn stored_key_id(tx: &mut Tx<'_>) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar("SELECT key_id FROM integration_secrets_key WHERE id = 1")
         .fetch_optional(&mut **tx)
@@ -699,6 +926,9 @@ async fn insert_secrets_key(
 struct Resealed {
     connections: usize,
     app_secrets: usize,
+    /// The held app's secrets re-sealed. No credential of I-22's count
+    /// (ADR-IIS-001): nothing is connected through an app nobody confirmed.
+    pending_secrets: usize,
 }
 
 impl Resealed {
@@ -709,9 +939,10 @@ impl Resealed {
     }
 }
 
-/// Hand every stored sealed value (connections, then the saved Slack app) to
-/// `reseal`, row-locked, and store each value it returns. The outer error is
-/// the database's; the inner, the caller's refusal (the caller rolls back).
+/// Hand every stored sealed value (connections, the saved Slack app, then the
+/// app held for its confirm) to `reseal`, row-locked, and store each value it
+/// returns. The outer error is the database's; the inner, the caller's refusal
+/// (the caller rolls back).
 async fn reseal_sealed_values<E>(
     tx: &mut Tx<'_>,
     reseal: &mut impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
@@ -745,19 +976,48 @@ async fn reseal_sealed_values<E>(
     )
     .fetch_optional(&mut **tx)
     .await?;
-    let Some((client_secret, signing_secret)) = app else {
+    if let Some((client_secret, signing_secret)) = app {
+        for (slot, sealed, sql) in [
+            (
+                SealedSlot::SlackClientSecret,
+                client_secret,
+                "UPDATE instance_slack_app SET sealed_client_secret = $1 WHERE id = 1",
+            ),
+            (
+                SealedSlot::SlackSigningSecret,
+                signing_secret,
+                "UPDATE instance_slack_app SET sealed_signing_secret = $1 WHERE id = 1",
+            ),
+        ] {
+            match reseal(slot, &sealed) {
+                Err(why) => return Ok(Err(why)),
+                Ok(None) => {}
+                Ok(Some(value)) => {
+                    sqlx::query(sql).bind(value).execute(&mut **tx).await?;
+                    resealed.app_secrets += 1;
+                }
+            }
+        }
+    }
+    let pending: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as(
+        "SELECT sealed_client_secret, sealed_signing_secret FROM instance_slack_app_pending
+          WHERE id = 1 FOR UPDATE",
+    )
+    .fetch_optional(&mut **tx)
+    .await?;
+    let Some((client_secret, signing_secret)) = pending else {
         return Ok(Ok(resealed));
     };
     for (slot, sealed, sql) in [
         (
-            SealedSlot::SlackClientSecret,
+            SealedSlot::PendingSlackClientSecret,
             client_secret,
-            "UPDATE instance_slack_app SET sealed_client_secret = $1 WHERE id = 1",
+            "UPDATE instance_slack_app_pending SET sealed_client_secret = $1 WHERE id = 1",
         ),
         (
-            SealedSlot::SlackSigningSecret,
+            SealedSlot::PendingSlackSigningSecret,
             signing_secret,
-            "UPDATE instance_slack_app SET sealed_signing_secret = $1 WHERE id = 1",
+            "UPDATE instance_slack_app_pending SET sealed_signing_secret = $1 WHERE id = 1",
         ),
     ] {
         match reseal(slot, &sealed) {
@@ -765,7 +1025,7 @@ async fn reseal_sealed_values<E>(
             Ok(None) => {}
             Ok(Some(value)) => {
                 sqlx::query(sql).bind(value).execute(&mut **tx).await?;
-                resealed.app_secrets += 1;
+                resealed.pending_secrets += 1;
             }
         }
     }

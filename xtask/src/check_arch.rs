@@ -15037,10 +15037,13 @@ const SEAL_FENCE_WRAPPED_COLUMN: &str = "wrapped_key";
 const SEAL_FENCE_CANARY_COLUMN: &str = "sealed_canary";
 /// The fenced store functions, by file and fn: the connection save and
 /// reconnect (shared lock and fence), the Slack app save (exclusive lock and
-/// fence), Generate and Move's key insert and re-seal, the secrets key's
-/// re-wrap at boot and in rotation (exclusive lock). `doctor rotate-secrets`
-/// re-seals through `reseal_sealed_values` under the exclusive lock.
-const SEAL_FENCED_WRITERS: [(&str, &str); 5] = [
+/// fence, the one writer of `instance_slack_app` for an admin's save and the
+/// confirm's apply alike), the hold of a submitted app awaiting its confirm
+/// (shared lock and fence, ADR-IIS-003 r4), Generate and Move's key insert
+/// and re-seal, the secrets key's re-wrap at boot and in rotation (exclusive
+/// lock). `doctor rotate-secrets` re-seals through `reseal_sealed_values`
+/// under the exclusive lock.
+const SEAL_FENCED_WRITERS: [(&str, &str); 6] = [
     (
         "crates/foundry-store/src/integrations/connections.rs",
         "upsert_connection",
@@ -15052,6 +15055,10 @@ const SEAL_FENCED_WRITERS: [(&str, &str); 5] = [
     (
         "crates/foundry-store/src/integrations/instance.rs",
         "save_slack_app",
+    ),
+    (
+        "crates/foundry-store/src/integrations/instance.rs",
+        "hold_pending_slack_app",
     ),
     (
         "crates/foundry-store/src/integrations/instance.rs",

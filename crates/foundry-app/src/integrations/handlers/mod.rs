@@ -8,6 +8,12 @@
 //!   addresses with a secrets key (I-5, I-29), Matrix's line and the activity.
 //! - `POST /admin/instance/integrations/secrets-key`: Generate (US-IIS-02),
 //!   where it applies; anywhere else it changes nothing and answers the page.
+//! - `GET`/`POST /admin/instance/integrations/slack/confirm`: I-14 for the app
+//!   an instance admin submitted while workspaces are still connected through
+//!   the app in effect, with the count it costs them and the one control that
+//!   saves it (US-IIS-05); the `GET` only reads, and the `POST` applies it
+//!   only for the admin who submitted it and only inside the ten minutes it
+//!   is held.
 //! - `GET /workspace/integrations`: the Slack connection (K-1), what is
 //!   missing (K-2, K-20) or Add to Slack, and the activity list (R-4).
 //! - `POST /workspace/integrations/matrix`: connects Matrix (admins,
@@ -86,8 +92,9 @@ mod slack_setup;
 mod workspace;
 
 pub use instance::{
-    generate_secrets_key, move_to_secrets_key, save_slack_app, show_instance, INSTANCE_PATH,
-    MOVE_PATH, SECRETS_KEY_PATH, SLACK_APP_PATH,
+    confirm_slack_app, generate_secrets_key, move_to_secrets_key, save_slack_app, show_instance,
+    show_slack_confirm, INSTANCE_PATH, MOVE_PATH, SECRETS_KEY_PATH, SLACK_APP_PATH,
+    SLACK_CONFIRM_PATH,
 };
 pub use matrix_setup::connect_matrix;
 pub use routes::{
