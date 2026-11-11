@@ -180,15 +180,45 @@ fn digits(part: &str) -> bool {
     !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// A submission's three values, each paired with the field it was typed in,
+/// in form order: the one place that knows which value answers for which
+/// field, so every question about the submission is asked one named field at
+/// a time. Borrows the submission, and is never printed: it holds two
+/// secrets in the clear.
+pub struct SlackFields<'submission> {
+    in_form_order: [(SlackField, &'submission str); 3],
+}
+
+impl SlackFields<'_> {
+    /// What the save refuses: the first field, in form order, whose value is
+    /// blank (I-11) or off its shape (I-12); `None` when every field has its
+    /// shape.
+    pub fn refusal(&self) -> Option<Refusal> {
+        self.in_form_order
+            .iter()
+            .find_map(|&(field, value)| field.check(value).err())
+    }
+}
+
 impl SlackAppForm {
+    /// This submission's values under their field names, in form order.
+    pub fn fields(&self) -> SlackFields<'_> {
+        SlackFields {
+            in_form_order: [
+                (SlackField::ClientId, &self.client_id),
+                (SlackField::ClientSecret, self.client_secret.expose_secret()),
+                (
+                    SlackField::SigningSecret,
+                    self.signing_secret.expose_secret(),
+                ),
+            ],
+        }
+    }
+
     /// The save refused, naming the first failing field in form order;
     /// `None` when every field has its shape. Pure: no call to Slack.
     pub fn refusal(&self) -> Option<Refusal> {
-        SlackField::ClientId
-            .check(&self.client_id)
-            .and_then(|()| SlackField::ClientSecret.check(self.client_secret.expose_secret()))
-            .and_then(|()| SlackField::SigningSecret.check(self.signing_secret.expose_secret()))
-            .err()
+        self.fields().refusal()
     }
 }
 
