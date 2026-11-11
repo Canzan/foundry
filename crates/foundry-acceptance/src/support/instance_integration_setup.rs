@@ -1830,6 +1830,10 @@ async fn planted(world: &FoundryWorld, with_generated: bool) -> Vec<String> {
         SIGNING_SECRET,
         OTHER_CLIENT_SECRET,
         OTHER_SIGNING_SECRET,
+        // A replaced secret is a secret: a page, log line or row that hands
+        // back what a rotation just submitted leaks it exactly as a first
+        // entry would.
+        ROTATED_SIGNING_SECRET,
     ]
     .iter()
     .map(|s| s.to_string())

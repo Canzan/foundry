@@ -44,11 +44,11 @@ With that app saved and in effect and no workspace connected, she submits the sa
 ```
 
 ```text
-She reads that it is saved and that workspace admins can now choose Add to Slack, on the integrations page itself with no confirmation step in between; the page still names the same app with both secrets set and shows no secret; and the Activity list reads, newest first, that she replaced that Slack app, then that she saved it, then that she generated the secrets key, and nothing else.
+She reads that it is saved and that workspace admins can now choose Add to Slack, on the integrations page itself with no confirmation step in between; the page still names the same app with both secrets set, hands back the client ID with both secret fields empty, and shows neither key nor secret - the secret she has just submitted included; and the Activity list reads, newest first, that she replaced that Slack app, then that she saved it, then that she generated the secrets key, and nothing else.
 ```
 
 ```text
-Priya rotates one secret in the browser, is told it is done, and the record names her as having replaced that app.
+Priya rotates one secret in the browser, is told it is done, reads the form back empty of secrets, and the record names her as having replaced that app.
 ```
 
 ##### Disposition
@@ -269,6 +269,36 @@ A refactoring that kept every field verdict but stopped trimming the client ID b
 
 ###### Obligations
 
+
+##### Covers
+
+P1
+
+```text
+On a Foundry the operator runs as its own process, she generates the secrets key, enters the Slack app, rotates its signing secret, connects a workspace, and then everything this Foundry shows, logs and stores is searched for every key and secret it was ever handed, the replaced one included.
+```
+
+```text
+None of them appears in any page, page source, log line or activity line, and none is stored in plaintext.
+```
+
+```text
+The secret Priya pasted in to replace the old one is kept as closely as the first one she entered: nothing hands it back to a reader, writes it to a log or stores it in the clear.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: No key or secret appears in any page\, log line or activity line\, or in plaintext in the database
+
+```text
+A Foundry that leaked the replaced secret only on a page this sweep does not open would still pass; the sweep reads the pages Priya and a workspace admin walk through, plus the whole database and the process output.
+```
+
+###### Obligations
+
+None.
 
 ## Expectations
 

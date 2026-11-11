@@ -31,9 +31,9 @@
 "still_passes_if": "F464",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Rotating the signing secret, with the client secret left blank, is saved at once"
 },
-"expected": "F462",
+"expected": "F500",
 "stimulus": "F461",
-"user_result": "F463"
+"user_result": "F501"
 },
 {
 "covers": [
@@ -148,6 +148,19 @@
 "expected": "F490",
 "stimulus": "F489",
 "user_result": "F491"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F505",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: No key or secret appears in any page, log line or activity line, or in plaintext in the database"
+},
+"expected": "F503",
+"stimulus": "F502",
+"user_result": "F504"
 }
 ]
 },
@@ -156,7 +169,7 @@
 "C": 3,
 "D": 15,
 "E": 25,
-"F": 499,
+"F": 505,
 "K": 12,
 "L": 11,
 "N": 8,
@@ -2645,8 +2658,6 @@
 "F46": "The submitted app awaiting confirmation lives in its own single-row table instance_slack_app_pending (client_id, sealed_client_secret, sealed_signing_secret, requested_by, expires_at), added by its own migration 0034, never in the session table (ADR-IIS-003 r4).",
 "F460": "A form that pre-fills the client ID while its door ignores a blank secret field would still pass this row; the rotation rows observe what a blank field keeps.",
 "F461": "With that app saved and in effect and no workspace connected, she submits the same client ID, a blank client secret and the signing secret Slack has just regenerated.",
-"F462": "She reads that it is saved and that workspace admins can now choose Add to Slack, on the integrations page itself with no confirmation step in between; the page still names the same app with both secrets set and shows no secret; and the Activity list reads, newest first, that she replaced that Slack app, then that she saved it, then that she generated the secrets key, and nothing else.",
-"F463": "Priya rotates one secret in the browser, is told it is done, and the record names her as having replaced that app.",
 "F464": "A save that stored the regenerated signing secret but silently re-entered the old one would still pass this row; the rows below observe which secret Slack events verify with.",
 "F465": "On a Foundry running as two replicas, she turns Matrix on, enters the Slack app, and then rotates its signing secret, with nothing restarted.",
 "F466": "Within a minute, and with no restart, each replica asked directly verifies a Slack event signed with the signing secret now in effect.",
@@ -2688,6 +2699,12 @@
 "F499": "A rotation to a value this Foundry already held, which no observation can tell apart from a discarded submission; the replaced b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 still verifying on any replica after the save; 0f1e2d3c4b5a69788796a5b4c3d2e1f0 verifying on the posting replica but not on the other within 60 seconds; a blank client secret that clears or replaces the saved client secret, so Add to Slack's code exchange fails; a replace whose activity line reads 'saved the Slack app' or 'slack app replaced'; or a different client ID with a blank secret that saves.",
 "F5": "POST /admin/instance/integrations/slack with a different client ID while Slack connections exist redirects to GET /admin/instance/integrations/slack/confirm, which shows I-14 with the connected-workspace count and the current client ID (the n = 1 form for one workspace) and changes nothing until \"Save the new app\"; the submitted app is held sealed for 10 minutes so the confirm page holds no secret; only the same instance admin's POST /admin/instance/integrations/slack/confirm saves it. This applies equally when the current app is the environment's (US-IIS-06 AC 6).",
 "F50": "Carriers and owners. The submission and its verdict are SlackSubmission, SlackChange and the shipped Refusal, owned by crates/foundry-app/src/integrations/slack_app.rs; the page's Replace and Remove controls are a closed SlackOffer set shaped like the shipped KeyOffer, owned by crates/foundry-app/src/integrations/handlers/instance.rs; effects are the fenced writes save_slack_app, hold_pending_slack_app, apply_pending_slack_app and remove_slack_app, owned by crates/foundry-store/src/integrations/instance.rs; errors are SlackSaveOutcome extended with the pending and remove outcomes plus StoreError, owned by that same module; per-process state stays the shipped Integrations held by IntegrationsHandle in crates/foundry-app/src/integrations/mod.rs, rebuilt by the shipped reload.",
+"F500": "She reads that it is saved and that workspace admins can now choose Add to Slack, on the integrations page itself with no confirmation step in between; the page still names the same app with both secrets set, hands back the client ID with both secret fields empty, and shows neither key nor secret - the secret she has just submitted included; and the Activity list reads, newest first, that she replaced that Slack app, then that she saved it, then that she generated the secrets key, and nothing else.",
+"F501": "Priya rotates one secret in the browser, is told it is done, reads the form back empty of secrets, and the record names her as having replaced that app.",
+"F502": "On a Foundry the operator runs as its own process, she generates the secrets key, enters the Slack app, rotates its signing secret, connects a workspace, and then everything this Foundry shows, logs and stores is searched for every key and secret it was ever handed, the replaced one included.",
+"F503": "None of them appears in any page, page source, log line or activity line, and none is stored in plaintext.",
+"F504": "The secret Priya pasted in to replace the old one is kept as closely as the first one she entered: nothing hands it back to a reader, writes it to a log or stores it in the clear.",
+"F505": "A Foundry that leaked the replaced secret only on a page this sweep does not open would still pass; the sweep reads the pages Priya and a workspace admin walk through, plus the whole database and the process output.",
 "F51": "With the environment's app in effect the page offers neither Replace nor Remove, and both the GET and the POST of the remove door change nothing and answer the page (ADR-IIS-003 r5). The shipped save form stays where the environment's app is in effect (US-IIS-06 AC 4, I-17), and a POST through it with a client ID different from the environment's while workspaces are connected answers I-14 first (US-IIS-06 AC 6).",
 "F52": "Remove deletes the instance_slack_app row, records slack_app_removed and bumps the config version in one locked transaction, and touches nothing else: no connection row, no lost_reason, no notice, no delivery. Afterwards workspaces read W-2 through the shipped NoConnectionCause, POST /integrations/slack/events answers 401 through the shipped verification, and pending deliveries keep failing transiently under the shipped 24-hour give-up.",
 "F53": "activity_line gains its slack_app_replaced and slack_app_removed arms, so I-18 reads 'replaced the Slack app (client_id)' and 'removed the Slack app (client_id)' instead of the generic underscore fallback. The stored action names and their CHECK are already in migration 0033, so the activity table needs no migration.",

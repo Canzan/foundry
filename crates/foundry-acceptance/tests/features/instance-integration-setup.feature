@@ -496,11 +496,15 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
   # ---------------------------------------------- keys and secrets never leave
 
-  @iis-subprocess @us-iis-02 @us-iis-03 @us-iis-08 @kpi-iis-g1
+  # The replaced secret is swept with the rest: a rotation hands Foundry one
+  # more secret, and the page, the log and the database must keep it as they
+  # keep the first one.
+  @iis-subprocess @us-iis-02 @us-iis-03 @us-iis-05 @us-iis-08 @kpi-iis-g1
   Scenario: No key or secret appears in any page, log line or activity line, or in plaintext in the database
     Given Foundry runs as the operator's standalone process with no instance key setting and a writable data directory
     And Priya has generated the secrets key
     And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has rotated the Slack app's signing secret
     And Priya has connected Canzan Labs to Slack with this Foundry's app
     When everything Foundry shows, logs and stores is searched for the keys and the Slack secrets
     Then none of them appears in any page, page source, log line or activity line, and none is stored in plaintext
@@ -724,6 +728,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya reads "Client secret: set"
     And Priya reads "Signing secret: set"
     And the page shows no key and no Slack secret
+    And the Slack app form offers the client ID "6123456789012.7234567890123" with both secret fields empty
     And the instance integrations activity reads these lines in this order
       | line                                                                           |
       | 21 Oct 2026 · Priya Raman replaced the Slack app (6123456789012.7234567890123) |
