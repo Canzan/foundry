@@ -8,10 +8,10 @@
 # (I-19: the workspace pages and the route form send an instance admin to the
 # setup; I-20: what the Slack setup guide tells her to do), and US-IIS-05's
 # replace - the saved app's own secrets rotated and another app entered whole
-# (I-11, the I-18 "replaced" line). The rest of US-IIS-05 (the I-14 confirm
-# while workspaces are connected, Remove, the environment-app rules) and
-# US-IIS-07 (Start over) are not here yet; where A shows a state B extends
-# (I-26), A's scenario checks the restore-only form.
+# (I-11, the I-18 "replaced" line), the I-14 confirm while workspaces are
+# connected, and Remove with the environment-app rules (I-15, I-16, the I-18
+# "removed" line). US-IIS-07 (Start over) is not here yet; where A shows a
+# state B extends (I-26), A's scenario checks the restore-only form.
 #
 # Harness (DEVOPS D8, brief.md "For Acceptance Designer"): the production
 # router in process (InProcHarness), real Postgres, Slack as the in-process
@@ -934,3 +934,115 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya is on the instance integrations page
     And the instance integrations activity reads "21 Oct 2026 · Priya Raman saved the Slack app (6123456789012.8888888888888)"
     And Add to Slack on Canzan Labs' workspace integrations page sends Priya to Slack's approval for client ID 6123456789012.7234567890123
+
+  # Retiring Slack on this Foundry. The page offers Remove beside the app
+  # Priya entered; the door behind it asks I-15 with the number of workspaces
+  # whose routes stop, and reading it - twice, as a prefetch and a reload do -
+  # removes nothing. The removal itself takes the app away and nothing else:
+  # the workspace keeps its connection and its queued message, nobody is
+  # emailed, and the app Foundry's environment sets is not hers to remove at
+  # all (US-IIS-06 AC 6). "No workspace is connected" and "1 workspace's
+  # routes" are what tell the two locked count forms apart.
+
+  @us-iis-05 @driving_port @kpi-iis-4
+  Scenario: The page offers Replace and Remove over the Slack app Priya entered
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    When Priya opens the instance integrations page
+    Then Priya is offered both Replace and Remove for Slack
+
+  @us-iis-05 @driving_port @kpi-iis-4
+  Scenario: Remove says how many workspaces stop posting, and reading it removes nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And a browser has already opened the Slack remove page once
+    When Priya chooses "Remove" for Slack on the instance integrations page
+    Then Priya is on the Slack remove page
+    And Priya reads "Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack."
+    And Priya is offered "Remove"
+    And the page shows no key and no Slack secret
+    And the Slack app 6123456789012.7234567890123 is still in effect, with its secrets and its activity unchanged
+
+  @us-iis-05 @kpi-iis-4
+  Scenario: With nobody connected, Remove says only that no workspace can connect Slack
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    When Priya chooses "Remove" for Slack on the instance integrations page
+    Then Priya is on the Slack remove page
+    And Priya reads "Remove the Slack app from this Foundry? No workspace is connected to Slack."
+    And Priya is offered "Remove"
+
+  @us-iis-05 @driving_port @kpi-iis-4
+  Scenario: Removing the Slack app says Slack is gone and records who removed it
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    When Priya chooses "Remove" on the Slack remove page
+    Then Priya reads "Removed. Slack is not set up on this Foundry."
+    And Priya is on the instance integrations page
+    And Slack is no longer set up on this Foundry
+    And the instance integrations activity reads these lines in this order
+      | line                                                                          |
+      | 21 Oct 2026 · Priya Raman removed the Slack app (6123456789012.7234567890123) |
+      | 21 Oct 2026 · Priya Raman saved the Slack app (6123456789012.7234567890123)   |
+      | 21 Oct 2026 · Priya Raman generated the secrets key                           |
+
+  @us-iis-05 @kpi-iis-4
+  Scenario: After the removal Canzan Labs reads that Slack is not set up, and loses nothing it had
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And the next issue filed in Identity Platform becomes AUTH-12
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Lena has routed New issue on Identity Platform to #auth-dev
+    And Slack does not answer
+    And Sam has filed "Expire stale LDAP sessions" in Identity Platform
+    When Priya chooses "Remove" on the Slack remove page
+    Then the workspace integrations page reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once."
+    And Canzan Labs' Slack connection is not marked lost and no workspace admin is emailed
+    And Lena's route to #auth-dev reads a status starting "Retrying: "
+    And the history of the route to #auth-dev still lists AUTH-12
+
+  @us-iis-05 @kpi-iis-4
+  Scenario: Setting the same app up again finds Canzan Labs still connected
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Priya has removed the Slack app
+    When Priya saves the Slack app with client ID "6123456789012.7234567890123", client secret "3f9c0a7e5b2d4c18a6e0f7b9d2c4e1a8" and signing secret "b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05"
+    Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
+    And the workspace integrations page reads "Connected to Canzan Labs"
+
+  @iis-replica @us-iis-05 @kpi-iis-1 @kpi-iis-4 @error
+  Scenario: Once the Slack app is removed no replica accepts Slack's events any more
+    Given this Foundry runs as two replicas with its instance key set by the operator
+    And Priya has generated the secrets key
+    And every replica has the Slack app 6123456789012.7234567890123 in effect
+    When Priya chooses "Remove" on the Slack remove page
+    Then within 60 seconds, without a restart, every replica refuses as unauthorised Slack's events signed with the signing secret the removed app was saved with
+
+  @us-iis-05 @us-iis-06 @kpi-iis-4 @kpi-iis-5
+  Scenario: The Slack app Foundry's environment sets is not Priya's to replace or remove
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Foundry's environment sets the Slack app 6123456789012.7234567890123
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    When Priya opens the Slack remove page
+    Then Priya's answer is this Foundry's integrations page
+    And Priya is offered neither Replace nor Remove for Slack
+
+  @us-iis-05 @us-iis-06 @error @kpi-iis-4 @kpi-iis-5
+  Scenario: A remove posted while Foundry's environment sets the Slack app changes nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Foundry's environment sets the Slack app 6123456789012.7234567890123
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    When Priya posts a Slack remove request
+    Then Priya's answer is this Foundry's integrations page
+    And the Slack app Foundry's environment sets is still in effect, with its activity unchanged

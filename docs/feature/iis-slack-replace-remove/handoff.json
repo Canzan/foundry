@@ -143,7 +143,7 @@
 "L2"
 ],
 "still_passes_if": "F492",
-"test": "crates/foundry-app/src/integrations/slack_app.rs :: the field-shape table and the generated field cases of the decision module"
+"test": "crates/foundry-app/src/integrations/slack_app.rs :: a_value_is_judged_the_same_with_surrounding_whitespace"
 },
 "expected": "F490",
 "stimulus": "F489",
@@ -375,9 +375,402 @@
 "still_passes_if": "F557",
 "test": "crates/foundry-app/src/integrations/handlers/instance.rs :: the table of what the confirm and remove pages reach when they are only read"
 },
-"expected": "F555",
-"stimulus": "F554",
-"user_result": "F556"
+"expected": "F559",
+"stimulus": "F558",
+"user_result": "F560"
+}
+],
+"S3": [
+{
+"covers": [
+"P7"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F197"
+],
+"still_passes_if": "F564",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: The page offers Replace and Remove over the Slack app Priya entered"
+},
+"expected": "F562",
+"stimulus": "F561",
+"user_result": "F563"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F203",
+"L11/F227"
+],
+"still_passes_if": "F568",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Remove says how many workspaces stop posting, and reading it removes nothing"
+},
+"expected": "F566",
+"stimulus": "F565",
+"user_result": "F567"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L11/F226"
+],
+"still_passes_if": "F572",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: With nobody connected, Remove says only that no workspace can connect Slack"
+},
+"expected": "F570",
+"stimulus": "F569",
+"user_result": "F571"
+},
+{
+"covers": [
+"P4",
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7/F207",
+"T2"
+],
+"still_passes_if": "F576",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Removing the Slack app says Slack is gone and records who removed it"
+},
+"expected": "F574",
+"stimulus": "F573",
+"user_result": "F575"
+},
+{
+"covers": [
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7/F206",
+"L7/F208"
+],
+"still_passes_if": "F580",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: After the removal Canzan Labs reads that Slack is not set up, and loses nothing it had"
+},
+"expected": "F578",
+"stimulus": "F577",
+"user_result": "F579"
+},
+{
+"covers": [
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F584",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Setting the same app up again finds Canzan Labs still connected"
+},
+"expected": "F582",
+"stimulus": "F581",
+"user_result": "F583"
+},
+{
+"covers": [
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L9/F217"
+],
+"still_passes_if": "F588",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Once the Slack app is removed no replica accepts Slack's events any more"
+},
+"expected": "F586",
+"stimulus": "F585",
+"user_result": "F587"
+},
+{
+"covers": [
+"P7"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F592",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: The Slack app Foundry's environment sets is not Priya's to replace or remove"
+},
+"expected": "F590",
+"stimulus": "F589",
+"user_result": "F591"
+},
+{
+"covers": [
+"P7"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F195"
+],
+"still_passes_if": "F596",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: A remove posted while Foundry's environment sets the Slack app changes nothing"
+},
+"expected": "F594",
+"stimulus": "F593",
+"user_result": "F595"
+},
+{
+"covers": [
+"P7"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F196",
+"L5/F198"
+],
+"still_passes_if": "F600",
+"test": "crates/foundry-app/src/integrations/handlers/instance.rs :: the table of the controls the page offers over each app in effect"
+},
+"expected": "F598",
+"stimulus": "F597",
+"user_result": "F599"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2"
+],
+"still_passes_if": "F604",
+"test": "crates/foundry-app/src/integrations/slack_app.rs::a_value_is_judged_the_same_with_surrounding_whitespace"
+},
+"expected": "F602",
+"stimulus": "F601",
+"user_result": "F603"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2/F172"
+],
+"still_passes_if": "F608",
+"test": "crates/foundry-app/src/integrations/slack_app.rs :: any_32_lowercase_hex_is_accepted_as_a_secret"
+},
+"expected": "F606",
+"stimulus": "F605",
+"user_result": "F607"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2/F175"
+],
+"still_passes_if": "F612",
+"test": "crates/foundry-app/src/integrations/slack_app.rs :: a_character_outside_the_alphabet_is_refused_as_malformed"
+},
+"expected": "F610",
+"stimulus": "F609",
+"user_result": "F611"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2/F171",
+"L2/F173",
+"L2/F174"
+],
+"still_passes_if": "F616",
+"test": "crates/foundry-app/src/integrations/slack_app.rs :: a_save_is_refused_on_the_first_blank_or_malformed_field_in_form_order"
+},
+"expected": "F614",
+"stimulus": "F613",
+"user_result": "F615"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F162"
+],
+"still_passes_if": "F620",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Rotating the signing secret, with the client secret left blank, is saved at once"
+},
+"expected": "F618",
+"stimulus": "F617",
+"user_result": "F619"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F164",
+"L1/F165"
+],
+"still_passes_if": "F624",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Another Slack app needs both secrets, and a blank one changes nothing"
+},
+"expected": "F622",
+"stimulus": "F621",
+"user_result": "F623"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F166"
+],
+"still_passes_if": "F628",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Another Slack app entered with both secrets takes over at once while no workspace is connected"
+},
+"expected": "F626",
+"stimulus": "F625",
+"user_result": "F627"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F161",
+"L1/F163",
+"L1/F167"
+],
+"still_passes_if": "F632",
+"test": "crates/foundry-app/src/integrations/slack_app.rs :: the table of which secrets a submission keeps and which it replaces"
+},
+"expected": "F630",
+"stimulus": "F629",
+"user_result": "F631"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L8/F494"
+],
+"still_passes_if": "F636",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: The signing secret the rotation replaced no longer verifies"
+},
+"expected": "F634",
+"stimulus": "F633",
+"user_result": "F635"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L8/F493",
+"L8/F495"
+],
+"still_passes_if": "F640",
+"test": "crates/foundry-app/src/integrations/slack_app.rs :: the table of which secrets a submission keeps and which it replaces"
+},
+"expected": "F638",
+"stimulus": "F637",
+"user_result": "F639"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L9/F216"
+],
+"still_passes_if": "F644",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: An instance admin turns on Matrix and Slack and rotates a Slack secret, and every replica follows without a restart"
+},
+"expected": "F642",
+"stimulus": "F641",
+"user_result": "F643"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L10/F220"
+],
+"still_passes_if": "F648",
+"test": "crates/foundry-store/tests/iis_instance_store.rs :: slack_save_fences_on_the_sealing_key"
+},
+"expected": "F646",
+"stimulus": "F645",
+"user_result": "F647"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L10/F221",
+"L10/F222",
+"L10/F223"
+],
+"still_passes_if": "F652",
+"test": "crates/foundry-store/tests/iis_instance_store.rs :: the table of what a superseded sealing key and a secrets-key move do to a held Slack app"
+},
+"expected": "F650",
+"stimulus": "F649",
+"user_result": "F651"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T1"
+],
+"still_passes_if": "F656",
+"test": "xtask/src/check_arch.rs :: the integrations-instance-tables and seal-fenced-writers rules, run by cargo xtask check-arch"
+},
+"expected": "F654",
+"stimulus": "F653",
+"user_result": "F655"
 }
 ]
 },
@@ -386,7 +779,7 @@
 "C": 3,
 "D": 15,
 "E": 25,
-"F": 557,
+"F": 656,
 "K": 12,
 "L": 11,
 "N": 8,
@@ -2975,21 +3368,117 @@
 "F551": "It is not applied and the submission is gone: the instant the hold ends is already too late, as every later instant is.",
 "F552": "The ten minutes Priya has to confirm a switch end where she was told they end, not an instant after.",
 "F553": "A table that set its clock a whole minute past the hold would still pass while leaving the fencepost unread; the instant itself is the case this row names.",
-"F554": "The confirm page is opened, with a submission waiting and with none, and the remove page is opened with an app saved.",
-"F555": "Each of those openings only reads: the stored rows, the recorded activity and this Foundry's configuration version are exactly what they were, so no replica is told to reload anything.",
-"F556": "A browser or a link preview that opens one of these pages for Priya decides nothing and disturbs no server.",
 "F557": "A handler that bumped the version through a write the table does not list would still pass it; the public rows observe the rows and the activity, which that write would also move.",
+"F558": "The confirm page is opened, with a submission waiting and with none.",
+"F559": "Each of those openings only reads: the stored rows, the recorded activity and this Foundry configuration version are exactly what they were, so no replica is told to reload anything.",
 "F56": "GET of the confirm door and GET of the remove door read and render only: a prefetch of either changes no row, writes no activity line and bumps no version.",
+"F560": "A browser or a link preview that opens the confirm page for Priya decides nothing and disturbs no server.",
+"F561": "An instance admin opens this Foundry integrations page with the Slack app she entered here in effect.",
+"F562": "The page offers her both a way to replace that app and a way to remove it.",
+"F563": "Switching or retiring Slack stays a job Priya does in the browser, instead of an environment edit and a restart.",
+"F564": "A page that offered both controls under the app Foundry environment sets as well would still pass this row; the environment rows read that case.",
+"F565": "One workspace is connected to Slack through the saved app, a browser has already opened the remove page once, and the instance admin now follows Remove on the integrations page.",
+"F566": "She lands on the remove page at its own address, which asks whether to remove the Slack app from this Foundry and says that 1 workspace Slack routes stop posting until it is set up again and that no workspace can connect Slack, offers one Remove control and shows no key and no secret; after both of those readings the app is still in effect with both its secrets and its recorded activity exactly as they were.",
+"F567": "Priya reads what a removal costs the workspaces that depend on it before she decides, and a browser that opens the page for her removes nothing.",
+"F568": "A remove page that counted every workspace of this Foundry rather than those connected to Slack would still pass this row, where one workspace is connected and one exists; the count forms table reads the larger counts.",
+"F569": "No workspace is connected to Slack, and the instance admin follows Remove on the integrations page.",
 "F57": "ADR-IIS-001, ADR-IIS-003, ADR-IIS-004 and ADR-IIS-005 carry this design unchanged, including their Proposed status; this Request adds no ADR and changes no ADR body.",
+"F570": "The remove page asks whether to remove the Slack app from this Foundry and says only that no workspace is connected to Slack, with one Remove control.",
+"F571": "Priya is not warned that workspaces stop posting when none of them is connected.",
+"F572": "A page that always read the no-workspace form would still pass this row on its own; the connected row is what reads the counted form.",
+"F573": "With the Slack app saved here and nobody connected to it, the instance admin chooses Remove on the remove page.",
+"F574": "She reads that it is removed and that Slack is not set up on this Foundry, lands back on the integrations page where no app is set up and no workspace is offered Add to Slack, and the Activity list reads, newest first, that she removed the Slack app naming it, that she saved that app, and that she generated the secrets key, with no other line.",
+"F575": "The removal takes one step and leaves a record a reader can tell apart from a first save or a replacement.",
+"F576": "A removal that also dropped a workspace Slack connection would still pass this row, which has no connection to lose; the connected rows read what a removal leaves alone.",
+"F577": "One workspace is connected to Slack, a route of one of its projects holds a message Slack has not answered yet, and the instance admin removes the Slack app.",
+"F578": "That workspace integrations page reads that Slack is not set up on this Foundry yet and that an instance operator adds the Foundry Slack app once; its Slack connection is not marked lost and no workspace admin is emailed; and the route still holds the message it had accepted, retrying.",
+"F579": "Retiring Slack for the whole instance never tells a workspace it lost its own connection, and never throws away a message Foundry had already taken.",
 "F58": "What the replica model carries and what it does not: replica_convergence.tla proves that every committed version eventually reaches every replica under weak fairness on each replica's reload task. The 60-second figure of the promise is that eventual convergence under the configured poll interval, FOUNDRY_INTEGRATIONS_RELOAD_MS with its 5000 ms default; it is a consequence of that configuration, not a theorem of the model, and the two-replica acceptance scenario is what observes it.",
+"F580": "A removal that left the route retrying for Slack own silence rather than for the app that is gone would still pass this row; what it refuses is a delivery the removal cancelled or gave up on.",
+"F581": "After the removal, the instance admin enters the same Slack app again with both of its secrets.",
+"F582": "She reads that it is saved and that workspace admins can now choose Add to Slack, and the connected workspace integrations page reads that it is connected to Canzan Labs without anybody reconnecting.",
+"F583": "A workspace that was connected before Priya retired Slack is connected again the moment she sets it up, with nothing for its admin to redo.",
+"F584": "A removal that kept the connection row but forgot its token would still pass this row, which reads the connection line rather than a post through it; the delivery row reads the token.",
+"F585": "This Foundry runs as two replicas on one database with a workspace connected, and the instance admin removes the Slack app.",
+"F586": "Within 60 seconds, with nothing restarted, each replica asked at its own address refuses as unauthorised a Slack event signed with the signing secret the removed app was saved with.",
+"F587": "Once Priya retires Slack, no server of this Foundry acts on Slack messages any more, whichever one Slack reaches.",
+"F588": "A Foundry that refused every Slack event as unauthorised even with an app in effect would still pass this row; the replace rows read the verifying case.",
+"F589": "All three Slack settings are in Foundry environment, an app is also saved here, and the instance admin opens the remove address.",
 "F59": "I-14's count is a reading taken when the page is rendered, not a gate on the confirm: a workspace connecting or disconnecting between the submission and the confirm changes the number Priya read, never whether her confirm applies.",
+"F590": "She is answered with this Foundry integrations page, which offers her neither a way to replace nor a way to remove the Slack app, by any name or link.",
+"F591": "Priya is not offered a change to the Slack app the operator settings decide, which the next restart would undo.",
+"F592": "A door that answered the integrations page for every reader, the saved-app case included, would still pass this row; the saved-app rows read that case.",
+"F593": "With all three Slack settings in Foundry environment, an app saved here and a workspace connected, a remove request is posted to the remove address.",
+"F594": "The answer is this Foundry integrations page, which still reads that the Slack app comes from Foundry environment, the Activity list records no removal, and Add to Slack still sends a workspace admin to that same app.",
+"F595": "A stale tab or a forged form cannot take away a Slack app that is not this page to give.",
+"F596": "A door that refused every remove, the saved-app case included, would still pass this row; the removal rows read the accepted case.",
+"F597": "The controls the integrations page offers are read for each app that can be in effect: the environment one with an app also saved here, the environment one with none saved, the app saved here, and none at all.",
+"F598": "Replace and Remove are offered only where the app in effect is the one saved here; in every other case neither is offered and a remove changes nothing.",
+"F599": "Priya is offered a change to this Foundry Slack app exactly where it is hers to make, and nowhere else.",
 "F6": "GET /admin/instance/integrations/slack/remove shows I-15 (with the connected-workspace count; the n = 0 form when none is connected) and changes nothing, including when prefetched; POST of the same path removes the saved app and answers I-16 \"Removed. Slack is not set up on this Foundry.\"",
 "F60": "Field bounds are ADR-IIS-003 r3's, unchanged: a client ID is digits, a dot and digits; each secret is exactly 32 lowercase hex characters; leading and trailing whitespace is trimmed. No authority bounds a field's total length beyond that shape and this design adds none.",
+"F600": "A table read over only the two cases the public rows construct would still pass; the whole set of apps that can be in effect is what this row names.",
+"F601": "Each of the three fields of the Slack app form is given any value over its own alphabet or any other text, wrapped in up to four spaces, tabs or newlines.",
+"F602": "The verdict on the value is the same with the surrounding whitespace as without it, for every generated case.",
+"F603": "A client ID or a secret Priya pastes with a stray space or a line break is read as the value she pasted.",
+"F604": "A check that trimmed the value but read a different alphabet would still pass this row; the alphabet rows read that.",
+"F605": "Any 32 lowercase hexadecimal characters are entered as the client secret and as the signing secret of a submission.",
+"F606": "Each field accepts the value and the submission is refused on nothing.",
+"F607": "Every secret Slack can show Priya on its Basic Information page is one she can paste here.",
+"F608": "A check that also accepted a 31 or 33 character value would still pass this row; the shape table reads the lengths.",
+"F609": "A value of any field holds one character outside that field alphabet, anywhere in it, and is not whitespace.",
 "F61": "The pending app expires exactly 10 minutes after it is held, judged by the injected Clock.",
+"F610": "The field refuses the value as malformed, naming that field, and never as blank.",
+"F611": "Priya is told that what she pasted is not the shape of that field, instead of being told she left it empty.",
+"F612": "A check that called every refused value blank would fail this row, which is why it is here; a check that named the wrong field would still pass the whitespace row.",
+"F613": "The three fields are submitted blank, with an uppercase secret, with a client ID holding two dots and one holding none, and with each malformed shape, in form order.",
+"F614": "The submission is refused on the first failing field in the order the form reads, blank where the field is empty and malformed where its shape is wrong.",
+"F615": "Priya is sent back to the first field that needs her attention, with the words that say what is wrong with it.",
+"F616": "A reading that named the last failing field rather than the first would still pass a table of single-field rows; the mixed rows are what order it.",
+"F617": "With an app saved and in effect, the instance admin submits its own client ID, leaves the client secret blank and enters a signing secret this Foundry has never held.",
+"F618": "The save is accepted at once, she reads that it is saved and that workspace admins can now choose Add to Slack, the page still names that same app with both secrets set, and the Activity records the replacement.",
+"F619": "Pasting one regenerated secret is all Priya does, and the secret she did not retype is kept.",
 "F62": "I-15 has three locked forms by the connected-workspace count: the n = 0 form, the n = 1 form (Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack.) and the counted n >= 2 form. I-14 likewise has separate n = 1 and n >= 2 forms.",
+"F620": "A save that cleared the kept client secret instead of keeping it would still pass this row, which reads the page; the code exchange row reads the secret itself.",
+"F621": "With an app saved and in effect, the instance admin submits a different client ID with one of the two secrets left blank, once for each of them.",
+"F622": "She reads that she must enter that field from the Slack app Basic Information, the form keeps the client ID she typed with both secret fields empty, and the saved app, its secrets and its activity are unchanged.",
+"F623": "Another app is never half entered: a secret that belongs to the old app is never sealed to a new one.",
+"F624": "A refusal that named the other blank field would still pass a row reading one example; the two examples name their own field.",
+"F625": "With an app saved and in effect and no workspace connected to Slack, the instance admin submits a different client ID with both of its secrets.",
+"F626": "The new app is saved at once, she reads that it is saved, the page names the new app, and a workspace admin choosing Add to Slack is sent to that new client ID.",
+"F627": "Switching apps while nobody is connected costs Priya nothing but the form.",
+"F628": "A save that stored the new app but left the old one in effect would fail this row only on the Add to Slack reading, which is why that reading is in it.",
+"F629": "A submission names the app in effect with both secret fields blank, names it with both secrets given, and names it with one field blank over a saved app whose secrets this Foundry cannot open.",
 "F63": "No authority bounds the connected-workspace count; the count is whatever the store holds and the counted forms carry it verbatim.",
+"F630": "Both blank fields keep both saved secrets, both given secrets replace both, and over a saved app that does not open a blank field is refused for that field because there is nothing to keep.",
+"F631": "A blank field means keep what is already there exactly where there is something to keep, and says so where there is not.",
+"F632": "A plan that kept a secret even where the saved app cannot be opened would still pass the two keeping rows; the unopenable row is what refuses it. This table does not exist yet: writing it is a completion obligation of this slice craft.",
+"F633": "After a rotation that replaced the signing secret, Slack sends its verification challenge signed with the secret the rotation replaced.",
+"F634": "This Foundry refuses the message as unauthorised, while the challenge signed with the secret now in effect is verified.",
+"F635": "A leaked signing secret stops working the moment Priya replaces it.",
+"F636": "A Foundry that refused every challenge would still pass this row; the verifying row beside it is what tells them apart.",
+"F637": "A rotation of the app in effect leaves both secret fields blank, and another replaces both of them with values this Foundry has never held.",
+"F638": "After the blank rotation both opened secrets are the ones that were in effect before it, so the same events verify and the same code exchange succeeds; after the rotation of both, both opened secrets are the new ones and neither replaced value works afterwards.",
+"F639": "A rotation changes exactly the secrets Priya typed and nothing else.",
 "F64": "Copy I-11, I-14, I-15, I-16, I-17 and I-18 is locked verbatim. W-2, W-3, K-2 and K-19, the Slack app manifest and every workspace connect and disconnect flow are unchanged.",
+"F640": "A plan that sealed the submitted blank value as an empty secret would still pass a row that only reads the stored page. This table does not exist yet: writing it is a completion obligation of this slice craft.",
+"F641": "This Foundry runs as two replicas on one database, and the instance admin generates the secrets key, enters the Slack app and then rotates its signing secret on one of them.",
+"F642": "Within 60 seconds of each change, with nothing restarted, each replica asked at its own address offers the workspace what the change allows and verifies Slack events signed with the secret now in effect.",
+"F643": "Whatever Priya changes here is true of every server of this Foundry a minute later, with no restart and no operator.",
+"F644": "A Foundry whose replicas reloaded only on a restart would fail this row; a Foundry that reloaded only the app and not the key would still pass its last reading.",
+"F645": "A save of the Slack app is attempted with its secrets sealed under no key and under a key that is no longer the sealing key, and then under the sealing key itself.",
+"F646": "Each of the first two is turned back with nothing at all stored, and the third stores the app, its activity line and the version bump together.",
+"F647": "A secret sealed with a key this Foundry has moved past is never stored where nothing could open it.",
+"F648": "A door that turned the save back and then never retried under the current key would still pass this row, which reads the store alone; the handler retry is read by the page rows.",
+"F649": "A submitted app is held for its confirmation with its secrets sealed under a key that is no longer the sealing key, and a secrets-key move is made while a held app is waiting.",
 "F65": "A committed change is in effect on every replica within 60 seconds without a restart, through the shipped version poll and reload whose default interval is 5000 ms (ADR-IIS-004 r3 and r4).",
+"F650": "The stale hold is turned back with no row written, and the move seals the held app secrets again with every other sealed value, so the confirmation still opens them, while the number of credentials the move reports is unchanged by the held row.",
+"F651": "An app Priya submitted survives a secrets-key move, and a submission nothing could open is never kept.",
+"F652": "A move that re-sealed the held row but also counted it as a credential would still pass a row that only reads the confirmation. This table does not exist yet: writing it is a completion obligation of this slice craft.",
+"F653": "Every crate source of this repository is read for queries that name the instance integration tables and for writes of a sealed column.",
+"F654": "The tables are named only by the one module that owns them, and every sealed write stands inside a listed fenced writer, the hold of a submitted app included; a crate added later is read too.",
+"F655": "A second writer of this Foundry Slack tables, or a sealed write with no fence, cannot reach a release.",
+"F656": "A query assembled at run time escapes a reading over string literals; the store tests read what the writes actually do.",
 "F66": "Removal leaves the shipped 24-hour delivery give-up untouched: pending deliveries meet no app and keep failing transiently.",
 "F67": "Every write in this design takes the one instance-integrations advisory lock exclusively, fences on the sealing key id and bumps the config version in its own transaction; the pending hold takes that lock shared and fences the same way (ADR-IIS-004 r1, r2, r3).",
 "F68": "The design runs on a standalone deploy: no setting, host, cluster or DNS name beyond the documented FOUNDRY_ settings, and no dependency on any particular environment.",

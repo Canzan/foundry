@@ -21,7 +21,7 @@
 use crate::support::external_integration_plugins as eip;
 use crate::support::instance_integration_setup::{
     self as iis, BadStart, Button, InstanceDoor, KeySetting, Offer, Refusal, Restart, Signer,
-    WorkspaceOffer,
+    SlackControl, WorkspaceOffer,
 };
 use crate::support::integrations_wayfinding::{self as iw, Offered};
 use crate::world::FoundryWorld;
@@ -185,7 +185,7 @@ async fn save_app(
 }
 
 #[when(
-    regex = r"^(Priya|Tomás|Lena|a signed-out visitor) posts a (generate|move|Slack app save|Slack confirm) request(?: anyway| again)?$"
+    regex = r"^(Priya|Tomás|Lena|a signed-out visitor) posts a (generate|move|Slack app save|Slack confirm|Slack remove) request(?: anyway| again)?$"
 )]
 async fn post_door(world: &mut FoundryWorld, who: String, door: String) {
     iis::when_post_door(world, &who, InstanceDoor::parse(&door)).await;
@@ -218,6 +218,60 @@ async fn choose_on_confirm(world: &mut FoundryWorld, who: String, button: String
     iis::when_choose_on_confirm(world, &who, Button::parse(&button)).await;
 }
 
+#[when(
+    regex = r#"^(Priya) chooses "(Replace|Remove)" for Slack on the instance integrations page$"#
+)]
+async fn choose_slack_control(world: &mut FoundryWorld, who: String, control: String) {
+    iis::when_choose_slack_control(world, &who, SlackControl::parse(&control)).await;
+}
+
+#[given(regex = r"^a browser has already opened the Slack remove page once$")]
+async fn prefetched_remove(world: &mut FoundryWorld) {
+    iis::given_prefetched_remove(world).await;
+}
+
+#[when(regex = r#"^(Priya) chooses "(Remove)" on the Slack remove page$"#)]
+async fn choose_on_remove(world: &mut FoundryWorld, who: String, button: String) {
+    iis::when_choose_on_remove_page(world, &who, Button::parse(&button)).await;
+}
+
+#[given(regex = r"^every replica has the Slack app 6123456789012\.7234567890123 in effect$")]
+async fn replicas_have_saved_app(world: &mut FoundryWorld) {
+    iis::given_replicas_have_saved_app(world).await;
+}
+
+#[given(regex = r"^Priya has removed the Slack app$")]
+async fn removed_app(world: &mut FoundryWorld) {
+    iis::given_removed_app(world).await;
+}
+
+#[then(regex = r"^(Priya) is on the Slack remove page$")]
+async fn on_remove_page(world: &mut FoundryWorld, who: String) {
+    iis::then_on_remove_page(world, &who);
+}
+
+#[when(regex = r"^(Priya) opens the Slack remove page$")]
+async fn open_remove_page(world: &mut FoundryWorld, who: String) {
+    iis::when_open_remove(world, &who).await;
+}
+
+#[then(regex = r"^(Priya) is offered both Replace and Remove for Slack$")]
+async fn slack_controls(world: &mut FoundryWorld, who: String) {
+    iis::then_slack_controls(world, &who).await;
+}
+
+#[then(regex = r"^(Priya) is offered neither Replace nor Remove for Slack$")]
+async fn no_slack_controls(world: &mut FoundryWorld, who: String) {
+    iis::then_no_slack_controls(world, &who).await;
+}
+
+#[then(
+    regex = r"^the Slack app Foundry's environment sets is still in effect, with its activity unchanged$"
+)]
+async fn environment_app_unchanged(world: &mut FoundryWorld) {
+    iis::then_environment_app_unchanged(world).await;
+}
+
 #[then(regex = r"^(Priya) is on the Slack confirm page$")]
 async fn on_confirm_page(world: &mut FoundryWorld, who: String) {
     iis::then_on_confirm_page(world, &who);
@@ -234,7 +288,7 @@ async fn answers_integrations_page(world: &mut FoundryWorld, who: String) {
 }
 
 #[then(
-    regex = r#"^(Priya) is (offered|not offered) "(Generate secrets key|Move to a secrets key|Replace secrets key|Start over|Save the new app)"$"#
+    regex = r#"^(Priya) is (offered|not offered) "(Generate secrets key|Move to a secrets key|Replace secrets key|Start over|Save the new app|Remove)"$"#
 )]
 async fn button_offered(world: &mut FoundryWorld, who: String, offered: String, button: String) {
     iis::then_button(world, &who, Button::parse(&button), Offer::parse(&offered));
@@ -309,7 +363,7 @@ async fn saved_app_unchanged(world: &mut FoundryWorld, client_id: String) {
     iis::then_saved_app_unchanged(world, &client_id).await;
 }
 
-#[then(regex = r"^Slack is still not set up on this Foundry$")]
+#[then(regex = r"^Slack is (?:still not|no longer) set up on this Foundry$")]
 async fn slack_not_set_up(world: &mut FoundryWorld) {
     iis::then_slack_not_set_up(world).await;
 }
@@ -340,6 +394,13 @@ async fn every_replica_offers(world: &mut FoundryWorld, offer: String) {
 )]
 async fn every_replica_verifies(world: &mut FoundryWorld, signer: String) {
     iis::then_every_replica_verifies(world, Signer::parse(&signer)).await;
+}
+
+#[then(
+    regex = r"^within 60 seconds, without a restart, every replica refuses as unauthorised Slack's events signed with (the signing secret the removed app was saved with)$"
+)]
+async fn no_replica_verifies(world: &mut FoundryWorld, signer: String) {
+    iis::then_no_replica_verifies(world, Signer::parse(&signer)).await;
 }
 
 #[then(

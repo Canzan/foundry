@@ -71,6 +71,9 @@ pub const SLACK_APP_DOOR: &str = "/admin/instance/integrations/slack";
 /// Where a submission of another app waits while workspaces are connected
 /// through the current one (US-IIS-05 AC 2).
 pub const SLACK_CONFIRM_DOOR: &str = "/admin/instance/integrations/slack/confirm";
+/// Where Priya reads what removing this Foundry's Slack app stops, and
+/// removes it (US-IIS-05 AC 3).
+pub const SLACK_REMOVE_DOOR: &str = "/admin/instance/integrations/slack/remove";
 pub const INSTANCE_DASHBOARD: &str = "/admin/instance/workspaces";
 
 /// The operator's instance key (32 bytes, base64url; a planted value).
@@ -191,6 +194,9 @@ pub enum InstanceDoor {
     /// the form token, so a stale tab, a forged form and the page's own
     /// control all post the same thing.
     SlackConfirm,
+    /// The remove of this Foundry's Slack app: it too carries nothing but the
+    /// form token (US-IIS-05 AC 3).
+    SlackRemove,
 }
 
 impl InstanceDoor {
@@ -200,6 +206,7 @@ impl InstanceDoor {
             "move" => Self::Move,
             "Slack app save" => Self::SlackSave,
             "Slack confirm" => Self::SlackConfirm,
+            "Slack remove" => Self::SlackRemove,
             other => panic!("unknown instance door {other:?}"),
         }
     }
@@ -210,13 +217,42 @@ impl InstanceDoor {
             Self::Move => MOVE_DOOR,
             Self::SlackSave => SLACK_APP_DOOR,
             Self::SlackConfirm => SLACK_CONFIRM_DOOR,
+            Self::SlackRemove => SLACK_REMOVE_DOOR,
         }
     }
 
     fn fields(self) -> Vec<(String, String)> {
         match self {
-            Self::Generate | Self::Move | Self::SlackConfirm => Vec::new(),
+            Self::Generate | Self::Move | Self::SlackConfirm | Self::SlackRemove => Vec::new(),
             Self::SlackSave => slack_fields(CLIENT_ID, CLIENT_SECRET, SIGNING_SECRET),
+        }
+    }
+}
+
+/// A control the instance page offers over the Slack app in effect: Replace
+/// enters another app or another secret of the same one, Remove takes Slack
+/// off this Foundry (US-IIS-05; withheld under the environment's app,
+/// US-IIS-06 AC 6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SlackControl {
+    Replace,
+    Remove,
+}
+
+impl SlackControl {
+    pub fn parse(words: &str) -> Self {
+        match words.trim() {
+            "Replace" => Self::Replace,
+            "Remove" => Self::Remove,
+            other => panic!("unknown Slack control {other:?}"),
+        }
+    }
+
+    /// The words Priya reads on the control.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Replace => "Replace",
+            Self::Remove => "Remove",
         }
     }
 }
@@ -230,6 +266,8 @@ pub enum Button {
     StartOver,
     /// I-14's own control, on the confirm page (US-IIS-05 AC 2).
     SaveNewApp,
+    /// I-15's own control, on the remove page (US-IIS-05 AC 3).
+    RemoveApp,
 }
 
 impl Button {
@@ -240,6 +278,7 @@ impl Button {
             "Replace secrets key" => Self::Replace,
             "Start over" => Self::StartOver,
             "Save the new app" => Self::SaveNewApp,
+            "Remove" => Self::RemoveApp,
             other => panic!("unknown button {other:?}"),
         }
     }
@@ -251,6 +290,7 @@ impl Button {
             Self::Replace => "Replace secrets key",
             Self::StartOver => "Start over",
             Self::SaveNewApp => "Save the new app",
+            Self::RemoveApp => SlackControl::Remove.label(),
         }
     }
 }
@@ -319,7 +359,9 @@ pub enum Signer {
 impl Signer {
     pub fn parse(words: &str) -> Self {
         match words.trim() {
-            "the saved signing secret" => Self::Saved,
+            "the saved signing secret" | "the signing secret the removed app was saved with" => {
+                Self::Saved
+            }
             "the rotated signing secret" | "the signing secret now in effect" => Self::Rotated,
             "the signing secret it replaced" => Self::Replaced,
             "another signing secret" => Self::Stranger,
@@ -1116,6 +1158,186 @@ pub fn then_answers_integrations_page(world: &FoundryWorld, who: &str) {
     );
 }
 
+// ---- the remove this Foundry's Slack app asks about (I-15) -----------------
+
+/// The question I-15 asks whatever the connected count is: read on its own
+/// page, with nothing removed yet.
+const REMOVE_QUESTION: &str = "Remove the Slack app from this Foundry?";
+
+/// The remove page as `who` opens it.
+async fn remove_page(world: &mut FoundryWorld, who: &str) -> Answer {
+    eip::get(world, who, SLACK_REMOVE_DOOR).await
+}
+
+/// "a browser has already opened the Slack remove page once": a link preview
+/// or a prefetch asked for the address, with nobody choosing anything.
+pub async fn given_prefetched_remove(world: &mut FoundryWorld) {
+    let page = remove_page(world, "Priya").await;
+    let text = eip::text(&page);
+    assert!(
+        page.status.is_success() && text.contains(REMOVE_QUESTION),
+        "precondition: the remove page asks Priya whether to remove this Foundry's Slack app, and \
+         reading it decides nothing; {}",
+        tm::describe(&page)
+    );
+}
+
+/// Follow the instance page's own Slack control as a click would: a link is
+/// opened, a form is submitted.
+async fn choose_slack_control(
+    world: &mut FoundryWorld,
+    who: &str,
+    control: SlackControl,
+) -> Answer {
+    let page = instance_page(world, who).await;
+    answered(&page, "the instance integrations page");
+    let label = control.label();
+    if let Some(href) = link_hrefs(&page.body, label).first() {
+        return eip::get(world, who, href).await;
+    }
+    let (action, fields) = form_with_button(&page.body, label).unwrap_or_else(|| {
+        panic!(
+            "{who} finds {label:?} beside the Slack app she entered on the instance integrations \
+             page: it is the only way she replaces or retires this Foundry's Slack app from the \
+             browser, and without it retiring Slack is an environment edit and a restart again. \
+             Offer {label:?} in the page's Slack section over a saved app in effect; {}",
+            tm::describe(&page)
+        )
+    });
+    let posted = eip::post(world, who, &action, &fields, true).await;
+    eip::follow(world, who, posted).await
+}
+
+/// "Priya chooses "Remove" for Slack on the instance integrations page".
+pub async fn when_choose_slack_control(world: &mut FoundryWorld, who: &str, control: SlackControl) {
+    eip::capture_before(world).await;
+    let answer = choose_slack_control(world, who, control).await;
+    world.eip.when_answer = Some(answer);
+}
+
+/// "<who> is on the Slack remove page": the question is asked at its own
+/// address, so Priya can read it, leave it and come back to it.
+pub fn then_on_remove_page(world: &FoundryWorld, who: &str) {
+    let answer = answer(world);
+    assert!(
+        answer.status.is_success() && answer.path.split('?').next() == Some(SLACK_REMOVE_DOOR),
+        "{who} reads what a removal stops on the remove page at its own address: answered \
+         anywhere else she either removes Slack without being asked, or has no address to come \
+         back to. Answer the Remove control with the remove page; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// Submit the remove page's own control, as a click would, and follow it.
+async fn choose_on_remove_page(world: &mut FoundryWorld, who: &str, button: Button) -> Answer {
+    let page = remove_page(world, who).await;
+    answered(&page, "the Slack remove page");
+    let (action, fields) = form_with_button(&page.body, button.copy()).unwrap_or_else(|| {
+        panic!(
+            "{who} finds {:?} on the remove page, the one control that carries the removal out: \
+             without it she has read what a removal stops and has no way to make it. Offer the \
+             control on the remove page, posting the remove door; {}",
+            button.copy(),
+            tm::describe(&page)
+        )
+    });
+    let posted = eip::post(world, who, &action, &fields, true).await;
+    eip::follow(world, who, posted).await
+}
+
+/// "Priya chooses "Remove" on the Slack remove page".
+pub async fn when_choose_on_remove_page(world: &mut FoundryWorld, who: &str, button: Button) {
+    eip::capture_before(world).await;
+    let answer = choose_on_remove_page(world, who, button).await;
+    world.eip.when_answer = Some(answer);
+}
+
+/// "Priya has removed the Slack app" (from the remove page, as she would).
+pub async fn given_removed_app(world: &mut FoundryWorld) {
+    let answer = choose_on_remove_page(world, "Priya", Button::RemoveApp).await;
+    assert!(
+        eip::text(&answer).contains("Removed."),
+        "precondition: Priya removed this Foundry's Slack app from the remove page; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// "Priya opens the Slack remove page".
+pub async fn when_open_remove(world: &mut FoundryWorld, who: &str) {
+    eip::when_open(world, who, SLACK_REMOVE_DOOR).await;
+}
+
+/// "Priya is offered both Replace and Remove for Slack": the app she entered
+/// here is hers to change or to retire from the browser (US-IIS-05).
+pub async fn then_slack_controls(world: &mut FoundryWorld, who: &str) {
+    let page = instance_page(world, who).await;
+    answered(&page, "the instance integrations page");
+    for control in [SlackControl::Replace, SlackControl::Remove] {
+        let label = control.label();
+        assert!(
+            clickable_texts(&page.body).iter().any(|t| t == label),
+            "{who} is offered {label:?} beside the Slack app she entered: without both controls \
+             on the page, switching or retiring this Foundry's Slack app is an environment edit \
+             and a restart again, which is the job this page took over. Offer Replace and Remove \
+             over the app saved here; {}",
+            tm::describe(&page)
+        );
+    }
+}
+
+/// "Priya is offered neither Replace nor Remove for Slack": the app in effect
+/// is Foundry's environment's, which no browser control may change (D7).
+pub async fn then_no_slack_controls(world: &mut FoundryWorld, who: &str) {
+    let page = instance_page(world, who).await;
+    answered(&page, "the instance integrations page");
+    for control in [SlackControl::Replace, SlackControl::Remove] {
+        let label = control.label();
+        assert!(
+            !clickable_texts(&page.body).iter().any(|t| t == label),
+            "{who} is offered no {label:?} for Slack while the app in effect comes from Foundry's \
+             environment: a control there either does nothing she can see or takes the instance's \
+             Slack away behind the operator's back, and the environment's app would come back on \
+             the next restart anyway. Offer Replace and Remove only over the app saved here; {}",
+            tm::describe(&page)
+        );
+    }
+    assert!(
+        hrefs(&page.body).iter().all(|h| h != SLACK_REMOVE_DOOR)
+            && form_with_button(&page.body, SlackControl::Remove.label()).is_none(),
+        "{who} is given no way at all to the remove door while the environment's app is in \
+         effect, by any name; {}",
+        tm::describe(&page)
+    );
+}
+
+/// "the Slack app Foundry's environment sets is still in effect, with its
+/// activity unchanged": the refused remove took nothing away - the page still
+/// names the environment's app, no removal was recorded, and Add to Slack
+/// still asks Slack for that app.
+pub async fn then_environment_app_unchanged(world: &mut FoundryWorld) {
+    let page = instance_page(world, "Priya").await;
+    answered(&page, "Priya's instance integrations page");
+    let text = seen(world, &page);
+    assert!(
+        text.contains(&format!(
+            "Slack: set in Foundry's environment, app {CLIENT_ID}"
+        )),
+        "the page still reads that the Slack app comes from Foundry's environment: a remove that \
+         ran anyway leaves the instance with no Slack the operator can see, and the environment's \
+         app back on the next restart. Refuse the remove while the environment's app is in \
+         effect, before anything is deleted; {}",
+        tm::describe(&page)
+    );
+    let lines = texts_of(&page.body, ACTIVITY);
+    assert!(
+        !lines.iter().any(|l| l.contains("removed the Slack app")),
+        "the Activity list records no removal, because nothing was removed: a recorded line tells \
+         a reader this Foundry's Slack app is gone when it is not. Record the removal only where \
+         it commits; it lists {lines:?}"
+    );
+    then_approval_for(world, CLIENT_ID).await;
+}
+
 // ===========================================================================
 // Then: the instance page
 // ===========================================================================
@@ -1396,6 +1618,29 @@ async fn events_verify(double: &sd::SlackDouble, base: &str, secret: &str) -> (b
     )
 }
 
+/// The same challenge, kept as Foundry's own answer: a removal must leave it
+/// refused as unauthorised, not merely unverified.
+async fn events_answer(
+    double: &sd::SlackDouble,
+    base: &str,
+    secret: &str,
+) -> (reqwest::StatusCode, String) {
+    let challenge = format!("iis-challenge-{}", uuid::Uuid::new_v4().simple());
+    let (status, body) = double
+        .post_event(
+            base,
+            SLACK_EVENTS,
+            &sd::url_verification_envelope(&challenge),
+            Some(secret),
+            Duration::ZERO,
+        )
+        .await;
+    (
+        status,
+        format!("{base}{SLACK_EVENTS} answered {status}: {body}"),
+    )
+}
+
 /// "the form keeps the client ID <id> and leaves both secrets empty", and
 /// "the Slack app form offers the client ID <id> with both secret fields
 /// empty": one reading of the form in front of Priya, for a refusal that
@@ -1577,6 +1822,78 @@ pub async fn then_every_replica_verifies(world: &mut FoundryWorld, signer: Signe
              replica still holding the old secret drops Slack's events for everyone it serves, \
              and an instance admin cannot tell. Let every server pick the committed Slack app up \
              on its own reload, with no restart; still refused by {pending:?}; last: {last}"
+        );
+        if let Some(r) = &world.eip.replicas {
+            r.fake_clock.advance(CLOCK_STEP);
+        }
+        waited += CLOCK_STEP;
+        tokio::time::sleep(POLL).await;
+    }
+}
+
+/// "every replica has the Slack app <client id> in effect": the app is
+/// entered on the page as Priya would, and each replica is then asked at its
+/// own address until it names that app, so what the scenario observes after
+/// the next change is that change and not a reload still on its way. The
+/// secrets key is waited for the same way: Priya cannot enter an app on a
+/// replica that has not picked the key up yet.
+pub async fn given_replicas_have_saved_app(world: &mut FoundryWorld) {
+    on_every_replica(
+        world,
+        "Priya",
+        INSTANCE_INTEGRATIONS,
+        "offers the Slack app form",
+        |page| slack_form(&page.body).is_some(),
+    )
+    .await;
+    given_saved_app(world).await;
+    let named = format!("Slack: set up here · app {CLIENT_ID}");
+    on_every_replica(
+        world,
+        "Priya",
+        INSTANCE_INTEGRATIONS,
+        "names the Slack app Priya entered",
+        |page| eip::text(page).contains(&named),
+    )
+    .await;
+}
+
+/// "within 60 seconds, without a restart, every replica refuses as
+/// unauthorised Slack's events signed with <signer>": each replica is asked
+/// at its own address, so a replica still holding the removed app cannot hide
+/// behind the one that let it go.
+pub async fn then_no_replica_verifies(world: &mut FoundryWorld, signer: Signer) {
+    let double = eip::slack_double(world);
+    let addrs = world
+        .eip
+        .replicas
+        .as_ref()
+        .expect("Foundry runs as replicas")
+        .replica_addrs();
+    let mut pending: Vec<String> = addrs.iter().map(|a| format!("http://{a}")).collect();
+    let mut waited = Duration::ZERO;
+    let wall = Instant::now();
+    let mut last = String::new();
+    while !pending.is_empty() {
+        let mut still = Vec::new();
+        for base in pending {
+            let (status, detail) = events_answer(&double, &base, signer.secret()).await;
+            if status != reqwest::StatusCode::UNAUTHORIZED {
+                last = detail;
+                still.push(base);
+            }
+        }
+        pending = still;
+        if pending.is_empty() {
+            break;
+        }
+        assert!(
+            waited < LIVE_BOUND && wall.elapsed() < LIVE_BOUND,
+            "within 60 seconds, and with nothing restarted, every replica refuses Slack's events \
+             as unauthorised once the Slack app is removed: a replica still verifying with the \
+             removed app's secret keeps acting on messages for an instance whose admin retired \
+             Slack, and neither she nor the workspace can tell. Let every server pick the removal \
+             up on its own reload, with no restart; still accepted by {pending:?}; last: {last}"
         );
         if let Some(r) = &world.eip.replicas {
             r.fake_clock.advance(CLOCK_STEP);

@@ -261,7 +261,7 @@ Priya gets the same answer about what she typed whether she is entering Slack fo
 
 Tested
 
-crates\/foundry\-app\/src\/integrations\/slack\_app\.rs \:\: the field\-shape table and the generated field cases of the decision module
+crates\/foundry\-app\/src\/integrations\/slack\_app\.rs \:\: a\_value\_is\_judged\_the\_same\_with\_surrounding\_whitespace
 
 ```text
 A refactoring that kept every field verdict but stopped trimming the client ID before comparing it with the app in effect would still pass these cases; which app a submission names is observed by the rows above.
@@ -663,15 +663,15 @@ A table that set its clock a whole minute past the hold would still pass while l
 P3
 
 ```text
-The confirm page is opened, with a submission waiting and with none, and the remove page is opened with an app saved.
+The confirm page is opened, with a submission waiting and with none.
 ```
 
 ```text
-Each of those openings only reads: the stored rows, the recorded activity and this Foundry's configuration version are exactly what they were, so no replica is told to reload anything.
+Each of those openings only reads: the stored rows, the recorded activity and this Foundry configuration version are exactly what they were, so no replica is told to reload anything.
 ```
 
 ```text
-A browser or a link preview that opens one of these pages for Priya decides nothing and disturbs no server.
+A browser or a link preview that opens the confirm page for Priya decides nothing and disturbs no server.
 ```
 
 ##### Disposition
@@ -686,6 +686,720 @@ A handler that bumped the version through a write the table does not list would 
 
 ###### Obligations
 
+
+
+### S3
+
+##### Covers
+
+P7
+
+```text
+An instance admin opens this Foundry integrations page with the Slack app she entered here in effect.
+```
+
+```text
+The page offers her both a way to replace that app and a way to remove it.
+```
+
+```text
+Switching or retiring Slack stays a job Priya does in the browser, instead of an environment edit and a restart.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: The page offers Replace and Remove over the Slack app Priya entered
+
+```text
+A page that offered both controls under the app Foundry environment sets as well would still pass this row; the environment rows read that case.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P4
+
+```text
+One workspace is connected to Slack through the saved app, a browser has already opened the remove page once, and the instance admin now follows Remove on the integrations page.
+```
+
+```text
+She lands on the remove page at its own address, which asks whether to remove the Slack app from this Foundry and says that 1 workspace Slack routes stop posting until it is set up again and that no workspace can connect Slack, offers one Remove control and shows no key and no secret; after both of those readings the app is still in effect with both its secrets and its recorded activity exactly as they were.
+```
+
+```text
+Priya reads what a removal costs the workspaces that depend on it before she decides, and a browser that opens the page for her removes nothing.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Remove says how many workspaces stop posting\, and reading it removes nothing
+
+```text
+A remove page that counted every workspace of this Foundry rather than those connected to Slack would still pass this row, where one workspace is connected and one exists; the count forms table reads the larger counts.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P4
+
+```text
+No workspace is connected to Slack, and the instance admin follows Remove on the integrations page.
+```
+
+```text
+The remove page asks whether to remove the Slack app from this Foundry and says only that no workspace is connected to Slack, with one Remove control.
+```
+
+```text
+Priya is not warned that workspaces stop posting when none of them is connected.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: With nobody connected\, Remove says only that no workspace can connect Slack
+
+```text
+A page that always read the no-workspace form would still pass this row on its own; the connected row is what reads the counted form.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P4
+
+P6
+
+```text
+With the Slack app saved here and nobody connected to it, the instance admin chooses Remove on the remove page.
+```
+
+```text
+She reads that it is removed and that Slack is not set up on this Foundry, lands back on the integrations page where no app is set up and no workspace is offered Add to Slack, and the Activity list reads, newest first, that she removed the Slack app naming it, that she saved that app, and that she generated the secrets key, with no other line.
+```
+
+```text
+The removal takes one step and leaves a record a reader can tell apart from a first save or a replacement.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Removing the Slack app says Slack is gone and records who removed it
+
+```text
+A removal that also dropped a workspace Slack connection would still pass this row, which has no connection to lose; the connected rows read what a removal leaves alone.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P5
+
+```text
+One workspace is connected to Slack, a route of one of its projects holds a message Slack has not answered yet, and the instance admin removes the Slack app.
+```
+
+```text
+That workspace integrations page reads that Slack is not set up on this Foundry yet and that an instance operator adds the Foundry Slack app once; its Slack connection is not marked lost and no workspace admin is emailed; and the route still holds the message it had accepted, retrying.
+```
+
+```text
+Retiring Slack for the whole instance never tells a workspace it lost its own connection, and never throws away a message Foundry had already taken.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: After the removal Canzan Labs reads that Slack is not set up\, and loses nothing it had
+
+```text
+A removal that left the route retrying for Slack own silence rather than for the app that is gone would still pass this row; what it refuses is a delivery the removal cancelled or gave up on.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P5
+
+```text
+After the removal, the instance admin enters the same Slack app again with both of its secrets.
+```
+
+```text
+She reads that it is saved and that workspace admins can now choose Add to Slack, and the connected workspace integrations page reads that it is connected to Canzan Labs without anybody reconnecting.
+```
+
+```text
+A workspace that was connected before Priya retired Slack is connected again the moment she sets it up, with nothing for its admin to redo.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Setting the same app up again finds Canzan Labs still connected
+
+```text
+A removal that kept the connection row but forgot its token would still pass this row, which reads the connection line rather than a post through it; the delivery row reads the token.
+```
+
+###### Obligations
+
+None.
+
+##### Covers
+
+P5
+
+```text
+This Foundry runs as two replicas on one database with a workspace connected, and the instance admin removes the Slack app.
+```
+
+```text
+Within 60 seconds, with nothing restarted, each replica asked at its own address refuses as unauthorised a Slack event signed with the signing secret the removed app was saved with.
+```
+
+```text
+Once Priya retires Slack, no server of this Foundry acts on Slack messages any more, whichever one Slack reaches.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Once the Slack app is removed no replica accepts Slack\'s events any more
+
+```text
+A Foundry that refused every Slack event as unauthorised even with an app in effect would still pass this row; the replace rows read the verifying case.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P7
+
+```text
+All three Slack settings are in Foundry environment, an app is also saved here, and the instance admin opens the remove address.
+```
+
+```text
+She is answered with this Foundry integrations page, which offers her neither a way to replace nor a way to remove the Slack app, by any name or link.
+```
+
+```text
+Priya is not offered a change to the Slack app the operator settings decide, which the next restart would undo.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: The Slack app Foundry\'s environment sets is not Priya\'s to replace or remove
+
+```text
+A door that answered the integrations page for every reader, the saved-app case included, would still pass this row; the saved-app rows read that case.
+```
+
+###### Obligations
+
+None.
+
+##### Covers
+
+P7
+
+```text
+With all three Slack settings in Foundry environment, an app saved here and a workspace connected, a remove request is posted to the remove address.
+```
+
+```text
+The answer is this Foundry integrations page, which still reads that the Slack app comes from Foundry environment, the Activity list records no removal, and Add to Slack still sends a workspace admin to that same app.
+```
+
+```text
+A stale tab or a forged form cannot take away a Slack app that is not this page to give.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: A remove posted while Foundry\'s environment sets the Slack app changes nothing
+
+```text
+A door that refused every remove, the saved-app case included, would still pass this row; the removal rows read the accepted case.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P7
+
+```text
+The controls the integrations page offers are read for each app that can be in effect: the environment one with an app also saved here, the environment one with none saved, the app saved here, and none at all.
+```
+
+```text
+Replace and Remove are offered only where the app in effect is the one saved here; in every other case neither is offered and a remove changes nothing.
+```
+
+```text
+Priya is offered a change to this Foundry Slack app exactly where it is hers to make, and nowhere else.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/src\/integrations\/handlers\/instance\.rs \:\: the table of the controls the page offers over each app in effect
+
+```text
+A table read over only the two cases the public rows construct would still pass; the whole set of apps that can be in effect is what this row names.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P2
+
+```text
+Each of the three fields of the Slack app form is given any value over its own alphabet or any other text, wrapped in up to four spaces, tabs or newlines.
+```
+
+```text
+The verdict on the value is the same with the surrounding whitespace as without it, for every generated case.
+```
+
+```text
+A client ID or a secret Priya pastes with a stray space or a line break is read as the value she pasted.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/src\/integrations\/slack\_app\.rs\:\:a\_value\_is\_judged\_the\_same\_with\_surrounding\_whitespace
+
+```text
+A check that trimmed the value but read a different alphabet would still pass this row; the alphabet rows read that.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P2
+
+```text
+Any 32 lowercase hexadecimal characters are entered as the client secret and as the signing secret of a submission.
+```
+
+```text
+Each field accepts the value and the submission is refused on nothing.
+```
+
+```text
+Every secret Slack can show Priya on its Basic Information page is one she can paste here.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/src\/integrations\/slack\_app\.rs \:\: any\_32\_lowercase\_hex\_is\_accepted\_as\_a\_secret
+
+```text
+A check that also accepted a 31 or 33 character value would still pass this row; the shape table reads the lengths.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P2
+
+```text
+A value of any field holds one character outside that field alphabet, anywhere in it, and is not whitespace.
+```
+
+```text
+The field refuses the value as malformed, naming that field, and never as blank.
+```
+
+```text
+Priya is told that what she pasted is not the shape of that field, instead of being told she left it empty.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/src\/integrations\/slack\_app\.rs \:\: a\_character\_outside\_the\_alphabet\_is\_refused\_as\_malformed
+
+```text
+A check that called every refused value blank would fail this row, which is why it is here; a check that named the wrong field would still pass the whitespace row.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P2
+
+```text
+The three fields are submitted blank, with an uppercase secret, with a client ID holding two dots and one holding none, and with each malformed shape, in form order.
+```
+
+```text
+The submission is refused on the first failing field in the order the form reads, blank where the field is empty and malformed where its shape is wrong.
+```
+
+```text
+Priya is sent back to the first field that needs her attention, with the words that say what is wrong with it.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/src\/integrations\/slack\_app\.rs \:\: a\_save\_is\_refused\_on\_the\_first\_blank\_or\_malformed\_field\_in\_form\_order
+
+```text
+A reading that named the last failing field rather than the first would still pass a table of single-field rows; the mixed rows are what order it.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P1
+
+```text
+With an app saved and in effect, the instance admin submits its own client ID, leaves the client secret blank and enters a signing secret this Foundry has never held.
+```
+
+```text
+The save is accepted at once, she reads that it is saved and that workspace admins can now choose Add to Slack, the page still names that same app with both secrets set, and the Activity records the replacement.
+```
+
+```text
+Pasting one regenerated secret is all Priya does, and the secret she did not retype is kept.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Rotating the signing secret\, with the client secret left blank\, is saved at once
+
+```text
+A save that cleared the kept client secret instead of keeping it would still pass this row, which reads the page; the code exchange row reads the secret itself.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P2
+
+```text
+With an app saved and in effect, the instance admin submits a different client ID with one of the two secrets left blank, once for each of them.
+```
+
+```text
+She reads that she must enter that field from the Slack app Basic Information, the form keeps the client ID she typed with both secret fields empty, and the saved app, its secrets and its activity are unchanged.
+```
+
+```text
+Another app is never half entered: a secret that belongs to the old app is never sealed to a new one.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Another Slack app needs both secrets\, and a blank one changes nothing
+
+```text
+A refusal that named the other blank field would still pass a row reading one example; the two examples name their own field.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P1
+
+```text
+With an app saved and in effect and no workspace connected to Slack, the instance admin submits a different client ID with both of its secrets.
+```
+
+```text
+The new app is saved at once, she reads that it is saved, the page names the new app, and a workspace admin choosing Add to Slack is sent to that new client ID.
+```
+
+```text
+Switching apps while nobody is connected costs Priya nothing but the form.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Another Slack app entered with both secrets takes over at once while no workspace is connected
+
+```text
+A save that stored the new app but left the old one in effect would fail this row only on the Add to Slack reading, which is why that reading is in it.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+```text
+A submission names the app in effect with both secret fields blank, names it with both secrets given, and names it with one field blank over a saved app whose secrets this Foundry cannot open.
+```
+
+```text
+Both blank fields keep both saved secrets, both given secrets replace both, and over a saved app that does not open a blank field is refused for that field because there is nothing to keep.
+```
+
+```text
+A blank field means keep what is already there exactly where there is something to keep, and says so where there is not.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/src\/integrations\/slack\_app\.rs \:\: the table of which secrets a submission keeps and which it replaces
+
+```text
+A plan that kept a secret even where the saved app cannot be opened would still pass the two keeping rows; the unopenable row is what refuses it. This table does not exist yet: writing it is a completion obligation of this slice craft.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P1
+
+```text
+After a rotation that replaced the signing secret, Slack sends its verification challenge signed with the secret the rotation replaced.
+```
+
+```text
+This Foundry refuses the message as unauthorised, while the challenge signed with the secret now in effect is verified.
+```
+
+```text
+A leaked signing secret stops working the moment Priya replaces it.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: The signing secret the rotation replaced no longer verifies
+
+```text
+A Foundry that refused every challenge would still pass this row; the verifying row beside it is what tells them apart.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+```text
+A rotation of the app in effect leaves both secret fields blank, and another replaces both of them with values this Foundry has never held.
+```
+
+```text
+After the blank rotation both opened secrets are the ones that were in effect before it, so the same events verify and the same code exchange succeeds; after the rotation of both, both opened secrets are the new ones and neither replaced value works afterwards.
+```
+
+```text
+A rotation changes exactly the secrets Priya typed and nothing else.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/src\/integrations\/slack\_app\.rs \:\: the table of which secrets a submission keeps and which it replaces
+
+```text
+A plan that sealed the submitted blank value as an empty secret would still pass a row that only reads the stored page. This table does not exist yet: writing it is a completion obligation of this slice craft.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P1
+
+```text
+This Foundry runs as two replicas on one database, and the instance admin generates the secrets key, enters the Slack app and then rotates its signing secret on one of them.
+```
+
+```text
+Within 60 seconds of each change, with nothing restarted, each replica asked at its own address offers the workspace what the change allows and verifies Slack events signed with the secret now in effect.
+```
+
+```text
+Whatever Priya changes here is true of every server of this Foundry a minute later, with no restart and no operator.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: An instance admin turns on Matrix and Slack and rotates a Slack secret\, and every replica follows without a restart
+
+```text
+A Foundry whose replicas reloaded only on a restart would fail this row; a Foundry that reloaded only the app and not the key would still pass its last reading.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+```text
+A save of the Slack app is attempted with its secrets sealed under no key and under a key that is no longer the sealing key, and then under the sealing key itself.
+```
+
+```text
+Each of the first two is turned back with nothing at all stored, and the third stores the app, its activity line and the version bump together.
+```
+
+```text
+A secret sealed with a key this Foundry has moved past is never stored where nothing could open it.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-store\/tests\/iis\_instance\_store\.rs \:\: slack\_save\_fences\_on\_the\_sealing\_key
+
+```text
+A door that turned the save back and then never retried under the current key would still pass this row, which reads the store alone; the handler retry is read by the page rows.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+A submitted app is held for its confirmation with its secrets sealed under a key that is no longer the sealing key, and a secrets-key move is made while a held app is waiting.
+```
+
+```text
+The stale hold is turned back with no row written, and the move seals the held app secrets again with every other sealed value, so the confirmation still opens them, while the number of credentials the move reports is unchanged by the held row.
+```
+
+```text
+An app Priya submitted survives a secrets-key move, and a submission nothing could open is never kept.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-store\/tests\/iis\_instance\_store\.rs \:\: the table of what a superseded sealing key and a secrets\-key move do to a held Slack app
+
+```text
+A move that re-sealed the held row but also counted it as a credential would still pass a row that only reads the confirmation. This table does not exist yet: writing it is a completion obligation of this slice craft.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P3
+
+```text
+Every crate source of this repository is read for queries that name the instance integration tables and for writes of a sealed column.
+```
+
+```text
+The tables are named only by the one module that owns them, and every sealed write stands inside a listed fenced writer, the hold of a submitted app included; a crate added later is read too.
+```
+
+```text
+A second writer of this Foundry Slack tables, or a sealed write with no fence, cannot reach a release.
+```
+
+##### Disposition
+
+Tested
+
+xtask\/src\/check\_arch\.rs \:\: the integrations\-instance\-tables and seal\-fenced\-writers rules\, run by cargo xtask check\-arch
+
+```text
+A query assembled at run time escapes a reading over string literals; the store tests read what the writes actually do.
+```
+
+###### Obligations
 
 
 ## Expectations
