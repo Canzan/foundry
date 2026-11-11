@@ -88,6 +88,7 @@ mod instance;
 mod matrix_setup;
 mod route_form;
 mod routes;
+mod secrets_key;
 mod slack_setup;
 mod workspace;
 
