@@ -115,7 +115,7 @@ slack-connected	As slack-app-saved, and Priya connected Canzan Labs to the Slack
 slack-connected-three	As slack-connected, and Priya also made the workspaces Ops Guild (admin Omar) and Reading Club (admin Rosa) on the instance workspaces page; Omar and Rosa each connected theirs to Slack through the saved app, so 3 workspaces are connected.
 env-slack-connected	Foundry's environment sets the Slack app (SLACK_CLIENT_ID 6123456789012.7234567890123); Priya generated the secrets key and connected Canzan Labs to Slack through that app; no app is saved on the instance page.
 slack-app-awaiting-confirm	As slack-connected, and Priya made Kai Tanaka (a member of Canzan Labs) a second instance admin on the instance workspaces page; then Priya submitted another Slack app (client ID 6123456789012.8888888888888, both secrets) on the instance integrations page, which now waits for her confirm.
-slack-delivery-pending	As slack-connected, then Slack stopped answering Foundry's posts (slack-posting not-answering) and Lena created the issue "Expire the old sessions", so its New issue delivery to #auth-dev waits on the route's history.
+slack-delivery-pending	As slack-connected, then Slack stopped answering Foundry's posts (slack-posting not-answering) and Lena created the issue "Expire the old sessions", so its New issue delivery to #auth-dev waits on the route's history; the route is listed on the project's integrations page, team/backend/project/identity-platform/integrations, which links to its History.
 STATES
 }
 
@@ -443,6 +443,7 @@ Channels in every Slack workspace: #auth-dev (C0AUTHDEV), #auth-releases (C0AUTH
 Planted Slack app: client ID $SLACK_ID, client secret $SLACK_SECRET, signing secret $SLACK_SIGNING
 Another app's client ID: 6123456789012.8888888888888; another signing secret (rotated): $SLACK_SIGNING_ROTATED
 The double accepts any client secret and signs nothing; slack-event signs the events it sends.
+slack-event signs with the secret it names: planted = $SLACK_SIGNING, rotated = $SLACK_SIGNING_ROTATED. To rotate the saved app's signing secret so slack-event can test it: post Priya admin/instance/integrations/slack client_id=$SLACK_ID client_secret= signing_secret=$SLACK_SIGNING_ROTATED
 Posting (chat.postMessage) now: $(cat "$STATE_DIR/slack-posting" 2>/dev/null || echo answering) (change it with slack-posting answering|not-answering|slow-down)
 Foundry replicas: $(replicas_line)
 Calls Foundry made to the double, oldest first:
