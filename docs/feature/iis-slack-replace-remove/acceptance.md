@@ -1661,4 +1661,267 @@ None.
 
 ## Examination
 
-None.
+### E1
+
+met
+
+#### Observations
+
+```text
+State slack-app-saved: Priya GET /admin/instance/integrations answers 200 and its Slack section reads "Slack: set up here, app 6123456789012.7234567890123, saved by Priya Raman" with "Client secret: set" and "Signing secret: set". The replace form (POST /admin/instance/integrations/slack) arrives with client_id already filled in as 6123456789012.7234567890123 and empty client_secret and signing_secret password fields, next to a Replace button and a Remove link to /admin/instance/integrations/slack/remove.
+```
+
+### E2
+
+met
+
+#### Observations
+
+```text
+State slack-app-saved: Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.7234567890123, a blank client_secret and signing_secret=0f1e2d3c4b5a69788796a5b4c3d2e1f0. The response is 200 with final-url /admin/instance/integrations (no confirm page and no other interstitial), reading "Saved. Workspace admins can now choose Add to Slack." The page still names app 6123456789012.7234567890123 and still reads "Client secret: set" and "Signing secret: set", so the blank field cleared nothing. Activity gains "11 Nov 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)" above the earlier "saved the Slack app" line. A following GET of the page repeats the same state.
+```
+
+### E3
+
+met
+
+#### Observations
+
+```text
+State slack-app-saved: Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.7234567890123, a blank client_secret and signing_secret=0f1e2d3c4b5a69788796a5b4c3d2e1f0. The response is 200 with final-url /admin/instance/integrations (no confirm page and no other interstitial), reading "Saved. Workspace admins can now choose Add to Slack." The page still names app 6123456789012.7234567890123 and still reads "Client secret: set" and "Signing secret: set", so the blank field cleared nothing. Activity gains "11 Nov 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)" above the earlier "saved the Slack app" line. A following GET of the page repeats the same state.
+```
+
+### E4
+
+met
+
+#### Observations
+
+```text
+E4 re-probe with positive control, state slack-app-saved started with --replicas 2 (replica 1 port 18480, replica 2 port 18484, one database), examiner-run. Before the save: slack-event planted url-verification (signed with the saved signing secret b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05) answered 200 OK with the challenge echoed on BOTH replica 1 and replica 2, while slack-event rotated (signed with 4c2e9a7f1b3d5e8c0a6f2d4b9e1c7a35) answered 401 Unauthorized on replica 1 - the negative/positive control pair that shows the probe discriminates secrets. Priya then POSTed admin/instance/integrations/slack with client_id=6123456789012.7234567890123, an empty client_secret and signing_secret=4c2e9a7f1b3d5e8c0a6f2d4b9e1c7a35; the response read 'Saved. Workspace admins can now choose Add to Slack.' with no confirm step, and the page still read app 6123456789012.7234567890123 with 'Client secret: set' and 'Signing secret: set'. Immediately after that single save, with no restart and well inside 60 seconds: slack-event rotated url-verification answered 200 OK with the challenge on replica 1 AND on replica 2, and slack-event planted answered 401 Unauthorized on replica 1 AND on replica 2. Activity read '11 Nov 2026 - Priya Raman replaced the Slack app (6123456789012.7234567890123)'.
+```
+
+### E5
+
+met
+
+#### Observations
+
+```text
+State slack-app-saved: Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.7234567890123, a blank client_secret and signing_secret=0f1e2d3c4b5a69788796a5b4c3d2e1f0. The response is 200 with final-url /admin/instance/integrations (no confirm page and no other interstitial), reading "Saved. Workspace admins can now choose Add to Slack." The page still names app 6123456789012.7234567890123 and still reads "Client secret: set" and "Signing secret: set", so the blank field cleared nothing. Activity gains "11 Nov 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)" above the earlier "saved the Slack app" line. A following GET of the page repeats the same state.
+```
+
+### E6
+
+met
+
+#### Observations
+
+```text
+State slack-app-saved: Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secret fields blank. The answer reads "Enter the client secret from the Slack app's Basic Information." A second POST with that client ID, a client secret and a blank signing secret reads "Enter the signing secret from the Slack app's Basic Information." After both, the page still names app 6123456789012.7234567890123 with both secrets set and an unchanged Activity list, and the form keeps the typed client ID 6123456789012.8888888888888 with both password fields empty.
+```
+
+```text
+State slack-connected (Canzan Labs connected through 6123456789012.7234567890123): Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secrets. The answer is 200 with final-url /admin/instance/integrations/slack/confirm, titled "Save the new Slack app?" and reading "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?" Its only control is a Save the new app button on POST /admin/instance/integrations/slack/confirm; the page carries no client secret, no signing secret and no secret field of any kind. A direct GET of the confirm path reads the same. Meanwhile GET /admin/instance/integrations still names app 6123456789012.7234567890123 with both secrets set and its Activity list unchanged (no replaced line).
+```
+
+```text
+Same run, after the confirm page: Priya POSTs /admin/instance/integrations/slack/confirm and the answer is 200 at /admin/instance/integrations reading "Saved. Workspace admins can now choose Add to Slack.", now naming app 6123456789012.8888888888888 with Activity "11 Nov 2026 . Priya Raman replaced the Slack app (6123456789012.8888888888888)". A second POST of the same confirm path afterwards answers the integrations page and changes nothing (still app 6123456789012.8888888888888, same Activity, no second replaced line).
+```
+
+### E7
+
+met
+
+#### Observations
+
+```text
+State slack-app-saved: Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secret fields blank. The answer reads "Enter the client secret from the Slack app's Basic Information." A second POST with that client ID, a client secret and a blank signing secret reads "Enter the signing secret from the Slack app's Basic Information." After both, the page still names app 6123456789012.7234567890123 with both secrets set and an unchanged Activity list, and the form keeps the typed client ID 6123456789012.8888888888888 with both password fields empty.
+```
+
+### E8
+
+met
+
+#### Observations
+
+```text
+State slack-connected (Canzan Labs connected through 6123456789012.7234567890123): Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secrets. The answer is 200 with final-url /admin/instance/integrations/slack/confirm, titled "Save the new Slack app?" and reading "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?" Its only control is a Save the new app button on POST /admin/instance/integrations/slack/confirm; the page carries no client secret, no signing secret and no secret field of any kind. A direct GET of the confirm path reads the same. Meanwhile GET /admin/instance/integrations still names app 6123456789012.7234567890123 with both secrets set and its Activity list unchanged (no replaced line).
+```
+
+### E9
+
+met
+
+#### Observations
+
+```text
+State slack-connected (Canzan Labs connected through 6123456789012.7234567890123): Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secrets. The answer is 200 with final-url /admin/instance/integrations/slack/confirm, titled "Save the new Slack app?" and reading "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?" Its only control is a Save the new app button on POST /admin/instance/integrations/slack/confirm; the page carries no client secret, no signing secret and no secret field of any kind. A direct GET of the confirm path reads the same. Meanwhile GET /admin/instance/integrations still names app 6123456789012.7234567890123 with both secrets set and its Activity list unchanged (no replaced line).
+```
+
+### E10
+
+met
+
+#### Observations
+
+```text
+State slack-connected (Canzan Labs connected through 6123456789012.7234567890123): Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secrets. The answer is 200 with final-url /admin/instance/integrations/slack/confirm, titled "Save the new Slack app?" and reading "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?" Its only control is a Save the new app button on POST /admin/instance/integrations/slack/confirm; the page carries no client secret, no signing secret and no secret field of any kind. A direct GET of the confirm path reads the same. Meanwhile GET /admin/instance/integrations still names app 6123456789012.7234567890123 with both secrets set and its Activity list unchanged (no replaced line).
+```
+
+### E11
+
+met
+
+#### Observations
+
+```text
+State slack-connected (Canzan Labs connected through 6123456789012.7234567890123): Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secrets. The answer is 200 with final-url /admin/instance/integrations/slack/confirm, titled "Save the new Slack app?" and reading "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?" Its only control is a Save the new app button on POST /admin/instance/integrations/slack/confirm; the page carries no client secret, no signing secret and no secret field of any kind. A direct GET of the confirm path reads the same. Meanwhile GET /admin/instance/integrations still names app 6123456789012.7234567890123 with both secrets set and its Activity list unchanged (no replaced line).
+```
+
+### E12
+
+met
+
+#### Observations
+
+```text
+E12 probe. In state slack-app-awaiting-confirm, where Priya's submitted app 6123456789012.8888888888888 waits for her confirm, examine-foundry time-passes 11m reported "11 minutes passed; moved back: Slack apps waiting for a confirm 1, waiting deliveries 0". Priya's POST of /admin/instance/integrations/slack/confirm then answered 200 with the instance integrations page carrying no "Saved." line, still reading "Slack: set up here . app 6123456789012.7234567890123" and an Activity list of only "saved the Slack app (6123456789012.7234567890123)" and "generated the secrets key", with no "replaced the Slack app" line. A following GET of /admin/instance/integrations read the same, so the app submitted eleven minutes earlier was not saved.
+
+```
+
+### E13
+
+met
+
+#### Observations
+
+```text
+E13 probe. In state slack-app-awaiting-confirm, Kai Tanaka, this Foundry's second instance admin, POSTed /admin/instance/integrations/slack/confirm: 200 with the instance integrations page, no "Saved." line, still "app 6123456789012.7234567890123", and Activity only "saved the Slack app (6123456789012.7234567890123)" and "generated the secrets key". Priya's following GET read the same. Priya's own POST of that same path then answered "Saved. Workspace admins can now choose Add to Slack.", the page read "app 6123456789012.8888888888888" and Activity read "11 Nov 2026 . Priya Raman replaced the Slack app (6123456789012.8888888888888)". So the other instance admin's confirm saved nothing while the submitting admin's confirm still saved.
+
+```
+
+### E14
+
+met
+
+#### Observations
+
+```text
+State env-slack-connected (the environment supplies the app in effect, Canzan Labs connected through it): Priya GET /admin/instance/integrations reads "Slack: set in Foundry's environment, app 6123456789012.7234567890123. To manage it here, enter the same app below; it takes over once SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from the environment." The page offers only Client ID, Client secret, Signing secret and a Save Slack app button, with no Replace button and no Remove link anywhere. Priya POST /admin/instance/integrations/slack/remove answers 200 with that same integrations page, still env-set with an unchanged Activity list and no removal line, and a GET of the remove path answers the same page. A POST of /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secrets still lands on /admin/instance/integrations/slack/confirm reading "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?" with no secret on it.
+```
+
+### E15
+
+met
+
+#### Observations
+
+```text
+State slack-connected: Priya GET /admin/instance/integrations/slack/remove answers 200, titled "Remove the Slack app?" and reading "Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack.", with a single Remove button on POST of the same path. After that GET, GET /admin/instance/integrations still names app 6123456789012.7234567890123 with both secrets set and an unchanged Activity list, so the GET removed nothing. In state slack-app-saved with no workspace connected the same GET reads "Remove the Slack app from this Foundry? No workspace is connected to Slack."
+```
+
+### E16
+
+met
+
+#### Observations
+
+```text
+State slack-connected: Priya GET /admin/instance/integrations/slack/remove answers 200, titled "Remove the Slack app?" and reading "Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack.", with a single Remove button on POST of the same path. After that GET, GET /admin/instance/integrations still names app 6123456789012.7234567890123 with both secrets set and an unchanged Activity list, so the GET removed nothing. In state slack-app-saved with no workspace connected the same GET reads "Remove the Slack app from this Foundry? No workspace is connected to Slack."
+```
+
+### E17
+
+met
+
+#### Observations
+
+```text
+State slack-connected: Priya POSTs /admin/instance/integrations/slack/remove. The answer is 200 at /admin/instance/integrations reading "Removed. Slack is not set up on this Foundry." Its Slack section is back to "Slack: not set up. Create the Foundry Slack app in Slack from the manifest below, then enter its credentials." with the manifest and an empty Save Slack app form, and the Activity list reads "11 Nov 2026 . Priya Raman removed the Slack app (6123456789012.7234567890123)". A following GET repeats that state.
+```
+
+### E18
+
+met
+
+#### Observations
+
+```text
+Same run after the removal: Priya GET /workspace/integrations answers 200 and its Slack section reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once." with How to set up Slack and Set up integrations for this Foundry links and no Add to Slack control, while the existing connection line still reads "Connected to Canzan Labs (canzanlabs.slack.com), by Priya Raman, 11 Nov 2026" with Disconnect Slack and carries no lost, broken or reconnect marking; the workspace Activity still reads the route and connect lines only. A Slack event signed with the removed app's signing secret b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 is then answered 401. For contrast, in a state where Slack is set up and no workspace is connected the same workspace page shows Add to Slack instead.
+```
+
+### E19
+
+met
+
+#### Observations
+
+```text
+Same run after the removal: Priya GET /workspace/integrations answers 200 and its Slack section reads "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once." with How to set up Slack and Set up integrations for this Foundry links and no Add to Slack control, while the existing connection line still reads "Connected to Canzan Labs (canzanlabs.slack.com), by Priya Raman, 11 Nov 2026" with Disconnect Slack and carries no lost, broken or reconnect marking; the workspace Activity still reads the route and connect lines only. A Slack event signed with the removed app's signing secret b7e1d4c9a2f05e3b8c6d1a7f4e9b2c05 is then answered 401. For contrast, in a state where Slack is set up and no workspace is connected the same workspace page shows Add to Slack instead.
+```
+
+### E20
+
+met
+
+#### Observations
+
+```text
+E20 probe. In state slack-delivery-pending (Canzan Labs connected to Slack through app 6123456789012.7234567890123, one New issue delivery waiting on a route), Priya's GET workspace/integrations read "Connected to Canzan Labs (canzanlabs.slack.com) . by Priya Raman . 11 Nov 2026 Disconnect Slack". Her POST /admin/instance/integrations/slack/remove answered "Removed. Slack is not set up on this Foundry." Her GET workspace/integrations afterwards still read that same connected line, now beside "Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once.", with no lost, broken or reconnect-needed wording and the Activity list unchanged ("Lena Park created the route to #auth-dev", "Priya Raman connected Slack (Canzan Labs)"). The mail double listed exactly the same two member_invite emails (to tomas.rivera@example.org at 14:31:46 UTC and lena.park@example.org at 14:31:47 UTC) when read before the removal, right after it, and again after 25 further hours of shared clock; no message about Slack to any workspace admin.
+
+```
+
+### E21
+
+met
+
+#### Observations
+
+```text
+E21 re-probe reaching the route's History page, examiner-run in state slack-delivery-pending (Canzan Labs connected through the saved app 6123456789012.7234567890123, Slack not answering posts, one New issue delivery waiting). The project integrations page team/backend/project/identity-platform/integrations read '#auth-dev - Retrying: Slack did not answer' and linked History. Before removal the History page 'History of the route to #auth-dev' read '14:54 - New issue - AUTH-2 - Retrying (Slack did not answer) - next attempt 14:55' above '14:54 - New issue - AUTH-1 - Delivered' (positive control: the pending delivery is visible and still retrying). Priya then GETed admin/instance/integrations/slack/remove ('Remove the Slack app from this Foundry? 1 workspace's Slack routes stop posting until it is set up again, and no workspace can connect Slack.') and POSTed it; the answer read 'Removed. Slack is not set up on this Foundry.' and the page then read 'Slack: not set up.'. Immediately after that removal the same History page still read AUTH-2 as 'Retrying (Slack did not answer) - next attempt 14:55' - it did not fail at once. After time-passes 23h it still read 'Retrying (Slack did not answer) - next attempt 15:55'. After 2 further hours (25h total) the same line read 'Failed: gave up after 24 hours (this Foundry cannot read its saved connection)', so the wait is bounded by the 24-hour give-up. The mail double recorded no removal email (only an unrelated earlier workspace invitation to Tomas Rivera), and POST of a signed Slack event answered 401 Unauthorized after the removal.
+```
+
+### E22
+
+met
+
+#### Observations
+
+```text
+State slack-app-saved: Priya POSTs /admin/instance/integrations/slack with client_id=6123456789012.7234567890123, a blank client_secret and signing_secret=0f1e2d3c4b5a69788796a5b4c3d2e1f0. The response is 200 with final-url /admin/instance/integrations (no confirm page and no other interstitial), reading "Saved. Workspace admins can now choose Add to Slack." The page still names app 6123456789012.7234567890123 and still reads "Client secret: set" and "Signing secret: set", so the blank field cleared nothing. Activity gains "11 Nov 2026 . Priya Raman replaced the Slack app (6123456789012.7234567890123)" above the earlier "saved the Slack app" line. A following GET of the page repeats the same state.
+```
+
+```text
+Same run, after the confirm page: Priya POSTs /admin/instance/integrations/slack/confirm and the answer is 200 at /admin/instance/integrations reading "Saved. Workspace admins can now choose Add to Slack.", now naming app 6123456789012.8888888888888 with Activity "11 Nov 2026 . Priya Raman replaced the Slack app (6123456789012.8888888888888)". A second POST of the same confirm path afterwards answers the integrations page and changes nothing (still app 6123456789012.8888888888888, same Activity, no second replaced line).
+```
+
+### E23
+
+met
+
+#### Observations
+
+```text
+State slack-connected: Priya POSTs /admin/instance/integrations/slack/remove. The answer is 200 at /admin/instance/integrations reading "Removed. Slack is not set up on this Foundry." Its Slack section is back to "Slack: not set up. Create the Foundry Slack app in Slack from the manifest below, then enter its credentials." with the manifest and an empty Save Slack app form, and the Activity list reads "11 Nov 2026 . Priya Raman removed the Slack app (6123456789012.7234567890123)". A following GET repeats that state.
+```
+
+### E24
+
+met
+
+#### Observations
+
+```text
+State env-slack-connected (the environment supplies the app in effect, Canzan Labs connected through it): Priya GET /admin/instance/integrations reads "Slack: set in Foundry's environment, app 6123456789012.7234567890123. To manage it here, enter the same app below; it takes over once SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from the environment." The page offers only Client ID, Client secret, Signing secret and a Save Slack app button, with no Replace button and no Remove link anywhere. Priya POST /admin/instance/integrations/slack/remove answers 200 with that same integrations page, still env-set with an unchanged Activity list and no removal line, and a GET of the remove path answers the same page. A POST of /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secrets still lands on /admin/instance/integrations/slack/confirm reading "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?" with no secret on it.
+```
+
+### E25
+
+met
+
+#### Observations
+
+```text
+State env-slack-connected (the environment supplies the app in effect, Canzan Labs connected through it): Priya GET /admin/instance/integrations reads "Slack: set in Foundry's environment, app 6123456789012.7234567890123. To manage it here, enter the same app below; it takes over once SLACK_CLIENT_ID, SLACK_CLIENT_SECRET and SLACK_SIGNING_SECRET are removed from the environment." The page offers only Client ID, Client secret, Signing secret and a Save Slack app button, with no Replace button and no Remove link anywhere. Priya POST /admin/instance/integrations/slack/remove answers 200 with that same integrations page, still env-set with an unchanged Activity list and no removal line, and a GET of the remove path answers the same page. A POST of /admin/instance/integrations/slack with client_id=6123456789012.8888888888888 and both secrets still lands on /admin/instance/integrations/slack/confirm reading "1 workspace is connected through the current Slack app (6123456789012.7234567890123). It keeps posting through it until a workspace admin reconnects Slack. Save the new app?" with no secret on it.
+```
