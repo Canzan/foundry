@@ -471,12 +471,15 @@
 ],
 "disposition": {
 "kind": "Tested",
-"still_passes_if": "F584",
+"obligations": [
+"L3/F661"
+],
+"still_passes_if": "F666",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Setting the same app up again finds Canzan Labs still connected"
 },
-"expected": "F582",
-"stimulus": "F581",
-"user_result": "F583"
+"expected": "F664",
+"stimulus": "F663",
+"user_result": "F665"
 },
 {
 "covers": [
@@ -491,7 +494,7 @@
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Once the Slack app is removed no replica accepts Slack's events any more"
 },
 "expected": "F586",
-"stimulus": "F585",
+"stimulus": "F667",
 "user_result": "F587"
 },
 {
@@ -777,9 +780,9 @@
 "counters": {
 "B": 5,
 "C": 3,
-"D": 15,
+"D": 18,
 "E": 25,
-"F": 656,
+"F": 667,
 "K": 12,
 "L": 11,
 "N": 8,
@@ -1239,6 +1242,30 @@
 {
 "id": "D15",
 "text": "F59"
+},
+{
+"id": "D16",
+"slices": [
+"S1",
+"S2",
+"S3"
+],
+"text": "F657"
+},
+{
+"id": "D17",
+"slices": [
+"S2"
+],
+"text": "F658"
+},
+{
+"id": "D18",
+"slices": [
+"S1",
+"S2"
+],
+"text": "F659"
 }
 ],
 "equality": [
@@ -1403,17 +1430,18 @@
 "kind": "Invariant",
 "layer": "Application",
 "owner": "crates/foundry-app/src/integrations/handlers/instance.rs",
-"statement": "F179",
+"statement": "F660",
 "treatment": {
 "cases": [
 "F180",
 "F181",
 "F182",
 "F183",
-"F184"
+"F184",
+"F661"
 ],
 "kind": "Finite",
-"reason": "F185"
+"reason": "F662"
 }
 },
 {
@@ -1936,9 +1964,9 @@
 "reuse": [
 {
 "decision": "Extend",
-"locator": "crates/foundry-app/src/integrations/slack_app.rs:113",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:154",
 "reason": "F72",
-"symbol": "SlackAppForm"
+"symbol": "SlackSubmission"
 },
 {
 "decision": "Reuse",
@@ -1948,9 +1976,9 @@
 },
 {
 "decision": "Extend",
-"locator": "crates/foundry-app/src/integrations/slack_app.rs:198",
+"locator": "crates/foundry-app/src/integrations/slack_app.rs:440",
 "reason": "F74",
-"symbol": "plan_save"
+"symbol": "plan_replace"
 },
 {
 "decision": "Reuse",
@@ -2960,14 +2988,12 @@
 "F176": "the native generator's shrinking to the shortest refused value, with the case printed for replay",
 "F177": "a hand-written alphabet-and-length predicate over the trimmed value, written apart from the production check",
 "F178": "a value the predicate accepts that the field check refuses, or a value the predicate rejects that it accepts",
-"F179": "The I-14 gate holds exactly when the submission is a NewApp and the connected-workspace count is above zero; a NewApp with no connected workspace saves at once, and a Rotate never reaches the confirm.",
 "F18": "Retire Slack knowing what stops",
 "F180": "NewApp with 0 connected workspaces: saved at once, no pending row",
 "F181": "NewApp with 1 connected workspace: held pending, I-14's n = 1 form",
 "F182": "NewApp with 3 connected workspaces: held pending, I-14's n >= 2 form",
 "F183": "Rotate with 3 connected workspaces: saved at once, no pending row",
 "F184": "NewApp with 1 connected workspace while the environment's app is in effect: held pending, I-14 naming the environment's client ID",
-"F185": "The gate is a pure function of two closed facts, so every combination is tabled.",
 "F186": "The pending row is applied only for the requester that holds it and only while the injected clock is before its expiry, and applying it deletes it, so a second apply, another admin's apply and an expired apply all change nothing.",
 "F187": "the holder confirms one minute in: applied, the row deleted, one activity line, one version bump",
 "F188": "the holder confirms at the expiry instant: nothing applied",
@@ -3395,11 +3421,6 @@
 "F579": "Retiring Slack for the whole instance never tells a workspace it lost its own connection, and never throws away a message Foundry had already taken.",
 "F58": "What the replica model carries and what it does not: replica_convergence.tla proves that every committed version eventually reaches every replica under weak fairness on each replica's reload task. The 60-second figure of the promise is that eventual convergence under the configured poll interval, FOUNDRY_INTEGRATIONS_RELOAD_MS with its 5000 ms default; it is a consequence of that configuration, not a theorem of the model, and the two-replica acceptance scenario is what observes it.",
 "F580": "A removal that left the route retrying for Slack own silence rather than for the app that is gone would still pass this row; what it refuses is a delivery the removal cancelled or gave up on.",
-"F581": "After the removal, the instance admin enters the same Slack app again with both of its secrets.",
-"F582": "She reads that it is saved and that workspace admins can now choose Add to Slack, and the connected workspace integrations page reads that it is connected to Canzan Labs without anybody reconnecting.",
-"F583": "A workspace that was connected before Priya retired Slack is connected again the moment she sets it up, with nothing for its admin to redo.",
-"F584": "A removal that kept the connection row but forgot its token would still pass this row, which reads the connection line rather than a post through it; the delivery row reads the token.",
-"F585": "This Foundry runs as two replicas on one database with a workspace connected, and the instance admin removes the Slack app.",
 "F586": "Within 60 seconds, with nothing restarted, each replica asked at its own address refuses as unauthorised a Slack event signed with the signing secret the removed app was saved with.",
 "F587": "Once Priya retires Slack, no server of this Foundry acts on Slack messages any more, whichever one Slack reaches.",
 "F588": "A Foundry that refused every Slack event as unauthorised even with an app in effect would still pass this row; the replace rows read the verifying case.",
@@ -3479,7 +3500,18 @@
 "F654": "The tables are named only by the one module that owns them, and every sealed write stands inside a listed fenced writer, the hold of a submitted app included; a crate added later is read too.",
 "F655": "A second writer of this Foundry Slack tables, or a sealed write with no fence, cannot reach a release.",
 "F656": "A query assembled at run time escapes a reading over string literals; the store tests read what the writes actually do.",
+"F657": "A stored Slack change answers post, redirect, get: the save, the confirm's apply and the removal each redirect to /admin/instance/integrations, so a reload posts nothing again. The notice it earned (I-10, I-17, I-16) waits as a one-shot value under one session key in the admin's own session and is taken out as the page reads it, so the notice is never a query value: an address alone - typed again, bookmarked or shared - carries neither a submitted value nor a notice and claims no change that was not made. A session that cannot hold the notice leaves the committed change with no notice.",
+"F658": "Store::apply_pending_slack_app takes the sealing fence key and a re-seal closure, never plaintext: a sealed value is bound to the row it is stored in (ADR-EIP-004), so the held secrets, sealed into the pending row's own slots, cannot move into the saved app's row as they are. The store hands the held bytes to the closure under its lock and writes the two sealed values the closure answers, fenced on that key as any save is; a refusal from the closure rolls the transaction back. Every sealing and opening of a Slack secret therefore stays in crates/foundry-app/src/integrations/slack_app.rs (reseal_held_for_save) and the store sees no plaintext.",
+"F659": "Store::store_slack_submission is where the I-14 gate decides (D10): one transaction takes the exclusive instance lock, reads the connected-workspace count there, calls the caller's pure gate over that count, and writes the one plan it picked - the save of the app, or the hold of the same submission for its confirm. Both plans are sealed and fenced before the call, so the handler makes the decision and the store commits it against the count it read under the lock. A workspace that finishes connecting while a submission is in flight is therefore either counted by the gate that judges it or waits behind that write, so no app is switched under a connected workspace without the I-14 confirm.",
 "F66": "Removal leaves the shipped 24-hour delivery give-up untouched: pending deliveries meet no app and keep failing transiently.",
+"F660": "The I-14 gate holds exactly when the submission is a NewApp, the connected-workspace count is above zero, and an app is in effect - the environment's or the saved one; a NewApp with no connected workspace, a NewApp while no app is in effect, and every Rotate are saved at once.",
+"F661": "NewApp with 1 connected workspace left behind by a removed app, no app in effect: saved at once, no pending row, and no confirm page naming an empty client ID",
+"F662": "The gate is a pure function of three closed facts - the submission kind, the count partitioned at zero, and the app in effect - so every combination is tabled.",
+"F663": "After the removal, with the workspace that was connected still holding its Slack connection and no app in effect on this Foundry, the instance admin enters the same Slack app again with both of its secrets.",
+"F664": "It is saved at once: she reads that it is saved and that workspace admins can now choose Add to Slack, which a submission held for a confirmation would not let her read, and the connected workspace integrations page reads that it is connected to Canzan Labs without anybody reconnecting.",
+"F665": "A workspace that was connected before Priya retired Slack is connected again the moment she sets it up, with nothing for its admin to redo and nothing for her to confirm about an app that is gone.",
+"F666": "A removal that kept the connection row but forgot its token would still pass this row, which reads the connection line rather than a post through it; a gate that sent this submission to a confirmation naming no app would fail it, while a gate that saved at once whatever is in effect would still pass it, and the gate table reads that.",
+"F667": "This Foundry runs as two replicas on one database, each of them holding the Slack app the instance admin entered, and she removes it.",
 "F67": "Every write in this design takes the one instance-integrations advisory lock exclusively, fences on the sealing key id and bumps the config version in its own transaction; the pending hold takes that lock shared and fences the same way (ADR-IIS-004 r1, r2, r3).",
 "F68": "The design runs on a standalone deploy: no setting, host, cluster or DNS name beyond the documented FOUNDRY_ settings, and no dependency on any particular environment.",
 "F69": "Default test budgets apply and no feature derogation is requested; the acceptance lane runs in the isolated Lima VM through scripts/test-in-lima.sh.",

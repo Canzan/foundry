@@ -845,15 +845,15 @@ A removal that left the route retrying for Slack own silence rather than for the
 P5
 
 ```text
-After the removal, the instance admin enters the same Slack app again with both of its secrets.
+After the removal, with the workspace that was connected still holding its Slack connection and no app in effect on this Foundry, the instance admin enters the same Slack app again with both of its secrets.
 ```
 
 ```text
-She reads that it is saved and that workspace admins can now choose Add to Slack, and the connected workspace integrations page reads that it is connected to Canzan Labs without anybody reconnecting.
+It is saved at once: she reads that it is saved and that workspace admins can now choose Add to Slack, which a submission held for a confirmation would not let her read, and the connected workspace integrations page reads that it is connected to Canzan Labs without anybody reconnecting.
 ```
 
 ```text
-A workspace that was connected before Priya retired Slack is connected again the moment she sets it up, with nothing for its admin to redo.
+A workspace that was connected before Priya retired Slack is connected again the moment she sets it up, with nothing for its admin to redo and nothing for her to confirm about an app that is gone.
 ```
 
 ##### Disposition
@@ -863,19 +863,18 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: Setting the same app up again finds Canzan Labs still connected
 
 ```text
-A removal that kept the connection row but forgot its token would still pass this row, which reads the connection line rather than a post through it; the delivery row reads the token.
+A removal that kept the connection row but forgot its token would still pass this row, which reads the connection line rather than a post through it; a gate that sent this submission to a confirmation naming no app would fail it, while a gate that saved at once whatever is in effect would still pass it, and the gate table reads that.
 ```
 
 ###### Obligations
 
-None.
 
 ##### Covers
 
 P5
 
 ```text
-This Foundry runs as two replicas on one database with a workspace connected, and the instance admin removes the Slack app.
+This Foundry runs as two replicas on one database, each of them holding the Slack app the instance admin entered, and she removes it.
 ```
 
 ```text

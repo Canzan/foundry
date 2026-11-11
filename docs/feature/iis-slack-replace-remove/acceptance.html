@@ -881,13 +881,13 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>P5</p>
 
-<pre><code>After the removal, the instance admin enters the same Slack app again with both of its secrets.
+<pre><code>After the removal, with the workspace that was connected still holding its Slack connection and no app in effect on this Foundry, the instance admin enters the same Slack app again with both of its secrets.
 </code></pre>
 
-<pre><code>She reads that it is saved and that workspace admins can now choose Add to Slack, and the connected workspace integrations page reads that it is connected to Canzan Labs without anybody reconnecting.
+<pre><code>It is saved at once: she reads that it is saved and that workspace admins can now choose Add to Slack, which a submission held for a confirmation would not let her read, and the connected workspace integrations page reads that it is connected to Canzan Labs without anybody reconnecting.
 </code></pre>
 
-<pre><code>A workspace that was connected before Priya retired Slack is connected again the moment she sets it up, with nothing for its admin to redo.
+<pre><code>A workspace that was connected before Priya retired Slack is connected again the moment she sets it up, with nothing for its admin to redo and nothing for her to confirm about an app that is gone.
 </code></pre>
 
 <h5>Disposition</h5>
@@ -896,18 +896,17 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: Setting the same app up again finds Canzan Labs still connected</p>
 
-<pre><code>A removal that kept the connection row but forgot its token would still pass this row, which reads the connection line rather than a post through it; the delivery row reads the token.
+<pre><code>A removal that kept the connection row but forgot its token would still pass this row, which reads the connection line rather than a post through it; a gate that sent this submission to a confirmation naming no app would fail it, while a gate that saved at once whatever is in effect would still pass it, and the gate table reads that.
 </code></pre>
 
 <h6>Obligations</h6>
 
-<p>None.</p>
 
 <h5>Covers</h5>
 
 <p>P5</p>
 
-<pre><code>This Foundry runs as two replicas on one database with a workspace connected, and the instance admin removes the Slack app.
+<pre><code>This Foundry runs as two replicas on one database, each of them holding the Slack app the instance admin entered, and she removes it.
 </code></pre>
 
 <pre><code>Within 60 seconds, with nothing restarted, each replica asked at its own address refuses as unauthorised a Slack event signed with the signing secret the removed app was saved with.

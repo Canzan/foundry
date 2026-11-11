@@ -98,6 +98,27 @@ What the replica model carries and what it does not: replica_convergence.tla pro
 I-14's count is a reading taken when the page is rendered, not a gate on the confirm: a workspace connecting or disconnecting between the submission and the confirm changes the number Priya read, never whether her confirm applies.
 ```
 
+#### D16
+
+```text
+A stored Slack change answers post, redirect, get: the save, the confirm's apply and the removal each redirect to /admin/instance/integrations, so a reload posts nothing again. The notice it earned (I-10, I-17, I-16) waits as a one-shot value under one session key in the admin's own session and is taken out as the page reads it, so the notice is never a query value: an address alone - typed again, bookmarked or shared - carries neither a submitted value nor a notice and claims no change that was not made. A session that cannot hold the notice leaves the committed change with no notice.
+```
+Governed slices: S1, S2, S3
+
+#### D17
+
+```text
+Store::apply_pending_slack_app takes the sealing fence key and a re-seal closure, never plaintext: a sealed value is bound to the row it is stored in (ADR-EIP-004), so the held secrets, sealed into the pending row's own slots, cannot move into the saved app's row as they are. The store hands the held bytes to the closure under its lock and writes the two sealed values the closure answers, fenced on that key as any save is; a refusal from the closure rolls the transaction back. Every sealing and opening of a Slack secret therefore stays in crates/foundry-app/src/integrations/slack_app.rs (reseal_held_for_save) and the store sees no plaintext.
+```
+Governed slices: S2
+
+#### D18
+
+```text
+Store::store_slack_submission is where the I-14 gate decides (D10): one transaction takes the exclusive instance lock, reads the connected-workspace count there, calls the caller's pure gate over that count, and writes the one plan it picked - the save of the app, or the hold of the same submission for its confirm. Both plans are sealed and fenced before the call, so the handler makes the decision and the store commits it against the count it read under the lock. A workspace that finishes connecting while a submission is in flight is therefore either counted by the gate that judges it or waits behind that write, so no app is switched under a connected workspace without the I-14 confirm.
+```
+Governed slices: S1, S2
+
 ### Constraints
 
 #### K1
@@ -174,9 +195,9 @@ Out of scope and unchanged by this design: US-IIS-07's Replace secrets key and S
 
 ### Reuse
 
-SlackAppForm
+SlackSubmission
 
-crates\/foundry\-app\/src\/integrations\/slack\_app\.rs\:113
+crates\/foundry\-app\/src\/integrations\/slack\_app\.rs\:154
 
 Extend
 
@@ -194,9 +215,9 @@ Reuse
 The shapes and the trimming are unchanged by Replace and Remove, and its table and property tests already decide the whole field relation.
 ```
 
-plan\_save
+plan\_replace
 
-crates\/foundry\-app\/src\/integrations\/slack\_app\.rs\:198
+crates\/foundry\-app\/src\/integrations\/slack\_app\.rs\:440
 
 Extend
 
@@ -1123,7 +1144,7 @@ None.
 #### L3
 
 ```text
-The I-14 gate holds exactly when the submission is a NewApp and the connected-workspace count is above zero; a NewApp with no connected workspace saves at once, and a Rotate never reaches the confirm.
+The I-14 gate holds exactly when the submission is a NewApp, the connected-workspace count is above zero, and an app is in effect - the environment's or the saved one; a NewApp with no connected workspace, a NewApp while no app is in effect, and every Rotate are saved at once.
 ```
 
 Invariant
@@ -1159,7 +1180,11 @@ NewApp with 1 connected workspace while the environment's app is in effect: held
 ```
 
 ```text
-The gate is a pure function of two closed facts, so every combination is tabled.
+NewApp with 1 connected workspace left behind by a removed app, no app in effect: saved at once, no pending row, and no confirm page naming an empty client ID
+```
+
+```text
+The gate is a pure function of three closed facts - the submission kind, the count partitioned at zero, and the app in effect - so every combination is tabled.
 ```
 
 ##### Evidence
