@@ -583,7 +583,7 @@ async fn reads_in_order(world: &mut FoundryWorld, who: String, step: &Step) {
     iis::then_reads_in_order(world, &who, &sentences(step));
 }
 
-#[then(regex = r#"^nothing (Tomás) reads there says "([^"]+)"$"#)]
+#[then(regex = r#"^nothing (Priya|Tomás) reads there says "([^"]+)"$"#)]
 async fn reads_nothing_saying(world: &mut FoundryWorld, who: String, phrase: String) {
     iis::then_reads_nothing_saying(world, &who, &phrase);
 }
@@ -629,4 +629,75 @@ async fn sweep(world: &mut FoundryWorld) {
 )]
 async fn sweep_clean(world: &mut FoundryWorld) {
     iis::then_sweep_clean(world).await;
+}
+
+// =========================================================================== replacing the secrets key (US-IIS-07)
+
+#[given(
+    regex = r"^this Foundry holds (nothing saved yet|the Slack app Priya entered|one workspace connection|one workspace connection and the Slack app Priya entered)$"
+)]
+async fn holds_saved(world: &mut FoundryWorld, saved: String) {
+    iis::given_saved(world, iis::SavedSetup::parse(&saved)).await;
+}
+
+#[given(regex = r"^a browser has already opened the replace secrets key page once$")]
+async fn prefetched_replace(world: &mut FoundryWorld) {
+    iis::given_prefetched_replace(world).await;
+}
+
+#[when(regex = r"^(Priya) opens the replace secrets key page$")]
+async fn open_replace_page(world: &mut FoundryWorld, who: String) {
+    iis::when_open_replace(world, &who).await;
+}
+
+#[when(regex = r#"^(Priya) chooses "(Replace secrets key)" on the instance integrations page$"#)]
+async fn choose_key_control(world: &mut FoundryWorld, who: String, button: String) {
+    iis::when_choose_key_control(world, &who, Button::parse(&button)).await;
+}
+
+#[when(regex = r#"^(Priya) chooses "(Replace secrets key)" on the replace secrets key page$"#)]
+async fn choose_on_replace_page(world: &mut FoundryWorld, who: String, button: String) {
+    iis::when_choose_on_replace_page(world, &who, Button::parse(&button)).await;
+}
+
+#[then(regex = r"^(Priya) is on the replace secrets key page$")]
+async fn on_replace_page(world: &mut FoundryWorld, who: String) {
+    iis::then_on_replace_page(world, &who);
+}
+
+#[then(regex = r"^the stored secrets key and the Activity are as they were$")]
+async fn nothing_replaced(world: &mut FoundryWorld) {
+    iis::then_nothing_replaced(world).await;
+}
+
+#[then(regex = r"^the stored secrets key is a new one$")]
+async fn key_replaced(world: &mut FoundryWorld) {
+    iis::then_key_replaced(world).await;
+}
+
+#[when(regex = r"^a replace request reaches each replica at the same moment$")]
+async fn replace_race(world: &mut FoundryWorld) {
+    iis::when_replace_race(world).await;
+}
+
+#[then(
+    regex = r"^the secrets key was replaced once, and both requests were answered with it in effect$"
+)]
+async fn replaced_once(world: &mut FoundryWorld) {
+    iis::then_replaced_once(world).await;
+}
+
+#[then(regex = r"^the new secrets key appears nowhere Priya reads$")]
+async fn new_key_never_shown(world: &mut FoundryWorld) {
+    iis::then_new_key_never_shown(world).await;
+}
+
+#[given(regex = r"^Priya has replaced the secrets key$")]
+async fn replaced_key(world: &mut FoundryWorld) {
+    iis::given_replaced_key(world).await;
+}
+
+#[given(regex = r"^every replica has this Foundry's secrets key in effect$")]
+async fn replicas_have_the_key(world: &mut FoundryWorld) {
+    iis::given_replicas_have_the_key(world).await;
 }

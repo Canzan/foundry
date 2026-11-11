@@ -10,8 +10,11 @@
 # replace - the saved app's own secrets rotated and another app entered whole
 # (I-11, the I-18 "replaced" line), the I-14 confirm while workspaces are
 # connected, and Remove with the environment-app rules (I-15, I-16, the I-18
-# "removed" line). US-IIS-07 (Start over) is not here yet; where A shows a
-# state B extends (I-26), A's scenario checks the restore-only form.
+# "removed" line), and US-IIS-07's replace - the secrets key itself replaced
+# with every saved credential sealed again and nobody reconnecting (I-23, I-24,
+# the I-18 "replaced the secrets key" line). US-IIS-07's Start over is not here
+# yet; where A shows a state B extends (I-26), A's scenario checks the
+# restore-only form.
 #
 # Harness (DEVOPS D8, brief.md "For Acceptance Designer"): the production
 # router in process (InProcHarness), real Postgres, Slack as the in-process
@@ -1046,3 +1049,130 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya posts a Slack remove request
     Then Priya's answer is this Foundry's integrations page
     And the Slack app Foundry's environment sets is still in effect, with its activity unchanged
+
+  # ------------------------------------------------------------------ US-IIS-07
+
+  # Rotating the secrets key of a Foundry Priya has come to doubt, from the
+  # browser. The page offers Replace beside the stored key; the door behind it
+  # says how many saved credentials are sealed again and that nobody
+  # reconnects, and reading it - twice, as a prefetch and a click do - replaces
+  # nothing. The apply seals every credential again under a new key: the
+  # connections keep delivering on every replica, no workspace admin hears
+  # about it, and the operator's own key rotation still works afterwards. No
+  # page ever shows a key, so the stored key is read through the integrations
+  # test seam (as the dump and sweep scenarios above read it); "the Activity as
+  # it was" is the whole list, which is what tells a line nobody should have
+  # written from a line nobody looked for.
+
+  @us-iis-07 @needs-matrix @driving_port @kpi-iis-4 @kpi-iis-g1
+  Scenario: Replacing the secrets key seals every saved credential again and nobody reconnects
+    Given the homeserver matrix.canzan.dev has the bot account @foundry:canzan.dev and Lena's account @lena:canzan.dev
+    And Lena has the unencrypted room #auth:canzan.dev named "Identity Platform" and 5 members
+    And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
+    And this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And the next issue filed in Identity Platform becomes AUTH-12
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Priya has connected Canzan Labs to Matrix with the bot's access token
+    And Lena has routed New issue on Identity Platform to #auth-dev
+    And Lena has routed New issue on Identity Platform to #auth:canzan.dev
+    And a browser has already opened the replace secrets key page once
+    When Priya chooses "Replace secrets key" on the instance integrations page
+    Then Priya is on the replace secrets key page
+    And Priya reads "Replace the secrets key? Foundry seals its 3 saved credentials again under a new key. Nobody needs to reconnect."
+    And Priya is offered "Replace secrets key"
+    And the stored secrets key and the Activity are as they were
+    When Priya chooses "Replace secrets key" on the replace secrets key page
+    Then Priya reads "Replaced. 3 saved credentials are sealed under the new key."
+    And Priya is on the instance integrations page
+    And the stored secrets key is a new one
+    And the new secrets key appears nowhere Priya reads
+    And the instance integrations activity reads these lines in this order
+      | line                                                                            |
+      | 21 Oct 2026 · Priya Raman replaced the secrets key (3 credentials sealed again) |
+      | 21 Oct 2026 · Priya Raman saved the Slack app (6123456789012.7234567890123)     |
+      | 21 Oct 2026 · Priya Raman generated the secrets key                             |
+    And Canzan Labs' saved Slack connection still opens
+    And Canzan Labs' Slack connection is not marked lost and no workspace admin is emailed
+    When Sam files "Rotate LLDAP bind password" in Identity Platform
+    Then #auth-dev shows within 10 seconds a Foundry message "AUTH-12 Rotate LLDAP bind password" / "New issue in Identity Platform by Sam Okafor · Backlog" with Open in Foundry
+    And #auth:canzan.dev shows within 10 seconds a notice from @foundry:canzan.dev with "AUTH-12 Rotate LLDAP bind password" in bold, "New issue in Identity Platform by Sam Okafor · Backlog" and an Open in Foundry link
+
+  # The count the two sentences carry is the I-22 rule: each connection one,
+  # the Slack app Priya entered one. The app Foundry's environment sets is
+  # nobody's saved credential, which is how the third row holds a connection
+  # and nothing else, and what tells "1 saved credential" apart from a sentence
+  # that counts whatever it finds.
+
+  @us-iis-07
+  Scenario Outline: The replace page says how many saved credentials are sealed again, and reading it replaces nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds <saved>
+    When Priya opens the replace secrets key page
+    Then Priya reads "<sentence>"
+    And Priya is offered "Replace secrets key"
+    And the stored secrets key and the Activity are as they were
+
+    Examples:
+      | saved                                                    | sentence                                                                                                        |
+      | nothing saved yet                                        | Replace the secrets key? This Foundry has no saved credentials yet, so nothing needs to be sealed again.         |
+      | the Slack app Priya entered                              | Replace the secrets key? Foundry seals its 1 saved credential again under a new key. Nobody needs to reconnect.  |
+      | one workspace connection                                 | Replace the secrets key? Foundry seals its 1 saved credential again under a new key. Nobody needs to reconnect.  |
+      | one workspace connection and the Slack app Priya entered | Replace the secrets key? Foundry seals its 2 saved credentials again under a new key. Nobody needs to reconnect. |
+
+  @us-iis-07
+  Scenario Outline: Confirming the replacement says how many credentials are now sealed under the new key
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds <saved>
+    When Priya chooses "Replace secrets key" on the replace secrets key page
+    Then Priya reads "<notice>"
+    And Priya is on the instance integrations page
+    And the stored secrets key is a new one
+
+    Examples:
+      | saved                                                    | notice                                                     |
+      | nothing saved yet                                        | Replaced. This Foundry has a new secrets key.              |
+      | the Slack app Priya entered                              | Replaced. 1 saved credential is sealed under the new key.  |
+      | one workspace connection and the Slack app Priya entered | Replaced. 2 saved credentials are sealed under the new key. |
+
+  @us-iis-07 @error
+  Scenario: A reload after the replacement reads the page with no notice and claims no second replacement
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds one workspace connection and the Slack app Priya entered
+    And Priya has replaced the secrets key
+    When Priya opens the instance integrations page
+    Then Priya reads "Secrets key: set. Credentials entered here are sealed with it."
+    And nothing Priya reads there says "Replaced."
+    And the instance integrations activity reads "21 Oct 2026 · Priya Raman replaced the secrets key (2 credentials sealed again)" exactly once
+    And Canzan Labs' saved Slack connection still opens
+
+  @iis-replica @us-iis-07 @kpi-iis-1 @kpi-iis-4 @error
+  Scenario: Two replace requests at the same moment replace the key once, and every replica opens every credential
+    Given this Foundry runs as two replicas with its instance key set by the operator
+    And Foundry's environment sets the Slack app 6123456789012.7234567890123
+    And Priya has generated the secrets key
+    And every replica has this Foundry's secrets key in effect
+    And the next issue filed in Identity Platform becomes AUTH-12
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Lena has routed New issue on Identity Platform to #auth-dev
+    When a replace request reaches each replica at the same moment
+    Then the secrets key was replaced once, and both requests were answered with it in effect
+    And within 60 seconds Canzan Labs' Slack connection opens on every replica
+    And Canzan Labs' Slack connection is not marked lost and no workspace admin is emailed
+    When Sam files "Rotate LLDAP bind password" in Identity Platform
+    Then within 60 seconds every replica's history of the route to #auth-dev lists AUTH-12 as delivered
+
+  @us-iis-07 @kpi-iis-4
+  Scenario: After a replacement the operator's own key rotation still leaves every credential opening
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds one workspace connection and the Slack app Priya entered
+    And Priya has replaced the secrets key
+    When the operator runs foundry doctor rotate-secrets
+    Then the command reports 0 credential sealed again under the new key
+    And Canzan Labs' saved Slack connection still opens
+    And the instance integrations page reads "Secrets key: set. Credentials entered here are sealed with it."

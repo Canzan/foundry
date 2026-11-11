@@ -74,6 +74,9 @@ pub const SLACK_CONFIRM_DOOR: &str = "/admin/instance/integrations/slack/confirm
 /// Where Priya reads what removing this Foundry's Slack app stops, and
 /// removes it (US-IIS-05 AC 3).
 pub const SLACK_REMOVE_DOOR: &str = "/admin/instance/integrations/slack/remove";
+/// Where Priya reads how many saved credentials a replacement seals again,
+/// and confirms it (US-IIS-07 AC 1, I-23 then I-24).
+pub const REPLACE_DOOR: &str = "/admin/instance/integrations/secrets-key/replace";
 pub const INSTANCE_DASHBOARD: &str = "/admin/instance/workspaces";
 
 /// The operator's instance key (32 bytes, base64url; a planted value).
@@ -444,6 +447,12 @@ pub struct IisState {
     pub dump: Option<String>,
     /// The key file's bytes before the When.
     pub file_before: Option<Vec<u8>>,
+    /// The secrets key stored before the When (through the key test seam):
+    /// what a reading door may not change, and what a replacement must.
+    pub key_before: Option<String>,
+    /// The instance Activity Priya read before the When, newest first: the
+    /// population a "nothing was recorded" oracle is read against.
+    pub activity_before: Option<Vec<String>>,
     /// Pages swept for planted values.
     pub swept: Vec<Answer>,
 }
@@ -1946,6 +1955,12 @@ pub async fn then_connection_opens_on_every_replica(world: &mut FoundryWorld) {
 
 /// "a generate request reaches each replica at the same moment".
 pub async fn when_race(world: &mut FoundryWorld) {
+    race(world, SECRETS_KEY_DOOR).await;
+}
+
+/// One write door posted to both replicas at the same moment, each answer
+/// followed on the replica that gave it.
+async fn race(world: &mut FoundryWorld, door: &'static str) {
     let addrs = world
         .eip
         .replicas
@@ -1961,13 +1976,13 @@ pub async fn when_race(world: &mut FoundryWorld) {
         async move {
             let base = format!("http://{addr}");
             let resp = http
-                .post(format!("{base}{SECRETS_KEY_DOOR}"))
+                .post(format!("{base}{door}"))
                 .header(COOKIE, cookie.clone())
                 .form(&[("_csrf", csrf.as_str())])
                 .send()
                 .await
-                .expect("POST the generate door");
-            let posted = tm::into_answer(SECRETS_KEY_DOOR, resp).await;
+                .unwrap_or_else(|e| panic!("POST {door}: {e}"));
+            let posted = tm::into_answer(door, resp).await;
             match (posted.status.is_redirection(), posted.location.clone()) {
                 (true, Some(loc)) => {
                     let path = loc.strip_prefix(&base).unwrap_or(&loc).to_string();
@@ -1976,7 +1991,7 @@ pub async fn when_race(world: &mut FoundryWorld) {
                         .header(COOKIE, cookie)
                         .send()
                         .await
-                        .expect("follow the generate answer");
+                        .unwrap_or_else(|e| panic!("follow the answer of {door}: {e}"));
                     tm::into_answer(&path, resp).await
                 }
                 _ => posted,
@@ -2487,4 +2502,324 @@ pub async fn then_sweep_clean(world: &mut FoundryWorld) {
             "the database holds no key or secret in plaintext"
         );
     }
+}
+
+// ===========================================================================
+// US-IIS-07: replacing the secrets key (I-23, I-24)
+// ===========================================================================
+
+/// The question I-23 asks whatever the count is: read on its own page, with
+/// nothing replaced yet.
+const REPLACE_QUESTION: &str = "Replace the secrets key?";
+
+/// What this Foundry holds sealed under its secrets key, by the I-22 counting
+/// rule: each connection one, the saved Slack app one. The app Foundry's
+/// environment sets is no saved credential, which is how a scenario holds a
+/// connection and nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SavedSetup {
+    Nothing,
+    AppOnly,
+    ConnectionOnly,
+    ConnectionAndApp,
+}
+
+impl SavedSetup {
+    pub fn parse(words: &str) -> Self {
+        match words.trim() {
+            "nothing saved yet" => Self::Nothing,
+            "the Slack app Priya entered" => Self::AppOnly,
+            "one workspace connection" => Self::ConnectionOnly,
+            "one workspace connection and the Slack app Priya entered" => Self::ConnectionAndApp,
+            other => panic!("unknown saved setup {other:?}"),
+        }
+    }
+}
+
+/// "this Foundry holds <saved>": the credentials are made through the product,
+/// as Priya and a workspace admin make them.
+pub async fn given_saved(world: &mut FoundryWorld, setup: SavedSetup) {
+    match setup {
+        SavedSetup::Nothing => {}
+        SavedSetup::AppOnly => given_saved_app(world).await,
+        SavedSetup::ConnectionOnly => {
+            given_environment_app(world).await;
+            given_connected(world).await;
+        }
+        SavedSetup::ConnectionAndApp => {
+            given_saved_app(world).await;
+            given_connected(world).await;
+        }
+    }
+}
+
+/// The secrets key stored now, as the integrations test seam reads it (the
+/// one reader of a generated key, check-arch `integrations-test-seam`). `None`
+/// when no key is stored or the instance key this Foundry holds does not open
+/// it.
+async fn stored_secrets_key(world: &FoundryWorld) -> Option<String> {
+    let instance_key = held_instance_key(world)?;
+    let pool = tm::pool(world);
+    foundry_app::integrations::secrets_key_seam::generated_secrets_key(&pool, &instance_key).await
+}
+
+/// The instance Activity Priya reads now, newest first.
+async fn instance_activity(world: &mut FoundryWorld) -> Vec<String> {
+    let page = instance_page(world, "Priya").await;
+    answered(&page, "Priya's instance integrations page");
+    texts_of(&page.body, ACTIVITY)
+}
+
+/// Remember what a reading door may not move and what an apply must: the
+/// stored secrets key and the whole Activity list.
+async fn remember(world: &mut FoundryWorld) {
+    world.iis.key_before = stored_secrets_key(world).await;
+    world.iis.activity_before = Some(instance_activity(world).await);
+}
+
+/// The replace page as `who` opens it.
+async fn replace_page(world: &mut FoundryWorld, who: &str) -> Answer {
+    eip::get(world, who, REPLACE_DOOR).await
+}
+
+/// "a browser has already opened the replace secrets key page once": a link
+/// preview or a prefetch asked for the address, with nobody choosing
+/// anything. The stored key and the Activity are remembered first, so the
+/// Then reads them against the state before this GET and the next one.
+pub async fn given_prefetched_replace(world: &mut FoundryWorld) {
+    remember(world).await;
+    let page = replace_page(world, "Priya").await;
+    let text = eip::text(&page);
+    assert!(
+        page.status.is_success() && text.contains(REPLACE_QUESTION),
+        "precondition: the replace page asks Priya whether to replace the secrets key, and \
+         reading it decides nothing; {}",
+        tm::describe(&page)
+    );
+}
+
+/// "Priya opens the replace secrets key page".
+pub async fn when_open_replace(world: &mut FoundryWorld, who: &str) {
+    remember(world).await;
+    eip::when_open(world, who, REPLACE_DOOR).await;
+}
+
+/// Follow the instance page's own secrets-key control as a click would: a
+/// link is opened, a form is submitted.
+async fn choose_key_control(world: &mut FoundryWorld, who: &str, button: Button) -> Answer {
+    let page = instance_page(world, who).await;
+    answered(&page, "the instance integrations page");
+    let label = button.copy();
+    if let Some(href) = link_hrefs(&page.body, label).first() {
+        return eip::get(world, who, href).await;
+    }
+    let (action, fields) = form_with_button(&page.body, label).unwrap_or_else(|| {
+        panic!(
+            "{who} finds {label:?} beside the stored secrets key on the instance integrations \
+             page: it is the only way she rotates the key of a Foundry she doubts from the \
+             browser, and without it rotating it means an operator, a maintenance window and \
+             every workspace reconnecting. Offer {label:?} in the page's secrets-key section \
+             while the stored key opens; {}",
+            tm::describe(&page)
+        )
+    });
+    let posted = eip::post(world, who, &action, &fields, true).await;
+    eip::follow(world, who, posted).await
+}
+
+/// "Priya chooses "Replace secrets key" on the instance integrations page".
+pub async fn when_choose_key_control(world: &mut FoundryWorld, who: &str, button: Button) {
+    remember(world).await;
+    eip::capture_before(world).await;
+    let answer = choose_key_control(world, who, button).await;
+    world.eip.when_answer = Some(answer);
+}
+
+/// Submit the replace page's own control, as a click would, and follow it.
+async fn choose_on_replace_page(world: &mut FoundryWorld, who: &str, button: Button) -> Answer {
+    let page = replace_page(world, who).await;
+    answered(&page, "the replace secrets key page");
+    let (action, fields) = form_with_button(&page.body, button.copy()).unwrap_or_else(|| {
+        panic!(
+            "{who} finds {:?} on the replace page, the one control that carries the replacement \
+             out: without it she has read what a replacement seals again and has no way to make \
+             it. Offer the control on the replace page, posting the replace door; {}",
+            button.copy(),
+            tm::describe(&page)
+        )
+    });
+    let posted = eip::post(world, who, &action, &fields, true).await;
+    eip::follow(world, who, posted).await
+}
+
+/// "Priya chooses "Replace secrets key" on the replace secrets key page".
+pub async fn when_choose_on_replace_page(world: &mut FoundryWorld, who: &str, button: Button) {
+    remember(world).await;
+    eip::capture_before(world).await;
+    let answer = choose_on_replace_page(world, who, button).await;
+    world.eip.when_answer = Some(answer);
+}
+
+/// "<who> is on the replace secrets key page": the question is asked at its
+/// own address, so Priya can read it, leave it and come back to it, and a
+/// reload of it re-posts nothing.
+pub fn then_on_replace_page(world: &FoundryWorld, who: &str) {
+    let answer = answer(world);
+    assert!(
+        answer.status.is_success() && answer.path.split('?').next() == Some(REPLACE_DOOR),
+        "{who} reads what a replacement seals again on the replace page at its own address: \
+         answered anywhere else she either replaces the key without being asked, or has no \
+         address to come back to. Answer the Replace secrets key control with the replace page; \
+         {}",
+        tm::describe(&answer)
+    );
+}
+
+/// "the stored secrets key and the Activity are as they were": the reading
+/// door moved neither. The key is read through the test seam, so a page that
+/// shows no key id cannot hide a replacement; the Activity is read as the
+/// whole list, so an extra line shows up here.
+pub async fn then_nothing_replaced(world: &mut FoundryWorld) {
+    let key_before = world.iis.key_before.clone();
+    let activity_before = world
+        .iis
+        .activity_before
+        .clone()
+        .expect("the When remembered the stored key and the Activity");
+    let key_now = stored_secrets_key(world).await;
+    assert_eq!(
+        key_now, key_before,
+        "the secrets key this Foundry has stored is the one it had: reading a page - a prefetch \
+         and a link preview read it too - is not choosing, and a key replaced by a GET re-seals \
+         every credential behind the admin's back, bumping the version every replica follows. \
+         Make the replace page a reading door and replace the key only in the POST"
+    );
+    let activity_now = instance_activity(world).await;
+    assert_eq!(
+        activity_now, activity_before,
+        "the instance Activity reads exactly the lines it read before: a line recorded by a page \
+         Priya only opened tells every later reader that this Foundry's key was replaced when it \
+         was not. Record the replacement only where it commits"
+    );
+}
+
+/// "the stored secrets key is a new one": the replacement really happened,
+/// read through the test seam. Without it, a page reading I-24 proves nothing
+/// but its own words.
+pub async fn then_key_replaced(world: &mut FoundryWorld) {
+    let before = world
+        .iis
+        .key_before
+        .clone()
+        .expect("the When remembered the stored key");
+    let now = stored_secrets_key(world)
+        .await
+        .expect("this Foundry has a stored secrets key its instance key opens");
+    assert_ne!(
+        now, before,
+        "this Foundry has stored a different secrets key: the page may read that the credentials \
+         are sealed under a new key while the old one is still the stored one, which leaves Priya \
+         believing she rotated a key she doubts. Generate a new key and seal every saved \
+         credential under it in the apply"
+    );
+}
+
+/// "a replace request reaches each replica at the same moment".
+pub async fn when_replace_race(world: &mut FoundryWorld) {
+    remember(world).await;
+    race(world, REPLACE_DOOR).await;
+}
+
+/// "the secrets key was replaced once, and both requests were answered with
+/// it in effect": the compare-and-set loser changed nothing - one stored key,
+/// one recorded replacement, and a page in front of both admins.
+pub async fn then_replaced_once(world: &mut FoundryWorld) {
+    for answer in world.iis.race.clone() {
+        let text = eip::text(&answer);
+        assert!(
+            answer.status.is_success() && text.contains("Secrets key: set."),
+            "each replace request is answered with the page's resulting state, whichever of the \
+             two replaced the key: the one that lost the race has nothing to report and must not \
+             answer an error or a dead end; {}",
+            tm::describe(&answer)
+        );
+    }
+    let pool = &world
+        .eip
+        .replicas
+        .as_ref()
+        .expect("Foundry runs as replicas")
+        .shared_pool;
+    let stored: i64 = sqlx::query_scalar("SELECT count(*) FROM integration_secrets_key")
+        .fetch_one(pool)
+        .await
+        .unwrap_or_else(|e| panic!("count the stored secrets keys: {e}"));
+    assert_eq!(
+        stored, 1,
+        "exactly one secrets key is stored: a second row is a second authority over what opens \
+         the credentials of this Foundry, and nothing can safely decide which one to drop. Store \
+         the replacement over the one row, under the instance lock"
+    );
+    then_key_replaced(world).await;
+    let lines = instance_activity(world).await;
+    let replacements = lines
+        .iter()
+        .filter(|l| l.contains("replaced the secrets key"))
+        .count();
+    assert_eq!(
+        replacements, 1,
+        "the Activity records one replacement, not two: both requests were in flight at the same \
+         moment, and only one of them replaced the key. Check the stored key id inside the \
+         write and roll the loser back; it lists {lines:?}"
+    );
+}
+
+/// "the new secrets key appears nowhere Priya reads": the key a replacement
+/// generated is swept exactly as the first one is (KPI-IIS-G1), through the
+/// pages that could carry it.
+pub async fn then_new_key_never_shown(world: &mut FoundryWorld) {
+    let mut read = Vec::new();
+    for path in [INSTANCE_INTEGRATIONS, REPLACE_DOOR, WORKSPACE_INTEGRATIONS] {
+        read.push(eip::get(world, "Priya", path).await);
+    }
+    for value in planted(world, true).await {
+        for form in encodings(&value) {
+            for page in &read {
+                assert!(
+                    !page.body.contains(&form)
+                        && !page.location.clone().unwrap_or_default().contains(&form),
+                    "{} shows no key or secret, in any encoding: the key a replacement made is a \
+                     secret exactly as the first one is, and a page that hands it back makes the \
+                     rotation worthless. Keep it in the database, sealed, and never render it",
+                    page.path
+                );
+            }
+        }
+    }
+}
+
+/// "Priya has replaced the secrets key" (from the replace page, as she would).
+pub async fn given_replaced_key(world: &mut FoundryWorld) {
+    remember(world).await;
+    let answer = choose_on_replace_page(world, "Priya", Button::Replace).await;
+    assert!(
+        eip::text(&answer).contains("Replaced."),
+        "precondition: Priya replaced this Foundry's secrets key from the replace page; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// "every replica has this Foundry's secrets key in effect": each replica is
+/// asked at its own address until its page reads the stored key, so what the
+/// scenario does next is that change and not a reload still on its way (as
+/// the saved-app precondition waits above).
+pub async fn given_replicas_have_the_key(world: &mut FoundryWorld) {
+    on_every_replica(
+        world,
+        "Priya",
+        INSTANCE_INTEGRATIONS,
+        "reads the stored secrets key",
+        |page| eip::text(page).contains("Secrets key: set."),
+    )
+    .await;
 }
