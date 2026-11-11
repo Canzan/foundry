@@ -7,7 +7,10 @@
 //! re-seal is the caller's closure. Each instance-level write is one
 //! transaction that first takes the instance-integrations lock exclusive
 //! (before any row lock, ADR-IIS-004 rule 1), records its activity line and
-//! bumps the config version.
+//! bumps the config version. A write judged over a count - the I-14 gate over
+//! the connected workspaces - reads that count inside its own transaction,
+//! under that same lock, so nothing it is judged over can change between the
+//! reading and the write (D10).
 
 use super::KeyCheck;
 use crate::{Store, StoreError};
@@ -19,6 +22,13 @@ use uuid::Uuid;
 /// transaction's `search_path`, so per-schema deployments and test runs never
 /// contend.
 pub const INSTANCE_INTEGRATIONS_LOCK: &str = "foundry.instance-integrations";
+
+/// How many workspaces hold a live Slack connection: the one count I-14 and
+/// I-15 read and the I-14 gate judges over (D10). A disconnected connection
+/// posts nothing, so it counts for neither.
+const CONNECTED_SLACK_WORKSPACES: &str =
+    "SELECT count(DISTINCT workspace_id) FROM integration_connections
+      WHERE kind = 'slack' AND state <> 'disconnected'";
 
 /// Which instance key wrapped the stored secrets key (`wrapped_by_source`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -220,6 +230,32 @@ impl PendingSlackApp {
     fn applicable_by(&self, actor: Uuid, now: OffsetDateTime) -> bool {
         self.requested_by == actor && now < self.expires_at
     }
+}
+
+/// Which row a judged submission is written to, as the I-14 gate decides it
+/// over the connected-workspace count read inside that write's own
+/// transaction (D10). Both plans are sealed before the lock is taken,
+/// because the count the gate reads is only the count that holds while the
+/// lock is held; exactly one of them is written. No `Debug`: both plans
+/// carry sealed secrets.
+#[derive(Clone, Copy)]
+pub enum SlackSubmissionPlan<'a> {
+    /// Nobody is switched away from the app in effect, so the submitted app
+    /// is stored at once.
+    SaveAtOnce(&'a SlackAppSave),
+    /// Workspaces are still connected through the app in effect, so the
+    /// submitted app waits for the same admin's confirm (I-14).
+    WaitForConfirm(&'a PendingSlackAppSave),
+}
+
+/// What a submission's write did: which row the gate sent it to, with that
+/// write's own fenced outcome.
+#[derive(Debug, PartialEq, Eq)]
+pub enum SubmissionStored {
+    /// The app was stored as the saved app, so it is in effect now.
+    Saved(SlackSaveOutcome),
+    /// The app was held for its confirm (I-14): nothing is in effect yet.
+    Held(SlackSaveOutcome),
 }
 
 /// What a confirm of the held Slack app did, or why it changed nothing.
@@ -472,10 +508,13 @@ impl Store {
         })
     }
 
-    /// An instance admin's Slack app save (ADR-IIS-003): under the exclusive
-    /// lock, refuse a save sealed under anything but the sealing key, else
-    /// store the app, record one line naming its client ID ("saved", or
-    /// "replaced" over a saved app) and bump the version.
+    /// A Slack app save on its own (ADR-IIS-003): under the exclusive lock,
+    /// refuse a save sealed under anything but the sealing key, else store the
+    /// app, record one line naming its client ID ("saved", or "replaced" over
+    /// a saved app) and bump the version. An instance admin's submission
+    /// reaches this same write through its gate
+    /// ([`Store::store_slack_submission`]), which reads the count it is judged
+    /// over in the same transaction (D10).
     pub async fn save_slack_app(&self, app: &SlackAppSave) -> Result<SlackSaveOutcome, StoreError> {
         let mut tx = self.pool.begin().await?;
         lock_exclusive(&mut tx).await?;
@@ -525,33 +564,38 @@ impl Store {
         &self,
         app: &PendingSlackAppSave,
     ) -> Result<SlackSaveOutcome, StoreError> {
+        let tx = self.pool.begin().await?;
+        hold_pending_slack_app(tx, app).await
+    }
+
+    /// An instance admin's submission of a Slack app, with the I-14 gate
+    /// decided inside the write's own transaction (D10, ADR-IIS-004 r1): the
+    /// exclusive lock first, then the connected-workspace count, then `gate` -
+    /// the caller's pure decision over that count - and then the one write it
+    /// chose, fenced on the sealing key as every sealed write is.
+    ///
+    /// The count is read under the lock every instance write takes, so a
+    /// workspace that connects while a submission is in flight either is
+    /// counted by the gate that judges it or waits behind that write: no app
+    /// is switched under a connected workspace without the confirm I-14 asks
+    /// for.
+    pub async fn store_slack_submission<'plan>(
+        &self,
+        gate: impl FnOnce(i64) -> SlackSubmissionPlan<'plan>,
+    ) -> Result<SubmissionStored, StoreError> {
         let mut tx = self.pool.begin().await?;
-        if !seal_fence_holds(&mut tx, app.sealed_under.as_deref()).await? {
-            tx.rollback().await?;
-            return Ok(SlackSaveOutcome::StaleKey);
+        lock_exclusive(&mut tx).await?;
+        let connected = sqlx::query_scalar(CONNECTED_SLACK_WORKSPACES)
+            .fetch_one(&mut *tx)
+            .await?;
+        match gate(connected) {
+            SlackSubmissionPlan::SaveAtOnce(app) => {
+                Ok(SubmissionStored::Saved(save_slack_app(tx, app).await?))
+            }
+            SlackSubmissionPlan::WaitForConfirm(app) => Ok(SubmissionStored::Held(
+                hold_pending_slack_app(tx, app).await?,
+            )),
         }
-        sqlx::query(
-            "INSERT INTO instance_slack_app_pending
-                    (id, client_id, sealed_client_secret, sealed_signing_secret,
-                     requested_by, expires_at)
-             VALUES (1, $1, $2, $3, $4, $5)
-             ON CONFLICT (id) DO UPDATE SET
-                    client_id = EXCLUDED.client_id,
-                    sealed_client_secret = EXCLUDED.sealed_client_secret,
-                    sealed_signing_secret = EXCLUDED.sealed_signing_secret,
-                    requested_by = EXCLUDED.requested_by,
-                    expires_at = EXCLUDED.expires_at",
-        )
-        .bind(&app.client_id)
-        .bind(&app.sealed_client_secret)
-        .bind(&app.sealed_signing_secret)
-        .bind(app.requested_by)
-        .bind(app.expires_at)
-        .execute(&mut *tx)
-        .await?;
-        let version = read_config_version(&mut tx).await?;
-        tx.commit().await?;
-        Ok(SlackSaveOutcome::Saved { version })
     }
 
     /// `actor`'s confirm of the held Slack app at `now` (ADR-IIS-003 r4): one
@@ -600,16 +644,13 @@ impl Store {
         Ok(PendingApplied::Applied(save_slack_app(tx, &app).await?))
     }
 
-    /// How many workspaces hold a live Slack connection: what I-14 and I-15
-    /// count, and what the I-14 gate reads (ADR-IIS-003 r4). A disconnected
-    /// connection posts nothing, so it counts for neither.
+    /// How many workspaces hold a live Slack connection, as I-14 and I-15
+    /// read it per request (D10). The I-14 gate reads the same count inside
+    /// its own write ([`Store::store_slack_submission`]), never this one.
     pub async fn connected_slack_workspaces(&self) -> Result<i64, StoreError> {
-        Ok(sqlx::query_scalar(
-            "SELECT count(DISTINCT workspace_id) FROM integration_connections
-              WHERE kind = 'slack' AND state <> 'disconnected'",
-        )
-        .fetch_one(&self.pool)
-        .await?)
+        Ok(sqlx::query_scalar(CONNECTED_SLACK_WORKSPACES)
+            .fetch_one(&self.pool)
+            .await?)
     }
 
     /// Delete the held Slack app once it has expired (the caller's clock,
@@ -827,6 +868,50 @@ async fn save_slack_app(
         at: app.saved_at,
     };
     let version = commit_recorded(tx, &line).await?;
+    Ok(SlackSaveOutcome::Saved { version })
+}
+
+/// Hold `app` in `tx` for its confirm (I-14, ADR-IIS-003 r4): refuse a hold
+/// sealed under anything but the sealing key (the seal fence, ADR-IIS-004 r2),
+/// else the upsert of the one pending row, committed with nothing else - no
+/// activity line and no version bump, because nothing a reader sees changes,
+/// so `Saved` reports the version as it stands. A new submission overwrites
+/// the row. The one writer of `instance_slack_app_pending`'s sealed columns
+/// for a hold (check-arch `integrations-seal-fence`).
+///
+/// The fence takes the instance-integrations lock shared, which a hold of its
+/// own needs and which the submission write already holds exclusively where
+/// the gate chose this hold in the same transaction: a lock a transaction
+/// already holds is granted again at once.
+async fn hold_pending_slack_app(
+    mut tx: Tx<'_>,
+    app: &PendingSlackAppSave,
+) -> Result<SlackSaveOutcome, StoreError> {
+    if !seal_fence_holds(&mut tx, app.sealed_under.as_deref()).await? {
+        tx.rollback().await?;
+        return Ok(SlackSaveOutcome::StaleKey);
+    }
+    sqlx::query(
+        "INSERT INTO instance_slack_app_pending
+                (id, client_id, sealed_client_secret, sealed_signing_secret,
+                 requested_by, expires_at)
+         VALUES (1, $1, $2, $3, $4, $5)
+         ON CONFLICT (id) DO UPDATE SET
+                client_id = EXCLUDED.client_id,
+                sealed_client_secret = EXCLUDED.sealed_client_secret,
+                sealed_signing_secret = EXCLUDED.sealed_signing_secret,
+                requested_by = EXCLUDED.requested_by,
+                expires_at = EXCLUDED.expires_at",
+    )
+    .bind(&app.client_id)
+    .bind(&app.sealed_client_secret)
+    .bind(&app.sealed_signing_secret)
+    .bind(app.requested_by)
+    .bind(app.expires_at)
+    .execute(&mut *tx)
+    .await?;
+    let version = read_config_version(&mut tx).await?;
+    tx.commit().await?;
     Ok(SlackSaveOutcome::Saved { version })
 }
 

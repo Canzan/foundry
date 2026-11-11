@@ -17,10 +17,10 @@
 //! - [`KeyProbe`]: the boot function's reads of the stored instance rows and
 //!   its one write, the current instance key's check value;
 //! - [`InstanceKeyWrites`]: the instance page's Generate (one write
-//!   use-case, `store_secrets_key`), its Slack app save (`save_slack_app`),
-//!   the hold and the confirm of a submitted app with the connected-workspace
-//!   count the I-14 gate reads and the held app's prune, its activity read and
-//!   the saver's name;
+//!   use-case, `store_secrets_key`), its Slack submission with the I-14 gate
+//!   inside that write (`store_slack_submission`), the confirm of a held app,
+//!   the removal, the connected-workspace count the I-14 and I-15 pages read,
+//!   the held app's prune, its activity read and the saver's name;
 //! - [`IntegrationsReload`]: each replica's reload task (ADR-IIS-004 r4, r8):
 //!   the config version, the snapshot, and its one write, its own replica
 //!   state row.
@@ -29,10 +29,9 @@ use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
     DispatchOutcome, EmailSendFacts, InstanceActivityRow, InstanceSnapshot, KeyCheck,
-    LostConnection, NewDelivery, NewSecretsKey, PendingApplied, PendingDelivery,
-    PendingSlackAppSave, Pruned, Pruning, RecordOutcome, RemoveOutcome, ReplicaState,
-    RetentionView, RewrapOutcome, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackAppSave,
-    SlackSaveOutcome,
+    LostConnection, NewDelivery, NewSecretsKey, PendingApplied, PendingDelivery, Pruned, Pruning,
+    RecordOutcome, RemoveOutcome, ReplicaState, RetentionView, RewrapOutcome, SealedSlot,
+    SecretsKeyOutcome, SecretsKeyRewrap, SlackSubmissionPlan, SubmissionStored,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -56,6 +55,11 @@ pub type Resealer<'a> =
 /// row before the confirm stores them.
 pub type HeldResealer<'a> =
     &'a (dyn Fn(&[u8], &[u8]) -> Result<(Vec<u8>, Vec<u8>), ResealRefused> + Sync);
+
+/// The I-14 gate a submission's write applies: given the
+/// connected-workspace count read inside that write's own locked
+/// transaction, it answers which of the two sealed plans is written (D10).
+pub type SubmissionGate<'a> = &'a (dyn Fn(i64) -> SlackSubmissionPlan<'a> + Sync);
 
 /// A stored value the re-seal could not open or seal again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -207,16 +211,16 @@ pub trait InstanceKeyWrites: Send + Sync {
         reseal: Resealer<'_>,
     ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError>;
 
-    /// Save the Slack app, fenced on the key its secrets were sealed under,
-    /// with its activity line and the version bump: one transaction.
-    async fn save_slack_app(&self, app: &SlackAppSave) -> Result<SlackSaveOutcome, StoreError>;
-
-    /// Hold the submitted app for its confirm (I-14), fenced the same way:
-    /// nothing a reader sees changes, so no activity line and no version bump.
-    async fn hold_pending_slack_app(
+    /// Write the submitted Slack app where `gate` sends it, over the
+    /// connected-workspace count read inside that one write's own locked
+    /// transaction (the I-14 gate, D10): the save, fenced on the key its
+    /// secrets were sealed under, with its activity line and the version
+    /// bump; or the hold of the submitted app for its confirm (I-14), fenced
+    /// the same way, where nothing a reader sees changes.
+    async fn store_slack_submission(
         &self,
-        app: &PendingSlackAppSave,
-    ) -> Result<SlackSaveOutcome, StoreError>;
+        gate: SubmissionGate<'_>,
+    ) -> Result<SubmissionStored, StoreError>;
 
     /// `actor`'s confirm at `now`: apply the held app as a save and delete it,
     /// in one transaction, where she holds it and it has not expired.
@@ -445,15 +449,11 @@ impl InstanceKeyWrites for StoreCapabilities {
             .await
     }
 
-    async fn save_slack_app(&self, app: &SlackAppSave) -> Result<SlackSaveOutcome, StoreError> {
-        self.0.save_slack_app(app).await
-    }
-
-    async fn hold_pending_slack_app(
+    async fn store_slack_submission(
         &self,
-        app: &PendingSlackAppSave,
-    ) -> Result<SlackSaveOutcome, StoreError> {
-        self.0.hold_pending_slack_app(app).await
+        gate: SubmissionGate<'_>,
+    ) -> Result<SubmissionStored, StoreError> {
+        self.0.store_slack_submission(gate).await
     }
 
     async fn apply_pending_slack_app(

@@ -939,13 +939,12 @@ fn delivery_result(settled: Settlement) -> DeliveryResult {
 mod retention_tests {
     use super::*;
     use crate::integrations::store_capabilities::{
-        ExpiryPlanner, HeldResealer, ResealRefused, Resealer, RetentionPlanner,
+        ExpiryPlanner, HeldResealer, ResealRefused, Resealer, RetentionPlanner, SubmissionGate,
     };
     use async_trait::async_trait;
     use foundry_store::integrations::{
-        DeliveryTally, InstanceActivityRow, KeyCheck, NewSecretsKey, PendingApplied,
-        PendingSlackAppSave, Pruned, RemoveOutcome, SecretsKeyOutcome, SlackAppSave,
-        SlackSaveOutcome,
+        DeliveryTally, InstanceActivityRow, KeyCheck, NewSecretsKey, PendingApplied, Pruned,
+        RemoveOutcome, SecretsKeyOutcome, SubmissionStored,
     };
     use foundry_store::StoreError;
 
@@ -999,18 +998,11 @@ mod retention_tests {
             unreachable!("the retention tick stores no secrets key")
         }
 
-        async fn save_slack_app(
+        async fn store_slack_submission(
             &self,
-            _app: &SlackAppSave,
-        ) -> Result<SlackSaveOutcome, StoreError> {
-            unreachable!("the retention tick saves no Slack app")
-        }
-
-        async fn hold_pending_slack_app(
-            &self,
-            _app: &PendingSlackAppSave,
-        ) -> Result<SlackSaveOutcome, StoreError> {
-            unreachable!("the retention tick holds no Slack app")
+            _gate: SubmissionGate<'_>,
+        ) -> Result<SubmissionStored, StoreError> {
+            unreachable!("the retention tick writes no Slack submission")
         }
 
         async fn apply_pending_slack_app(

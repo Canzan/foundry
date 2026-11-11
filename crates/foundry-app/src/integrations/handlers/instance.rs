@@ -31,16 +31,23 @@
 //! needs both of its own secrets. The form is offered wherever credentials
 //! seal, over a saved app too, holding the client ID in effect so a rotation
 //! needs no retyping. A save that stored the app answers a redirect onto the
-//! page itself naming the notice she lands on (I-10 or I-17), as every other
-//! door of this feature's handlers answers a write, so a reload never posts
-//! the secrets again; a refusal and a save that stored nothing answer the
-//! page in place. The Activity reads a replacement in I-18's words.
+//! page itself, with what it earned (I-10 or I-17) waiting in her own
+//! session for that page to read once ([`SavedNotice`]), as the confirm and
+//! the remove doors answer a write too, so a reload never posts the secrets
+//! again and no address carries a notice - while Generate and Move, which
+//! carry no submitted value, answer the page in place. A refusal and a save
+//! that stored nothing answer the page in place. The Activity reads a
+//! replacement in I-18's words.
 //!
 //! Switching to another app while workspaces are still connected through the
 //! app in effect waits for a confirm (US-IIS-05 AC 2): the gate is
 //! [`SubmissionDoor`] over the submission's kind and the connected-workspace
-//! count the store answers, so a rotation and a switch nobody is connected
-//! through are saved at once. A submission the gate holds is sealed into the
+//! count, so a rotation and a switch nobody is connected through are saved at
+//! once. The gate is judged inside the write's own locked transaction, which
+//! is where that count is read (D10): the store takes the lock every instance
+//! write takes, reads the count and calls this gate, so a workspace that
+//! connects while the post is in flight cannot be switched without its
+//! confirm. A submission the gate holds is sealed into the
 //! pending row and answered with a redirect to
 //! `GET …/slack/confirm`, which reads I-14 in the form that count selects and
 //! offers the one control that saves it - no secret and no form field, because
@@ -79,14 +86,13 @@ use crate::integrations::{sealed_slot, slack, Integrations};
 use crate::AppState;
 use askama::Template;
 use axum::body::Bytes;
-use axum::extract::{RawQuery, State};
+use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Redirect, Response};
 use foundry_store::integrations::{
     InstanceActivityRow, KeyWrapper, PendingApplied, RemoveOutcome, SecretsKeyOutcome,
-    SlackSaveOutcome,
+    SlackSaveOutcome, SlackSubmissionPlan, SubmissionStored,
 };
-use serde::Deserialize;
 use time::OffsetDateTime;
 use tower_sessions::Session;
 use uuid::Uuid;
@@ -358,10 +364,11 @@ impl SlackOffer {
     }
 }
 
-/// What a door that changed the Slack app answers, and the only thing its
-/// redirect carries: a closed set of notices, each with its own wire name, so
-/// the admin lands on the instance page itself (post, redirect, get) with the
-/// words the change earned and no submitted value in the address.
+/// What a door that changed the Slack app answers: a closed set of notices,
+/// each with its own wire name, left in the admin's own session for the page
+/// she lands on to read once (post, redirect, get). Her address carries
+/// neither a submitted value nor a notice, so no address can claim a change
+/// that was not made.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SavedNotice {
     /// I-10: the app saved here is the one in effect.
@@ -373,7 +380,11 @@ pub enum SavedNotice {
 }
 
 impl SavedNotice {
-    /// How the page's address names it.
+    /// Where the notice waits in the admin's own session until the page she
+    /// lands on reads it.
+    const SESSION_KEY: &'static str = "integrations.slack_notice";
+
+    /// How the session names it.
     fn wire(self) -> &'static str {
         match self {
             Self::InEffect => "app",
@@ -391,17 +402,40 @@ impl SavedNotice {
         }
     }
 
-    /// The notice a `saved` wire name asks for; none for anything else, so an
-    /// address nobody was sent to reads as the page itself.
+    /// The notice a stored wire name asks for; none for anything else, so a
+    /// session holding nothing it names reads as the page itself.
     fn of_wire(wire: &str) -> Option<Self> {
         [Self::InEffect, Self::EnvironmentWins, Self::Removed]
             .into_iter()
             .find(|saved| saved.wire() == wire)
     }
 
-    /// Where the save sends the admin to read it.
-    fn door(self) -> String {
-        format!("{INSTANCE_PATH}?saved={}", self.wire())
+    /// The admin sent to the page itself to read this notice (post, redirect,
+    /// get, so a reload never posts the change again), with the notice left
+    /// waiting in her own session: nothing she submitted and no notice
+    /// reaches the address, so an address alone - typed again, bookmarked or
+    /// shared - tells nobody a change was made. The notice outlives the
+    /// redirect in the stored session, so whichever replica answers her next
+    /// read shows it, even before that replica has reloaded the change
+    /// itself. A session that could not hold it leaves the committed change
+    /// with no notice.
+    async fn answered(self, session: &Session) -> Response {
+        if let Err(err) = session.insert(Self::SESSION_KEY, self.wire()).await {
+            tracing::warn!(error = %err, "the session could not hold what the Slack change answers");
+        }
+        Redirect::to(INSTANCE_PATH).into_response()
+    }
+
+    /// The notice waiting in `session`, taken out as it is read: it is the
+    /// answer to one change, so the page shows it once and a reload of that
+    /// page shows the page as it is.
+    async fn taken_from(session: &Session) -> Option<Self> {
+        let wire = session
+            .remove::<String>(Self::SESSION_KEY)
+            .await
+            .ok()
+            .flatten()?;
+        Self::of_wire(&wire)
     }
 }
 
@@ -801,34 +835,17 @@ struct SlackRemovePage {
     control: &'static str,
 }
 
-/// What a save that stored the app sends the admin back to read: the only
-/// thing the page's own address carries, so nothing she submitted reaches a
-/// URL.
-#[derive(Debug, Default, Deserialize)]
-struct PageQuery {
-    saved: Option<String>,
-}
-
-/// The notice the page's own address asks for, where a save sent the admin
-/// here to read it; nothing for any other address. An address nothing can
-/// read is no notice and never a refusal: every reader this door turns away
-/// gets the uniform 404 and nothing else.
-fn saved_notice(query: Option<&str>) -> Option<SavedNotice> {
-    let query: PageQuery =
-        serde_urlencoded::from_str(query.unwrap_or_default()).unwrap_or_default();
-    SavedNotice::of_wire(query.saved.as_deref()?)
-}
-
 pub async fn show_instance(
     State(state): State<AppState>,
     session: Session,
     headers: HeaderMap,
-    RawQuery(query): RawQuery,
 ) -> Response {
     let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
-    let notice = saved_notice(query.as_deref()).map(|saved| saved.words().to_string());
+    let notice = SavedNotice::taken_from(&session)
+        .await
+        .map(|saved| saved.words().to_string());
     answer(&state, &user, &headers, notice, String::new()).await
 }
 
@@ -952,21 +969,10 @@ pub async fn save_slack_app(
             .await
         }
     };
-    let store = StoreCapabilities::new(state.store.clone());
-    let connected = match store.connected_slack_workspaces().await {
-        Ok(connected) => u32::try_from(connected).unwrap_or(u32::MAX),
-        Err(err) => {
-            tracing::warn!(error = %err, "counting the Slack connections failed");
-            return answer(&state, &user, &headers, None, String::new()).await;
-        }
-    };
-    let answered = match SubmissionDoor::of(change.kind(), connected, app_in_effect_of(&in_effect))
-    {
-        SubmissionDoor::WaitForConfirm => hold_slack(&state, user.user_id, &change).await,
-        SubmissionDoor::SaveAtOnce => save_slack(&state, user.user_id, &change).await,
-    };
+    let answered =
+        store_submission(&state, user.user_id, &change, app_in_effect_of(&in_effect)).await;
     match answered {
-        SaveAnswer::Stored(saved) => Redirect::to(&saved.door()).into_response(),
+        SaveAnswer::Stored(saved) => saved.answered(&session).await,
         SaveAnswer::Waiting => Redirect::to(SLACK_CONFIRM_PATH).into_response(),
         SaveAnswer::InPlace(notice) => {
             answer(
@@ -1040,7 +1046,7 @@ pub async fn confirm_slack_app(
         return resource_not_found_page();
     };
     match apply_held_slack(&state, user.user_id).await {
-        SaveAnswer::Stored(saved) => Redirect::to(&saved.door()).into_response(),
+        SaveAnswer::Stored(saved) => saved.answered(&session).await,
         SaveAnswer::Waiting => Redirect::to(SLACK_CONFIRM_PATH).into_response(),
         SaveAnswer::InPlace(notice) => {
             answer(
@@ -1113,7 +1119,7 @@ pub async fn remove_slack_app(
         return resource_not_found_page();
     };
     match remove_slack(&state, user.user_id).await {
-        Some(removed) => Redirect::to(&removed.door()).into_response(),
+        Some(removed) => removed.answered(&session).await,
         None => answer(&state, &user, &headers, None, String::new()).await,
     }
 }
@@ -1163,44 +1169,81 @@ fn refused(refusal: Refusal) -> &'static str {
     }
 }
 
-/// The save where a sealing mode holds (else I-3, nothing stored), then this
-/// server's integrations rebuilt and installed: I-10 once it is saved. When
-/// the seal fence finds a newer sealing key, the integrations are rebuilt
-/// and the save tried once more.
-async fn save_slack(state: &AppState, actor: Uuid, change: &SlackChange) -> SaveAnswer {
+/// The submission written where a sealing mode holds (else I-3, nothing
+/// stored), with the I-14 gate decided inside that write's own locked
+/// transaction (D10): both plans are sealed first - a save of the app and a
+/// hold of the same submission for its confirm - and the gate the store calls
+/// under its lock, [`SubmissionDoor`] over the count it reads there, picks the
+/// one that is written. A workspace that connects while this post is in flight
+/// is therefore counted by the gate that judges it, so no app is switched
+/// under it without the confirm I-14 asks for.
+///
+/// A save that stored the app rebuilds and installs this server's
+/// integrations and answers I-10 (or I-17); a hold changes nothing a reader
+/// sees, so it answers the confirm page with this server's integrations as
+/// they are. When the seal fence finds a newer sealing key, the integrations
+/// are rebuilt and the submission tried once more.
+async fn store_submission(
+    state: &AppState,
+    actor: Uuid,
+    change: &SlackChange,
+    in_effect: AppInEffect,
+) -> SaveAnswer {
     let store = &StoreCapabilities::new(state.store.clone());
     retried(|| async move {
         let integrations = state.integrations.current();
         let Some(sealing) = integrations.sealing_box() else {
             return Attempted::Answered(SaveAnswer::InPlace(Some(NO_SECRETS_KEY)));
         };
-        let Some(plan) = plan_replace(
-            sealing,
-            integrations.key_mode(),
-            change,
-            actor,
-            state.clock.now(),
+        let mode = integrations.key_mode();
+        let now = state.clock.now();
+        let (Some(saved), Some(held)) = (
+            plan_replace(sealing, mode, change, actor, now),
+            plan_hold_pending(sealing, mode, change, actor, now),
         ) else {
             tracing::warn!(probe = "secrets", "sealing the Slack app failed");
             return Attempted::Answered(SaveAnswer::InPlace(None));
         };
-        let outcome = store.save_slack_app(&plan).await;
-        reinstall(state, &integrations).await;
-        match outcome {
-            Ok(SlackSaveOutcome::Saved { .. }) if integrations.settings().slack.is_some() => {
-                Attempted::Answered(SaveAnswer::Stored(SavedNotice::EnvironmentWins))
+        let gate = |connected: i64| match SubmissionDoor::of(
+            change.kind(),
+            connected_count(connected),
+            in_effect,
+        ) {
+            SubmissionDoor::SaveAtOnce => SlackSubmissionPlan::SaveAtOnce(&saved),
+            SubmissionDoor::WaitForConfirm => SlackSubmissionPlan::WaitForConfirm(&held),
+        };
+        match store.store_slack_submission(&gate).await {
+            Ok(SubmissionStored::Saved(SlackSaveOutcome::Saved { .. })) => {
+                reinstall(state, &integrations).await;
+                Attempted::Answered(SaveAnswer::Stored(
+                    match integrations.settings().slack.is_some() {
+                        true => SavedNotice::EnvironmentWins,
+                        false => SavedNotice::InEffect,
+                    },
+                ))
             }
-            Ok(SlackSaveOutcome::Saved { .. }) => {
-                Attempted::Answered(SaveAnswer::Stored(SavedNotice::InEffect))
+            Ok(SubmissionStored::Held(SlackSaveOutcome::Saved { .. })) => {
+                Attempted::Answered(SaveAnswer::Waiting)
             }
-            Ok(SlackSaveOutcome::StaleKey) => Attempted::StaleKey,
+            Ok(SubmissionStored::Saved(SlackSaveOutcome::StaleKey))
+            | Ok(SubmissionStored::Held(SlackSaveOutcome::StaleKey)) => {
+                reinstall(state, &integrations).await;
+                Attempted::StaleKey
+            }
             Err(err) => {
-                tracing::warn!(error = %err, "saving the Slack app failed");
+                tracing::warn!(error = %err, "storing the submitted Slack app failed");
                 Attempted::Answered(SaveAnswer::InPlace(None))
             }
         }
     })
     .await
+}
+
+/// The count the gate is judged over, as the store answers it: a count past
+/// what the I-14 forms can carry reads as the most they can, which the gate
+/// sends to the confirm either way.
+fn connected_count(connected: i64) -> u32 {
+    u32::try_from(connected).unwrap_or(u32::MAX)
 }
 
 /// What a save answers: the app is stored, so the admin is sent to the page
@@ -1214,42 +1257,6 @@ enum SaveAnswer {
     Stored(SavedNotice),
     Waiting,
     InPlace(Option<&'static str>),
-}
-
-/// The submitted app held for this admin's confirm where a sealing mode
-/// holds (else I-3, nothing held): the same sealing as a save into the
-/// pending row, fenced the same way and retried the same way. Nothing a
-/// reader sees changes, so this server's integrations are not rebuilt.
-async fn hold_slack(state: &AppState, actor: Uuid, change: &SlackChange) -> SaveAnswer {
-    let store = &StoreCapabilities::new(state.store.clone());
-    retried(|| async move {
-        let integrations = state.integrations.current();
-        let Some(sealing) = integrations.sealing_box() else {
-            return Attempted::Answered(SaveAnswer::InPlace(Some(NO_SECRETS_KEY)));
-        };
-        let Some(plan) = plan_hold_pending(
-            sealing,
-            integrations.key_mode(),
-            change,
-            actor,
-            state.clock.now(),
-        ) else {
-            tracing::warn!(probe = "secrets", "sealing the submitted Slack app failed");
-            return Attempted::Answered(SaveAnswer::InPlace(None));
-        };
-        match store.hold_pending_slack_app(&plan).await {
-            Ok(SlackSaveOutcome::Saved { .. }) => Attempted::Answered(SaveAnswer::Waiting),
-            Ok(SlackSaveOutcome::StaleKey) => {
-                reinstall(state, &integrations).await;
-                Attempted::StaleKey
-            }
-            Err(err) => {
-                tracing::warn!(error = %err, "holding the submitted Slack app failed");
-                Attempted::Answered(SaveAnswer::InPlace(None))
-            }
-        }
-    })
-    .await
 }
 
 /// The held app applied for `actor` at this server's clock, then this
@@ -1915,18 +1922,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// Each Slack control posts to its own door, and only the one that asks
-    /// a question first opens a door of its own.
-    #[test]
-    fn each_slack_offer_names_its_own_door() {
-        assert_eq!(SlackOffer::Replace.label(), "Replace");
-        assert_eq!(SlackOffer::Replace.door(), SLACK_APP_PATH);
-        assert_eq!(SlackOffer::Replace.opens(), None);
-        assert_eq!(SlackOffer::Remove.label(), "Remove");
-        assert_eq!(SlackOffer::Remove.door(), SLACK_REMOVE_PATH);
-        assert_eq!(SlackOffer::Remove.opens(), Some(SLACK_REMOVE_PATH));
     }
 
     /// L6: what the confirm and remove pages reach when they are only read.
