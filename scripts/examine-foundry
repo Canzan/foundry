@@ -9,6 +9,11 @@
 #     scripts/examine-foundry post Priya admin/instance/integrations/secrets-key
 #     scripts/examine-foundry slack-info
 #     scripts/examine-foundry slack-event planted url-verification
+#     scripts/examine-foundry start slack-app-saved --replicas 2
+#     scripts/examine-foundry slack-event --replica 2 rotated url-verification
+#     scripts/examine-foundry time-passes 11m
+#     scripts/examine-foundry slack-posting not-answering
+#     scripts/examine-foundry mail
 #     scripts/examine-foundry stop
 #
 # Paths may be written with or without the leading slash; under
@@ -39,7 +44,18 @@
 # instance, and Foundry is given SLACK_API_BASE_URL and SLACK_AUTHORIZE_URL
 # pointing at it, so Add to Slack, the channel picker and posting work offline.
 # Slack's client is not held to the outbound address rules, so plain http on
-# loopback is accepted.
+# loopback is accepted. The same server is the mail double: Foundry sends mail
+# through its email_api provider to $SLACK_BASE/mail/send, and `mail` prints it.
+#
+# `start <state> --replicas 2` also runs a second Foundry process (replica 2) on
+# the same database, data directory and settings, on port 18484; `get`, `post`
+# and `slack-event` take `--replica 2` to ask it instead of replica 1.
+#
+# `time-passes <N>m|<N>h` moves the time stamps of the Slack app waiting for its
+# confirm and of every waiting delivery N minutes or hours into the past, as if
+# that time had passed: no supported setting changes Foundry's clock.
+#
+# No subcommand reads the caller's stdin: main runs with stdin from /dev/null.
 set -euo pipefail
 
 PROG=examine-foundry
@@ -50,6 +66,9 @@ PASSWORD=examine-foundry-password
 PORT=18480
 METRICS_PORT=18481
 PG_PORT=18482
+# Replica 2, when `start --replicas 2` asks for it.
+PORT_2=18484
+METRICS_PORT_2=18485
 # The baseline's own clone and target directory, relative to the VM home; the
 # probe never builds the baseline in the checkout or in the synced tree.
 BEFORE_TREE=examine-foundry-before/repo
@@ -72,13 +91,17 @@ die() {
 
 usage() {
   cat <<'USAGE'
-usage: examine-foundry start <state> [--before]
-       examine-foundry get <viewer> <path>
-       examine-foundry post <viewer> <path> [key=value ...]
+usage: examine-foundry start <state> [--before] [--replicas 2]
+       examine-foundry get [--replica 2] <viewer> <path>
+       examine-foundry post [--replica 2] <viewer> <path> [key=value ...]
        examine-foundry slack-info
-       examine-foundry slack-event <planted|rotated|none|SECRET> [url-verification | app-uninstalled <Slack workspace>]
+       examine-foundry slack-event [--replica 2] <planted|rotated|none|SECRET> [url-verification | app-uninstalled <Slack workspace>]
+       examine-foundry slack-posting <answering|not-answering|slow-down>
+       examine-foundry time-passes <N>m | <N>h
+       examine-foundry mail
        examine-foundry stop
        examine-foundry states | viewers
+Write each path without its leading slash: admin/instance/integrations, not /admin/instance/integrations.
 USAGE
 }
 
@@ -91,6 +114,8 @@ slack-app-saved	This Foundry made its own instance key file, Priya generated the
 slack-connected	As slack-app-saved, and Priya connected Canzan Labs to the Slack workspace Canzan Labs through the saved app (Add to Slack); Lena routed New issue on Identity Platform to #auth-dev, and one issue was created, so one message was delivered.
 slack-connected-three	As slack-connected, and Priya also made the workspaces Ops Guild (admin Omar) and Reading Club (admin Rosa) on the instance workspaces page; Omar and Rosa each connected theirs to Slack through the saved app, so 3 workspaces are connected.
 env-slack-connected	Foundry's environment sets the Slack app (SLACK_CLIENT_ID 6123456789012.7234567890123); Priya generated the secrets key and connected Canzan Labs to Slack through that app; no app is saved on the instance page.
+slack-app-awaiting-confirm	As slack-connected, and Priya made Kai Tanaka (a member of Canzan Labs) a second instance admin on the instance workspaces page; then Priya submitted another Slack app (client ID 6123456789012.8888888888888, both secrets) on the instance integrations page, which now waits for her confirm.
+slack-delivery-pending	As slack-connected, then Slack stopped answering Foundry's posts (slack-posting not-answering) and Lena created the issue "Expire the old sessions", so its New issue delivery to #auth-dev waits on the route's history.
 STATES
 }
 
@@ -101,6 +126,7 @@ Tomás	Tomás Rivera: an admin of the Canzan Labs workspace, not an instance adm
 Lena	Lena Park: a member of the Canzan Labs workspace, lead of team Backend (project Identity Platform); neither kind of admin.
 Omar	Omar Haddad: the admin of the workspace Ops Guild, and nothing else; only in slack-connected-three.
 Rosa	Rosa Lind: the admin of the workspace Reading Club, and nothing else; only in slack-connected-three.
+Kai	Kai Tanaka: a member of the Canzan Labs workspace and this Foundry's second instance admin; on no team; only in slack-app-awaiting-confirm.
 signed-out	Nobody signed in.
 VIEWERS
 }
@@ -109,6 +135,9 @@ print_table() {
   "$1" | while IFS=$'\t' read -r name words; do
     printf '%s: %s\n' "$name" "$words"
   done
+  echo
+  echo "Write each path without its leading slash, such as: get Priya admin/instance/integrations"
+  echo "Start a state with --replicas 2 to run a second replica; then get, post and slack-event take --replica 2."
 }
 
 state_known() {
@@ -125,6 +154,7 @@ viewer_key() {
     lena | "lena park") echo lena ;;
     omar | "omar haddad") echo omar ;;
     rosa | "rosa lind") echo rosa ;;
+    kai | "kai tanaka") echo kai ;;
     signed-out | nobody | anonymous) echo signed-out ;;
     *) return 1 ;;
   esac
@@ -193,7 +223,7 @@ vm_up() {
 }
 
 host_start() {
-  local state="$1" before="$2" log build tree
+  local state="$1" before="$2" replicas="$3" log build tree
   vm_up
   log="$TMPDIR_HOST/examine-foundry-build.log"
   if [ -n "$before" ]; then
@@ -209,7 +239,7 @@ host_start() {
     die "building the release foundry binary in $VM failed (log: $log)"
   fi
   # The tree is relative to the VM home.
-  in_vm 900 lock __vm start "$state" "$tree"
+  in_vm 900 lock __vm start "$state" "$tree" "$replicas"
 }
 
 # The commit .nwave/examine-baseline names.
@@ -230,21 +260,38 @@ host_main() {
     states) print_table states_table ;;
     viewers) print_table viewers_table ;;
     start)
-      local before=
-      if [ "$#" -eq 2 ] && [ "$2" = --before ]; then
-        before=$(baseline_commit)
-      elif [ "$#" -ne 1 ]; then
-        die "usage: examine-foundry start <state> [--before] (see: examine-foundry states)"
-      fi
-      state_known "$1" || die "no state named $1 (see: examine-foundry states)"
+      local before='' replicas=1 state=''
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --before) before=$(baseline_commit) ;;
+          --replicas)
+            [ "${2:-}" = 1 ] || [ "${2:-}" = 2 ] || die "--replicas takes 1 or 2"
+            replicas="$2"
+            shift
+            ;;
+          -*) die "usage: examine-foundry start <state> [--before] [--replicas 2]" ;;
+          *)
+            [ -z "$state" ] || die "usage: examine-foundry start <state> [--before] [--replicas 2]"
+            state="$1"
+            ;;
+        esac
+        shift
+      done
+      [ -n "$state" ] || die "usage: examine-foundry start <state> [--before] [--replicas 2] (see: examine-foundry states)"
+      state_known "$state" || die "no state named $state (see: examine-foundry states)"
       if [ "$(uname -s)" = Linux ]; then
-        local_start "$1" "$before"
+        local_start "$state" "$before" "$replicas"
       else
-        host_start "$1" "$before"
+        host_start "$state" "$before" "$replicas"
       fi
       ;;
     get | post)
-      [ "$#" -ge 2 ] || die "usage: examine-foundry $cmd <viewer> <path>$([ "$cmd" = post ] && echo ' [key=value ...]')"
+      local replica=1
+      if [ "${1:-}" = --replica ]; then
+        replica=$(replica_number "${2:-}")
+        shift 2
+      fi
+      [ "$#" -ge 2 ] || die "usage: examine-foundry $cmd [--replica 2] <viewer> <path>$([ "$cmd" = post ] && echo ' [key=value ...]')"
       local viewer
       viewer=$(viewer_key "$1") || die "no viewer named $1 (see: examine-foundry viewers)"
       [ "$cmd" = get ] && [ "$#" -gt 2 ] && die "get takes one path; use post to send fields"
@@ -254,24 +301,55 @@ host_main() {
       for field in "$@"; do
         case "$field" in *=*) ;; *) die "a field is key=value, not $field" ;; esac
       done
-      run_op 120 "$cmd" "$viewer" "$path" "$@"
+      run_op 120 "$cmd" "$replica" "$viewer" "$path" "$@"
       ;;
     stop) run_op 120 stop ;;
     slack-info) run_op 60 slack-info ;;
+    mail)
+      [ "$#" -eq 0 ] || die "mail takes nothing more"
+      run_op 60 mail
+      ;;
+    slack-posting)
+      [ "$#" -eq 1 ] || die "usage: examine-foundry slack-posting <answering|not-answering|slow-down>"
+      case "$1" in
+        answering | not-answering | slow-down) ;;
+        *) die "slack-posting takes answering, not-answering or slow-down, not $1" ;;
+      esac
+      run_op 60 slack-posting "$1"
+      ;;
+    time-passes)
+      [ "$#" -eq 1 ] || die "usage: examine-foundry time-passes <N>m | <N>h (such as 11m or 24h)"
+      case "$1" in
+        *[!0-9mh]* | [mh]* | *[mh]*[mh]* | *[0-9]) die "time-passes takes minutes or hours, such as 11m or 24h, not $1" ;;
+      esac
+      run_op 60 time-passes "$1"
+      ;;
     slack-event)
+      local replica=1
+      if [ "${1:-}" = --replica ]; then
+        replica=$(replica_number "${2:-}")
+        shift 2
+      fi
       [ "$#" -ge 1 ] || die "usage: examine-foundry slack-event <planted|rotated|none|SECRET> [url-verification | app-uninstalled <Slack workspace>]"
       case "${2:-url-verification}" in
         url-verification) [ "$#" -le 2 ] || die "url-verification takes nothing more" ;;
         app-uninstalled) [ "$#" -eq 3 ] || die "app-uninstalled names one Slack workspace, such as \"Canzan Labs\"" ;;
         *) die "no Slack event named $2; use url-verification or app-uninstalled" ;;
       esac
-      run_op 60 slack-event "$@"
+      run_op 60 slack-event "$replica" "$@"
       ;;
     "" | -h | --help | help) usage ;;
     *)
       usage >&2
       exit 2
       ;;
+  esac
+}
+
+replica_number() {
+  case "$1" in
+    1 | 2) printf '%s\n' "$1" ;;
+    *) die "--replica takes 1 or 2" ;;
   esac
 }
 
@@ -304,7 +382,7 @@ local_start() {
       (cd "$ROOT" && timeout 3600 cargo build --release -p foundry-app --bin foundry) >&2 ||
         die "building the release foundry binary failed"
     fi
-    timeout 900 bash "$SELF" __vm start "$1" "$tree" 9>&-
+    timeout 900 bash "$SELF" __vm start "$1" "$tree" "$3" 9>&-
   ) 9>"$HOME/test.lock"
 }
 
@@ -315,6 +393,8 @@ vm_dirs() {
   STATE_DIR="$HOME/examine-foundry"
   JARS="$STATE_DIR/jars"
   BASE="http://127.0.0.1:$PORT"
+  BASE_1="$BASE"
+  BASE_2="http://127.0.0.1:$PORT_2"
   DATABASE_URL="postgres://postgres:examine@127.0.0.1:$PG_PORT/foundry"
 }
 
@@ -342,7 +422,8 @@ vm_build_before() {
 start_slack_double() {
   slack_double_py >"$STATE_DIR/slack-double.py"
   setsid python3 -I "$STATE_DIR/slack-double.py" "$SLACK_PORT" "$STATE_DIR/slack-next-team" \
-    "$STATE_DIR/slack-double.log" >"$STATE_DIR/slack-double.err" 2>&1 </dev/null 9>&- &
+    "$STATE_DIR/slack-double.log" "$STATE_DIR/slack-posting" "$STATE_DIR/mail.log" \
+    >"$STATE_DIR/slack-double.err" 2>&1 </dev/null 9>&- &
   printf '%s\n' "$!" >"$STATE_DIR/slack-double.pid"
   local _
   for _ in $(seq 1 40); do
@@ -362,6 +443,8 @@ Channels in every Slack workspace: #auth-dev (C0AUTHDEV), #auth-releases (C0AUTH
 Planted Slack app: client ID $SLACK_ID, client secret $SLACK_SECRET, signing secret $SLACK_SIGNING
 Another app's client ID: 6123456789012.8888888888888; another signing secret (rotated): $SLACK_SIGNING_ROTATED
 The double accepts any client secret and signs nothing; slack-event signs the events it sends.
+Posting (chat.postMessage) now: $(cat "$STATE_DIR/slack-posting" 2>/dev/null || echo answering) (change it with slack-posting answering|not-answering|slow-down)
+Foundry replicas: $(replicas_line)
 Calls Foundry made to the double, oldest first:
 INFO
   if [ -s "$STATE_DIR/slack-double.log" ]; then
@@ -375,6 +458,78 @@ for line in open(sys.argv[1], encoding="utf-8"):
   else
     echo "  none"
   fi
+}
+
+replicas_line() {
+  if [ -f "$STATE_DIR/foundry-2.pid" ]; then
+    echo "replica 1 at $PUBLIC_URL (port $PORT) and replica 2 (port $PORT_2), on one database"
+  else
+    echo "replica 1 only (start with --replicas 2 for a second)"
+  fi
+}
+
+# slack-posting MODE: how the double answers chat.postMessage from now on:
+# answering (ok), not-answering (HTTP 503, no body: Slack not answering) or
+# slow-down (HTTP 429, Retry-After 600: Slack asks Foundry to slow down).
+slack_posting() {
+  printf '%s\n' "$1" >"$STATE_DIR/slack-posting"
+  echo "examine-foundry: the Slack double is now $1 to chat.postMessage"
+}
+
+# The mail Foundry sent through its email_api provider, oldest first.
+mail_print() {
+  cat <<INFO
+Mail double: Foundry sends mail with NOTIFICATION_PROVIDERS=email_api to $SLACK_BASE/mail/send; it accepts every message.
+Mail Foundry sent, oldest first:
+INFO
+  if [ -s "$STATE_DIR/mail.log" ]; then
+    python3 -I -c '
+import json, sys
+for n, line in enumerate(open(sys.argv[1], encoding="utf-8"), 1):
+    m = json.loads(line)
+    print("mail %d at %s" % (n, m.get("received_at", "?")))
+    print("  from: " + str(m.get("from", "")))
+    print("  to: " + str(m.get("to", "")))
+    print("  subject: " + str(m.get("subject", "")))
+    if m.get("event"):
+        print("  event: " + str(m["event"]))
+    for body_line in str(m.get("body", "")).splitlines() or [""]:
+        print("  | " + body_line)
+' "$STATE_DIR/mail.log"
+  else
+    echo "  none"
+  fi
+}
+
+# time-passes <N>m|<N>h: as if that time had passed for what is waiting. The
+# held Slack app's expiry and every waiting delivery's time stamps move into
+# the past; nothing else changes, Foundry's clock included.
+time_passes() {
+  local amount="$1" interval
+  case "$amount" in
+    *m) interval="${amount%m} minutes" ;;
+    *h) interval="${amount%h} hours" ;;
+  esac
+  local counts
+  counts=$(docker exec "$PG_NAME" psql -q -At -v ON_ERROR_STOP=1 -U postgres -d foundry -c "
+    WITH held AS (
+      UPDATE instance_slack_app_pending SET expires_at = expires_at - interval '$interval'
+      RETURNING 1
+    ), waiting AS (
+      UPDATE integration_deliveries SET
+        occurred_at = occurred_at - interval '$interval',
+        give_up_at = give_up_at - interval '$interval',
+        first_attempt_at = first_attempt_at - interval '$interval',
+        next_attempt_at = next_attempt_at - interval '$interval',
+        lease_until = lease_until - interval '$interval'
+      WHERE status = 'pending'
+      RETURNING 1
+    )
+    SELECT (SELECT count(*) FROM held) || ' ' || (SELECT count(*) FROM waiting);") ||
+    die "could not move the waiting time stamps"
+  local held="${counts%% *}" waiting="${counts##* }"
+  printf 'examine-foundry: %s passed; moved back: Slack apps waiting for a confirm %s, waiting deliveries %s\n' \
+    "$interval" "$held" "$waiting"
 }
 
 # slack_event SECRET [KIND [TEAM]]: an Events API post as Slack sends it, signed
@@ -426,6 +581,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit, urlencode
 
 port, next_team_file, log_file = int(sys.argv[1]), sys.argv[2], sys.argv[3]
+posting_file, mail_file = sys.argv[4], sys.argv[5]
 TEAMS = {
     "Canzan Labs": ("T0CANZANLABS", "canzanlabs"),
     "Ops Guild": ("T0OPSGUILD", "opsguild"),
@@ -439,6 +595,13 @@ APP_ID = "A0PROBEFOUNDRY"
 def log(method, **fields):
     with open(log_file, "a", encoding="utf-8") as f:
         f.write(json.dumps({"method": method, **fields}) + "\n")
+
+def posting():
+    try:
+        mode = open(posting_file, encoding="utf-8").read().strip()
+    except OSError:
+        mode = ""
+    return mode if mode in ("not-answering", "slow-down") else "answering"
 
 def next_team():
     try:
@@ -494,6 +657,12 @@ class Slack(BaseHTTPRequestHandler):
 
     def handle_call(self):
         path, a = self.args()
+        if path == "/mail/send":
+            # The email_api provider's send: {from, to, subject, body, event}.
+            with open(mail_file, "a", encoding="utf-8") as f:
+                f.write(json.dumps({**{k: a.get(k, "") for k in ("from", "to", "subject", "body", "event")},
+                                    "received_at": time.strftime("%H:%M:%S UTC", time.gmtime())}) + "\n")
+            return self.answer(200, {"ok": True, "id": uuid.uuid4().hex})
         if path == "/oauth/v2/authorize":
             name = next_team()
             team_id = TEAMS[name][0]
@@ -541,7 +710,15 @@ class Slack(BaseHTTPRequestHandler):
             return self.answer(200, {"ok": True, "channel": channel(*found[0])})
         if method == "chat.postMessage":
             text = a.get("text") or ""
-            log(method, team=name, channel=a.get("channel", ""), text=" ".join(str(text).split())[:200])
+            mode = posting()
+            fields = {"team": name, "channel": a.get("channel", ""), "text": " ".join(str(text).split())[:200]}
+            if mode == "not-answering":
+                log(method, answered="HTTP 503 (not answering)", **fields)
+                return self.answer(503, None)
+            if mode == "slow-down":
+                log(method, answered="HTTP 429 ratelimited, Retry-After 600 (slow down)", **fields)
+                return self.answer(429, {"ok": False, "error": "ratelimited"}, [("Retry-After", "600")])
+            log(method, **fields)
             return self.answer(200, {"ok": True, "channel": a.get("channel", ""), "ts": "%.6f" % time.time()})
         if method == "chat.delete":
             log(method, team=name, channel=a.get("channel", ""))
@@ -568,6 +745,9 @@ vm_teardown() {
     done
     kill -9 "$pid" 2>/dev/null || true
   fi
+  if [ -f "$STATE_DIR/foundry-2.pid" ]; then
+    kill -9 "$(cat "$STATE_DIR/foundry-2.pid")" 2>/dev/null || true
+  fi
   pkill -9 -f "$STATE_DIR/bin/foundry" 2>/dev/null || true
   if [ -f "$STATE_DIR/slack-double.pid" ]; then
     kill -9 "$(cat "$STATE_DIR/slack-double.pid")" 2>/dev/null || true
@@ -586,18 +766,31 @@ vm_require_running() {
   fi
 }
 
+# use_replica N: point the requests at replica N.
+use_replica() {
+  case "$1" in
+    1) BASE="$BASE_1" ;;
+    2)
+      if ! { [ -f "$STATE_DIR/foundry-2.pid" ] && kill -0 "$(cat "$STATE_DIR/foundry-2.pid")" 2>/dev/null; }; then
+        die "no replica 2 is running; start the state with --replicas 2"
+      fi
+      BASE="$BASE_2"
+      ;;
+  esac
+}
+
 port_free() {
   ! ss -Hltn "sport = :$1" 2>/dev/null | grep -q .
 }
 
 vm_start() {
-  local state="$1" root="$2"
+  local state="$1" root="$2" replicas="${3:-1}"
   case "$root" in /*) ;; *) root="$HOME/$root" ;; esac
   local binary="$root/target/release/foundry"
   [ -x "$binary" ] || die "no release binary at $binary"
   vm_teardown
   local p
-  for p in "$PORT" "$METRICS_PORT" "$PG_PORT" "$SLACK_PORT"; do
+  for p in "$PORT" "$METRICS_PORT" "$PG_PORT" "$SLACK_PORT" "$PORT_2" "$METRICS_PORT_2"; do
     port_free "$p" || die "port $p is in use in this machine; stop whatever listens there"
   done
   mkdir -p "$STATE_DIR/bin" "$JARS"
@@ -636,6 +829,24 @@ vm_start() {
     mapfile -t extra < <("$hook")
   fi
 
+  launch_foundry 1 "$PORT" "$METRICS_PORT" "$data_dir"
+  seed_people_team_project
+  "seed_${state//-/_}"
+  # Replica 2 boots once the state is seeded, so the bootstrap link is replica 1's.
+  if [ "$replicas" = 2 ]; then
+    launch_foundry 2 "$PORT_2" "$METRICS_PORT_2" "$data_dir"
+  fi
+  printf '%s %s\n' "$state" "$root" >"$STATE_DIR/state"
+  printf 'examine-foundry: started in state %s (%s)\n' "$state" \
+    "$(states_table | awk -F'\t' -v s="$state" '$1 == s { print $2 }')"
+  printf 'examine-foundry: %s\n' "$(replicas_line)"
+}
+
+# launch_foundry N PORT METRICS_PORT DATA_DIR: replica N of this Foundry, and
+# wait until it is ready. Every replica has the same settings but its ports.
+launch_foundry() {
+  local n="$1" port="$2" metrics="$3" data_dir="$4" suffix=
+  [ "$n" = 1 ] || suffix="-$n"
   # setsid + closed descriptors: the server outlives this shell and holds no lock.
   env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$HOME" \
     DATABASE_URL="$DATABASE_URL" \
@@ -643,38 +854,36 @@ vm_start() {
     SESSION_COOKIE_SECURE=false \
     MACHINE_TOKEN_PUBLIC_KEYS="$(cat "$STATE_DIR/machine-token.pub")" \
     MACHINE_TOKEN_SIGNING_KEY="$(cat "$STATE_DIR/machine-token.pem")" \
-    FOUNDRY_HOST=127.0.0.1 FOUNDRY_PORT="$PORT" \
-    METRICS_HOST=127.0.0.1 METRICS_PORT="$METRICS_PORT" \
+    FOUNDRY_HOST=127.0.0.1 FOUNDRY_PORT="$port" \
+    METRICS_HOST=127.0.0.1 METRICS_PORT="$metrics" \
     FOUNDRY_DATA_DIR="$data_dir" \
     FOUNDRY_PUBLIC_URL="$PUBLIC_URL" \
     FOUNDRY_INTEGRATIONS_RELOAD_MS=200 \
     RUST_LOG=info \
     SLACK_API_BASE_URL="$SLACK_BASE/api" \
     SLACK_AUTHORIZE_URL="$SLACK_BASE/oauth/v2/authorize" \
+    NOTIFICATION_PROVIDERS=email_api \
+    EMAIL_API_URL="$SLACK_BASE/mail/send" \
+    EMAIL_API_KEY=examine-foundry-mail-key \
+    EMAIL_API_FROM=foundry@foundry.example.org \
     "${extra[@]+"${extra[@]}"}" \
-    setsid "$STATE_DIR/bin/foundry" >"$STATE_DIR/foundry.log" 2>&1 </dev/null 9>&- &
-  printf '%s\n' "$!" >"$STATE_DIR/foundry.pid"
+    setsid "$STATE_DIR/bin/foundry" >"$STATE_DIR/foundry$suffix.log" 2>&1 </dev/null 9>&- &
+  printf '%s\n' "$!" >"$STATE_DIR/foundry$suffix.pid"
 
-  ready=
+  local ready=
   for _ in $(seq 1 120); do
-    kill -0 "$(cat "$STATE_DIR/foundry.pid")" 2>/dev/null || break
-    if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "$BASE/readyz")" = 200 ]; then
+    kill -0 "$(cat "$STATE_DIR/foundry$suffix.pid")" 2>/dev/null || break
+    if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://127.0.0.1:$port/readyz")" = 200 ]; then
       ready=1
       break
     fi
     sleep 0.5
   done
   if [ -z "$ready" ]; then
-    tail -n 20 "$STATE_DIR/foundry.log" >&2
+    tail -n 20 "$STATE_DIR/foundry$suffix.log" >&2
     vm_teardown
-    die "Foundry did not become ready within 60 seconds"
+    die "Foundry replica $n did not become ready within 60 seconds"
   fi
-
-  seed_people_team_project
-  "seed_${state//-/_}"
-  printf '%s %s\n' "$state" "$root" >"$STATE_DIR/state"
-  printf 'examine-foundry: started in state %s (%s)\n' "$state" \
-    "$(states_table | awk -F'\t' -v s="$state" '$1 == s { print $2 }')"
 }
 
 vm_stop() {
@@ -782,6 +991,7 @@ email_of() {
     lena) echo lena.park@example.org ;;
     omar) echo omar.haddad@example.org ;;
     rosa) echo rosa.lind@example.org ;;
+    kai) echo kai.tanaka@example.org ;;
   esac
 }
 
@@ -1200,6 +1410,46 @@ seed_env_slack_connected() {
   connect_slack priya "Canzan Labs"
 }
 
+# Priya invites Kai Tanaka to Canzan Labs and, once Kai accepts, makes Kai an
+# instance admin with the instance workspaces page's grant form.
+seed_second_instance_admin() {
+  invite_and_accept kai
+  psql_exec "UPDATE users SET display_name = 'Kai Tanaka' WHERE email_lower = '$(email_of kai)';"
+  http priya GET /admin/instance/workspaces
+  expect "the instance workspaces page" 200
+  http priya POST /admin/instance/super-admins "email=$(email_of kai)"
+  expect "making Kai an instance admin" 200
+  local count
+  count=$(docker exec "$PG_NAME" psql -q -At -U postgres -d foundry -c \
+    "SELECT count(*) FROM instance_admins a JOIN users u ON u.id = a.user_id WHERE u.email_lower = '$(email_of kai)';")
+  [ "$count" = 1 ] || die "seeding: Kai is not an instance admin after the grant"
+}
+
+seed_slack_app_awaiting_confirm() {
+  seed_slack_connected
+  seed_second_instance_admin
+  http priya POST /admin/instance/integrations/slack "client_id=6123456789012.8888888888888" \
+    "client_secret=$SLACK_SECRET" "signing_secret=$SLACK_SIGNING_ROTATED"
+  expect "submitting another Slack app" 200
+  case "$HTTP_FINAL" in
+    /admin/instance/integrations/slack/confirm*) ;;
+    *) die "seeding: submitting another Slack app ended at ${HTTP_FINAL:-?}, not its confirm page" ;;
+  esac
+}
+
+seed_slack_delivery_pending() {
+  seed_slack_connected
+  slack_posting not-answering >/dev/null
+  http lena POST /team/backend/project/identity-platform/issues "title=Expire the old sessions"
+  expect "Lena creating an issue" 200
+  local _
+  for _ in $(seq 1 60); do
+    grep -q '"answered": "HTTP 503' "$STATE_DIR/slack-double.log" 2>/dev/null && return 0
+    sleep 0.5
+  done
+  die "seeding: Foundry did not try to post the second issue within 30 seconds"
+}
+
 seed_slack_app_saved() {
   seed_secrets_key_no_slack
   http priya POST /admin/instance/integrations/slack "client_id=$SLACK_ID" \
@@ -1219,12 +1469,21 @@ vm_main() {
     slack-info) vm_require_running && slack_info ;;
     slack-event)
       vm_require_running
+      use_replica "$1"
+      shift
       slack_event "$@"
       ;;
-    get) vm_request GET "$1" "$2" ;;
+    slack-posting) vm_require_running && slack_posting "$1" ;;
+    mail) vm_require_running && mail_print ;;
+    time-passes) vm_require_running && time_passes "$1" ;;
+    get)
+      use_replica "$1"
+      vm_request GET "$2" "$3"
+      ;;
     post)
-      local viewer="$1" path="$2"
-      shift 2
+      use_replica "$1"
+      local viewer="$2" path="$3"
+      shift 3
       vm_request POST "$viewer" "$path" "$@"
       ;;
     *) die "unknown VM operation $op" ;;
@@ -1234,7 +1493,8 @@ vm_main() {
 main() {
   if [ "${1:-}" = __vm ]; then
     shift
-    vm_main "$@"
+    # In the VM, stdin is this script's own text: no child may read it.
+    vm_main "$@" </dev/null
     return
   fi
   HOME=$(real_home)
@@ -1244,7 +1504,8 @@ main() {
   command -v timeout >/dev/null || die "timeout is not installed"
   SELF=$(self_path)
   ROOT=$(dirname "$(dirname "$SELF")")
-  host_main "$@"
+  # Nothing below reads the caller's stdin (in_vm feeds the VM this script).
+  host_main "$@" </dev/null
 }
 
 main "$@"

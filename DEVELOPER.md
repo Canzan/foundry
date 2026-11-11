@@ -144,12 +144,17 @@ the main content's visible text (the sidebar left out), then its links
 
 ```sh
 scripts/examine-foundry states            # what can be seeded
-scripts/examine-foundry viewers           # Priya, Tomás, Lena, signed-out
+scripts/examine-foundry viewers           # Priya, Tomás, Lena, Omar, Rosa, Kai, signed-out
 scripts/examine-foundry start secrets-key-no-slack
 scripts/examine-foundry get Priya workspace/integrations
 scripts/examine-foundry post Priya admin/instance/integrations/secrets-key
 scripts/examine-foundry stop
 ```
+
+Write every path without its leading slash (`admin/instance/integrations`, not
+`/admin/instance/integrations`): `nwdes examine probe` refuses an argument that
+starts with `/`. `states`, `viewers` and the usage text say so too. No
+subcommand reads stdin.
 
 On macOS, `start` syncs and builds through `test-in-lima.sh`, then runs
 `postgres:16-alpine` and the release binary in the `local-dev` VM on ports
@@ -165,6 +170,34 @@ the channel picker and posting work offline. `slack-info` prints its addresses,
 the planted app values and the calls Foundry made to it. `slack-event <secret>`
 posts a signed Events API request (`url-verification`, or `app-uninstalled
 <Slack workspace>`) to `/integrations/slack/events` as Slack would.
+`slack-posting <answering|not-answering|slow-down>` sets how the double answers
+`chat.postMessage` from then on: ok, HTTP 503 with no body (Slack not
+answering), or HTTP 429 with `Retry-After: 600` (slow down). In the state
+`slack-delivery-pending` it is not answering, so a delivery waits on the route's
+history (project page, Integrations, History).
+
+The same server is the mail double. Every probe Foundry runs with
+`NOTIFICATION_PROVIDERS=email_api` and `EMAIL_API_URL` pointing at
+`127.0.0.1:18483/mail/send`, so invites and admin emails reach it. `mail` prints
+each message it received (to, subject, event, body), oldest first.
+
+`start <state> --replicas 2` also boots replica 2: a second Foundry process on
+the same database, data directory and settings, on port 18484 (metrics 18485),
+after the state is seeded. `get`, `post` and `slack-event` take `--replica 2`
+as their first argument to ask it, as in
+`slack-event --replica 2 rotated url-verification`.
+
+`time-passes <N>m|<N>h` makes time pass for what waits: it moves the expiry of
+the Slack app held for its confirm and the time stamps of every waiting
+delivery (its give-up time included) that far into the past, through SQL in the
+probe's postgres container. Foundry has no setting that moves its clock, so
+nothing else changes. `time-passes 11m` ages the held app past its 10 minutes
+(state `slack-app-awaiting-confirm`); `time-passes 24h` takes a waiting delivery
+past its 24-hour give-up (state `slack-delivery-pending`).
+
+The state `slack-app-awaiting-confirm` adds Kai Tanaka, a member of Canzan Labs
+whom Priya made a second instance admin through the instance workspaces page's
+grant form, so a confirm by another instance admin can be tried.
 
 `start <state> --before` boots the release binary built from the commit in
 `.nwave/examine-baseline` instead, so a page can be compared before and after
