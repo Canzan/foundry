@@ -189,8 +189,7 @@
 "disposition": {
 "kind": "Tested",
 "obligations": [
-"L4/F187",
-"L6/F201"
+"L4/F187"
 ],
 "still_passes_if": "F513",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: The admin who submitted the other app saves it from the confirm page"
@@ -270,8 +269,7 @@
 "disposition": {
 "kind": "Tested",
 "obligations": [
-"L4/F192",
-"L6/F202"
+"L4/F192"
 ],
 "still_passes_if": "F533",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: A confirm with nothing submitted changes nothing"
@@ -330,6 +328,56 @@
 "expected": "F543",
 "stimulus": "F542",
 "user_result": "F544"
+},
+{
+"covers": [
+"P1",
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3/F183"
+],
+"still_passes_if": "F549",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature :: A rotation of the current app's own secret is saved at once while a workspace is connected"
+},
+"expected": "F547",
+"stimulus": "F546",
+"user_result": "F548"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F188"
+],
+"still_passes_if": "F553",
+"test": "crates/foundry-store/src/integrations/instance.rs :: the finite table of when a held Slack app may still be applied, run by the iis_instance_store target"
+},
+"expected": "F551",
+"stimulus": "F550",
+"user_result": "F552"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F201",
+"L6/F202"
+],
+"still_passes_if": "F557",
+"test": "crates/foundry-app/src/integrations/handlers/instance.rs :: the table of what the confirm and remove pages reach when they are only read"
+},
+"expected": "F555",
+"stimulus": "F554",
+"user_result": "F556"
 }
 ]
 },
@@ -338,7 +386,7 @@
 "C": 3,
 "D": 15,
 "E": 25,
-"F": 545,
+"F": 557,
 "K": 12,
 "L": 11,
 "N": 8,
@@ -2918,7 +2966,19 @@
 "F543": "With none connected the app is saved at once with no page in between; with two or three the page reads the counted wording naming how many are connected, never the wording that fits exactly one.",
 "F544": "The number Priya reads is the number of workspaces that keep posting through the old app, and she is not stopped when nobody is connected.",
 "F545": "A page that read the counted wording from a number nobody counted would still pass that table; the connected count itself is the store's own read, and the saved-at-once case is read through the public page.",
+"F546": "One workspace is connected to Slack through the app in effect, and the instance admin replaces that same app's signing secret, leaving the client secret blank.",
+"F547": "It is saved straight away with nothing in between: she reads that it is saved and that workspace admins can now choose Add to Slack, on the integrations page, which still names that same app, and nothing is left waiting for a confirmation she was never asked for.",
+"F548": "Rotating a leaked or regenerated secret stays a one-step job for Priya even once workspaces are connected: she is only warned where a switch would actually cost them their connection.",
+"F549": "A gate that read whether the app in effect comes from the environment, rather than which app the submission names, would still pass this row; the environment rows are what read that case.",
 "F55": "POST of the confirm door applies the pending row only when its requester is the posting instance admin and its expiry is after the injected clock's now, and deletes it in that same transaction. A second confirm, another instance admin's confirm and an expired confirm therefore all find nothing and answer the page. A new submission overwrites the row.",
+"F550": "The confirmation of a waiting Slack app arrives exactly at the instant the ten minutes it is held run out.",
+"F551": "It is not applied and the submission is gone: the instant the hold ends is already too late, as every later instant is.",
+"F552": "The ten minutes Priya has to confirm a switch end where she was told they end, not an instant after.",
+"F553": "A table that set its clock a whole minute past the hold would still pass while leaving the fencepost unread; the instant itself is the case this row names.",
+"F554": "The confirm page is opened, with a submission waiting and with none, and the remove page is opened with an app saved.",
+"F555": "Each of those openings only reads: the stored rows, the recorded activity and this Foundry's configuration version are exactly what they were, so no replica is told to reload anything.",
+"F556": "A browser or a link preview that opens one of these pages for Priya decides nothing and disturbs no server.",
+"F557": "A handler that bumped the version through a write the table does not list would still pass it; the public rows observe the rows and the activity, which that write would also move.",
 "F56": "GET of the confirm door and GET of the remove door read and render only: a prefetch of either changes no row, writes no activity line and bumps no version.",
 "F57": "ADR-IIS-001, ADR-IIS-003, ADR-IIS-004 and ADR-IIS-005 carry this design unchanged, including their Proposed status; this Request adds no ADR and changes no ADR body.",
 "F58": "What the replica model carries and what it does not: replica_convergence.tla proves that every committed version eventually reaches every replica under weak fairness on each replica's reload task. The 60-second figure of the promise is that eventual convergence under the configured poll interval, FOUNDRY_INTEGRATIONS_RELOAD_MS with its 5000 ms default; it is a consequence of that configuration, not a theorem of the model, and the two-replica acceptance scenario is what observes it.",

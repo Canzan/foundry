@@ -792,8 +792,22 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
   # submission waits on its own page until the admin who made it confirms it,
   # and it is held for ten minutes only. The scenario above - the same
   # submission with nobody connected - is what tells the count apart from a
-  # confirm that always appears. The app in the environment is the current app
+  # confirm that always appears, and the first scenario below - a secret of the
+  # app in effect replaced while that workspace is connected - is what keeps a
+  # rotation out of the confirm. The app in the environment is the current app
   # in the last two scenarios (US-IIS-06 AC 6), so the same wait applies to it.
+
+  @us-iis-05 @driving_port @kpi-iis-1 @kpi-iis-4
+  Scenario: A rotation of the current app's own secret is saved at once while a workspace is connected
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    When Priya saves the Slack app with client ID "6123456789012.7234567890123", client secret "" and signing secret "0f1e2d3c4b5a69788796a5b4c3d2e1f0"
+    Then Priya reads "Saved. Workspace admins can now choose Add to Slack."
+    And Priya is on the instance integrations page
+    And Priya reads "Slack: set up here · app 6123456789012.7234567890123"
+    And no Slack app is waiting for Priya's confirmation
 
   @us-iis-05 @driving_port @kpi-iis-4
   Scenario: Another Slack app waits while a workspace is connected through the current one

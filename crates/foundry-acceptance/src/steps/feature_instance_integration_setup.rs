@@ -223,6 +223,11 @@ async fn on_confirm_page(world: &mut FoundryWorld, who: String) {
     iis::then_on_confirm_page(world, &who);
 }
 
+#[then(regex = r"^no Slack app is waiting for Priya's confirmation$")]
+async fn nothing_waiting(world: &mut FoundryWorld) {
+    iis::then_nothing_waiting(world).await;
+}
+
 #[then(regex = r"^(Priya|Tomás)'s answer is this Foundry's integrations page$")]
 async fn answers_integrations_page(world: &mut FoundryWorld, who: String) {
     iis::then_answers_integrations_page(world, &who);

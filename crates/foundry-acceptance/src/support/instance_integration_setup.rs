@@ -1084,6 +1084,25 @@ pub fn then_on_confirm_page(world: &FoundryWorld, who: &str) {
     );
 }
 
+/// "no Slack app is waiting for Priya's confirmation": the confirm address
+/// holds no submission - either because this Foundry has no such page at all,
+/// or because the page there says nothing is waiting.
+pub async fn then_nothing_waiting(world: &mut FoundryWorld) {
+    let page = confirm_page(world, "Priya").await;
+    let text = eip::text(&page);
+    let waiting = page.status.is_success() && WAITING.iter().all(|words| text.contains(words));
+    assert!(
+        !waiting,
+        "nothing is waiting for Priya's confirmation: she replaced a secret of the app already in \
+         effect, which switches no workspace to another app and so has nothing to warn her about. \
+         A submission left waiting here asks her to confirm a change she already made, in words \
+         about workspaces that keep posting through the old app, and the rotation she was told was \
+         saved can still be applied later. Hold a submission only where it names an app other \
+         than the one in effect; {}",
+        tm::describe(&page)
+    );
+}
+
 /// "<who>'s answer is this Foundry's integrations page": the door answered
 /// with the page, not an error and not a dead end.
 pub fn then_answers_integrations_page(world: &FoundryWorld, who: &str) {

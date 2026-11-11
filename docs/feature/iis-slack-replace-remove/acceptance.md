@@ -363,7 +363,6 @@ An apply that re-read the submitted fields from the request instead of the app h
 ###### Obligations
 
 
-
 ##### Covers
 
 P3
@@ -509,7 +508,6 @@ A door that answered the page for every confirm would still pass this row; the s
 ###### Obligations
 
 
-
 ##### Covers
 
 P3
@@ -597,6 +595,96 @@ A page that read the counted wording from a number nobody counted would still pa
 ###### Obligations
 
 
+
+
+
+##### Covers
+
+P1
+
+P3
+
+```text
+One workspace is connected to Slack through the app in effect, and the instance admin replaces that same app's signing secret, leaving the client secret blank.
+```
+
+```text
+It is saved straight away with nothing in between: she reads that it is saved and that workspace admins can now choose Add to Slack, on the integrations page, which still names that same app, and nothing is left waiting for a confirmation she was never asked for.
+```
+
+```text
+Rotating a leaked or regenerated secret stays a one-step job for Priya even once workspaces are connected: she is only warned where a switch would actually cost them their connection.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature \:\: A rotation of the current app\'s own secret is saved at once while a workspace is connected
+
+```text
+A gate that read whether the app in effect comes from the environment, rather than which app the submission names, would still pass this row; the environment rows are what read that case.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+The confirmation of a waiting Slack app arrives exactly at the instant the ten minutes it is held run out.
+```
+
+```text
+It is not applied and the submission is gone: the instant the hold ends is already too late, as every later instant is.
+```
+
+```text
+The ten minutes Priya has to confirm a switch end where she was told they end, not an instant after.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-store\/src\/integrations\/instance\.rs \:\: the finite table of when a held Slack app may still be applied\, run by the iis\_instance\_store target
+
+```text
+A table that set its clock a whole minute past the hold would still pass while leaving the fencepost unread; the instant itself is the case this row names.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+The confirm page is opened, with a submission waiting and with none, and the remove page is opened with an app saved.
+```
+
+```text
+Each of those openings only reads: the stored rows, the recorded activity and this Foundry's configuration version are exactly what they were, so no replica is told to reload anything.
+```
+
+```text
+A browser or a link preview that opens one of these pages for Priya decides nothing and disturbs no server.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/src\/integrations\/handlers\/instance\.rs \:\: the table of what the confirm and remove pages reach when they are only read
+
+```text
+A handler that bumped the version through a write the table does not list would still pass it; the public rows observe the rows and the activity, which that write would also move.
+```
+
+###### Obligations
 
 
 
