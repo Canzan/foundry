@@ -77,9 +77,9 @@ pub use emails::{EmailChoiceRow, EmailProject};
 pub use history::{DeliveryHistoryRow, FinishedDeliveryRow, ProjectRoute, RouteSettings};
 pub use instance::{
     InstanceActivityRow, InstanceSnapshot, KeyWrapper, NewSecretsKey, PendingApplied,
-    PendingSlackApp, PendingSlackAppSave, RemoveOutcome, ReplicaState, RewrapOutcome,
-    RotateOutcome, SavedSlackApp, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackAppSave,
-    SlackSaveOutcome, SlackSubmissionPlan, StoredSecretsKey, SubmissionStored,
+    PendingSlackApp, PendingSlackAppSave, RemoveOutcome, ReplaceOutcome, ReplicaState,
+    RewrapOutcome, RotateOutcome, SavedSlackApp, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap,
+    SlackAppSave, SlackSaveOutcome, SlackSubmissionPlan, StoredSecretsKey, SubmissionStored,
     INSTANCE_INTEGRATIONS_LOCK,
 };
 pub(crate) use instance::{PROBE_0033_SQL, PROBE_0033_TABLES};

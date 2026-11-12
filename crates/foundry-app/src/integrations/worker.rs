@@ -944,7 +944,7 @@ mod retention_tests {
     use async_trait::async_trait;
     use foundry_store::integrations::{
         DeliveryTally, InstanceActivityRow, KeyCheck, NewSecretsKey, PendingApplied, Pruned,
-        RemoveOutcome, SecretsKeyOutcome, SubmissionStored,
+        RemoveOutcome, ReplaceOutcome, SecretsKeyOutcome, SubmissionStored,
     };
     use foundry_store::StoreError;
 
@@ -996,6 +996,18 @@ mod retention_tests {
             _reseal: Resealer<'_>,
         ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError> {
             unreachable!("the retention tick stores no secrets key")
+        }
+
+        async fn replace_secrets_key(
+            &self,
+            _from_key_id: &str,
+            _key: &NewSecretsKey,
+            _canary: &KeyCheck,
+            _actor: uuid::Uuid,
+            _at: OffsetDateTime,
+            _reseal: Resealer<'_>,
+        ) -> Result<ReplaceOutcome<ResealRefused>, StoreError> {
+            unreachable!("the retention tick replaces no secrets key")
         }
 
         async fn store_slack_submission(

@@ -67,6 +67,7 @@ use super::{reinstall, render};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{KeyFile, KeyMode, NoKeyReason};
+use crate::integrations::secrets_key_rotation::SavedCredentials;
 use crate::integrations::slack_app::{
     app_in_effect, client_id_in_effect, plan_hold_pending, plan_replace, reseal_held_for_save,
     AppInEffect, Refusal, SavedApp, SlackChange, SlackField, SlackSubmission, SubmissionKind,
@@ -92,6 +93,10 @@ use uuid::Uuid;
 pub const INSTANCE_PATH: &str = "/admin/instance/integrations";
 pub const SECRETS_KEY_PATH: &str = "/admin/instance/integrations/secrets-key";
 pub const MOVE_PATH: &str = "/admin/instance/integrations/secrets-key/move";
+/// Where Priya reads how many saved credentials a replacement seals again
+/// before she decides (US-IIS-07 AC 1, I-23), and where the replacement
+/// itself is posted (I-24).
+pub const REPLACE_PATH: &str = "/admin/instance/integrations/secrets-key/replace";
 pub const SLACK_APP_PATH: &str = "/admin/instance/integrations/slack";
 /// Where a submission of another app waits while workspaces are connected
 /// through the current one (US-IIS-05 AC 2, I-14).
@@ -325,34 +330,47 @@ pub enum SavedNotice {
     EnvironmentWins,
     /// I-16: the app saved here is gone, so Slack is not set up at all.
     Removed,
+    /// I-24: the secrets key was replaced, with the credentials now sealed
+    /// under it (US-IIS-07 AC 1, D7).
+    Replaced(usize),
 }
 
 impl SavedNotice {
     /// Where the notice waits in the admin's own session until the page she
     /// lands on reads it.
     const SESSION_KEY: &'static str = "integrations.slack_notice";
+    /// What a replacement's wire name starts with, before the count I-24
+    /// carries.
+    const REPLACED_WIRE: &'static str = "replaced:";
 
-    /// How the session names it.
-    fn wire(self) -> &'static str {
+    /// How the session names it, the count I-24 carries included.
+    fn wire(self) -> String {
         match self {
-            Self::InEffect => "app",
-            Self::EnvironmentWins => "app-environment",
-            Self::Removed => "app-removed",
+            Self::InEffect => "app".to_string(),
+            Self::EnvironmentWins => "app-environment".to_string(),
+            Self::Removed => "app-removed".to_string(),
+            Self::Replaced(count) => format!("{}{count}", Self::REPLACED_WIRE),
         }
     }
 
     /// The notice the admin lands on.
-    fn words(self) -> &'static str {
+    fn words(self) -> String {
         match self {
-            Self::InEffect => SLACK_APP_SAVED,
-            Self::EnvironmentWins => SLACK_SAVED_ENVIRONMENT_WINS,
-            Self::Removed => SLACK_APP_REMOVED,
+            Self::InEffect => SLACK_APP_SAVED.to_string(),
+            Self::EnvironmentWins => SLACK_SAVED_ENVIRONMENT_WINS.to_string(),
+            Self::Removed => SLACK_APP_REMOVED.to_string(),
+            Self::Replaced(count) => SavedCredentials::counted(count).replaced_notice(),
         }
     }
 
     /// The notice a stored wire name asks for; none for anything else, so a
-    /// session holding nothing it names reads as the page itself.
+    /// session holding nothing it names reads as the page itself - a wire
+    /// name an older release wrote, and a count that is not a count this
+    /// Foundry could hold, alike (Y9).
     fn of_wire(wire: &str) -> Option<Self> {
+        if let Some(count) = wire.strip_prefix(Self::REPLACED_WIRE) {
+            return count.parse().ok().map(Self::Replaced);
+        }
         [Self::InEffect, Self::EnvironmentWins, Self::Removed]
             .into_iter()
             .find(|saved| saved.wire() == wire)
@@ -367,7 +385,7 @@ impl SavedNotice {
     /// read shows it, even before that replica has reloaded the change
     /// itself. A session that could not hold it leaves the committed change
     /// with no notice.
-    async fn answered(self, session: &Session) -> Response {
+    pub(super) async fn answered(self, session: &Session) -> Response {
         if let Err(err) = session.insert(Self::SESSION_KEY, self.wire()).await {
             tracing::warn!(error = %err, "the session could not hold what the Slack change answers");
         }
@@ -444,8 +462,9 @@ fn remove_lines(connected: u32) -> String {
 /// read: this type holds no write, so a door that only reads can reach
 /// nothing else (L6).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PageRead {
-    /// The stored instance rows, the app held for its confirm included.
+pub(super) enum PageRead {
+    /// The stored instance rows, the app held for its confirm included, and
+    /// the credentials a replacement would seal again (I-23).
     Snapshot,
     /// The connected-workspace count I-14 carries.
     ConnectedWorkspaces,
@@ -456,39 +475,48 @@ enum PageRead {
 /// and bump no version, because the only store calls it makes are its
 /// [`PageRead`]s.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ReadOnlyDoor {
+pub(super) enum ReadOnlyDoor {
     /// `GET /admin/instance/integrations/slack/confirm` (I-14).
     SlackConfirm,
     /// `GET /admin/instance/integrations/slack/remove` (I-15): it asks what
     /// a removal stops and takes nothing away (L6, C3).
     SlackRemove,
+    /// `GET /admin/instance/integrations/secrets-key/replace` (I-23): it asks
+    /// how many credentials a replacement seals again and replaces nothing
+    /// (L4, C2).
+    SecretsKeyReplace,
 }
 
 impl ReadOnlyDoor {
     /// What this door reads, in the order it does: the one list the handler
     /// follows.
-    fn reads(self) -> &'static [PageRead] {
+    pub(super) fn reads(self) -> &'static [PageRead] {
         match self {
             Self::SlackConfirm => &[PageRead::Snapshot, PageRead::ConnectedWorkspaces],
             Self::SlackRemove => &[PageRead::ConnectedWorkspaces],
+            Self::SecretsKeyReplace => &[PageRead::Snapshot],
         }
     }
 
     /// Its reads, made in that order. A read that failed is `None`, never a
-    /// zero: an unread count is not none connected (B1).
-    async fn read(self, store: &StoreCapabilities) -> PageFactsRead {
+    /// zero: an unread count is not none connected, and not none saved
+    /// either (B1, B6).
+    pub(super) async fn read(self, store: &StoreCapabilities) -> PageFactsRead {
         let mut facts = PageFactsRead::default();
         for read in self.reads() {
             match read {
-                PageRead::Snapshot => {
-                    facts.waiting = match store.instance_snapshot().await {
-                        Ok(snapshot) => Some(snapshot.slack_app_pending.is_some()),
-                        Err(err) => {
-                            tracing::warn!(error = %err, "reading the held Slack app failed");
-                            None
-                        }
+                PageRead::Snapshot => match store.instance_snapshot().await {
+                    Ok(snapshot) => {
+                        facts.waiting = Some(snapshot.slack_app_pending.is_some());
+                        facts.saved = Some(SavedCredentials::of(
+                            snapshot.sealed_credentials.len(),
+                            snapshot.slack_app.is_some(),
+                        ));
                     }
-                }
+                    Err(err) => {
+                        tracing::warn!(error = %err, "reading the stored credentials failed");
+                    }
+                },
                 PageRead::ConnectedWorkspaces => {
                     facts.connected = match store.connected_slack_workspaces().await {
                         Ok(connected) => u32::try_from(connected).ok(),
@@ -506,10 +534,12 @@ impl ReadOnlyDoor {
 
 /// What a [`ReadOnlyDoor`]'s reads answered.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-struct PageFactsRead {
+pub(super) struct PageFactsRead {
     /// Whether an app is held for its confirm.
     waiting: Option<bool>,
     connected: Option<u32>,
+    /// The credentials a replacement seals again (I-22, I-23).
+    pub(super) saved: Option<SavedCredentials>,
 }
 
 /// What the page shows and offers. Never a key, a key id or a secret.
@@ -581,7 +611,7 @@ pub fn page_state(facts: &PageFacts) -> PageState {
         KeyMode::Direct => Some(DIRECT_NOTHING_SAVED),
         KeyMode::Sealed => Some(SECRETS_KEY_SET),
     };
-    let offer = [KeyOffer::Generate, KeyOffer::Move]
+    let offer = [KeyOffer::Generate, KeyOffer::Move, KeyOffer::Replace]
         .into_iter()
         .find(|offer| offer.applies(facts.mode, facts.unopenable_values));
     let slack = slack_setup(facts);
@@ -698,6 +728,10 @@ fn activity_line(row: &InstanceActivityRow) -> String {
         "secrets_key_rewrapped" => {
             "re-sealed the secrets key under the operator's instance key".to_string()
         }
+        "secrets_key_replaced" => match row.count.unwrap_or_default() {
+            1 => "replaced the secrets key (1 credential sealed again)".to_string(),
+            n => format!("replaced the secrets key ({n} credentials sealed again)"),
+        },
         "credentials_moved" => match row.count.unwrap_or_default() {
             1 => "moved 1 credential under a secrets key".to_string(),
             n => format!("moved {n} credentials under a secrets key"),
@@ -783,7 +817,7 @@ pub async fn show_instance(
     };
     let notice = SavedNotice::taken_from(&session)
         .await
-        .map(|saved| saved.words().to_string());
+        .map(SavedNotice::words);
     answer(&state, &user, &headers, notice, String::new()).await
 }
 
@@ -1361,8 +1395,8 @@ mod tests {
             (Direct, true, Unwritable, false, op.clone(), Some(DIRECT_NOTHING_SAVED), Some(KeyOffer::Move), MATRIX_READY),
             (Direct, true, Unwritable, true, op.clone(), Some(DIRECT_SAVED), Some(KeyOffer::Move), MATRIX_READY),
             (Direct, false, Held, true, file.clone(), Some(DIRECT_SAVED), Some(KeyOffer::Move), MATRIX_READY),
-            (Sealed, true, Unwritable, false, op.clone(), Some(SECRETS_KEY_SET), None, MATRIX_READY),
-            (Sealed, false, Held, true, file.clone(), Some(SECRETS_KEY_SET), None, MATRIX_READY),
+            (Sealed, true, Unwritable, false, op.clone(), Some(SECRETS_KEY_SET), Some(KeyOffer::Replace), MATRIX_READY),
+            (Sealed, false, Held, true, file.clone(), Some(SECRETS_KEY_SET), Some(KeyOffer::Replace), MATRIX_READY),
             (Unopenable, true, Unwritable, false, op.clone(), Some(SECRETS_KEY_UNOPENABLE), None, MATRIX_NEEDS_KEY),
             (Unopenable, false, Held, true, file.clone(), Some(SECRETS_KEY_UNOPENABLE), None, MATRIX_NEEDS_KEY),
             (Unopenable, false, Withheld, false, None, Some(SECRETS_KEY_UNOPENABLE), None, MATRIX_NEEDS_KEY),
@@ -1512,9 +1546,10 @@ mod tests {
     }
 
     /// Every mode, with I-4 and without: Generate is offered only while
-    /// awaiting a secrets key, Move only while sealing directly, neither
-    /// under I-4, and I-4 names itself wherever the key line shows (I-26
-    /// keeps its own words).
+    /// awaiting a secrets key, Move only while sealing directly, Replace only
+    /// while the stored key opens (US-IIS-07, D4), none of the three under
+    /// I-4, and I-4 names itself wherever the key line shows (I-26 keeps its
+    /// own words).
     #[test]
     fn generate_and_move_are_withheld_under_i4_in_every_mode() {
         use KeyMode::*;
@@ -1530,7 +1565,7 @@ mod tests {
             (AwaitingSecretsKey, true,  None,                    Some(VALUES_UNOPENABLE)),
             (Direct,             false, Some(KeyOffer::Move),    Some(DIRECT_SAVED)),
             (Direct,             true,  None,                    Some(VALUES_UNOPENABLE)),
-            (Sealed,             false, None,                    Some(SECRETS_KEY_SET)),
+            (Sealed,             false, Some(KeyOffer::Replace), Some(SECRETS_KEY_SET)),
             (Sealed,             true,  None,                    Some(VALUES_UNOPENABLE)),
             (Unopenable,         false, None,                    Some(SECRETS_KEY_UNOPENABLE)),
             (Unopenable,         true,  None,                    Some(SECRETS_KEY_UNOPENABLE)),
@@ -1542,7 +1577,7 @@ mod tests {
             };
             let page = page_state(&facts);
             assert_eq!((page.offer, page.secrets_key), (offer, line), "{facts:?}");
-            for door in [KeyOffer::Generate, KeyOffer::Move] {
+            for door in [KeyOffer::Generate, KeyOffer::Move, KeyOffer::Replace] {
                 assert_eq!(
                     door.applies(mode, unopenable_values),
                     offer == Some(door),
@@ -1766,7 +1801,8 @@ mod tests {
         }
     }
 
-    /// L6: what the confirm and remove pages reach when they are only read.
+    /// L6, L4 and C2: what the confirm, remove and replace pages reach when
+    /// they are only read.
     /// Every call either door makes is a [`PageRead`], a type that holds no
     /// write at all, so opening either page - twice, as a prefetch and a
     /// reload do - changes no row, writes no activity line and bumps no
@@ -1783,6 +1819,10 @@ mod tests {
             (
                 ReadOnlyDoor::SlackRemove,
                 [PageRead::ConnectedWorkspaces].as_slice(),
+            ),
+            (
+                ReadOnlyDoor::SecretsKeyReplace,
+                [PageRead::Snapshot].as_slice(),
             ),
         ];
         for (door, reads) in table {

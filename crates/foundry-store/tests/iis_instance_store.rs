@@ -11,8 +11,9 @@
 
 use foundry_store::integrations::{
     ConnectionWriteOutcome, KeyCheck, KeyWrapper, NewConnection, NewSecretsKey, PendingApplied,
-    PendingSlackAppSave, ReplicaState, RewrapOutcome, RotateOutcome, SealedSlot, SecretsKeyOutcome,
-    SecretsKeyRewrap, SlackAppSave, SlackSaveOutcome, INSTANCE_INTEGRATIONS_LOCK,
+    PendingSlackAppSave, ReplaceOutcome, ReplicaState, RewrapOutcome, RotateOutcome, SealedSlot,
+    SecretsKeyOutcome, SecretsKeyRewrap, SlackAppSave, SlackSaveOutcome,
+    INSTANCE_INTEGRATIONS_LOCK,
 };
 use foundry_store::{run_migrations, run_migrations_from_dir, Store};
 use sqlx::postgres::{PgConnectOptions, PgPoolOptions};
@@ -488,6 +489,175 @@ async fn move_refused_partway_leaves_everything_unchanged() {
         "{outcome:?}"
     );
     assert_eq!(calls, 2, "the re-seal stops at the first refusal");
+    assert_eq!(dump(&pool).await, before);
+}
+
+// ---------------------------------------------------------------------------
+// Replace (US-IIS-07, D2 and D3; L1 and L9)
+// ---------------------------------------------------------------------------
+
+/// This Foundry with a stored secrets key, two connections and the saved
+/// Slack app, every credential sealed under that key: the state a
+/// replacement starts from, and the stored key id it is judged over.
+async fn with_a_stored_key(pool: &PgPool, store: &Store) -> (Id, Id, Id) {
+    let ws = workspace(pool).await;
+    let ana = admin(pool).await;
+    store
+        .store_secrets_key(
+            &new_key("sk-1", Some(ana)),
+            &canary("sk-1"),
+            at(0),
+            |_, _| Ok::<_, String>(None),
+        )
+        .await
+        .expect("generate");
+    let slack = connection(pool, ws, "slack", b"sk-1:slack").await;
+    let matrix = connection(pool, ws, "matrix", b"sk-1:matrix").await;
+    store
+        .save_slack_app(&slack_app("1.2", Some("sk-1"), ana))
+        .await
+        .expect("save under the secrets key");
+    (ana, slack, matrix)
+}
+
+/// A replacement seals every stored value again under the new key, writes its
+/// canary, records the replacement with the credentials it sealed again
+/// (I-22: two connections and the app is three) and bumps the version - all
+/// in one transaction (L1).
+#[tokio::test]
+async fn a_replacement_reseals_every_value_and_records_what_it_sealed_again() {
+    let pg = postgres().await;
+    let pool = pg.migrated().await;
+    let store = Store::from_pool(pool.clone());
+    let (ana, slack, matrix) = with_a_stored_key(&pool, &store).await;
+    let before = dump(&pool).await;
+    let mut offered = Vec::new();
+
+    let outcome = store
+        .replace_secrets_key(
+            "sk-1",
+            &new_key("sk-2", Some(ana)),
+            &canary("sk-2"),
+            ana,
+            at(9),
+            |slot, sealed| {
+                offered.push(slot);
+                reseal_all(slot, sealed)
+            },
+        )
+        .await
+        .expect("replace");
+
+    assert_eq!(
+        outcome,
+        ReplaceOutcome::Replaced {
+            resealed: 3,
+            version: 3
+        },
+        "two connections and the saved app are three credentials"
+    );
+    offered.sort();
+    let mut expected = vec![
+        SealedSlot::Connection(slack),
+        SealedSlot::Connection(matrix),
+        SealedSlot::SlackClientSecret,
+        SealedSlot::SlackSigningSecret,
+    ];
+    expected.sort();
+    assert_eq!(offered, expected, "every sealed value is offered once");
+    let after = dump(&pool).await;
+    assert_eq!(
+        changed(&before, &after),
+        BTreeSet::from([
+            "integration_secrets_key",
+            "instance_slack_app",
+            "integration_connections",
+            "integration_key_checks",
+            "instance_integration_audit_events",
+            "integration_config_version",
+        ])
+    );
+    let stored = store
+        .instance_snapshot()
+        .await
+        .expect("snapshot")
+        .secrets_key
+        .expect("a stored key");
+    assert_eq!(stored.key_id, "sk-2", "one row, holding the new key (D3)");
+    assert_eq!(stored.wrapped_key, b"wrapped:sk-2");
+    let credentials = sealed_credentials(&pool).await;
+    assert_eq!(credentials[&slack], b"sk:sk-1:slack");
+    assert_eq!(credentials[&matrix], b"sk:sk-1:matrix");
+    assert_eq!(
+        activity(&pool).await.last(),
+        Some(&(Some(ana), "secrets_key_replaced".to_string(), None, Some(3)))
+    );
+}
+
+/// L9 and P3: a replacement whose re-seal refuses, on the first connection
+/// credential or on the saved app's secrets, changes nothing at all - the old
+/// key stays stored with every credential still sealed under it, no canary,
+/// no activity line and no version bump. A compare-and-set the stored key no
+/// longer matches, which is what a replacement another admin made first
+/// leaves behind, changes nothing either.
+#[tokio::test]
+async fn a_refused_replacement_and_a_lost_compare_and_set_leave_everything_unchanged() {
+    let pg = postgres().await;
+    let pool = pg.migrated().await;
+    let store = Store::from_pool(pool.clone());
+    let (ana, ..) = with_a_stored_key(&pool, &store).await;
+    let before = dump(&pool).await;
+
+    // The refusal point is the slot the re-seal is asked for: the first
+    // connection credential, then the saved app's secrets.
+    for refuse_at in [1, 3] {
+        let mut calls = 0;
+        let outcome = store
+            .replace_secrets_key(
+                "sk-1",
+                &new_key("sk-2", Some(ana)),
+                &canary("sk-2"),
+                ana,
+                at(9),
+                |slot, sealed| {
+                    calls += 1;
+                    if calls == refuse_at {
+                        return Err("does not open".to_string());
+                    }
+                    reseal_all(slot, sealed)
+                },
+            )
+            .await
+            .expect("replace");
+        assert_eq!(
+            outcome,
+            ReplaceOutcome::Refused("does not open".to_string()),
+            "refused at call {refuse_at}"
+        );
+        assert_eq!(calls, refuse_at, "the re-seal stops at the first refusal");
+        assert_eq!(
+            dump(&pool).await,
+            before,
+            "nothing changed after a refusal at call {refuse_at}"
+        );
+    }
+
+    let outcome = store
+        .replace_secrets_key(
+            "sk-0",
+            &new_key("sk-2", Some(ana)),
+            &canary("sk-2"),
+            ana,
+            at(9),
+            reseal_all,
+        )
+        .await
+        .expect("replace");
+    assert_eq!(
+        outcome,
+        ReplaceOutcome::<String>::KeyChanged,
+        "the stored key is not the one the plan was made from"
+    );
     assert_eq!(dump(&pool).await, before);
 }
 

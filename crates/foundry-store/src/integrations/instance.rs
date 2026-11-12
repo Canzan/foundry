@@ -158,6 +158,26 @@ pub enum SealedSlot {
     PendingSlackSigningSecret,
 }
 
+/// What a replacement of the stored secrets key did, or why it changed
+/// nothing (US-IIS-07, D2). One row holds the key and no grace window is
+/// kept (D3), so the replacement is a compare-and-set over that row inside
+/// the same transaction that re-seals every stored value.
+#[derive(Debug, PartialEq, Eq)]
+pub enum ReplaceOutcome<E> {
+    /// The new key, every re-sealed value, its canary, one activity line and
+    /// the version bump were committed together. `resealed` counts
+    /// credentials (I-22).
+    Replaced { resealed: usize, version: i64 },
+    /// The caller could not open or re-seal a stored value: the transaction
+    /// was rolled back, so the old key stays in effect and every credential
+    /// still opens.
+    Refused(E),
+    /// The stored key is no longer the one the plan was made from (another
+    /// admin replaced it first): the transaction was rolled back, so nothing
+    /// changed and the first replacement stands.
+    KeyChanged,
+}
+
 /// What Generate or Move did, or why it changed nothing.
 #[derive(Debug, PartialEq, Eq)]
 pub enum SecretsKeyOutcome<E> {
@@ -340,6 +360,7 @@ pub struct InstanceActivityRow {
 #[derive(Clone, Copy)]
 enum Activity {
     SecretsKeyGenerated,
+    SecretsKeyReplaced,
     CredentialsMoved,
     SlackAppSaved,
     SlackAppReplaced,
@@ -351,6 +372,7 @@ impl Activity {
     fn wire_name(self) -> &'static str {
         match self {
             Self::SecretsKeyGenerated => "secrets_key_generated",
+            Self::SecretsKeyReplaced => "secrets_key_replaced",
             Self::CredentialsMoved => "credentials_moved",
             Self::SlackAppSaved => "slack_app_saved",
             Self::SlackAppReplaced => "slack_app_replaced",
@@ -434,6 +456,50 @@ impl Store {
         };
         let version = commit_recorded(tx, &line).await?;
         Ok(SecretsKeyOutcome::Stored { resealed, version })
+    }
+
+    /// Replace the stored secrets key (US-IIS-07, D2): under the exclusive
+    /// lock, store `key` over the stored row while it still holds
+    /// `from_key_id` (compare-and-set, in place of Generate's absence check),
+    /// hand every stored sealed value to `reseal` and store what it returns
+    /// (`None` keeps the value as it is), write `canary`, record the
+    /// replacement with the credentials it sealed again and bump the version.
+    /// `resealed` and the line count credentials (I-22): each connection one,
+    /// the saved Slack app one. A refusal from `reseal` and a lost
+    /// compare-and-set each roll everything back, so the old key stays in
+    /// effect with every credential still opening (L1, L9).
+    pub async fn replace_secrets_key<E>(
+        &self,
+        from_key_id: &str,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        actor: Uuid,
+        at: OffsetDateTime,
+        mut reseal: impl FnMut(SealedSlot, &[u8]) -> Result<Option<Vec<u8>>, E>,
+    ) -> Result<ReplaceOutcome<E>, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        lock_exclusive(&mut tx).await?;
+        if !replace_stored_key(&mut tx, from_key_id, key, at).await? {
+            tx.rollback().await?;
+            return Ok(ReplaceOutcome::KeyChanged);
+        }
+        let resealed = match reseal_sealed_values(&mut tx, &mut reseal).await? {
+            Ok(resealed) => resealed.credentials(),
+            Err(why) => {
+                tx.rollback().await?;
+                return Ok(ReplaceOutcome::Refused(why));
+            }
+        };
+        upsert_key_check(&mut tx, canary).await?;
+        let line = ActivityLine {
+            actor: Some(actor),
+            activity: Activity::SecretsKeyReplaced,
+            client_id: None,
+            count: Some(count_of(resealed)),
+            at,
+        };
+        let version = commit_recorded(tx, &line).await?;
+        Ok(ReplaceOutcome::Replaced { resealed, version })
     }
 
     /// A boot's re-wrap of the stored secrets key under the operator's
@@ -1051,6 +1117,35 @@ async fn insert_secrets_key(
     .execute(&mut **tx)
     .await?;
     Ok(())
+}
+
+/// Store `key` over the stored row while it still holds `from_key_id`
+/// (US-IIS-07, D3: one row, no grace window, so the old wrapped key is
+/// overwritten); whether it was. The key file a re-wrap recorded (I-30) is
+/// cleared, because the new key was never wrapped under that file.
+async fn replace_stored_key(
+    tx: &mut Tx<'_>,
+    from_key_id: &str,
+    key: &NewSecretsKey,
+    at: OffsetDateTime,
+) -> Result<bool, sqlx::Error> {
+    let done = sqlx::query(
+        "UPDATE integration_secrets_key
+            SET key_id = $2, wrapped_key = $3, wrapped_by_key_id = $4,
+                wrapped_by_source = $5, rewrapped_from_path = NULL,
+                created_by = $6, created_at = $7
+          WHERE id = 1 AND key_id = $1",
+    )
+    .bind(from_key_id)
+    .bind(&key.key_id)
+    .bind(&key.wrapped_key)
+    .bind(&key.wrapped_by_key_id)
+    .bind(key.wrapped_by.wire_name())
+    .bind(key.created_by)
+    .bind(at)
+    .execute(&mut **tx)
+    .await?;
+    Ok(done.rows_affected() == 1)
 }
 
 /// What a re-seal changed.

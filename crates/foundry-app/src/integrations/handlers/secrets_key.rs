@@ -18,19 +18,39 @@
 //! it answers I-22 (or I-21 with nothing saved). Both gates are judged over
 //! the stored rows as they are at the post, never the last rebuild's, and
 //! both are withheld under I-4.
+//!
+//! Replace, `GET`/`POST …/secrets-key/replace` (US-IIS-07 AC 1), where
+//! [`KeyMode::replaces`] holds: the control on the page opens the `GET`,
+//! which reads I-23 over the credentials stored now and offers the one
+//! control that carries the replacement out. That page only reads
+//! ([`ReadOnlyDoor`]), so a prefetch and a link preview replace nothing. The
+//! `POST` wraps a new secrets key under the instance key this server holds,
+//! seals every stored value again under it in one locked transaction,
+//! rebuilds this server's integrations and sends her to the page itself to
+//! read I-24 once ([`SavedNotice`]). A refused re-seal leaves the old key in
+//! effect with every credential still opening and asks the question again; a
+//! replacement another admin made first answers the page as it is.
 
-use super::instance::{answer, MOVE_PATH, SECRETS_KEY_PATH};
-use super::reinstall;
-use crate::bootstrap::resource_not_found_page;
+use super::instance::{
+    answer, ReadOnlyDoor, SavedNotice, MOVE_PATH, REPLACE_PATH, SECRETS_KEY_PATH,
+};
+use super::{reinstall, render};
+use crate::bootstrap::{resource_not_found_page, SessionUser};
+use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyMode};
 use crate::integrations::sealed_slot;
+use crate::integrations::secrets_key_rotation::ReplacePlan;
 use crate::integrations::store_capabilities::{
     InstanceKeyWrites, KeyProbe, ResealRefused, StoreCapabilities,
 };
+use crate::integrations::Integrations;
 use crate::AppState;
+use askama::Template;
+use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Response;
-use foundry_store::integrations::{KeyWrapper, SecretsKeyOutcome};
+use foundry_store::integrations::{KeyWrapper, ReplaceOutcome, SecretsKeyOutcome};
+use time::OffsetDateTime;
 use tower_sessions::Session;
 use uuid::Uuid;
 
@@ -46,13 +66,17 @@ const MOVED_MANY: &str =
 /// I-21.
 const SECRETS_KEY_GENERATED: &str = "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.";
 
-/// The key action the page offers: a submit control carrying the copy.
+/// The key action the page offers: a control carrying the copy, the door it
+/// reaches and when it applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum KeyOffer {
     /// I-3's `Generate secrets key`.
     Generate,
     /// I-2e / I-2e0's `Move to a secrets key`.
     Move,
+    /// I-2's `Replace secrets key` (US-IIS-07 AC 1): it opens the page that
+    /// reads I-23 first, so nothing is re-sealed before she confirms.
+    Replace,
 }
 
 impl KeyOffer {
@@ -60,6 +84,7 @@ impl KeyOffer {
         match self {
             Self::Generate => "Generate secrets key",
             Self::Move => "Move to a secrets key",
+            Self::Replace => "Replace secrets key",
         }
     }
 
@@ -67,6 +92,18 @@ impl KeyOffer {
         match self {
             Self::Generate => SECRETS_KEY_PATH,
             Self::Move => MOVE_PATH,
+            Self::Replace => REPLACE_PATH,
+        }
+    }
+
+    /// The door this control opens by itself, where choosing it only asks a
+    /// question: Replace opens the page that reads I-23 before anything is
+    /// sealed again. Generate and Move open none, because each is the submit
+    /// control of its own write.
+    pub fn opens(self) -> Option<&'static str> {
+        match self {
+            Self::Generate | Self::Move => None,
+            Self::Replace => Some(self.door()),
         }
     }
 
@@ -75,6 +112,7 @@ impl KeyOffer {
         match self {
             Self::Generate => mode.generates(unopenable_values),
             Self::Move => mode.moves(unopenable_values),
+            Self::Replace => mode.replaces(unopenable_values),
         }
     }
 }
@@ -161,6 +199,210 @@ async fn store_secrets_key(state: &AppState, actor: Uuid, door: KeyOffer) -> Opt
     notice
 }
 
+/// I-23: how many saved credentials a replacement seals again, and the one
+/// control that carries it out. Never a key and never a form field: the
+/// replacement needs nothing typed.
+#[derive(Template)]
+#[template(path = "integrations/secrets_key_replace.html")]
+struct SecretsKeyReplacePage {
+    nav: crate::nav::NavContext,
+    csrf: String,
+    /// Where the one control posts.
+    replace_door: &'static str,
+    /// I-23, in the form the saved-credential count selects.
+    line: String,
+    /// The control's copy.
+    control: &'static str,
+}
+
+/// What a replacement answers (D7, L9): only a committed replacement earns
+/// I-24 and the redirect onto the page itself (post, redirect, get, so a
+/// reload posts nothing again); a refused re-seal left everything as it was,
+/// so the question is asked again; anything that stored nothing answers the
+/// page in place, with nothing to tell.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReplaceAnswer {
+    Replaced(SavedNotice),
+    AskAgain,
+    Unchanged,
+}
+
+/// `GET /admin/instance/integrations/secrets-key/replace`: I-23 over the
+/// credentials stored now, with the one control that replaces the key. It
+/// only reads ([`ReadOnlyDoor`]), so a prefetch, a link preview and a reload
+/// replace nothing (L4, C2).
+pub async fn show_secrets_key_replace(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    replace_page(&state, &user, &headers).await
+}
+
+/// `POST /admin/instance/integrations/secrets-key/replace`: the replacement
+/// where Replace applies over the stored rows as they are at the post, and
+/// the admin sent to the page itself to read I-24 once. A refused re-seal
+/// asks the question again with nothing changed; a replacement another admin
+/// made first, and one anywhere Replace does not apply, change nothing and
+/// answer the page as it is (B1, B2, D8).
+pub async fn replace_secrets_key(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    let store = StoreCapabilities::new(state.store.clone());
+    match replaced(&state, &*store, user.user_id).await {
+        ReplaceAnswer::Replaced(notice) => notice.answered(&session).await,
+        ReplaceAnswer::AskAgain => replace_page(&state, &user, &headers).await,
+        ReplaceAnswer::Unchanged => answer(&state, &user, &headers, None, String::new()).await,
+    }
+}
+
+/// The replace page over the credentials stored now. Where Replace does not
+/// apply, and where the count could not be read - an unread count is not none
+/// saved (B6) - it answers the instance page instead of asking about a change
+/// it would refuse or claiming a count it does not have.
+async fn replace_page(state: &AppState, user: &SessionUser, headers: &HeaderMap) -> Response {
+    let integrations = state.integrations.current();
+    let store = StoreCapabilities::new(state.store.clone());
+    let saved = match replaceable(&integrations) {
+        true => ReadOnlyDoor::SecretsKeyReplace.read(&store).await.saved,
+        false => None,
+    };
+    let Some(saved) = saved else {
+        return answer(state, user, headers, None, String::new()).await;
+    };
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let nav = crate::nav::NavContext::home_for(
+        state,
+        user.user_id,
+        user.workspace_id,
+        true,
+        csrf.clone(),
+    )
+    .await;
+    render(
+        SecretsKeyReplacePage {
+            nav,
+            csrf,
+            replace_door: REPLACE_PATH,
+            line: saved.replace_question(),
+            control: KeyOffer::Replace.label(),
+        }
+        .render(),
+        set_cookie,
+    )
+}
+
+/// Whether the secrets key of this server is Priya's to replace: the same
+/// offer the page makes, so the door and the page cannot disagree (D4, L7).
+fn replaceable(integrations: &Integrations) -> bool {
+    KeyOffer::Replace.applies(
+        integrations.key_mode(),
+        integrations.secrets_check().degraded(),
+    )
+}
+
+/// Replace (US-IIS-07 AC 1): judged over the stored rows as they are at the
+/// post, never the last rebuild's, a fresh secrets key is wrapped under the
+/// instance key this server holds and every stored sealed value is opened
+/// under the key in effect and sealed again under the new one - the key, the
+/// values, the canary, the activity line and the version bump in one locked
+/// transaction (L1, C3). After it, this server's integrations are rebuilt and
+/// installed through the shared boot probe, so the acting replica opens every
+/// credential before it answers; the others follow on their reload (D3).
+async fn replaced<S>(state: &AppState, store: &S, actor: Uuid) -> ReplaceAnswer
+where
+    S: KeyProbe + InstanceKeyWrites,
+{
+    let integrations = match store.instance_snapshot().await {
+        Ok(snapshot) => state.integrations.current().rebuilt(Ok(snapshot)),
+        Err(err) => {
+            tracing::warn!(error = %err, "reading the stored credentials failed");
+            return ReplaceAnswer::Unchanged;
+        }
+    };
+    if !replaceable(&integrations) {
+        return ReplaceAnswer::Unchanged;
+    }
+    let settings = integrations.settings();
+    let wrapped_by = match settings.key_setting {
+        Some(_) => KeyWrapper::Operator,
+        None => KeyWrapper::File,
+    };
+    let (Some(instance), Some(opening), Some(from_key_id)) = (
+        settings.secrets.as_ref(),
+        integrations.sealing_box(),
+        integrations.sealed_under(),
+    ) else {
+        tracing::warn!(
+            probe = "secrets",
+            "replacing the secrets key found no key in effect"
+        );
+        return ReplaceAnswer::Unchanged;
+    };
+    let Some(plan) = ReplacePlan::of(opening, instance, from_key_id, wrapped_by, actor) else {
+        tracing::warn!(probe = "secrets", "generating the new secrets key failed");
+        return ReplaceAnswer::Unchanged;
+    };
+    let answered = written(store, &plan, actor, state.clock.now()).await;
+    reinstall(state, &integrations).await;
+    answered
+}
+
+/// `plan` written, and what that answers: a commit earns I-24 over the
+/// credentials it sealed again, a refusal asks the question again, and a
+/// compare-and-set another admin's replacement won leaves the page as it is
+/// (L9, B1, B2).
+async fn written(
+    store: &dyn InstanceKeyWrites,
+    plan: &ReplacePlan<'_>,
+    actor: Uuid,
+    at: OffsetDateTime,
+) -> ReplaceAnswer {
+    let reseal = |slot, sealed: &[u8]| plan.reseal(slot, sealed).map(Some).ok_or(ResealRefused);
+    let outcome = store
+        .replace_secrets_key(
+            plan.from_key_id(),
+            plan.key(),
+            plan.canary(),
+            actor,
+            at,
+            &reseal,
+        )
+        .await;
+    match outcome {
+        Ok(ReplaceOutcome::Replaced { resealed, .. }) => {
+            ReplaceAnswer::Replaced(SavedNotice::Replaced(resealed))
+        }
+        Ok(ReplaceOutcome::Refused(ResealRefused)) => {
+            tracing::warn!(
+                probe = "secrets",
+                "a stored credential could not be sealed again under the new secrets key; \
+                 nothing changed"
+            );
+            ReplaceAnswer::AskAgain
+        }
+        Ok(ReplaceOutcome::KeyChanged) => {
+            tracing::info!(
+                probe = "secrets",
+                "the secrets key was replaced by another request first; nothing changed"
+            );
+            ReplaceAnswer::Unchanged
+        }
+        Err(err) => {
+            tracing::warn!(error = %err, "replacing the secrets key failed");
+            ReplaceAnswer::Unchanged
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +429,172 @@ mod tests {
         assert_eq!(KeyOffer::Generate.door(), SECRETS_KEY_PATH);
         assert_eq!(KeyOffer::Move.label(), "Move to a secrets key");
         assert_eq!(KeyOffer::Move.door(), MOVE_PATH);
+        assert_eq!(KeyOffer::Replace.label(), "Replace secrets key");
+        assert_eq!(KeyOffer::Replace.door(), REPLACE_PATH);
+        // Generate and Move are the submit control of their own write;
+        // Replace opens the page that asks the question first (L4).
+        assert_eq!(KeyOffer::Generate.opens(), None);
+        assert_eq!(KeyOffer::Move.opens(), None);
+        assert_eq!(KeyOffer::Replace.opens(), Some(REPLACE_PATH));
+    }
+
+    /// A store that answers one replacement with `outcome`, recording the
+    /// re-seal it was handed. Every other instance write is unreachable from
+    /// the replace door.
+    struct OneReplacement {
+        outcome: std::sync::Mutex<Option<ReplaceOutcome<ResealRefused>>>,
+        asked: std::sync::atomic::AtomicUsize,
+    }
+
+    impl OneReplacement {
+        fn answering(outcome: ReplaceOutcome<ResealRefused>) -> Self {
+            Self {
+                outcome: std::sync::Mutex::new(Some(outcome)),
+                asked: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        fn asked(&self) -> usize {
+            self.asked.load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl InstanceKeyWrites for OneReplacement {
+        async fn store_secrets_key(
+            &self,
+            _key: &foundry_store::integrations::NewSecretsKey,
+            _canary: &foundry_store::integrations::KeyCheck,
+            _at: OffsetDateTime,
+            _reseal: crate::integrations::store_capabilities::Resealer<'_>,
+        ) -> Result<SecretsKeyOutcome<ResealRefused>, foundry_store::StoreError> {
+            unreachable!("the replace door generates no key")
+        }
+
+        async fn replace_secrets_key(
+            &self,
+            _from_key_id: &str,
+            _key: &foundry_store::integrations::NewSecretsKey,
+            _canary: &foundry_store::integrations::KeyCheck,
+            _actor: Uuid,
+            _at: OffsetDateTime,
+            _reseal: crate::integrations::store_capabilities::Resealer<'_>,
+        ) -> Result<ReplaceOutcome<ResealRefused>, foundry_store::StoreError> {
+            self.asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(self
+                .outcome
+                .lock()
+                .expect("the outcome")
+                .take()
+                .expect("one replacement"))
+        }
+
+        async fn store_slack_submission(
+            &self,
+            _gate: crate::integrations::store_capabilities::SubmissionGate<'_>,
+        ) -> Result<foundry_store::integrations::SubmissionStored, foundry_store::StoreError>
+        {
+            unreachable!("the replace door writes no Slack submission")
+        }
+
+        async fn apply_pending_slack_app(
+            &self,
+            _actor: Uuid,
+            _now: OffsetDateTime,
+            _sealed_under: Option<&str>,
+            _reseal: crate::integrations::store_capabilities::HeldResealer<'_>,
+        ) -> Result<
+            foundry_store::integrations::PendingApplied<ResealRefused>,
+            foundry_store::StoreError,
+        > {
+            unreachable!("the replace door applies no held Slack app")
+        }
+
+        async fn remove_slack_app(
+            &self,
+            _actor: Uuid,
+            _now: OffsetDateTime,
+        ) -> Result<foundry_store::integrations::RemoveOutcome, foundry_store::StoreError> {
+            unreachable!("the replace door removes no Slack app")
+        }
+
+        async fn connected_slack_workspaces(&self) -> Result<i64, foundry_store::StoreError> {
+            unreachable!("the replace door counts no connection")
+        }
+
+        async fn prune_pending_slack_app(
+            &self,
+            _now: OffsetDateTime,
+        ) -> Result<u64, foundry_store::StoreError> {
+            unreachable!("the replace door prunes nothing")
+        }
+
+        async fn instance_activity(
+            &self,
+            _limit: i64,
+        ) -> Result<Vec<foundry_store::integrations::InstanceActivityRow>, foundry_store::StoreError>
+        {
+            unreachable!("the replace door reads no activity")
+        }
+
+        async fn display_name(
+            &self,
+            _user_id: Uuid,
+        ) -> Result<Option<String>, foundry_store::StoreError> {
+            unreachable!("the replace door reads no name")
+        }
+    }
+
+    /// The instance key of a test server, with a plan over it.
+    fn a_box() -> foundry_auth::secret_box::SecretBox {
+        use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+        use base64::Engine;
+        let text = secrecy::SecretString::from(URL_SAFE_NO_PAD.encode([7u8; 32]));
+        let key = foundry_auth::secret_box::SecretsKey::parse(
+            &text,
+            foundry_auth::secret_box::INSTANCE_KEY_SETTING,
+        )
+        .expect("32 bytes");
+        foundry_auth::secret_box::SecretBox::new(key, Vec::new())
+    }
+
+    /// P3 and L9: a replacement the store refuses leaves the admin reading
+    /// the confirm question again, and earns no I-24 - the refusal is no
+    /// notice, so nothing she lands on can claim a replacement that was
+    /// rolled back. A commit is the one answer that earns the notice, with
+    /// the credentials the write sealed again. A replacement another admin
+    /// won answers the page as it is.
+    #[tokio::test]
+    async fn only_a_committed_replacement_earns_i24_and_a_refused_one_asks_again() {
+        let keys = a_box();
+        let plan = ReplacePlan::of(
+            &keys,
+            &keys,
+            "sk-old".to_string(),
+            KeyWrapper::Operator,
+            Uuid::nil(),
+        )
+        .expect("a plan");
+        let at = OffsetDateTime::UNIX_EPOCH;
+
+        let refusing = OneReplacement::answering(ReplaceOutcome::Refused(ResealRefused));
+        let answered = written(&refusing, &plan, Uuid::nil(), at).await;
+        assert_eq!(answered, ReplaceAnswer::AskAgain);
+        assert_eq!(refusing.asked(), 1, "the write was asked once");
+
+        let committing = OneReplacement::answering(ReplaceOutcome::Replaced {
+            resealed: 3,
+            version: 9,
+        });
+        let answered = written(&committing, &plan, Uuid::nil(), at).await;
+        assert_eq!(
+            answered,
+            ReplaceAnswer::Replaced(SavedNotice::Replaced(3)),
+            "a commit earns I-24 over the credentials it sealed again"
+        );
+
+        let lost = OneReplacement::answering(ReplaceOutcome::KeyChanged);
+        let answered = written(&lost, &plan, Uuid::nil(), at).await;
+        assert_eq!(answered, ReplaceAnswer::Unchanged);
     }
 }

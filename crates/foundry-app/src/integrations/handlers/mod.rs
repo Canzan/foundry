@@ -8,6 +8,10 @@
 //!   addresses with a secrets key (I-5, I-29), Matrix's line and the activity.
 //! - `POST /admin/instance/integrations/secrets-key`: Generate (US-IIS-02),
 //!   where it applies; anywhere else it changes nothing and answers the page.
+//! - `GET`/`POST /admin/instance/integrations/secrets-key/replace`: I-23 over
+//!   the credentials a replacement seals again, and the replacement itself
+//!   (US-IIS-07); the `GET` only reads, and the `POST` seals every stored
+//!   credential again under a new key or changes nothing at all.
 //! - `GET`/`POST /admin/instance/integrations/slack/confirm`: I-14 for the app
 //!   an instance admin submitted while workspaces are still connected through
 //!   the app in effect, with the count it costs them and the one control that
@@ -94,7 +98,7 @@ mod workspace;
 
 pub use instance::{
     confirm_slack_app, generate_secrets_key, move_to_secrets_key, remove_slack_app, save_slack_app,
-    show_instance, show_slack_confirm, show_slack_remove, INSTANCE_PATH, MOVE_PATH,
+    show_instance, show_slack_confirm, show_slack_remove, INSTANCE_PATH, MOVE_PATH, REPLACE_PATH,
     SECRETS_KEY_PATH, SLACK_APP_PATH, SLACK_CONFIRM_PATH, SLACK_REMOVE_PATH,
 };
 pub use matrix_setup::connect_matrix;
@@ -103,6 +107,7 @@ pub use routes::{
     show_delete_route, show_edit_route, show_new_route, show_project, show_route_history,
     NewRouteQuery,
 };
+pub use secrets_key::{replace_secrets_key, show_secrets_key_replace};
 pub use slack_setup::{
     finish_slack_install, show_slack_setup, slack_events, start_slack_install, SlackReturn,
 };

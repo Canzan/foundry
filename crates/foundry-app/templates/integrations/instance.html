@@ -8,10 +8,14 @@
     {% if let Some(line) = page.instance_key %}<p data-instance-key-line>{{ line }}</p>{% endif %}
     {% if let Some(line) = page.secrets_key %}<p data-secrets-key-line>{{ line }}</p>{% endif %}
     {% if let Some(offer) = page.offer %}
+    {% if let Some(door) = offer.opens() %}
+    <a href="{{ door }}" data-secrets-key-control>{{ offer.label() }}</a>
+    {% else %}
     <form method="post" action="{{ offer.door() }}">
       <input type="hidden" name="_csrf" value="{{ csrf }}">
       <button type="submit">{{ offer.label() }}</button>
     </form>
+    {% endif %}
     {% endif %}
   </section>
   {% if page.slack.is_some() || page.environment_slack.is_some() || page.saved_slack.is_some() || page.saved_unreadable.is_some() || page.slack_form %}

@@ -122,6 +122,14 @@ impl KeyMode {
     pub fn moves(self, unopenable_values: bool) -> bool {
         self == Self::Direct && !unopenable_values
     }
+
+    /// Whether Replace applies (US-IIS-07, D4): only while the stored key
+    /// opens (I-2), and never while some stored value opens under no held key
+    /// (I-4, `unopenable_values`) - the all-or-nothing re-seal could never
+    /// succeed there, so Replace would be a control that always refuses.
+    pub fn replaces(self, unopenable_values: bool) -> bool {
+        self == Self::Sealed && !unopenable_values
+    }
 }
 
 /// What Generate stores: a new secrets key wrapped under the sealing
@@ -136,14 +144,28 @@ pub struct GeneratePlan {
 impl GeneratePlan {
     /// `sealed` in `slot`, opened under the held `instance` keys and sealed
     /// again under the new secrets key; `None` when no held instance key
-    /// opens it (Move then changes nothing).
+    /// opens it (Move then changes nothing). The one reading of
+    /// [`Self::reseal_under`] that Move and the instance-key rotation need.
     pub fn reseal(
         &self,
         instance: &SecretBox,
         slot: &SecretSlot,
         sealed: &[u8],
     ) -> Option<Vec<u8>> {
-        let opened = instance
+        self.reseal_under(instance, slot, sealed)
+    }
+
+    /// `sealed` in `slot`, opened under `opening` and sealed again under the
+    /// new secrets key; `None` when `opening` does not open it (the write
+    /// that asked then changes nothing at all). A replacement opens under the
+    /// secrets key in effect, not under the instance keys (US-IIS-07).
+    pub fn reseal_under(
+        &self,
+        opening: &SecretBox,
+        slot: &SecretSlot,
+        sealed: &[u8],
+    ) -> Option<Vec<u8>> {
+        let opened = opening
             .open(&SealedSecret::from_bytes(sealed.to_vec()), slot)
             .ok()?;
         let resealed = self.secrets.seal(&opened, slot).ok()?;

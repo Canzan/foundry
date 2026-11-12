@@ -854,6 +854,13 @@ pub fn build_router(state: AppState) -> Router {
             integrations::handlers::MOVE_PATH,
             post(integrations::handlers::move_to_secrets_key),
         )
+        // US-IIS-07: I-23's replace page and its one control, behind the same
+        // guard; the post carries `_csrf` and nothing else.
+        .route(
+            integrations::handlers::REPLACE_PATH,
+            get(integrations::handlers::show_secrets_key_replace)
+                .post(integrations::handlers::replace_secrets_key),
+        )
         // US-IIS-03: save the Slack app, behind the same guard; carries `_csrf`.
         .route(
             integrations::handlers::SLACK_APP_PATH,

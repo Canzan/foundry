@@ -17,7 +17,8 @@
 //! - [`KeyProbe`]: the boot function's reads of the stored instance rows and
 //!   its one write, the current instance key's check value;
 //! - [`InstanceKeyWrites`]: the instance page's Generate (one write
-//!   use-case, `store_secrets_key`), its Slack submission with the I-14 gate
+//!   use-case, `store_secrets_key`), its replacement of the stored key
+//!   (`replace_secrets_key`, US-IIS-07), its Slack submission with the I-14 gate
 //!   inside that write (`store_slack_submission`), the confirm of a held app,
 //!   the removal, the connected-workspace count the I-14 and I-15 pages read,
 //!   the held app's prune, its activity read and the saver's name;
@@ -30,8 +31,8 @@ use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
     DispatchOutcome, EmailSendFacts, InstanceActivityRow, InstanceSnapshot, KeyCheck,
     LostConnection, NewDelivery, NewSecretsKey, PendingApplied, PendingDelivery, Pruned, Pruning,
-    RecordOutcome, RemoveOutcome, ReplicaState, RetentionView, RewrapOutcome, SealedSlot,
-    SecretsKeyOutcome, SecretsKeyRewrap, SlackSubmissionPlan, SubmissionStored,
+    RecordOutcome, RemoveOutcome, ReplaceOutcome, ReplicaState, RetentionView, RewrapOutcome,
+    SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackSubmissionPlan, SubmissionStored,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -210,6 +211,21 @@ pub trait InstanceKeyWrites: Send + Sync {
         at: OffsetDateTime,
         reseal: Resealer<'_>,
     ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError>;
+
+    /// Replace the stored secrets key, compare-and-set on `from_key_id`:
+    /// re-seal every stored value through `reseal`, write the canary, record
+    /// the replacement with the credentials it sealed again (I-22) and bump
+    /// the version - one transaction, all of it or none of it (US-IIS-07,
+    /// D2, L1).
+    async fn replace_secrets_key(
+        &self,
+        from_key_id: &str,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        actor: Uuid,
+        at: OffsetDateTime,
+        reseal: Resealer<'_>,
+    ) -> Result<ReplaceOutcome<ResealRefused>, StoreError>;
 
     /// Write the submitted Slack app where `gate` sends it, over the
     /// connected-workspace count read inside that one write's own locked
@@ -446,6 +462,22 @@ impl InstanceKeyWrites for StoreCapabilities {
     ) -> Result<SecretsKeyOutcome<ResealRefused>, StoreError> {
         self.0
             .store_secrets_key(key, canary, at, |slot, sealed| reseal(slot, sealed))
+            .await
+    }
+
+    async fn replace_secrets_key(
+        &self,
+        from_key_id: &str,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        actor: Uuid,
+        at: OffsetDateTime,
+        reseal: Resealer<'_>,
+    ) -> Result<ReplaceOutcome<ResealRefused>, StoreError> {
+        self.0
+            .replace_secrets_key(from_key_id, key, canary, actor, at, |slot, sealed| {
+                reseal(slot, sealed)
+            })
             .await
     }
 
