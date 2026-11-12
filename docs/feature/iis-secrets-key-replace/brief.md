@@ -65,7 +65,7 @@ GET /admin/instance/integrations Activity shows the I-18 lines "{date} - {name} 
 Outcome
 
 ```text
-While the stored secrets key cannot be opened (I-26) and no running replica opens it, GET /admin/instance/integrations appends Start over to I-26 and offers no Replace secrets key. While another live server still opens the key, I-26 stays restore-only with no Start over and adds "Another Foundry server still opens the secrets key, so Start over is not offered."; under I-31 I-26 stays restore-only with no Start over and without that sentence. GET and POST /admin/instance/integrations/secrets-key/replace under I-26 change nothing and answer the page.
+While the stored secrets key cannot be opened (I-26) and no running replica opens it, GET /admin/instance/integrations appends Start over to I-26 and offers no Replace secrets key. While another live server still opens the key, I-26 stays restore-only with no Start over and adds "Another Foundry server still opens the secrets key, so Start over is not offered."; under I-31 GET /admin/instance/integrations reads I-31 in the instance key line's place, reads no I-26 words, and offers no Replace secrets key, no Start over and no live-server sentence. GET and POST /admin/instance/integrations/secrets-key/replace under I-26 change nothing and answer the page.
 ```
 
 ### P7
@@ -202,7 +202,7 @@ Confirmed
 
 
 ```text
-While another live server still opens the stored secrets key, I-26 stays restore-only and the page adds one sentence, so that Priya can tell this state from the plain restore case. Its locked exact words are "Another Foundry server still opens the secrets key, so Start over is not offered." Under I-31 the page stays restore-only without this sentence. The user confirmed these exact words on 2026-11-11.
+While another live server still opens the stored secrets key, I-26 stays restore-only and the page adds one sentence, so that Priya can tell this state from the plain restore case. Its locked exact words are "Another Foundry server still opens the secrets key, so Start over is not offered." Under I-31 the page reads I-31 in the instance key line's place, reads no I-26 words, and offers no Replace secrets key, no Start over and no live-server sentence. The user confirmed these exact words on 2026-11-11.
 ```
 
 #### Status

@@ -185,7 +185,7 @@ async fn save_app(
 }
 
 #[when(
-    regex = r"^(Priya|Tomás|Lena|a signed-out visitor) posts a (generate|move|replace|Slack app save|Slack confirm|Slack remove) request(?: anyway| again)?$"
+    regex = r"^(Priya|Tomás|Lena|a signed-out visitor) posts a (generate|move|replace|start over|Slack app save|Slack confirm|Slack remove) request(?: anyway| again)?$"
 )]
 async fn post_door(world: &mut FoundryWorld, who: String, door: String) {
     iis::when_post_door(world, &who, InstanceDoor::parse(&door)).await;
@@ -741,9 +741,9 @@ async fn on_start_over_page(world: &mut FoundryWorld, who: String) {
     iis::then_on_start_over_page(world, &who);
 }
 
-#[then(regex = r"^(Priya) is offered (a|no) way to start over$")]
-async fn way_to_start_over(world: &mut FoundryWorld, who: String, offered: String) {
-    iis::then_way_to_start_over(world, &who, Offer(offered == "a"));
+#[then(regex = r"^(Priya) is offered (a|no) way to (start over|replace the secrets key)$")]
+async fn way_to(world: &mut FoundryWorld, who: String, offered: String, way: String) {
+    iis::then_way_to(world, &who, Button::way(&way), Offer::of_way(&offered));
 }
 
 #[then(

@@ -1116,7 +1116,8 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya has generated the secrets key
     And this Foundry holds <saved>
     When Priya opens the replace secrets key page
-    Then Priya reads "<sentence>"
+    Then Priya is on the replace secrets key page
+    And Priya reads "<sentence>"
     And Priya is offered "Replace secrets key"
     When Priya opens the instance integrations page
     Then nothing Priya reads there says "Replaced."
@@ -1335,4 +1336,25 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And the stored secrets key and the Activity are as they were
     When this Foundry restarts with the instance key it was sealed with
     Then the instance integrations page reads "Secrets key: set. Credentials entered here are sealed with it."
+    And Canzan Labs' saved Slack connection still opens
+
+  # Starting over belongs to one state of the stored key only: the
+  # discard-everything confirm is never a page a healthy Foundry shows. A link
+  # anyone kept, or a stale tab, asks for it here while the key opens - and is
+  # answered this Foundry's own page, with nothing moved.
+  @us-iis-07 @error
+  Scenario: While this Foundry opens its secrets key, starting over is not offered and changes nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds one workspace connection and the Slack app Priya entered
+    When Priya opens the instance integrations page
+    Then Priya reads "Secrets key: set. Credentials entered here are sealed with it."
+    And Priya is offered a way to replace the secrets key
+    And Priya is offered no way to start over
+    When Priya opens the start over page
+    Then Priya's answer is this Foundry's integrations page
+    And the stored secrets key and the Activity are as they were
+    When Priya posts a start over request anyway
+    Then Priya's answer is this Foundry's integrations page
+    And the stored secrets key and the Activity are as they were
     And Canzan Labs' saved Slack connection still opens

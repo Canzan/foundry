@@ -145,7 +145,7 @@
 "still_passes_if": "F403",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature::A Foundry that cannot open its secrets key offers a way to start over and states its cost first"
 },
-"expected": "F401",
+"expected": "F427",
 "stimulus": "F400",
 "user_result": "F402"
 },
@@ -163,7 +163,7 @@
 "still_passes_if": "F407",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature::While another Foundry server still opens the secrets key, starting over is not offered"
 },
-"expected": "F405",
+"expected": "F428",
 "stimulus": "F404",
 "user_result": "F406"
 },
@@ -179,7 +179,7 @@
 "still_passes_if": "F411",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature::Once that server has stopped, starting over is offered with its cost"
 },
-"expected": "F409",
+"expected": "F429",
 "stimulus": "F408",
 "user_result": "F410"
 },
@@ -196,7 +196,7 @@
 "still_passes_if": "F415",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature::While this Foundry cannot read its instance key file, starting over is not offered"
 },
-"expected": "F413",
+"expected": "F430",
 "stimulus": "F412",
 "user_result": "F414"
 },
@@ -213,7 +213,7 @@
 "still_passes_if": "F419",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature::The start over page says what starting over discards, and reading it discards nothing"
 },
-"expected": "F417",
+"expected": "F431",
 "stimulus": "F416",
 "user_result": "F418"
 },
@@ -230,9 +230,28 @@
 "still_passes_if": "F423",
 "test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature::While this Foundry cannot open its secrets key, replacing it changes nothing"
 },
-"expected": "F421",
+"expected": "F432",
 "stimulus": "F420",
 "user_result": "F422"
+},
+{
+"covers": [
+"P6",
+"P7"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6",
+"L7",
+"L4"
+],
+"still_passes_if": "F436",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature::While this Foundry opens its secrets key, starting over is not offered and changes nothing"
+},
+"expected": "F434",
+"stimulus": "F433",
+"user_result": "F435"
 }
 ]
 },
@@ -240,8 +259,8 @@
 "B": 8,
 "C": 3,
 "D": 9,
-"E": 25,
-"F": 423,
+"E": 26,
+"F": 439,
 "K": 5,
 "L": 11,
 "N": 7,
@@ -1610,13 +1629,13 @@
 "S2": {
 "oracle": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
 "public_oracle": {
-"expected": "F316",
-"falsifier": "F317",
+"expected": "F425",
+"falsifier": "F426",
 "promises": [
 "P6",
 "P7"
 ],
-"stimulus": "F315"
+"stimulus": "F424"
 },
 "records": {
 "impact": [
@@ -2114,13 +2133,6 @@
 "text": "F351"
 },
 {
-"id": "E13",
-"promises": [
-"P6"
-],
-"text": "F352"
-},
-{
 "id": "E14",
 "promises": [
 "P6"
@@ -2203,6 +2215,13 @@
 "P12"
 ],
 "text": "F364"
+},
+{
+"id": "E26",
+"promises": [
+"P6"
+],
+"text": "F439"
 }
 ]
 },
@@ -2417,7 +2436,6 @@
 "F286": "Relying on check-arch for this: the fenced-writer rule covers writes of sealed columns and the instance tables, not an arbitrary write on a read path.",
 "F287": "The listing unit test over ReadOnlyDoor::reads is the guard; it is a test, not a type.",
 "F288": "Every write of a sealed column and of integration_secrets_key stands inside a listed fenced writer of crates/foundry-store/src/integrations/instance.rs, the two new writes included, and no module outside crates/foundry-app/src/integrations opens or seals a credential, so the new re-seal closures cannot leak the seam. The rule covers every crate src, members added later included.",
-"F29": "While another live server still opens the stored secrets key, I-26 stays restore-only and the page adds one sentence, so that Priya can tell this state from the plain restore case. Its locked exact words are \"Another Foundry server still opens the secrets key, so Start over is not offered.\" Under I-31 the page stays restore-only without this sentence. The user confirmed these exact words on 2026-11-11.",
 "F291": "This Foundry holds a stored secrets key that opens, 2 saved connection credentials for Canzan Labs (Slack and Matrix), a saved Slack app, and a second replica serving the same database. Priya Raman GETs /admin/instance/integrations, then GETs /admin/instance/integrations/secrets-key/replace twice (the second as a prefetch), then POSTs it with her CSRF token through the production router behind require_instance_admin, and reloads the page she lands on. In a second run the re-seal closure refuses on the first credential. In a third run nothing is saved at all.",
 "F292": "The page offers Replace secrets key next to I-2. The confirm page reads \"Replace the secrets key? Foundry seals its 3 saved credentials again under a new key. Nobody needs to reconnect.\" and leaves the stored key id, the activity list and the config version unchanged after both GETs. The POST answers a redirect to GET /admin/instance/integrations, which reads \"Replaced. 3 saved credentials are sealed under the new key.\" once; the reload of that same address reads the page with no notice and posts nothing. The Activity reads \"{date} - Priya Raman replaced the secrets key (3 credentials sealed again)\". Within 60 seconds and with no restart, each replica asked directly opens every credential: GET /workspace/integrations of Canzan Labs reads neither connection as lost or unreadable, the next new issue of Sam reaches its Slack channel and its Matrix room, and the mail double has received nothing. foundry doctor rotate-secrets then exits 0 and every credential still opens. In the second run the response is the confirm page again with nothing changed: the stored key id, every credential, the activity list and the config version are as they were, and no I-24 is read anywhere. In the third run the confirm page reads \"Replace the secrets key? This Foundry has no saved credentials yet, so nothing needs to be sealed again.\" and the apply answers \"Replaced. This Foundry has a new secrets key.\"",
 "F293": "A prefetch of the confirm page that bumps the config version or replaces the key; a state after the POST in which one credential opens under the new key and another does not; a reload of the landing page that reads I-24 a second time or claims a second replacement; a notice carried in the address; a credential that stops opening on the other replica and never starts again, or a connection marked lost or a workspace admin emailed in the window; a refused re-seal that leaves the new key stored, writes an activity line or bumps the version; an activity line reading \"secrets key replaced\"; the n = 1 or n >= 2 sentence read for n = 0.",
@@ -2444,9 +2462,6 @@
 "F312": "foundry doctor rotate-secrets re-wraps whatever key is stored and re-seals only values not under the secrets key. A replacement leaves exactly that shape, so the rotation keeps working with no change; P10 is an observation of this, not a change to it.",
 "F313": "Both writes use the 0033 tables as they are; the new activity actions are new text values of a text column. No migration.",
 "F314": "This file changes in this slice; every shipped item in it keeps its meaning, and the slice targets name what is added.",
-"F315": "The instance key file of this server is new, so it cannot open the stored secrets key (I-26), and 3 saved credentials cannot be opened. Run A: a second replica is still running and its heartbeat says it opens the stored secrets key. Run B: no running replica opens it (the second replica has stopped beating). Run C: as B but under I-31, this server reading no instance key at all. In each run Priya Raman GETs /admin/instance/integrations, then GETs /admin/instance/integrations/secrets-key/start-over, then GETs and POSTs /admin/instance/integrations/secrets-key/replace, all with her CSRF token through the production router.",
-"F316": "In run A the page reads the shipped I-26 restore words followed by \"Another Foundry server still opens the secrets key, so Start over is not offered.\", offers no Replace secrets key and no Start over, and the start-over GET answers the instance integrations page having changed nothing. In run B the page reads I-26 with Start over appended and no Replace; the start-over confirm page reads \"Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.\" with the Confirmation field \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\", and leaves the stored key, every credential, the activity list and the config version untouched. In run C the page reads I-26 restore-only, without that sentence and without Start over. In every run the replace GET and POST change nothing and answer the instance integrations page.",
-"F317": "Replace offered or applying under I-26; Start over offered while a live replica still opens the key, or under I-31; the live-replica sentence shown under I-31 or while no replica beats; a start-over GET that writes a row, an activity line or a version bump; the n = 1 or n >= 2 sentence read for the wrong count, or the I-28a words paraphrased; the shipped I-26 restore words altered rather than appended to.",
 "F318": "The type whose every variant is a PageRead, so a door built on it can reach no write. Both confirm pages are two more variants: the replace confirm reads the snapshot, the start-over confirm reads the snapshot and the replica states. A new read-only door type beside it would be a second way of saying the same thing.",
 "F319": "It gains ReplicaStates, the read the live-replica gate needs. Keeping it inside this type is what keeps the no-write property mechanical rather than argued.",
 "F32": "Not supplied; the authority records no account of emotion.",
@@ -2485,7 +2500,6 @@
 "F35": "No backup exists, so Priya opens Start over, reads that the 3 credentials this Foundry cannot open are discarded, types START OVER and confirms; Matrix is ready, the workspace admins are told to reconnect Slack and re-enter the Matrix bot token, and Priya enters the Slack app again.",
 "F350": "While the stored secrets key cannot be opened and no running replica opens it, GET /admin/instance/integrations adds Start over to the notice that the key cannot be opened, and offers no Replace secrets key.",
 "F351": "While another live Foundry server still opens the secrets key, the notice stays restore-only: it offers no Start over and tells the user: Another Foundry server still opens the secrets key, so Start over is not offered.",
-"F352": "Under the I-31 condition, the notice also stays restore-only with no Start over, and without the sentence about another Foundry server.",
 "F353": "While the stored secrets key cannot be opened, the replace route changes nothing: a GET and a POST to /admin/instance/integrations/secrets-key/replace answer with the integrations page, and no replacement occurs.",
 "F354": "GET /admin/instance/integrations/secrets-key/start-over is answered only while the stored secrets key cannot be opened and no running replica opens it; in all other conditions the user does not get that page.",
 "F355": "The start-over page has a Confirmation field with this text: Type START OVER to confirm that no Foundry server of an earlier release is still running.",
@@ -2537,32 +2551,42 @@
 "F4": "POST /admin/instance/integrations/secrets-key/replace generates a new secrets key, stores it encrypted under the instance key, re-seals every saved credential and the key check all-or-nothing, and redirects to GET /admin/instance/integrations, which reads I-24 once: \"Replaced. {n} saved credentials are sealed under the new key.\" for n >= 2, \"Replaced. 1 saved credential is sealed under the new key.\" for n = 1, and \"Replaced. This Foundry has a new secrets key.\" for n = 0. A reload posts nothing again and claims no second replacement.",
 "F40": "The instance admin confirms Start over with the typed confirmation: a new secrets key is made, the credentials this Foundry cannot open are discarded, the Activity records it, Matrix is ready, and every workspace integrations page shows no discarded connection as connected and tells its admin to reconnect Slack and re-enter the Matrix bot token; a wrong or empty confirmation changes nothing.",
 "F400": "This Foundry cannot open its stored secrets key, three saved credentials cannot be opened and no running Foundry server opens the key; the instance admin opens the instance integrations page and then the way out it offers.",
-"F401": "She reads the restore words she already read, with a way to start over beside them, no way to replace the key and nothing claiming another server still opens it. The way out states that the three credentials this Foundry cannot open are discarded, that workspace admins reconnect Slack and re-enter Matrix bot tokens and that the Slack app is entered again, and asks her to type a confirmation first. Reading it discards nothing: with the instance key set again, the page reads the secrets key as set and her saved Slack connection still opens.",
 "F402": "She sees a confirmed way forward and what it costs before she chooses, instead of restore words she cannot act on.",
 "F403": "A page that offers the way out whenever its secrets key does not open, without judging whether another server still opens it; the live-server scenario is what refuses that.",
 "F404": "A second Foundry server on the same database still opens the stored secrets key while this one cannot; the instance admin opens the instance integrations page and then the start over address.",
-"F405": "The restore words, followed by the sentence that another Foundry server still opens the secrets key so starting over is not offered, with no way to start over and no way to replace the key. The start over address answers this Foundry's integrations page, and the stored key and the Activity are as they were.",
 "F406": "She is not offered a way out that would discard credentials a running server is still serving with, and she reads which of the two states she is in.",
 "F407": "A page that never offers the way out at all; the stopped-server scenario is what refuses that.",
 "F408": "That second Foundry server stops and a minute passes, with this Foundry still unable to open its stored secrets key.",
-"F409": "The page offers the way out again and says nothing about another server, and the way out states that the two credentials this Foundry cannot open are discarded. The stored key and the Activity are as they were.",
 "F41": "Get out of a lost instance key with no backup, at a cost she read first.",
 "F410": "Once no running server still opens the key, the way out she was refused a moment ago is offered.",
 "F411": "A gate that asks only whether some server ever said it opens the key, since this case turns on how old that server's last word is.",
 "F412": "This Foundry reads no instance key at all, its key file unreadable, while a stored secrets key and saved credentials it cannot open are there; the instance admin opens the instance integrations page and then the start over address.",
-"F413": "The words naming the key file it cannot read and the restore words for the secrets key, with no way to start over, no way to replace, and nothing claiming another server still opens the key. The start over address answers this Foundry's integrations page, and the stored key and the Activity are as they were.",
 "F414": "Where no key is held to seal a new one with, she is not offered a way out that could not work, and the file to restore is named instead.",
 "F415": "A page that withholds the way out wherever the secrets key does not open; the first scenario is what refuses that.",
 "F416": "Nothing saved, the Slack app she entered alone, one workspace connection alone, and a connection with the app she entered, each with a stored secrets key this Foundry cannot open; the instance admin opens the way out.",
-"F417": "The cost sentence of that count and no other: no saved credentials to discard; one saved credential discarded for the app alone and for the connection alone; two for the connection with the app. Each reads the confirmation it asks her to type, nothing claims a key was generated, and the stored key and the Activity are as they were.",
 "F418": "What she is told starting over costs matches what this Foundry actually holds, in each of these states.",
 "F419": "A count that counts each secret of the Slack app separately, or counts the app Foundry's environment sets as a saved credential; the connection-alone row is what refuses the second.",
 "F42": "Claim to checker: the Replace and Start over state machine - Q1 all-or-nothing, Q3 the live-replica gate inside the POST, Q4 reload, prefetch and double submit, Q5 no dead end, Q6 the ordering of replace and start over, and the safety half of Q2 - is a Quint state model (docs/feature/iis-secrets-key-replace/design/secrets_key_replace.qnt), exhaustively checked with Apalache over the compiled model. The temporal half of Q2 and P4 - the window where replicas hold different keys closes with no restart and nothing queued in it is lost - needs fairness, which Quint cannot carry on this host, so it is TLA+ with TLC (design/reseal_convergence.tla) in the shape Request 2 used.",
 "F420": "The replace address of the secrets key opened, then posted, while this Foundry cannot open the stored key; then the instance key it was sealed with is set again.",
-"F421": "Both answer this Foundry's integrations page, with the stored key and the Activity as they were, and with the instance key back the page reads the secrets key as set and her saved Slack connection still opens.",
 "F422": "A replacement that could never seal her credentials again is neither offered to her nor carried out behind her back by a link anyone kept.",
 "F423": "A door that answers the page while a saved credential no held key opens would still let a replacement through; that state is Deliverable A's own I-4.",
+"F424": "The instance key file of this server is new, so it cannot open the stored secrets key (I-26), and 3 saved credentials cannot be opened. Run A: a second replica is still running and its heartbeat says it opens the stored secrets key. Run B: no running replica opens it (the second replica has stopped beating). Run C: this server cannot read its instance key file at all (I-31). In each run Priya Raman GETs /admin/instance/integrations, then GETs /admin/instance/integrations/secrets-key/start-over, then GETs and POSTs /admin/instance/integrations/secrets-key/replace, all with her CSRF token through the production router.",
+"F425": "In run A the page reads the shipped I-26 restore words followed by \"Another Foundry server still opens the secrets key, so Start over is not offered.\", offers no Replace secrets key and no Start over, and the start-over GET answers the instance integrations page having changed nothing. In run B the page reads I-26 with Start over appended and no Replace; the start-over confirm page reads \"Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.\" with the Confirmation field \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\", and leaves the stored key, every credential, the activity list and the config version untouched. In run C the page reads I-31 in the instance key line place and reads no I-26 words at all, offering no Replace secrets key, no Start over and no live-server sentence. In every run the replace GET and POST change nothing and answer the instance integrations page.",
+"F426": "Replace offered or applying under I-26 or under I-31; Start over offered while a live replica still opens the key, or under I-31; the live-replica sentence shown under I-31 or while no replica beats; the I-26 words read under I-31 at all; a start-over GET that writes a row, an activity line or a version bump; the n = 1 or n >= 2 sentence read for the wrong count, or the I-28a words paraphrased; the shipped I-26 restore words altered rather than appended to.",
+"F427": "She reads the restore words she already read, with a way to start over beside them, no way to replace the key and nothing claiming another server still opens it. The way out states that the three credentials this Foundry cannot open are discarded, that workspace admins reconnect Slack and re-enter Matrix bot tokens and that the Slack app is entered again, and asks her to type a confirmation first. Reading it discards nothing: the stored key, the Activity and the version every replica follows are as they were, and with the instance key set again the page reads the secrets key as set and her saved Slack connection still opens.",
+"F428": "The restore words, followed by the sentence that another Foundry server still opens the secrets key so starting over is not offered, with no way to start over and no way to replace the key. The start over address answers this Foundry's integrations page, and the stored key, the Activity and the version every replica follows are as they were.",
+"F429": "The page offers the way out again and says nothing about another server, and the way out states that the two credentials this Foundry cannot open are discarded. The stored key, the Activity and the version every replica follows are as they were.",
 "F43": "One write use-case per apply, under the instance-integrations advisory lock that every instance write takes: Store::replace_secrets_key and Store::start_over_secrets_key stand beside store_secrets_key and rotate_instance_key in crates/foundry-store/src/integrations/instance.rs and reuse reseal_sealed_values, so the new wrapped key, every re-sealed value, the key check, the activity line and the version bump commit together or roll back together. A refusal from the re-seal closure rolls the transaction back, as Generate, Move and the rotation already do.",
+"F430": "The words naming the key file it cannot read, with no way to start over, no way to replace, and nothing claiming another server still opens the key. The start over address answers this Foundry's integrations page, and the stored key, the Activity and the version every replica follows are as they were.",
+"F431": "The cost sentence of that count and no other: no saved credentials to discard; one saved credential discarded for the app alone and for the connection alone; two for the connection with the app. Each reads the confirmation it asks her to type, nothing claims a key was generated, and the stored key, the Activity and the version every replica follows are as they were.",
+"F432": "Both answer this Foundry's integrations page, with the stored key, the Activity and the version every replica follows as they were, and with the instance key back the page reads the secrets key as set and her saved Slack connection still opens.",
+"F433": "A Foundry whose stored secrets key opens, with a workspace connection and the Slack app she entered saved: the instance admin reads the page, then the start over address is opened and posted on it, as a kept link or a stale tab would.",
+"F434": "The page reads the secrets key as set, offers the way to replace it and no way to start over. Both the start over address and a post to it answer this Foundry's integrations page, with the stored key, the Activity and the version every replica follows as they were, and her saved Slack connection still opens.",
+"F435": "The page that discards every credential she cannot open is not a page a healthy Foundry ever shows her, and nobody reaches it with a kept link.",
+"F436": "A door that refuses only the apply and still shows the confirm page here would fail, but a door guarded on the key mode and one guarded on a saved-credential count it cannot read are not told apart by this case.",
+"F437": "While the stored secrets key cannot be opened (I-26) and no running replica opens it, GET /admin/instance/integrations appends Start over to I-26 and offers no Replace secrets key. While another live server still opens the key, I-26 stays restore-only with no Start over and adds \"Another Foundry server still opens the secrets key, so Start over is not offered.\"; under I-31 GET /admin/instance/integrations reads I-31 in the instance key line's place, reads no I-26 words, and offers no Replace secrets key, no Start over and no live-server sentence. GET and POST /admin/instance/integrations/secrets-key/replace under I-26 change nothing and answer the page.\n",
+"F438": "While another live server still opens the stored secrets key, I-26 stays restore-only and the page adds one sentence, so that Priya can tell this state from the plain restore case. Its locked exact words are \"Another Foundry server still opens the secrets key, so Start over is not offered.\" Under I-31 the page reads I-31 in the instance key line's place, reads no I-26 words, and offers no Replace secrets key, no Start over and no live-server sentence. The user confirmed these exact words on 2026-11-11.\n",
+"F439": "While this Foundry cannot read its instance key file at all, GET /admin/instance/integrations shows in the place of the instance key line the message that this Foundry cannot read its instance key file and that an instance operator restores the file from backup or sets FOUNDRY_INSTANCE_KEY and restarts Foundry; the user reads none of the words of the notice that the stored secrets key cannot be opened, and the page offers no Replace secrets key, no Start over and no sentence about another Foundry server.",
 "F44": "D4 resolved, no grace window: the integration_secrets_key row holds exactly one key. The replace seals every saved value under the new key in the same transaction, so after the commit no replica needs the old key, and the old wrapped key is overwritten, not kept. A replica that still holds the old secrets key in memory opens nothing it re-reads and answers SecretUnavailable, which the delivery backoff retries; its next reload adopts the version bump and re-derives the new key from the row wrapped under the instance key it holds. Nothing marks a connection lost and nothing emails on a credential this server cannot open (DD-2 is a per-connection judgement, not a loss), so the window costs silence and a retry, never a reconnect.",
 "F45": "Replace is withheld wherever Generate and Move are withheld: under I-26 (the stored key does not open) and under I-4 (some saved value no held key opens). Under I-4 the all-or-nothing re-seal could never succeed, so offering Replace would be a control that always refuses; the page keeps the shipped I-4 restore words. KeyMode gains replaces(unopenable_values) beside generates and moves, so the four offers are decided by one closed type.",
 "F46": "The live-replica gate reads integration_replica_states: a replica counts as still opening the stored secrets key while its row says opens_secrets_key and its beat_at is no older than the gate window, which is three reload intervals (FOUNDRY_INTEGRATIONS_RELOAD_MS, default 5000 ms, so 15 s by default) and never longer than the hour the retention prune keeps rows for. The gate is read again inside the POST own locked transaction, as D10 reads the connected-workspace count inside the write, so a replica that beats while the post is in flight cannot be started over from under.",
@@ -2601,7 +2625,6 @@
 "F77": "The change stands committed and the page she lands on reads no notice; a warning is logged, as D16 already decided for the Slack changes.",
 "F78": "The database cannot be reached while a confirm page is being read.",
 "F79": "The count is unread rather than zero: the page answers without claiming a count, because an unread count is not none saved; nothing is written.",
-"F8": "While the stored secrets key cannot be opened (I-26) and no running replica opens it, GET /admin/instance/integrations appends Start over to I-26 and offers no Replace secrets key. While another live server still opens the key, I-26 stays restore-only with no Start over and adds \"Another Foundry server still opens the secrets key, so Start over is not offered.\"; under I-31 I-26 stays restore-only with no Start over and without that sentence. GET and POST /admin/instance/integrations/secrets-key/replace under I-26 change nothing and answer the page.",
 "F80": "A replica cannot open a credential because it has not yet reloaded after a replacement.",
 "F81": "The delivery settles as SecretUnavailable under the backoff policy and goes out after a later attempt; the connection is not marked lost, no workspace admin is emailed, and the workspace page reads the shipped not-readable words meanwhile.",
 "F82": "The process fails between the commit and the acting replica rebuild.",
@@ -2660,7 +2683,7 @@
 "status": {
 "kind": "Confirmed"
 },
-"text": "F29"
+"text": "F438"
 },
 {
 "status": {
@@ -2716,7 +2739,7 @@
 {
 "id": "P6",
 "kind": "Outcome",
-"text": "F8"
+"text": "F437"
 },
 {
 "id": "P7",

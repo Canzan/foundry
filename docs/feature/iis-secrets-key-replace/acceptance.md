@@ -240,7 +240,7 @@ This Foundry cannot open its stored secrets key, three saved credentials cannot 
 ```
 
 ```text
-She reads the restore words she already read, with a way to start over beside them, no way to replace the key and nothing claiming another server still opens it. The way out states that the three credentials this Foundry cannot open are discarded, that workspace admins reconnect Slack and re-enter Matrix bot tokens and that the Slack app is entered again, and asks her to type a confirmation first. Reading it discards nothing: with the instance key set again, the page reads the secrets key as set and her saved Slack connection still opens.
+She reads the restore words she already read, with a way to start over beside them, no way to replace the key and nothing claiming another server still opens it. The way out states that the three credentials this Foundry cannot open are discarded, that workspace admins reconnect Slack and re-enter Matrix bot tokens and that the Slack app is entered again, and asks her to type a confirmation first. Reading it discards nothing: the stored key, the Activity and the version every replica follows are as they were, and with the instance key set again the page reads the secrets key as set and her saved Slack connection still opens.
 ```
 
 ```text
@@ -271,7 +271,7 @@ A second Foundry server on the same database still opens the stored secrets key 
 ```
 
 ```text
-The restore words, followed by the sentence that another Foundry server still opens the secrets key so starting over is not offered, with no way to start over and no way to replace the key. The start over address answers this Foundry's integrations page, and the stored key and the Activity are as they were.
+The restore words, followed by the sentence that another Foundry server still opens the secrets key so starting over is not offered, with no way to start over and no way to replace the key. The start over address answers this Foundry's integrations page, and the stored key, the Activity and the version every replica follows are as they were.
 ```
 
 ```text
@@ -302,7 +302,7 @@ That second Foundry server stops and a minute passes, with this Foundry still un
 ```
 
 ```text
-The page offers the way out again and says nothing about another server, and the way out states that the two credentials this Foundry cannot open are discarded. The stored key and the Activity are as they were.
+The page offers the way out again and says nothing about another server, and the way out states that the two credentials this Foundry cannot open are discarded. The stored key, the Activity and the version every replica follows are as they were.
 ```
 
 ```text
@@ -331,7 +331,7 @@ This Foundry reads no instance key at all, its key file unreadable, while a stor
 ```
 
 ```text
-The words naming the key file it cannot read and the restore words for the secrets key, with no way to start over, no way to replace, and nothing claiming another server still opens the key. The start over address answers this Foundry's integrations page, and the stored key and the Activity are as they were.
+The words naming the key file it cannot read, with no way to start over, no way to replace, and nothing claiming another server still opens the key. The start over address answers this Foundry's integrations page, and the stored key, the Activity and the version every replica follows are as they were.
 ```
 
 ```text
@@ -361,7 +361,7 @@ Nothing saved, the Slack app she entered alone, one workspace connection alone, 
 ```
 
 ```text
-The cost sentence of that count and no other: no saved credentials to discard; one saved credential discarded for the app alone and for the connection alone; two for the connection with the app. Each reads the confirmation it asks her to type, nothing claims a key was generated, and the stored key and the Activity are as they were.
+The cost sentence of that count and no other: no saved credentials to discard; one saved credential discarded for the app alone and for the connection alone; two for the connection with the app. Each reads the confirmation it asks her to type, nothing claims a key was generated, and the stored key, the Activity and the version every replica follows are as they were.
 ```
 
 ```text
@@ -391,7 +391,7 @@ The replace address of the secrets key opened, then posted, while this Foundry c
 ```
 
 ```text
-Both answer this Foundry's integrations page, with the stored key and the Activity as they were, and with the instance key back the page reads the secrets key as set and her saved Slack connection still opens.
+Both answer this Foundry's integrations page, with the stored key, the Activity and the version every replica follows as they were, and with the instance key back the page reads the secrets key as set and her saved Slack connection still opens.
 ```
 
 ```text
@@ -409,6 +409,39 @@ A door that answers the page while a saved credential no held key opens would st
 ```
 
 ###### Obligations
+
+
+
+##### Covers
+
+P6
+
+P7
+
+```text
+A Foundry whose stored secrets key opens, with a workspace connection and the Slack app she entered saved: the instance admin reads the page, then the start over address is opened and posted on it, as a kept link or a stale tab would.
+```
+
+```text
+The page reads the secrets key as set, offers the way to replace it and no way to start over. Both the start over address and a post to it answer this Foundry's integrations page, with the stored key, the Activity and the version every replica follows as they were, and her saved Slack connection still opens.
+```
+
+```text
+The page that discards every credential she cannot open is not a page a healthy Foundry ever shows her, and nobody reaches it with a kept link.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature\:\:While this Foundry opens its secrets key\, starting over is not offered and changes nothing
+
+```text
+A door that refuses only the apply and still shows the confirm page here would fail, but a door guarded on the key mode and one guarded on a saved-credential count it cannot read are not told apart by this case.
+```
+
+###### Obligations
+
 
 
 
@@ -536,16 +569,6 @@ P6
 While another live Foundry server still opens the secrets key, the notice stays restore-only: it offers no Start over and tells the user: Another Foundry server still opens the secrets key, so Start over is not offered.
 ```
 
-#### E13
-
-##### Promises
-
-P6
-
-```text
-Under the I-31 condition, the notice also stays restore-only with no Start over, and without the sentence about another Foundry server.
-```
-
 #### E14
 
 ##### Promises
@@ -664,6 +687,16 @@ P12
 
 ```text
 With a stored secrets key this server cannot open, 3 credentials it cannot open and no running replica that opens the key, Priya reads Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again. and nothing has changed before she confirms; after she types START OVER and confirms, she reads Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it. once, and the workspace integrations page of Canzan Labs offers to connect Matrix and does not read Slack as connected.
+```
+
+#### E26
+
+##### Promises
+
+P6
+
+```text
+While this Foundry cannot read its instance key file at all, GET /admin/instance/integrations shows in the place of the instance key line the message that this Foundry cannot read its instance key file and that an instance operator restores the file from backup or sets FOUNDRY_INSTANCE_KEY and restarts Foundry; the user reads none of the words of the notice that the stored secrets key cannot be opened, and the page offers no Replace secrets key, no Start over and no sentence about another Foundry server.
 ```
 
 ## Charter

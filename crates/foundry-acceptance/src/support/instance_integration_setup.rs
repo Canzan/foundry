@@ -207,6 +207,9 @@ pub enum InstanceDoor {
     /// token, so a stale tab and the page's own control post the same thing
     /// (US-IIS-07 AC 1).
     Replace,
+    /// The start over of the secrets key: posted with no confirmation typed,
+    /// which is what a stale tab and a kept link carry (US-IIS-07 AC 4).
+    StartOver,
     SlackSave,
     /// The confirm of a submission waiting behind I-14: it carries nothing but
     /// the form token, so a stale tab, a forged form and the page's own
@@ -223,6 +226,7 @@ impl InstanceDoor {
             "generate" => Self::Generate,
             "move" => Self::Move,
             "replace" => Self::Replace,
+            "start over" => Self::StartOver,
             "Slack app save" => Self::SlackSave,
             "Slack confirm" => Self::SlackConfirm,
             "Slack remove" => Self::SlackRemove,
@@ -235,6 +239,7 @@ impl InstanceDoor {
             Self::Generate => SECRETS_KEY_DOOR,
             Self::Move => MOVE_DOOR,
             Self::Replace => REPLACE_DOOR,
+            Self::StartOver => START_OVER_DOOR,
             Self::SlackSave => SLACK_APP_DOOR,
             Self::SlackConfirm => SLACK_CONFIRM_DOOR,
             Self::SlackRemove => SLACK_REMOVE_DOOR,
@@ -246,6 +251,7 @@ impl InstanceDoor {
             Self::Generate
             | Self::Move
             | Self::Replace
+            | Self::StartOver
             | Self::SlackConfirm
             | Self::SlackRemove => Vec::new(),
             Self::SlackSave => slack_fields(CLIENT_ID, CLIENT_SECRET, SIGNING_SECRET),
@@ -307,6 +313,15 @@ impl Button {
         }
     }
 
+    /// The way a page offers, as a scenario names it.
+    pub fn way(words: &str) -> Self {
+        match words.trim() {
+            "start over" => Self::StartOver,
+            "replace the secrets key" => Self::Replace,
+            other => panic!("unknown way {other:?}"),
+        }
+    }
+
     pub fn copy(self) -> &'static str {
         match self {
             Self::Generate => "Generate secrets key",
@@ -324,6 +339,15 @@ impl Button {
 pub struct Offer(pub bool);
 
 impl Offer {
+    /// "a" | "no", as a scenario names a way a page offers.
+    pub fn of_way(word: &str) -> Self {
+        match word.trim() {
+            "a" => Self(true),
+            "no" => Self(false),
+            other => panic!("unknown way offer {other:?}"),
+        }
+    }
+
     pub fn parse(word: &str) -> Self {
         match word.trim() {
             "offered" => Self(true),
@@ -479,6 +503,12 @@ pub struct IisState {
     pub activity_before: Option<Vec<String>>,
     /// Pages swept for planted values.
     pub swept: Vec<Answer>,
+    /// The version every replica follows, read before the When: a reading
+    /// door may not bump it, because a bump makes every replica rebuild.
+    pub version_before: Option<i64>,
+    /// Whether that second server is still running, so a wait for the beats
+    /// of this scenario knows how many servers still record one.
+    pub other_server_running: bool,
     /// A second Foundry server of this database, reached only at its own
     /// address: Priya keeps reading the server she opened the page on, and
     /// this one is there to beat its own state row (US-IIS-07 AC 4's gate).
@@ -1014,7 +1044,7 @@ pub async fn when_save_slack_app(
 pub async fn when_post_door(world: &mut FoundryWorld, who: &str, door: InstanceDoor) {
     // The replace door's Then reads the stored key and the Activity against
     // what they were; the other doors have their own Thens.
-    if door == InstanceDoor::Replace {
+    if matches!(door, InstanceDoor::Replace | InstanceDoor::StartOver) {
         remember(world).await;
     }
     eip::capture_before(world).await;
@@ -2631,11 +2661,24 @@ async fn instance_activity(world: &mut FoundryWorld) -> Vec<String> {
     texts_of(&page.body, ACTIVITY)
 }
 
+/// The version every replica follows, as each replica's reload polls it.
+async fn stored_config_version(world: &FoundryWorld) -> i64 {
+    tm::harness(world)
+        .app
+        .state
+        .store
+        .config_version()
+        .await
+        .unwrap_or_else(|e| panic!("read the version every replica follows: {e}"))
+}
+
 /// Remember what a reading door may not move and what an apply must: the
-/// stored secrets key and the whole Activity list.
+/// stored secrets key, the whole Activity list and the version every replica
+/// follows.
 async fn remember(world: &mut FoundryWorld) {
     world.iis.key_before = stored_secrets_key(world).await;
     world.iis.activity_before = Some(instance_activity(world).await);
+    world.iis.version_before = Some(stored_config_version(world).await);
 }
 
 /// The replace page as `who` opens it.
@@ -2770,6 +2813,18 @@ pub async fn then_nothing_replaced(world: &mut FoundryWorld) {
         "the instance Activity reads exactly the lines it read before: a line recorded by a page \
          Priya only opened tells every later reader that this Foundry's key was replaced when it \
          was not. Record the replacement only where it commits"
+    );
+    let version_before = world
+        .iis
+        .version_before
+        .expect("the When remembered the version every replica follows");
+    let version_now = stored_config_version(world).await;
+    assert_eq!(
+        version_now, version_before,
+        "the version every replica follows is the one it was: a page Priya only opened - a \
+         prefetch and a link preview open it too - that bumps it makes every server of this \
+         Foundry rebuild its integrations for a change nobody made. Bump the version only where \
+         the change commits"
     );
 }
 
@@ -2935,9 +2990,56 @@ const START_OVER_QUESTION: &str = "Start over with a new secrets key?";
 const BEAT_WAIT: Duration = Duration::from_secs(15);
 /// The minute of a "a minute passes" step.
 const A_MINUTE: Duration = Duration::from_secs(60);
-/// Real time left for every running reload to tick after a clock moved: the
-/// reload period is a timer, not a clock read (as the replica waits above).
-const TICKS: Duration = Duration::from_millis(1200);
+/// How many beats recorded at `at` or later this scenario's running Foundry
+/// servers have between them, counting only the ones that say they open the
+/// stored secrets key when `openers_only`.
+async fn beats_recorded(world: &FoundryWorld, at: time::OffsetDateTime, openers_only: bool) -> i64 {
+    let sql = match openers_only {
+        true => {
+            "SELECT count(*) FROM integration_replica_states \
+                 WHERE beat_at >= $1 AND opens_secrets_key"
+        }
+        false => "SELECT count(*) FROM integration_replica_states WHERE beat_at >= $1",
+    };
+    sqlx::query_scalar(sql)
+        .bind(at)
+        .fetch_one(&tm::pool(world))
+        .await
+        .unwrap_or_else(|e| panic!("read the states this Foundry's servers record: {e}"))
+}
+
+/// Wait, bounded as every other replica wait is, until `want` beats recorded
+/// at `at` or later are in the database. The gate reads exactly those rows, so
+/// the scenario goes on with the state the page will judge instead of a wait
+/// that may be too short: a beat still on its way reads as a server that
+/// never opened the key, which is the very answer these scenarios are RED
+/// for.
+async fn await_beats(
+    world: &FoundryWorld,
+    at: time::OffsetDateTime,
+    want: i64,
+    openers_only: bool,
+) {
+    let wall = Instant::now();
+    loop {
+        let recorded = beats_recorded(world, at, openers_only).await;
+        if recorded >= want {
+            return;
+        }
+        assert!(
+            wall.elapsed() < LIVE_BOUND,
+            "precondition: {want} Foundry server(s){} recorded their own state at {at} or later, \
+             so what this Foundry reads about another server opening the secrets key is current; \
+             {recorded} had",
+            if openers_only {
+                " opening the stored secrets key"
+            } else {
+                ""
+            }
+        );
+        tokio::time::sleep(POLL).await;
+    }
+}
 
 /// The start over page as `who` opens it.
 async fn start_over_page(world: &mut FoundryWorld, who: &str) -> Answer {
@@ -2975,24 +3077,26 @@ pub fn then_on_start_over_page(world: &FoundryWorld, who: &str) {
     );
 }
 
-/// "<who> is offered | offered no way to start over": the page in front of
-/// them carries a way on, whether it reads as a link or as a control. A link
-/// styled as a button counts, because Priya clicks either.
-pub fn then_way_to_start_over(world: &FoundryWorld, who: &str, offer: Offer) {
+/// "<who> is offered a | no way to <button>": the page in front of them
+/// carries that way on, whether it reads as a link or as a control - a link
+/// styled as a button counts, because Priya clicks either, and the page's own
+/// secrets-key controls are links.
+pub fn then_way_to(world: &FoundryWorld, who: &str, button: Button, offer: Offer) {
     let answer = answer(world);
     answered(&answer, who);
     let offered = clickable_texts(&answer.body)
         .iter()
-        .any(|t| t == Button::StartOver.copy());
+        .any(|t| t == button.copy());
     assert_eq!(
         offered,
         offer.0,
-        "{who} is {}offered a way to start over on this page: while this Foundry cannot open its \
-         secrets key and no running server opens it, the restore words alone are a dead end - \
-         there is no backup of the instance key to restore, and a workspace admin cannot \
-         reconnect anything until a new key exists. Append the Start over way out to I-26 exactly \
-         where no live server still opens the key, and nowhere else; {}",
+        "{who} is {}offered a way to {:?} on this page: each way out belongs to exactly one state \
+         of the stored secrets key - replacing it while it opens, starting over while it does not \
+         and no running server opens it - and a way out offered in the wrong state either \
+         re-seals nothing it can read or discards credentials a live server is still serving \
+         with. Offer it where its own state holds, and nowhere else; {}",
         if offer.0 { "" } else { "not " },
+        button.copy(),
         tm::describe(&answer)
     );
 }
@@ -3087,12 +3191,18 @@ pub async fn given_other_server_opens_key(world: &mut FoundryWorld) {
     }
     // Its own clock moves past the beat interval, so its reload records that
     // it opens the stored key: a server that has not beaten yet is a server
-    // no gate can see.
-    if let Some(other) = &world.eip.replicas {
-        other.fake_clock.advance(BEAT_WAIT);
-    }
-    tokio::time::sleep(TICKS).await;
+    // no gate can see. The step goes on when that record is there, not when a
+    // wait runs out.
+    let beaten_at = match &world.eip.replicas {
+        Some(other) => {
+            other.fake_clock.advance(BEAT_WAIT);
+            other.now()
+        }
+        None => panic!("the second server runs"),
+    };
+    await_beats(world, beaten_at, 1, true).await;
     world.iis.other_server = world.eip.replicas.take();
+    world.iis.other_server_running = true;
 }
 
 /// "that second Foundry server has stopped": the pod is gone, so it beats
@@ -3105,6 +3215,7 @@ pub async fn given_other_server_stopped(world: &mut FoundryWorld) {
         .as_mut()
         .expect("a second Foundry server runs");
     other.stop_replica(0);
+    world.iis.other_server_running = false;
 }
 
 /// "a minute passes": every Foundry server still running moves a minute on
@@ -3126,5 +3237,12 @@ pub async fn given_a_minute_passes(world: &mut FoundryWorld) {
             harness.fake_clock.advance((now - theirs).unsigned_abs());
         }
     }
-    tokio::time::sleep(TICKS).await;
+    // A second server still running records that it still opens the stored key
+    // at the new time before the scenario reads the page, so the page is read
+    // against a current word and never against one still on its way. A server
+    // that has stopped records nothing more, which is exactly what makes its
+    // last word a minute old, so there is nothing to wait for then.
+    if world.iis.other_server_running {
+        await_beats(world, now, 1, true).await;
+    }
 }
