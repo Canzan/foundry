@@ -1281,6 +1281,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And a minute passes
     When Priya opens the instance integrations page
     Then Priya reads "This Foundry cannot read its instance key file (/var/lib/foundry/instance.key). Slack and Matrix are paused until it can. An instance operator restores the file from backup, or sets FOUNDRY_INSTANCE_KEY, and restarts Foundry."
+    And nothing Priya reads there says "This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry."
     And Priya is offered no way to start over
     And Priya is not offered "Replace secrets key"
     And nothing Priya reads there says "Another Foundry server still opens the secrets key, so Start over is not offered."
@@ -1340,8 +1341,9 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
   # Starting over belongs to one state of the stored key only: the
   # discard-everything confirm is never a page a healthy Foundry shows. A link
-  # anyone kept, or a stale tab, asks for it here while the key opens - and is
-  # answered this Foundry's own page, with nothing moved.
+  # anyone kept, or a link preview, asks for it here while the key opens - and
+  # is answered this Foundry's own page, with nothing moved. A post to that
+  # address is read where its route lives, with the apply.
   @us-iis-07 @error
   Scenario: While this Foundry opens its secrets key, starting over is not offered and changes nothing
     Given this Foundry starts with its instance key set by the operator
@@ -1352,9 +1354,6 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya is offered a way to replace the secrets key
     And Priya is offered no way to start over
     When Priya opens the start over page
-    Then Priya's answer is this Foundry's integrations page
-    And the stored secrets key and the Activity are as they were
-    When Priya posts a start over request anyway
     Then Priya's answer is this Foundry's integrations page
     And the stored secrets key and the Activity are as they were
     And Canzan Labs' saved Slack connection still opens

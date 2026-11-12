@@ -331,11 +331,11 @@ This Foundry reads no instance key at all, its key file unreadable, while a stor
 ```
 
 ```text
-The words naming the key file it cannot read, with no way to start over, no way to replace, and nothing claiming another server still opens the key. The start over address answers this Foundry's integrations page, and the stored key, the Activity and the version every replica follows are as they were.
+The words naming the key file it cannot read, and none of the words about a stored secrets key that cannot be opened - a different state, with its own words - with no way to start over, no way to replace, and nothing claiming another server still opens the key. The start over address answers this Foundry's integrations page, and the stored key, the Activity and the version every replica follows are as they were.
 ```
 
 ```text
-Where no key is held to seal a new one with, she is not offered a way out that could not work, and the file to restore is named instead.
+Where no key is held to seal a new one with, she is not offered a way out that could not work, and the file to restore is the one thing she is told about.
 ```
 
 ##### Disposition
@@ -419,11 +419,11 @@ P6
 P7
 
 ```text
-A Foundry whose stored secrets key opens, with a workspace connection and the Slack app she entered saved: the instance admin reads the page, then the start over address is opened and posted on it, as a kept link or a stale tab would.
+A Foundry whose stored secrets key opens, with a workspace connection and the Slack app she entered saved: the instance admin reads the page, then the start over address is opened on it, as a kept link or a link preview would.
 ```
 
 ```text
-The page reads the secrets key as set, offers the way to replace it and no way to start over. Both the start over address and a post to it answer this Foundry's integrations page, with the stored key, the Activity and the version every replica follows as they were, and her saved Slack connection still opens.
+The page reads the secrets key as set, offers the way to replace it and no way to start over. The start over address answers this Foundry's integrations page, with the stored key, the Activity and the version every replica follows as they were, and her saved Slack connection still opens.
 ```
 
 ```text
@@ -437,7 +437,7 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature\:\:While this Foundry opens its secrets key\, starting over is not offered and changes nothing
 
 ```text
-A door that refuses only the apply and still shows the confirm page here would fail, but a door guarded on the key mode and one guarded on a saved-credential count it cannot read are not told apart by this case.
+A door guarded on the key mode and one guarded on a saved-credential count it cannot read are not told apart by this case; a post to that address while the key opens is observed where its route lives, with the apply.
 ```
 
 ###### Obligations
