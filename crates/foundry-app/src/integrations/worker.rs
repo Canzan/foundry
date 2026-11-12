@@ -1039,6 +1039,12 @@ mod retention_tests {
             unreachable!("the retention tick counts no connection")
         }
 
+        async fn replica_states(
+            &self,
+        ) -> Result<Vec<foundry_store::integrations::ReplicaState>, StoreError> {
+            unreachable!("the retention tick reads no replica state")
+        }
+
         async fn prune_pending_slack_app(&self, _now: OffsetDateTime) -> Result<u64, StoreError> {
             Ok(0)
         }

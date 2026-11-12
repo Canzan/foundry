@@ -861,6 +861,13 @@ pub fn build_router(state: AppState) -> Router {
             get(integrations::handlers::show_secrets_key_replace)
                 .post(integrations::handlers::replace_secrets_key),
         )
+        // US-IIS-07 AC 3: I-28's start over page, behind the same guard. Its
+        // post, which discards the credentials this Foundry cannot open,
+        // lands with that apply.
+        .route(
+            integrations::handlers::START_OVER_PATH,
+            get(integrations::handlers::show_secrets_key_start_over),
+        )
         // US-IIS-03: save the Slack app, behind the same guard; carries `_csrf`.
         .route(
             integrations::handlers::SLACK_APP_PATH,

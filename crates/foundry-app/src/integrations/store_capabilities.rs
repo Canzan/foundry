@@ -21,7 +21,8 @@
 //!   (`replace_secrets_key`, US-IIS-07), its Slack submission with the I-14 gate
 //!   inside that write (`store_slack_submission`), the confirm of a held app,
 //!   the removal, the connected-workspace count the I-14 and I-15 pages read,
-//!   the held app's prune, its activity read and the saver's name;
+//!   the replica states the live-replica gate of the start over filters, the
+//!   held app's prune, its activity read and the saver's name;
 //! - [`IntegrationsReload`]: each replica's reload task (ADR-IIS-004 r4, r8):
 //!   the config version, the snapshot, and its one write, its own replica
 //!   state row.
@@ -260,6 +261,12 @@ pub trait InstanceKeyWrites: Send + Sync {
     /// How many workspaces hold a live Slack connection (what I-14 and I-15
     /// count and the I-14 gate reads).
     async fn connected_slack_workspaces(&self) -> Result<i64, StoreError>;
+
+    /// Every replica's state row as ADR-IIS-004 r8 writes it, which the
+    /// live-replica gate of the start over filters on `opens_secrets_key` and
+    /// the freshness of `beat_at` (US-IIS-07 AC 2, D5). A read: it writes
+    /// nothing, and it needs no new query of the store.
+    async fn replica_states(&self) -> Result<Vec<ReplicaState>, StoreError>;
 
     /// Delete the held app once `now` is at or past its expiry (the retention
     /// tick); how many rows went.
@@ -512,6 +519,10 @@ impl InstanceKeyWrites for StoreCapabilities {
 
     async fn connected_slack_workspaces(&self) -> Result<i64, StoreError> {
         self.0.connected_slack_workspaces().await
+    }
+
+    async fn replica_states(&self) -> Result<Vec<ReplicaState>, StoreError> {
+        self.0.replica_states().await
     }
 
     async fn prune_pending_slack_app(&self, now: OffsetDateTime) -> Result<u64, StoreError> {

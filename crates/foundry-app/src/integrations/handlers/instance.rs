@@ -67,7 +67,7 @@ use super::{reinstall, render};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{KeyFile, KeyMode, NoKeyReason};
-use crate::integrations::secrets_key_rotation::SavedCredentials;
+use crate::integrations::secrets_key_rotation::{LiveOpeners, SavedCredentials, UnopenableOffer};
 use crate::integrations::slack_app::{
     app_in_effect, client_id_in_effect, plan_hold_pending, plan_replace, reseal_held_for_save,
     AppInEffect, Refusal, SavedApp, SlackChange, SlackField, SlackSubmission, SubmissionKind,
@@ -97,6 +97,9 @@ pub const MOVE_PATH: &str = "/admin/instance/integrations/secrets-key/move";
 /// before she decides (US-IIS-07 AC 1, I-23), and where the replacement
 /// itself is posted (I-24).
 pub const REPLACE_PATH: &str = "/admin/instance/integrations/secrets-key/replace";
+/// Where Priya reads what starting over discards before she decides
+/// (US-IIS-07 AC 3, I-28), and where the start over itself is posted.
+pub const START_OVER_PATH: &str = "/admin/instance/integrations/secrets-key/start-over";
 pub const SLACK_APP_PATH: &str = "/admin/instance/integrations/slack";
 /// Where a submission of another app waits while workspaces are connected
 /// through the current one (US-IIS-05 AC 2, I-14).
@@ -202,6 +205,10 @@ pub struct PageFacts {
     pub saved_direct: bool,
     /// Some stored value opens under no key this server holds (I-4).
     pub unopenable_values: bool,
+    /// Whether another running Foundry server of this database still opens the
+    /// stored secrets key, as the gate read it; `None` where the replica
+    /// states could not be read (US-IIS-07 AC 2, D5).
+    pub live_opener: Option<bool>,
     /// A Slack app is in effect on this server.
     pub slack_app: bool,
     /// Which app that is (D3): the controls the page offers over it, and the
@@ -464,10 +471,14 @@ fn remove_lines(connected: u32) -> String {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum PageRead {
     /// The stored instance rows, the app held for its confirm included, and
-    /// the credentials a replacement would seal again (I-23).
+    /// the credentials a replacement would seal again (I-23), or a start over
+    /// would discard (I-28).
     Snapshot,
     /// The connected-workspace count I-14 carries.
     ConnectedWorkspaces,
+    /// Every replica's state row, which the live-replica gate of the start
+    /// over judges (US-IIS-07 AC 2, D5).
+    ReplicaStates,
 }
 
 /// A door that answers a page and decides nothing: a browser prefetch, a
@@ -485,6 +496,11 @@ pub(super) enum ReadOnlyDoor {
     /// how many credentials a replacement seals again and replaces nothing
     /// (L4, C2).
     SecretsKeyReplace,
+    /// `GET /admin/instance/integrations/secrets-key/start-over` (I-28): it
+    /// asks what starting over discards - the credentials this Foundry cannot
+    /// open, and whether another live server still opens them - and discards
+    /// nothing (L4, C2).
+    SecretsKeyStartOver,
 }
 
 impl ReadOnlyDoor {
@@ -495,13 +511,15 @@ impl ReadOnlyDoor {
             Self::SlackConfirm => &[PageRead::Snapshot, PageRead::ConnectedWorkspaces],
             Self::SlackRemove => &[PageRead::ConnectedWorkspaces],
             Self::SecretsKeyReplace => &[PageRead::Snapshot],
+            Self::SecretsKeyStartOver => &[PageRead::Snapshot, PageRead::ReplicaStates],
         }
     }
 
-    /// Its reads, made in that order. A read that failed is `None`, never a
-    /// zero: an unread count is not none connected, and not none saved
-    /// either (B1, B6).
-    pub(super) async fn read(self, store: &StoreCapabilities) -> PageFactsRead {
+    /// Its reads, made in that order, with `gate` judging the replica states
+    /// it reads. A read that failed is `None`, never a zero: an unread count
+    /// is not none connected, not none saved, and an unread replica list is
+    /// not nobody opening the key either (B1, B6).
+    pub(super) async fn read(self, store: &StoreCapabilities, gate: LiveOpeners) -> PageFactsRead {
         let mut facts = PageFactsRead::default();
         for read in self.reads() {
             match read {
@@ -526,10 +544,34 @@ impl ReadOnlyDoor {
                         }
                     }
                 }
+                PageRead::ReplicaStates => facts.live_opener = live_opener(store, gate).await,
             }
         }
         facts
     }
+}
+
+/// Whether another running Foundry server of this database still opens the
+/// stored secrets key: its own state row says so and its last beat is inside
+/// the gate's window (D5). The page and the start-over door read this one
+/// answer, so neither judges the other's state. `None` where the rows could
+/// not be read: that is neither a server opening the key nor the absence of
+/// one, and [`UnopenableOffer::of_gate`] withholds the way out over it.
+async fn live_opener(store: &StoreCapabilities, gate: LiveOpeners) -> Option<bool> {
+    match store.replica_states().await {
+        Ok(states) => Some(gate.still_opening(&states)),
+        Err(err) => {
+            tracing::warn!(error = %err, "reading what this Foundry's servers open failed");
+            None
+        }
+    }
+}
+
+/// The gate as this server reads the time and its own reload period
+/// (`FOUNDRY_INTEGRATIONS_RELOAD_MS`, the interval every replica beats on):
+/// the clock is the injected one, never `now()`.
+pub(super) fn gate_of(state: &AppState, integrations: &Integrations) -> LiveOpeners {
+    LiveOpeners::at(state.clock.now(), integrations.settings().reload)
 }
 
 /// What a [`ReadOnlyDoor`]'s reads answered.
@@ -538,8 +580,12 @@ pub(super) struct PageFactsRead {
     /// Whether an app is held for its confirm.
     waiting: Option<bool>,
     connected: Option<u32>,
-    /// The credentials a replacement seals again (I-22, I-23).
+    /// The credentials a replacement seals again (I-22, I-23) and a start over
+    /// discards (I-28).
     pub(super) saved: Option<SavedCredentials>,
+    /// Whether another live Foundry server still opens the stored secrets key,
+    /// as the gate judged the rows it read.
+    pub(super) live_opener: Option<bool>,
 }
 
 /// What the page shows and offers. Never a key, a key id or a secret.
@@ -550,7 +596,16 @@ pub struct PageState {
     pub instance_key: Option<String>,
     /// I-2, I-2e, I-2e0, I-3, I-4 or I-26; none without an instance key.
     pub secrets_key: Option<&'static str>,
+    /// The one sentence appended to the I-26 restore words while another live
+    /// Foundry server still opens the stored key, which it never rewrites
+    /// (US-IIS-07 AC 2).
+    pub secrets_key_appended: Option<&'static str>,
     pub offer: Option<KeyOffer>,
+    /// The way out of a stored secrets key this Foundry cannot open
+    /// (US-IIS-07 AC 2, I-26): where she reads what starting over discards
+    /// before anything is discarded. Never beside `offer`'s Replace: the two
+    /// belong to different states of the stored key (L7).
+    pub start_over: Option<StartOverWay>,
     /// I-8 or I-9.
     pub matrix: &'static str,
     /// I-5: with a secrets key and no Slack app.
@@ -570,6 +625,15 @@ pub struct PageState {
     /// Replace, which the Slack app form's own control carries, and Remove,
     /// which opens the door that reads I-15 first.
     pub slack_offers: Vec<SlackOffer>,
+}
+
+/// The way out the page offers under I-26: the door it opens and the words
+/// Priya reads on it. It opens a page and decides nothing, as Remove's and
+/// Replace's controls do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartOverWay {
+    pub door: &'static str,
+    pub label: &'static str,
 }
 
 impl PageState {
@@ -614,6 +678,10 @@ pub fn page_state(facts: &PageFacts) -> PageState {
     let offer = [KeyOffer::Generate, KeyOffer::Move, KeyOffer::Replace]
         .into_iter()
         .find(|offer| offer.applies(facts.mode, facts.unopenable_values));
+    // The three I-26 states, decided by the one closed type over the mode,
+    // the gate and the key file: the way out, the sentence that says why it
+    // is withheld, or neither (L6, L7).
+    let unopenable = UnopenableOffer::of_gate(facts.mode, facts.live_opener, facts.key_file_read);
     let slack = slack_setup(facts);
     let environment_slack = facts
         .environment_slack
@@ -622,7 +690,12 @@ pub fn page_state(facts: &PageFacts) -> PageState {
     PageState {
         instance_key: instance_key_line(facts),
         secrets_key,
+        secrets_key_appended: unopenable.appended(),
         offer,
+        start_over: unopenable.offers_start_over().then_some(StartOverWay {
+            door: START_OVER_PATH,
+            label: super::secrets_key::START_OVER_CONTROL,
+        }),
         matrix: if facts.mode.seals() {
             MATRIX_READY
         } else {
@@ -676,12 +749,19 @@ fn instance_key_line(facts: &PageFacts) -> Option<String> {
 }
 
 /// The facts of the integrations in effect on this server, with
-/// `direct_seals` stored values sealed directly and the saved app in effect
-/// named as saved by `saver`.
-fn facts_of(integrations: &Integrations, direct_seals: usize, saver: Option<String>) -> PageFacts {
+/// `direct_seals` stored values sealed directly, the saved app in effect
+/// named as saved by `saver` and `live_opener` as the gate read the other
+/// servers of this database.
+fn facts_of(
+    integrations: &Integrations,
+    direct_seals: usize,
+    saver: Option<String>,
+    live_opener: Option<bool>,
+) -> PageFacts {
     let settings = integrations.settings();
     PageFacts {
         mode: integrations.key_mode(),
+        live_opener,
         operator_key: settings.key_setting.is_some(),
         key_file: crate::integrations::key_file::key_path(&settings.data_dir)
             .display()
@@ -902,12 +982,14 @@ pub async fn show_slack_confirm(
         return resource_not_found_page();
     };
     let store = StoreCapabilities::new(state.store.clone());
-    let facts = ReadOnlyDoor::SlackConfirm.read(&store).await;
+    let integrations = state.integrations.current();
+    let facts = ReadOnlyDoor::SlackConfirm
+        .read(&store, gate_of(&state, &integrations))
+        .await;
     let (Some(true), Some(connected)) = (facts.waiting, facts.connected) else {
         return answer(&state, &user, &headers, None, String::new()).await;
     };
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
-    let integrations = state.integrations.current();
     let nav = crate::nav::NavContext::home_for(
         &state,
         user.user_id,
@@ -976,11 +1058,15 @@ pub async fn show_slack_remove(
     let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
-    if !removable(&state.integrations.current()) {
+    let integrations = state.integrations.current();
+    if !removable(&integrations) {
         return answer(&state, &user, &headers, None, String::new()).await;
     }
     let store = StoreCapabilities::new(state.store.clone());
-    let Some(connected) = ReadOnlyDoor::SlackRemove.read(&store).await.connected else {
+    let read = ReadOnlyDoor::SlackRemove
+        .read(&store, gate_of(&state, &integrations))
+        .await;
+    let Some(connected) = read.connected else {
         return answer(&state, &user, &headers, None, String::new()).await;
     };
     let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
@@ -1279,7 +1365,12 @@ pub(super) async fn answer(
     let integrations = state.integrations.current();
     let saver = saver_name(state, &integrations).await;
     let direct_seals = direct_seals(state, &integrations).await;
-    let page = page_state(&facts_of(&integrations, direct_seals, saver));
+    let opener = live_opener(
+        &StoreCapabilities::new(state.store.clone()),
+        gate_of(state, &integrations),
+    )
+    .await;
+    let page = page_state(&facts_of(&integrations, direct_seals, saver, opener));
     let form_client_id = page.form_client_id(&typed_client_id).to_string();
     let activity = match StoreCapabilities::new(state.store.clone())
         .instance_activity(ACTIVITY_LINES)
@@ -1338,6 +1429,7 @@ mod tests {
             rewrapped_from: None,
             saved_direct,
             unopenable_values: false,
+            live_opener: Some(false),
             slack_app: false,
             app_in_effect: AppInEffect::None,
             environment_slack: None,
@@ -1507,7 +1599,7 @@ mod tests {
         let mut settings = IntegrationSettings::off("http://localhost:8080");
         settings.public_url_fell_back = true;
         let integrations = Integrations::new(settings);
-        let addresses = facts_of(&integrations, 0, None).addresses;
+        let addresses = facts_of(&integrations, 0, None, Some(false)).addresses;
         assert_eq!(addresses.manifest, slack::manifest(&integrations));
         assert_eq!(
             addresses.redirect_url,
@@ -1644,12 +1736,18 @@ mod tests {
             crate::integrations::config::IntegrationSettings::off("https://foundry.example.org");
         settings.data_dir = "/data".into();
         let integrations = Integrations::new(settings);
-        let none = facts_of(&integrations, 0, None);
+        let none = facts_of(&integrations, 0, None, Some(false));
         assert!(!none.saved_direct, "no direct seal");
         assert!(!none.saved_unreadable, "no saved app");
         assert_eq!(none.key_file, FILE);
-        assert!(facts_of(&integrations, 1, None).saved_direct, "one");
-        assert!(facts_of(&integrations, 2, None).saved_direct, "two");
+        assert!(
+            facts_of(&integrations, 1, None, Some(false)).saved_direct,
+            "one"
+        );
+        assert!(
+            facts_of(&integrations, 2, None, Some(false)).saved_direct,
+            "two"
+        );
     }
 
     /// L3 and L11: the form I-14 and I-15 each read at the
@@ -1824,9 +1922,99 @@ mod tests {
                 ReadOnlyDoor::SecretsKeyReplace,
                 [PageRead::Snapshot].as_slice(),
             ),
+            (
+                ReadOnlyDoor::SecretsKeyStartOver,
+                [PageRead::Snapshot, PageRead::ReplicaStates].as_slice(),
+            ),
         ];
         for (door, reads) in table {
             assert_eq!(door.reads(), reads, "{door:?}");
+        }
+    }
+
+    /// Facts in (mode, key file, gate as it was read), then the secrets-key
+    /// line, the sentence appended to it, the control offered and whether the
+    /// way out is offered.
+    type UnopenableRow = (
+        KeyMode,
+        KeyFile,
+        Option<bool>,
+        Option<&'static str>,
+        Option<&'static str>,
+        Option<KeyOffer>,
+        bool,
+    );
+
+    /// L6 and L7 on the page itself: what Priya reads and is offered in each
+    /// state of a stored secrets key this Foundry cannot open, and in the
+    /// state where no instance key is read at all (I-31).
+    ///
+    /// The shipped I-26 restore words stay as they are in all three I-26
+    /// states - the way out is appended to them and the live-server sentence
+    /// beside them, never in their place. Under I-31 the page reads its own
+    /// instance-key words, no I-26 words at all, and offers neither way out
+    /// and no sentence about another server. Replace and Start over are never
+    /// both offered: one belongs to a key that opens, the other to one that
+    /// does not.
+    #[test]
+    fn the_table_of_what_the_page_offers_while_the_stored_key_cannot_be_opened() {
+        let live_sentence =
+            "Another Foundry server still opens the secrets key, so Start over is not offered.";
+        use KeyMode::{Sealed, Unopenable};
+        // The mode, the key file, the gate as it was read, then the
+        // secrets-key line, the sentence appended to it, the control offered
+        // and the way out offered.
+        #[rustfmt::skip]
+        let table: [UnopenableRow; 8] = [
+            (Unopenable, KeyFile::Unwritable, Some(false), Some(SECRETS_KEY_UNOPENABLE), None,                 None,                    true),
+            (Unopenable, KeyFile::Held,       Some(false), Some(SECRETS_KEY_UNOPENABLE), None,                 None,                    true),
+            (Unopenable, KeyFile::Unwritable, Some(true),  Some(SECRETS_KEY_UNOPENABLE), Some(live_sentence),  None,                    false),
+            // Nothing held to seal a new key with, and an unread gate: the
+            // restore words alone, claiming nothing.
+            (Unopenable, KeyFile::Withheld,   Some(false), Some(SECRETS_KEY_UNOPENABLE), None,                 None,                    false),
+            (Unopenable, KeyFile::Unwritable, None,        Some(SECRETS_KEY_UNOPENABLE), None,                 None,                    false),
+            // I-31: its own words in the instance key line's place, and none
+            // of I-26's, whatever the other servers of this database say.
+            (KeyMode::NoInstanceKey(NoKeyReason::Unreadable), KeyFile::Unreadable, Some(false), None, None,    None,                    false),
+            (KeyMode::NoInstanceKey(NoKeyReason::Unreadable), KeyFile::Unreadable, Some(true),  None, None,    None,                    false),
+            // A key that opens: Replace's own state, and no way to start over.
+            (Sealed,     KeyFile::Held,       Some(false), Some(SECRETS_KEY_SET),        None,                 Some(KeyOffer::Replace), false),
+        ];
+        for (mode, key_file, live_opener, line, appended, offer, start_over) in table {
+            let facts = PageFacts {
+                key_file_read: key_file,
+                live_opener,
+                ..facts(mode, key_file != KeyFile::Held, false)
+            };
+            let page = page_state(&facts);
+            assert_eq!(
+                (page.secrets_key, page.secrets_key_appended, page.offer),
+                (line, appended, offer),
+                "{facts:?}"
+            );
+            assert_eq!(page.start_over.is_some(), start_over, "{facts:?}");
+            if let Some(way) = page.start_over {
+                assert_eq!(way.door, START_OVER_PATH);
+                assert_eq!(way.label, "Start over");
+            }
+            // Neither way out is offered beside the other (L7), and the
+            // sentence that says why the way out is withheld is never read
+            // beside the way out itself.
+            assert!(
+                !(start_over && page.offer == Some(KeyOffer::Replace)),
+                "{facts:?}"
+            );
+            assert!(
+                !(start_over && page.secrets_key_appended.is_some()),
+                "{facts:?}"
+            );
+            // The I-26 words are read in the I-26 states only, and the ones
+            // appended to them never take their place.
+            assert_eq!(
+                page.secrets_key == Some(SECRETS_KEY_UNOPENABLE),
+                mode == Unopenable,
+                "{facts:?}"
+            );
         }
     }
 

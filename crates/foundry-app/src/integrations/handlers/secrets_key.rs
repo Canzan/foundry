@@ -30,16 +30,29 @@
 //! read I-24 once ([`SavedNotice`]). A refused re-seal leaves the old key in
 //! effect with every credential still opening and asks the question again; a
 //! replacement another admin made first answers the page as it is.
+//!
+//! Start over, `GET …/secrets-key/start-over` (US-IIS-07 AC 3), where the
+//! stored key cannot be opened at all (I-26) and no running Foundry server of
+//! this database still opens it ([`UnopenableOffer`]): the page appends the
+//! way out to the shipped restore words, and this door reads I-28 over the
+//! credentials this Foundry cannot open with the I-28a Confirmation it asks
+//! her to type first. It only reads ([`ReadOnlyDoor`]), so a prefetch, a link
+//! preview and a reload discard nothing. Anywhere the way out does not apply
+//! (a key that opens, a live server that still opens it, or no instance key
+//! read at all) it changes nothing and answers the instance page, as the
+//! replace door does. Its `POST`, which discards what it cannot open, lands
+//! with the next slice.
 
 use super::instance::{
-    answer, ReadOnlyDoor, SavedNotice, MOVE_PATH, REPLACE_PATH, SECRETS_KEY_PATH,
+    answer, gate_of, ReadOnlyDoor, SavedNotice, MOVE_PATH, REPLACE_PATH, SECRETS_KEY_PATH,
+    START_OVER_PATH,
 };
 use super::{reinstall, render};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyMode};
 use crate::integrations::sealed_slot;
-use crate::integrations::secrets_key_rotation::ReplacePlan;
+use crate::integrations::secrets_key_rotation::{ReplacePlan, UnopenableOffer};
 use crate::integrations::store_capabilities::{
     InstanceKeyWrites, KeyProbe, ResealRefused, StoreCapabilities,
 };
@@ -65,6 +78,16 @@ const MOVED_MANY: &str =
     "Moved. {n} saved credentials are sealed under a new secrets key. Nobody needs to reconnect.";
 /// I-21.
 const SECRETS_KEY_GENERATED: &str = "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.";
+/// The words on the way out of a stored key this Foundry cannot open: the
+/// page's link to the confirm, and the confirm's own control (I-26, I-28).
+pub(super) const START_OVER_CONTROL: &str = "Start over";
+/// I-28a: what the Confirmation field asks her to type, and the one thing the
+/// gate cannot see for her - a Foundry server of an earlier release that beats
+/// no state row at all.
+const TYPE_START_OVER: &str =
+    "Type START OVER to confirm that no Foundry server of an earlier release is still running.";
+/// I-28a's field label, as she reads it beside the box she types in.
+const CONFIRMATION: &str = "Confirmation";
 
 /// The key action the page offers: a control carrying the copy, the door it
 /// reaches and when it applies.
@@ -215,6 +238,27 @@ struct SecretsKeyReplacePage {
     control: &'static str,
 }
 
+/// I-28: what starting over discards, with the I-28a Confirmation she types
+/// before the one control that carries it out. Never a key and never a
+/// credential: the page states a cost and holds nothing.
+#[derive(Template)]
+#[template(path = "integrations/secrets_key_start_over.html")]
+struct SecretsKeyStartOverPage {
+    nav: crate::nav::NavContext,
+    csrf: String,
+    /// Where the one control posts.
+    start_over_door: &'static str,
+    /// I-28, in the form the count of credentials this Foundry cannot open
+    /// selects.
+    line: String,
+    /// I-28a's field label.
+    confirmation: &'static str,
+    /// I-28a: what she types in it, and why.
+    asks: &'static str,
+    /// The control's copy.
+    control: &'static str,
+}
+
 /// What a replacement answers (D7, L9): only a committed replacement earns
 /// I-24 and the redirect onto the page itself (post, redirect, get, so a
 /// reload posts nothing again); a refused re-seal left everything as it was,
@@ -272,7 +316,12 @@ async fn replace_page(state: &AppState, user: &SessionUser, headers: &HeaderMap)
     let integrations = state.integrations.current();
     let store = StoreCapabilities::new(state.store.clone());
     let saved = match replaceable(&integrations) {
-        true => ReadOnlyDoor::SecretsKeyReplace.read(&store).await.saved,
+        true => {
+            ReadOnlyDoor::SecretsKeyReplace
+                .read(&store, gate_of(state, &integrations))
+                .await
+                .saved
+        }
         false => None,
     };
     let Some(saved) = saved else {
@@ -307,6 +356,75 @@ fn replaceable(integrations: &Integrations) -> bool {
         integrations.key_mode(),
         integrations.secrets_check().degraded(),
     )
+}
+
+/// `GET /admin/instance/integrations/secrets-key/start-over`: I-28 over the
+/// credentials this Foundry cannot open, with the I-28a Confirmation and the
+/// one control that carries the start over out. It only reads
+/// ([`ReadOnlyDoor`]), so a prefetch, a link preview and a reload discard
+/// nothing (L4, C2).
+pub async fn show_secrets_key_start_over(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    start_over_page(&state, &user, &headers).await
+}
+
+/// The start-over page over the credentials stored now. Where the way out does
+/// not apply - a stored key that opens, a live server that still opens it, no
+/// instance key held to seal a new one with - and where the count could not be
+/// read, it answers the instance page instead of asking her to confirm a cost
+/// it would refuse to take or claiming a count it does not have (D8, B6).
+async fn start_over_page(state: &AppState, user: &SessionUser, headers: &HeaderMap) -> Response {
+    let integrations = state.integrations.current();
+    let store = StoreCapabilities::new(state.store.clone());
+    let facts = ReadOnlyDoor::SecretsKeyStartOver
+        .read(&store, gate_of(state, &integrations))
+        .await;
+    let Some(saved) = facts
+        .saved
+        .filter(|_| startable(&integrations, facts.live_opener))
+    else {
+        return answer(state, user, headers, None, String::new()).await;
+    };
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let nav = crate::nav::NavContext::home_for(
+        state,
+        user.user_id,
+        user.workspace_id,
+        true,
+        csrf.clone(),
+    )
+    .await;
+    render(
+        SecretsKeyStartOverPage {
+            nav,
+            csrf,
+            start_over_door: START_OVER_PATH,
+            line: saved.start_over_question(),
+            confirmation: CONFIRMATION,
+            asks: TYPE_START_OVER,
+            control: START_OVER_CONTROL,
+        }
+        .render(),
+        set_cookie,
+    )
+}
+
+/// Whether starting over is Priya's to take on this server: the same offer the
+/// page appends to I-26, over the key mode, the gate as it was read and the
+/// key file, so the door and the page cannot disagree (D5, D8, L6, L7).
+fn startable(integrations: &Integrations, live_opener: Option<bool>) -> bool {
+    UnopenableOffer::of_gate(
+        integrations.key_mode(),
+        live_opener,
+        integrations.key_file(),
+    )
+    .offers_start_over()
 }
 
 /// Replace (US-IIS-07 AC 1): judged over the stored rows as they are at the
@@ -520,6 +638,13 @@ mod tests {
 
         async fn connected_slack_workspaces(&self) -> Result<i64, foundry_store::StoreError> {
             unreachable!("the replace door counts no connection")
+        }
+
+        async fn replica_states(
+            &self,
+        ) -> Result<Vec<foundry_store::integrations::ReplicaState>, foundry_store::StoreError>
+        {
+            unreachable!("the replace door reads no replica state")
         }
 
         async fn prune_pending_slack_app(

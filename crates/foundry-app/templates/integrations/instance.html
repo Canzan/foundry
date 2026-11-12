@@ -7,6 +7,10 @@
   <section data-instance-key>
     {% if let Some(line) = page.instance_key %}<p data-instance-key-line>{{ line }}</p>{% endif %}
     {% if let Some(line) = page.secrets_key %}<p data-secrets-key-line>{{ line }}</p>{% endif %}
+    {% if let Some(line) = page.secrets_key_appended %}<p data-secrets-key-line>{{ line }}</p>{% endif %}
+    {% if let Some(way) = page.start_over %}
+    <a href="{{ way.door }}" data-secrets-key-control>{{ way.label }}</a>
+    {% endif %}
     {% if let Some(offer) = page.offer %}
     {% if let Some(door) = offer.opens() %}
     <a href="{{ door }}" data-secrets-key-control>{{ offer.label() }}</a>
