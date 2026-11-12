@@ -227,6 +227,191 @@ No public door can make a re-seal refuse inside the write: the refusal is a faul
 
 DELIVER\, both halves as completion obligations of this slice\'s own verification\: the store write run over the instance store for the unchanged state under an injected refusal\, and the handler library run with a refusing store double for the answer and the absent notice
 
+### S2
+
+##### Covers
+
+P6
+
+P7
+
+```text
+This Foundry cannot open its stored secrets key, three saved credentials cannot be opened and no running Foundry server opens the key; the instance admin opens the instance integrations page and then the way out it offers.
+```
+
+```text
+She reads the restore words she already read, with a way to start over beside them, no way to replace the key and nothing claiming another server still opens it. The way out states that the three credentials this Foundry cannot open are discarded, that workspace admins reconnect Slack and re-enter Matrix bot tokens and that the Slack app is entered again, and asks her to type a confirmation first. Reading it discards nothing: with the instance key set again, the page reads the secrets key as set and her saved Slack connection still opens.
+```
+
+```text
+She sees a confirmed way forward and what it costs before she chooses, instead of restore words she cannot act on.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature\:\:A Foundry that cannot open its secrets key offers a way to start over and states its cost first
+
+```text
+A page that offers the way out whenever its secrets key does not open, without judging whether another server still opens it; the live-server scenario is what refuses that.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P6
+
+```text
+A second Foundry server on the same database still opens the stored secrets key while this one cannot; the instance admin opens the instance integrations page and then the start over address.
+```
+
+```text
+The restore words, followed by the sentence that another Foundry server still opens the secrets key so starting over is not offered, with no way to start over and no way to replace the key. The start over address answers this Foundry's integrations page, and the stored key and the Activity are as they were.
+```
+
+```text
+She is not offered a way out that would discard credentials a running server is still serving with, and she reads which of the two states she is in.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature\:\:While another Foundry server still opens the secrets key\, starting over is not offered
+
+```text
+A page that never offers the way out at all; the stopped-server scenario is what refuses that.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P6
+
+```text
+That second Foundry server stops and a minute passes, with this Foundry still unable to open its stored secrets key.
+```
+
+```text
+The page offers the way out again and says nothing about another server, and the way out states that the two credentials this Foundry cannot open are discarded. The stored key and the Activity are as they were.
+```
+
+```text
+Once no running server still opens the key, the way out she was refused a moment ago is offered.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature\:\:Once that server has stopped\, starting over is offered with its cost
+
+```text
+A gate that asks only whether some server ever said it opens the key, since this case turns on how old that server's last word is.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P6
+
+```text
+This Foundry reads no instance key at all, its key file unreadable, while a stored secrets key and saved credentials it cannot open are there; the instance admin opens the instance integrations page and then the start over address.
+```
+
+```text
+The words naming the key file it cannot read and the restore words for the secrets key, with no way to start over, no way to replace, and nothing claiming another server still opens the key. The start over address answers this Foundry's integrations page, and the stored key and the Activity are as they were.
+```
+
+```text
+Where no key is held to seal a new one with, she is not offered a way out that could not work, and the file to restore is named instead.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature\:\:While this Foundry cannot read its instance key file\, starting over is not offered
+
+```text
+A page that withholds the way out wherever the secrets key does not open; the first scenario is what refuses that.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P7
+
+```text
+Nothing saved, the Slack app she entered alone, one workspace connection alone, and a connection with the app she entered, each with a stored secrets key this Foundry cannot open; the instance admin opens the way out.
+```
+
+```text
+The cost sentence of that count and no other: no saved credentials to discard; one saved credential discarded for the app alone and for the connection alone; two for the connection with the app. Each reads the confirmation it asks her to type, nothing claims a key was generated, and the stored key and the Activity are as they were.
+```
+
+```text
+What she is told starting over costs matches what this Foundry actually holds, in each of these states.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature\:\:The start over page says what starting over discards\, and reading it discards nothing
+
+```text
+A count that counts each secret of the Slack app separately, or counts the app Foundry's environment sets as a saved credential; the connection-alone row is what refuses the second.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P6
+
+```text
+The replace address of the secrets key opened, then posted, while this Foundry cannot open the stored key; then the instance key it was sealed with is set again.
+```
+
+```text
+Both answer this Foundry's integrations page, with the stored key and the Activity as they were, and with the instance key back the page reads the secrets key as set and her saved Slack connection still opens.
+```
+
+```text
+A replacement that could never seal her credentials again is neither offered to her nor carried out behind her back by a link anyone kept.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature\:\:While this Foundry cannot open its secrets key\, replacing it changes nothing
+
+```text
+A door that answers the page while a saved credential no held key opens would still let a replacement through; that state is Deliverable A's own I-4.
+```
+
+###### Obligations
+
+
+
 ## Expectations
 
 ### Rows

@@ -92,14 +92,14 @@ async fn connected(world: &mut FoundryWorld) {
 }
 
 #[given(
-    regex = r"^this Foundry has since restarted (with the same settings|with a different instance key set by the operator|with the same key under FOUNDRY_INSTANCE_KEY|without the Slack app in its environment|with a different instance key file)$"
+    regex = r"^this Foundry has since restarted (with the same settings|with a different instance key set by the operator|with the same key under FOUNDRY_INSTANCE_KEY|without the Slack app in its environment|with a different instance key file|with an instance key file it cannot read)$"
 )]
 async fn has_restarted(world: &mut FoundryWorld, how: String) {
     iis::restart(world, Restart::parse(&how)).await;
 }
 
 #[when(
-    regex = r"^this Foundry restarts (with the same settings|with a different instance key set by the operator)$"
+    regex = r"^this Foundry restarts (with the same settings|with a different instance key set by the operator|with the instance key it was sealed with)$"
 )]
 async fn restarts(world: &mut FoundryWorld, how: String) {
     iis::restart(world, Restart::parse(&how)).await;
@@ -185,7 +185,7 @@ async fn save_app(
 }
 
 #[when(
-    regex = r"^(Priya|Tomás|Lena|a signed-out visitor) posts a (generate|move|Slack app save|Slack confirm|Slack remove) request(?: anyway| again)?$"
+    regex = r"^(Priya|Tomás|Lena|a signed-out visitor) posts a (generate|move|replace|Slack app save|Slack confirm|Slack remove) request(?: anyway| again)?$"
 )]
 async fn post_door(world: &mut FoundryWorld, who: String, door: String) {
     iis::when_post_door(world, &who, InstanceDoor::parse(&door)).await;
@@ -650,7 +650,9 @@ async fn open_replace_page(world: &mut FoundryWorld, who: String) {
     iis::when_open_replace(world, &who).await;
 }
 
-#[when(regex = r#"^(Priya) chooses "(Replace secrets key)" on the instance integrations page$"#)]
+#[when(
+    regex = r#"^(Priya) chooses "(Replace secrets key|Start over)" on the instance integrations page$"#
+)]
 async fn choose_key_control(world: &mut FoundryWorld, who: String, button: String) {
     iis::when_choose_key_control(world, &who, Button::parse(&button)).await;
 }
@@ -710,4 +712,43 @@ async fn reload_landed(world: &mut FoundryWorld, who: String) {
 #[then(regex = r"^the address Priya landed on carries no notice$")]
 async fn landing_address_plain(world: &mut FoundryWorld) {
     iis::then_landing_address_plain(world);
+}
+
+// ------------------------------------- starting over (US-IIS-07 AC 4, I-28)
+
+#[given(regex = r"^a second Foundry server on this database still opens the stored secrets key$")]
+async fn other_server_opens_key(world: &mut FoundryWorld) {
+    iis::given_other_server_opens_key(world).await;
+}
+
+#[given(regex = r"^that second Foundry server has stopped$")]
+async fn other_server_stopped(world: &mut FoundryWorld) {
+    iis::given_other_server_stopped(world).await;
+}
+
+#[given(regex = r"^a minute passes$")]
+async fn a_minute_passes(world: &mut FoundryWorld) {
+    iis::given_a_minute_passes(world).await;
+}
+
+#[when(regex = r"^(Priya) opens the start over page$")]
+async fn open_start_over_page(world: &mut FoundryWorld, who: String) {
+    iis::when_open_start_over(world, &who).await;
+}
+
+#[then(regex = r"^(Priya) is on the start over page$")]
+async fn on_start_over_page(world: &mut FoundryWorld, who: String) {
+    iis::then_on_start_over_page(world, &who);
+}
+
+#[then(regex = r"^(Priya) is offered (a|no) way to start over$")]
+async fn way_to_start_over(world: &mut FoundryWorld, who: String, offered: String) {
+    iis::then_way_to_start_over(world, &who, Offer(offered == "a"));
+}
+
+#[then(
+    regex = r#"^the start over page asks (Priya) to type the (Confirmation) before "(Start over)"$"#
+)]
+async fn typed_confirmation(world: &mut FoundryWorld, who: String, field: String, button: String) {
+    iis::then_typed_confirmation(world, &who, &field, &button);
 }

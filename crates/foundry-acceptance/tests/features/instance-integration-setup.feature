@@ -12,9 +12,11 @@
 # connected, and Remove with the environment-app rules (I-15, I-16, the I-18
 # "removed" line), and US-IIS-07's replace - the secrets key itself replaced
 # with every saved credential sealed again and nobody reconnecting (I-23, I-24,
-# the I-18 "replaced the secrets key" line). US-IIS-07's Start over is not here
-# yet; where A shows a state B extends (I-26), A's scenario checks the
-# restore-only form.
+# the I-18 "replaced the secrets key" line), and US-IIS-07's Start over - what
+# I-26 offers while this Foundry cannot open its secrets key, with the
+# live-server gate and the cost the confirm states first (the Start over
+# appended to I-26, I-28, I-28a). A's own I-26 scenario reads the restore
+# words it keeps; what the page offers beside them is read here.
 #
 # Harness (DEVOPS D8, brief.md "For Acceptance Designer"): the production
 # router in process (InProcHarness), real Postgres, Slack as the in-process
@@ -126,7 +128,8 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya is not offered "Generate secrets key"
     And Priya reads "Matrix: ready. Workspace admins connect their own Matrix bot on their workspace's integrations page."
 
-  # Deliverable A: I-26 is restore-only (no Replace, no Start over).
+  # Deliverable A: I-26's restore words, which Deliverable B keeps and appends
+  # to; what the page offers beside them is read in US-IIS-07's own scenarios.
   @us-iis-01 @us-iis-08 @kpi-iis-2 @error
   Scenario: A missing or different instance key is named, never silent
     Given this Foundry starts with its instance key set by the operator
@@ -136,7 +139,6 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya reads "This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry."
     And Priya is not offered "Generate secrets key"
     And Priya is not offered "Replace secrets key"
-    And Priya is not offered "Start over"
     And Priya is offered no way to enter the Slack app
 
   @us-iis-01 @us-iis-02 @us-iis-06 @kpi-iis-2 @error
@@ -1082,9 +1084,9 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya is on the replace secrets key page
     And Priya reads "Replace the secrets key? Foundry seals its 3 saved credentials again under a new key. Nobody needs to reconnect."
     And Priya is offered "Replace secrets key"
-    And the stored secrets key and the Activity are as they were
     When Priya opens the instance integrations page
     Then nothing Priya reads there says "Replaced."
+    And the stored secrets key and the Activity are as they were
     When Priya chooses "Replace secrets key" on the replace secrets key page
     Then Priya reads "Replaced. 3 saved credentials are sealed under the new key."
     And the address Priya landed on carries no notice
@@ -1116,9 +1118,9 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya opens the replace secrets key page
     Then Priya reads "<sentence>"
     And Priya is offered "Replace secrets key"
-    And the stored secrets key and the Activity are as they were
     When Priya opens the instance integrations page
     Then nothing Priya reads there says "Replaced."
+    And the stored secrets key and the Activity are as they were
 
     Examples:
       | saved                                                    | sentence                                                                                                        |
@@ -1186,3 +1188,151 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then the command reports 0 credential sealed again under the new key
     And Canzan Labs' saved Slack connection still opens
     And the instance integrations page reads "Secrets key: set. Credentials entered here are sealed with it."
+
+  # ------------------------------- starting over with a new secrets key (B)
+
+  # The volume behind /var/lib/foundry is recreated, so the instance key is a
+  # new one and the stored secrets key no longer opens: I-26. There is no
+  # backup to restore and no workspace admin can reconnect anything until a key
+  # exists, so the restore words alone are a dead end. Priya reads what
+  # starting over costs before she chooses, and reading it costs nothing: with
+  # the instance key back, every credential opens again.
+  @us-iis-07 @needs-matrix @driving_port @kpi-iis-4 @kpi-iis-g1
+  Scenario: A Foundry that cannot open its secrets key offers a way to start over and states its cost first
+    Given the homeserver matrix.canzan.dev has the bot account @foundry:canzan.dev and Lena's account @lena:canzan.dev
+    And Lena has the unencrypted room #auth:canzan.dev named "Identity Platform" and 5 members
+    And Lena has invited @foundry:canzan.dev to #auth:canzan.dev
+    And this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And Priya has connected Canzan Labs to Matrix with the bot's access token
+    And this Foundry has since restarted with a different instance key set by the operator
+    And a minute passes
+    When Priya opens the instance integrations page
+    Then Priya reads "This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry."
+    And Priya is offered a way to start over
+    And Priya is not offered "Replace secrets key"
+    And nothing Priya reads there says "Another Foundry server still opens the secrets key, so Start over is not offered."
+    When Priya chooses "Start over" on the instance integrations page
+    Then Priya is on the start over page
+    And Priya reads "Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again."
+    And Priya reads "Type START OVER to confirm that no Foundry server of an earlier release is still running."
+    And the start over page asks Priya to type the Confirmation before "Start over"
+    And the stored secrets key and the Activity are as they were
+    When this Foundry restarts with the instance key it was sealed with
+    Then the instance integrations page reads "Secrets key: set. Credentials entered here are sealed with it."
+    And Canzan Labs' saved Slack connection still opens
+
+  # Whether starting over is safe is a fact about the other servers of this
+  # database, and only a server that beats its own state can be seen at all.
+  # While one still opens the stored key, starting over would discard
+  # credentials a live server is serving with, so the page stays restore-only
+  # and says which of the two states it is in.
+  @us-iis-07 @iis-replica @error
+  Scenario: While another Foundry server still opens the secrets key, starting over is not offered
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds one workspace connection and the Slack app Priya entered
+    And a second Foundry server on this database still opens the stored secrets key
+    And this Foundry has since restarted with a different instance key set by the operator
+    And a minute passes
+    When Priya opens the instance integrations page
+    Then Priya reads "This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry."
+    And Priya reads "Another Foundry server still opens the secrets key, so Start over is not offered."
+    And Priya is offered no way to start over
+    And Priya is not offered "Replace secrets key"
+    When Priya opens the start over page
+    Then Priya's answer is this Foundry's integrations page
+    And the stored secrets key and the Activity are as they were
+
+  # The same database a moment later: that server is gone, so nothing it said
+  # is current, and the way out is offered. What tells the two states apart is
+  # how old its last word is, not that it ever said it.
+  @us-iis-07 @iis-replica
+  Scenario: Once that server has stopped, starting over is offered with its cost
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds one workspace connection and the Slack app Priya entered
+    And a second Foundry server on this database still opens the stored secrets key
+    And this Foundry has since restarted with a different instance key set by the operator
+    And that second Foundry server has stopped
+    And a minute passes
+    When Priya opens the instance integrations page
+    Then Priya is offered a way to start over
+    And nothing Priya reads there says "Another Foundry server still opens the secrets key, so Start over is not offered."
+    When Priya opens the start over page
+    Then Priya reads "Start over with a new secrets key? The 2 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again."
+    And the stored secrets key and the Activity are as they were
+
+  # No instance key is read at all (I-31): these words replace the instance key
+  # line in both deliverables, and the file is the one thing that can still be
+  # restored - nothing a new secrets key could be sealed with is held, so the
+  # page stays restore-only. The sentence about another server is not this
+  # state either.
+  @us-iis-07 @us-iis-08 @error
+  Scenario: While this Foundry cannot read its instance key file, starting over is not offered
+    Given this Foundry starts with no instance key setting and a writable data directory
+    And Priya has generated the secrets key
+    And Priya has saved the Slack app 6123456789012.7234567890123
+    And Priya has connected Canzan Labs to Slack with this Foundry's app
+    And this Foundry has since restarted with an instance key file it cannot read
+    And a minute passes
+    When Priya opens the instance integrations page
+    Then Priya reads "This Foundry cannot read its instance key file (/var/lib/foundry/instance.key). Slack and Matrix are paused until it can. An instance operator restores the file from backup, or sets FOUNDRY_INSTANCE_KEY, and restarts Foundry."
+    And Priya is offered no way to start over
+    And Priya is not offered "Replace secrets key"
+    And nothing Priya reads there says "Another Foundry server still opens the secrets key, so Start over is not offered."
+    When Priya opens the start over page
+    Then Priya's answer is this Foundry's integrations page
+    And the stored secrets key and the Activity are as they were
+
+  # The count the cost sentence carries is the I-22 rule over the credentials
+  # this Foundry cannot open: each connection one, the Slack app Priya entered
+  # one. The app Foundry's environment sets is nobody's saved credential and is
+  # sealed with nothing, which is how the third row holds one credential and
+  # nothing else - and what tells "1 saved credential" apart from a sentence
+  # that counts whatever it finds.
+  @us-iis-07
+  Scenario Outline: The start over page says what starting over discards, and reading it discards nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds <saved>
+    And this Foundry has since restarted with a different instance key set by the operator
+    And a minute passes
+    When Priya opens the start over page
+    Then Priya reads "<sentence>"
+    And Priya reads "Type START OVER to confirm that no Foundry server of an earlier release is still running."
+    And Priya is offered "Start over"
+    When Priya opens the instance integrations page
+    Then nothing Priya reads there says "Secrets key generated."
+    And the stored secrets key and the Activity are as they were
+
+    Examples:
+      | saved                                                    | sentence                                                                                                                                                                                                 |
+      | nothing saved yet                                        | Start over with a new secrets key? This Foundry has no saved credentials to discard.                                                                                                                     |
+      | the Slack app Priya entered                              | Start over with a new secrets key? The 1 saved credential this Foundry cannot open is discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.     |
+      | one workspace connection                                 | Start over with a new secrets key? The 1 saved credential this Foundry cannot open is discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.     |
+      | one workspace connection and the Slack app Priya entered | Start over with a new secrets key? The 2 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.   |
+
+  # Replace is withheld where the re-seal it needs could never succeed: it
+  # opens every saved credential under the key this Foundry cannot open. The
+  # door says the same as the page - asked anyway, by a stale tab or a link
+  # anyone kept, it changes nothing, and the instance key coming back proves
+  # it changed nothing.
+  @us-iis-07 @error
+  Scenario: While this Foundry cannot open its secrets key, replacing it changes nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds one workspace connection and the Slack app Priya entered
+    And this Foundry has since restarted with a different instance key set by the operator
+    And a minute passes
+    When Priya opens the replace secrets key page
+    Then Priya's answer is this Foundry's integrations page
+    And the stored secrets key and the Activity are as they were
+    When Priya posts a replace request anyway
+    Then Priya's answer is this Foundry's integrations page
+    And the stored secrets key and the Activity are as they were
+    When this Foundry restarts with the instance key it was sealed with
+    Then the instance integrations page reads "Secrets key: set. Credentials entered here are sealed with it."
+    And Canzan Labs' saved Slack connection still opens

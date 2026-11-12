@@ -113,7 +113,7 @@ Producer
 Migrated
 
 ```text
-The Activity enum gains SecretsKeyReplaced ("secrets_key_replaced") and SecretsKeyStartedOver ("secrets_key_started_over"); the six shipped names keep their text, so rows written by the shipped release still read.
+The Activity enum gains SecretsKeyReplaced, whose wire name is "secrets_key_replaced", and SecretsKeyStartedOver, whose wire name is "started_over": those are the two names the shipped 0033 CHECK on the action column already admits, so no migration is needed and no shipped name changes its text. Rows written by the shipped release still read.
 ```
 
 instance\_integration\_audit\_events\.action wire names \(ADR\-IIS\-005 r1\)\: persisted text read back by another release
@@ -1989,7 +1989,7 @@ scripts/test-in-lima.sh cargo xtask check-arch
 #### T2
 
 ```text
-A stored activity action written by the two new store writes renders as its I-18 Deliverable B words, so a persisted secrets_key_replaced or secrets_key_started_over row written by one release reads correctly in another; the generic underscore fallback must not answer for either.
+A stored activity action written by the two new store writes renders as its I-18 Deliverable B words, so a persisted secrets_key_replaced or started_over row written by one release reads correctly in another; the generic underscore fallback must not answer for either.
 ```
 
 instance\_integration\_audit\_events\.action wire names \(ADR\-IIS\-005 r1\)
@@ -1999,7 +1999,7 @@ crates\/foundry\-store\/src\/integrations\/instance\.rs replace\_secrets\_key an
 crates\/foundry\-app\/src\/integrations\/handlers\/instance\.rs activity\_line
 
 ```text
-After the real store writes carry out a replacement and a start over, GET /admin/instance/integrations Activity reads "{date} - Priya Raman replaced the secrets key (3 credentials sealed again)" and "{date} - Priya Raman started over with a new secrets key (3 credentials discarded)", not "secrets key replaced" or "secrets key started over".
+After the real store writes carry out a replacement and a start over, GET /admin/instance/integrations Activity reads "{date} - Priya Raman replaced the secrets key (3 credentials sealed again)" and "{date} - Priya Raman started over with a new secrets key (3 credentials discarded)", not "secrets key replaced" or "started over".
 ```
 
 crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature
@@ -2225,12 +2225,12 @@ It is the one-shot session notice D16 decided; I-24 waits in it exactly as I-10,
 
 stored\_notice
 
-crates\/foundry\-app\/src\/integrations\/handlers\/instance\.rs\:573
+crates\/foundry\-app\/src\/integrations\/handlers\/secrets\_key\.rs\:122
 
 Reuse
 
 ```text
-The n = 0 answer of a start over is I-21, which this function already selects for a Generate with nothing re-sealed; S3 calls it rather than repeating the sentence.
+The n = 0 answer of a start over is I-21, which this function already selects for a Generate with nothing re-sealed; S3 calls it rather than repeating the sentence. It sits in handlers/secrets_key.rs, where the S1 prefactoring move put the secrets-key door family.
 ```
 
 reboot

@@ -77,6 +77,9 @@ pub const SLACK_REMOVE_DOOR: &str = "/admin/instance/integrations/slack/remove";
 /// Where Priya reads how many saved credentials a replacement seals again,
 /// and confirms it (US-IIS-07 AC 1, I-23 then I-24).
 pub const REPLACE_DOOR: &str = "/admin/instance/integrations/secrets-key/replace";
+/// Where Priya reads what starting over discards, and what it asks her to
+/// type first (US-IIS-07 AC 4, I-28 then I-28a).
+pub const START_OVER_DOOR: &str = "/admin/instance/integrations/secrets-key/start-over";
 pub const INSTANCE_DASHBOARD: &str = "/admin/instance/workspaces";
 
 /// The operator's instance key (32 bytes, base64url; a planted value).
@@ -172,6 +175,12 @@ pub enum Restart {
     SameKeyNewName,
     WithoutEnvironmentApp,
     OtherKeyFile,
+    /// The key file is there but holds no key this Foundry can read (I-31),
+    /// with no operator key set: no instance key is read at all.
+    UnreadableKeyFile,
+    /// The operator found the backup: the instance key the stored secrets key
+    /// was sealed with is set again, which is the restore I-26 asks for.
+    KeyItWasSealedWith,
 }
 
 impl Restart {
@@ -182,6 +191,8 @@ impl Restart {
             "with the same key under FOUNDRY_INSTANCE_KEY" => Self::SameKeyNewName,
             "without the Slack app in its environment" => Self::WithoutEnvironmentApp,
             "with a different instance key file" => Self::OtherKeyFile,
+            "with an instance key file it cannot read" => Self::UnreadableKeyFile,
+            "with the instance key it was sealed with" => Self::KeyItWasSealedWith,
             other => panic!("unknown restart {other:?}"),
         }
     }
@@ -192,6 +203,10 @@ impl Restart {
 pub enum InstanceDoor {
     Generate,
     Move,
+    /// The replace of the secrets key itself: it carries nothing but the form
+    /// token, so a stale tab and the page's own control post the same thing
+    /// (US-IIS-07 AC 1).
+    Replace,
     SlackSave,
     /// The confirm of a submission waiting behind I-14: it carries nothing but
     /// the form token, so a stale tab, a forged form and the page's own
@@ -207,6 +222,7 @@ impl InstanceDoor {
         match words.trim() {
             "generate" => Self::Generate,
             "move" => Self::Move,
+            "replace" => Self::Replace,
             "Slack app save" => Self::SlackSave,
             "Slack confirm" => Self::SlackConfirm,
             "Slack remove" => Self::SlackRemove,
@@ -218,6 +234,7 @@ impl InstanceDoor {
         match self {
             Self::Generate => SECRETS_KEY_DOOR,
             Self::Move => MOVE_DOOR,
+            Self::Replace => REPLACE_DOOR,
             Self::SlackSave => SLACK_APP_DOOR,
             Self::SlackConfirm => SLACK_CONFIRM_DOOR,
             Self::SlackRemove => SLACK_REMOVE_DOOR,
@@ -226,7 +243,11 @@ impl InstanceDoor {
 
     fn fields(self) -> Vec<(String, String)> {
         match self {
-            Self::Generate | Self::Move | Self::SlackConfirm | Self::SlackRemove => Vec::new(),
+            Self::Generate
+            | Self::Move
+            | Self::Replace
+            | Self::SlackConfirm
+            | Self::SlackRemove => Vec::new(),
             Self::SlackSave => slack_fields(CLIENT_ID, CLIENT_SECRET, SIGNING_SECRET),
         }
     }
@@ -425,7 +446,7 @@ impl Refusal {
 }
 
 /// The scenario's operator settings and what the steps read back.
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct IisState {
     /// `FOUNDRY_INSTANCE_KEY` (`Some("")`: set to an empty value).
     pub instance_key: Option<String>,
@@ -458,6 +479,22 @@ pub struct IisState {
     pub activity_before: Option<Vec<String>>,
     /// Pages swept for planted values.
     pub swept: Vec<Answer>,
+    /// A second Foundry server of this database, reached only at its own
+    /// address: Priya keeps reading the server she opened the page on, and
+    /// this one is there to beat its own state row (US-IIS-07 AC 4's gate).
+    pub other_server: Option<MultiReplicaHarness>,
+}
+
+impl std::fmt::Debug for IisState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("IisState")
+            .field("instance_key", &self.instance_key)
+            .field("legacy_key", &self.legacy_key)
+            .field("data_dir", &self.data_dir)
+            .field("environment_app", &self.environment_app)
+            .field("landed", &self.landed)
+            .finish_non_exhaustive()
+    }
 }
 
 // ===========================================================================
@@ -736,6 +773,22 @@ pub async fn restart(world: &mut FoundryWorld, how: Restart) {
             );
         }
         Restart::WithoutEnvironmentApp => world.iis.environment_app = false,
+        Restart::UnreadableKeyFile => {
+            // The file is there and holds no key: no operator key is set
+            // either, so this Foundry reads no instance key at all (I-31).
+            let file = key_file(world);
+            world.iis.instance_key = None;
+            world.iis.legacy_key = None;
+            let _ = std::fs::remove_file(&file);
+            write_private(&file, b"this is not an instance key\n");
+            world.iis.file_before = Some(std::fs::read(&file).expect("the planted file"));
+        }
+        Restart::KeyItWasSealedWith => {
+            // The operator's backup: the key the stored secrets key was
+            // sealed with, set again, which is the restore I-26 asks for.
+            world.iis.instance_key = Some(OPERATOR_KEY.into());
+            world.iis.legacy_key = None;
+        }
         Restart::OtherKeyFile => {
             // Another server's file: a valid key, but not the one that
             // sealed the stored secrets key.
@@ -959,6 +1012,11 @@ pub async fn when_save_slack_app(
 /// "<who> posts a <door> request [anyway|again]": the door posted directly, as a
 /// stale tab or a forged form would, with a valid form token.
 pub async fn when_post_door(world: &mut FoundryWorld, who: &str, door: InstanceDoor) {
+    // The replace door's Then reads the stored key and the Activity against
+    // what they were; the other doors have their own Thens.
+    if door == InstanceDoor::Replace {
+        remember(world).await;
+    }
     eip::capture_before(world).await;
     let posted = eip::post(world, who, door.path(), &door.fields(), true).await;
     let answer = if posted.status.is_redirection() {
@@ -2601,10 +2659,19 @@ pub async fn given_prefetched_replace(world: &mut FoundryWorld) {
     );
 }
 
-/// "Priya opens the replace secrets key page".
+/// "Priya opens the replace secrets key page": her browser follows the one
+/// redirection a door that decides nothing may answer with, so the page she
+/// lands on is read whichever shape the answer takes.
 pub async fn when_open_replace(world: &mut FoundryWorld, who: &str) {
     remember(world).await;
-    eip::when_open(world, who, REPLACE_DOOR).await;
+    eip::capture_before(world).await;
+    let asked = replace_page(world, who).await;
+    let answer = if asked.status.is_redirection() {
+        eip::follow(world, who, asked).await
+    } else {
+        asked
+    };
+    world.eip.when_answer = Some(answer);
 }
 
 /// Follow the instance page's own secrets-key control as a click would: a
@@ -2853,4 +2920,211 @@ pub fn then_landing_address_plain(world: &FoundryWorld) {
          replacement that never happened. Redirect to the page itself and let the notice wait \
          once in her session; she landed on {landed:?}"
     );
+}
+
+// ===========================================================================
+// US-IIS-07: starting over with a new secrets key (I-26's offer, I-28, I-28a)
+// ===========================================================================
+
+/// The question I-28 asks whatever the count is: read on its own page, with
+/// nothing discarded yet.
+const START_OVER_QUESTION: &str = "Start over with a new secrets key?";
+/// Long enough on a server's own clock that its reload beats its state row
+/// again (`BEAT_EVERY` is 10 s there), so what it last said about opening the
+/// stored secrets key is what it says now.
+const BEAT_WAIT: Duration = Duration::from_secs(15);
+/// The minute of a "a minute passes" step.
+const A_MINUTE: Duration = Duration::from_secs(60);
+/// Real time left for every running reload to tick after a clock moved: the
+/// reload period is a timer, not a clock read (as the replica waits above).
+const TICKS: Duration = Duration::from_millis(1200);
+
+/// The start over page as `who` opens it.
+async fn start_over_page(world: &mut FoundryWorld, who: &str) -> Answer {
+    eip::get(world, who, START_OVER_DOOR).await
+}
+
+/// "Priya opens the start over page": as the replace page is opened, the one
+/// redirection a door that decides nothing may answer with is followed.
+pub async fn when_open_start_over(world: &mut FoundryWorld, who: &str) {
+    remember(world).await;
+    eip::capture_before(world).await;
+    let asked = start_over_page(world, who).await;
+    let answer = if asked.status.is_redirection() {
+        eip::follow(world, who, asked).await
+    } else {
+        asked
+    };
+    world.eip.when_answer = Some(answer);
+}
+
+/// "<who> is on the start over page": the cost is stated at its own address,
+/// so Priya can read it, leave it and come back to it, and a reload of it
+/// discards nothing.
+pub fn then_on_start_over_page(world: &FoundryWorld, who: &str) {
+    let answer = answer(world);
+    assert!(
+        answer.status.is_success()
+            && answer.path.split('?').next() == Some(START_OVER_DOOR)
+            && eip::text(&answer).contains(START_OVER_QUESTION),
+        "{who} reads what starting over discards on its own page: answered anywhere else she \
+         either starts over without being asked - every workspace reconnecting and the Slack app \
+         entered again, with no way back - or has no address to come back to while she looks for \
+         the instance key once more. Answer the Start over control with the start over page; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// "<who> is offered | offered no way to start over": the page in front of
+/// them carries a way on, whether it reads as a link or as a control. A link
+/// styled as a button counts, because Priya clicks either.
+pub fn then_way_to_start_over(world: &FoundryWorld, who: &str, offer: Offer) {
+    let answer = answer(world);
+    answered(&answer, who);
+    let offered = clickable_texts(&answer.body)
+        .iter()
+        .any(|t| t == Button::StartOver.copy());
+    assert_eq!(
+        offered,
+        offer.0,
+        "{who} is {}offered a way to start over on this page: while this Foundry cannot open its \
+         secrets key and no running server opens it, the restore words alone are a dead end - \
+         there is no backup of the instance key to restore, and a workspace admin cannot \
+         reconnect anything until a new key exists. Append the Start over way out to I-26 exactly \
+         where no live server still opens the key, and nowhere else; {}",
+        if offer.0 { "" } else { "not " },
+        tm::describe(&answer)
+    );
+}
+
+/// "the start over page asks <who> to type the <field> before <button>": the
+/// control that carries the start over out sits in a form that asks for a
+/// field of its own, so the credentials cannot be discarded by a click alone
+/// (I-28a). The field is read by the words beside it, as Priya reads it.
+pub fn then_typed_confirmation(world: &FoundryWorld, who: &str, field: &str, button: &str) {
+    let answer = answer(world);
+    answered(&answer, who);
+    let doc = parse(&answer.body);
+    let buttons = scraper::Selector::parse("button, input[type=submit]").expect("selector");
+    let labels = scraper::Selector::parse("label").expect("selector");
+    let inputs = scraper::Selector::parse("input[name], textarea[name]").expect("selector");
+    let asks = select_all(&doc, "form").into_iter().any(|form| {
+        let carries = form.select(&buttons).any(|b| {
+            let text = b.text().collect::<String>();
+            text.trim() == button || b.value().attr("value") == Some(button)
+        });
+        let labelled = form
+            .select(&labels)
+            .any(|l| l.text().collect::<String>().trim() == field);
+        let typed = form.select(&inputs).any(|i| {
+            i.value().attr("type").unwrap_or("text") != "hidden"
+                && i.value().attr("name").is_some_and(|n| !n.is_empty())
+        });
+        carries && labelled && typed
+    });
+    assert!(
+        asks,
+        "{who} is asked to type {field:?} in the same form as {button:?}: the gate can only see \
+         servers that beat their state, so a Foundry server of an earlier release is still a \
+         server she alone can rule out, and a confirm she can reach with one click rules out \
+         nothing. Put a {field:?} field she fills in beside the control; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// "a second Foundry server on this database still opens the stored secrets
+/// key": another server of this Foundry, on the same database, holding the
+/// instance key the stored secrets key was sealed with. It is reached only at
+/// its own address - Priya keeps reading the server she opened the page on -
+/// and its own reload records what it opens, which is the only way one server
+/// learns that another is still running.
+pub async fn given_other_server_opens_key(world: &mut FoundryWorld) {
+    let page = instance_page(world, "Priya").await;
+    assert!(
+        page.status.is_success() && eip::text(&page).contains("Secrets key: set."),
+        "precondition: the stored secrets key opens here before a second server joins this \
+         database, so the second one holds the key this scenario makes this server lose; {}",
+        tm::describe(&page)
+    );
+    let now = {
+        use foundry_app::Clock as _;
+        tm::harness(world).fake_clock.now()
+    };
+    let other = MultiReplicaHarness::spawn_sharing_schema_with_time(
+        1,
+        tm::harness(world),
+        now,
+        ReplicaTime::Frozen,
+    )
+    .await;
+    // It boots with this scenario's settings, as every instance does: `boot`
+    // installs them on whatever replicas the world holds, so the second
+    // server is parked there for that one call and taken out again, leaving
+    // every request of this scenario on the server Priya opened.
+    world.eip.replicas = Some(other);
+    boot(world).await;
+    let base = {
+        let addrs = world
+            .eip
+            .replicas
+            .as_ref()
+            .expect("the second server runs")
+            .replica_addrs();
+        format!("http://{}", addrs[0])
+    };
+    let wall = Instant::now();
+    loop {
+        let page = eip::get(world, "Priya", &format!("{base}{INSTANCE_INTEGRATIONS}")).await;
+        if page.status.is_success() && eip::text(&page).contains("Secrets key: set.") {
+            break;
+        }
+        assert!(
+            wall.elapsed() < LIVE_BOUND,
+            "precondition: the second server opens the stored secrets key at its own address; {}",
+            tm::describe(&page)
+        );
+        tokio::time::sleep(POLL).await;
+    }
+    // Its own clock moves past the beat interval, so its reload records that
+    // it opens the stored key: a server that has not beaten yet is a server
+    // no gate can see.
+    if let Some(other) = &world.eip.replicas {
+        other.fake_clock.advance(BEAT_WAIT);
+    }
+    tokio::time::sleep(TICKS).await;
+    world.iis.other_server = world.eip.replicas.take();
+}
+
+/// "that second Foundry server has stopped": the pod is gone, so it beats
+/// nothing more; what it last said about opening the stored secrets key stays
+/// in the database and ages.
+pub async fn given_other_server_stopped(world: &mut FoundryWorld) {
+    let other = world
+        .iis
+        .other_server
+        .as_mut()
+        .expect("a second Foundry server runs");
+    other.stop_replica(0);
+}
+
+/// "a minute passes": every Foundry server still running moves a minute on
+/// and beats its own state again at that time; a stopped one never beats
+/// again, so what it last said about opening the stored secrets key becomes a
+/// minute old. Nothing else of this Foundry changes.
+pub async fn given_a_minute_passes(world: &mut FoundryWorld) {
+    use foundry_app::Clock as _;
+    tm::harness(world).fake_clock.advance(A_MINUTE);
+    let now = tm::harness(world).fake_clock.now();
+    // Running servers keep their clocks together with this one's, so a beat
+    // of theirs is as recent as this server's own reading of the time.
+    for harness in [world.iis.other_server.as_ref(), world.eip.replicas.as_ref()]
+        .into_iter()
+        .flatten()
+    {
+        let theirs = harness.now();
+        if now > theirs {
+            harness.fake_clock.advance((now - theirs).unsigned_abs());
+        }
+    }
+    tokio::time::sleep(TICKS).await;
 }
