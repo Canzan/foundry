@@ -538,6 +538,324 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 
 
+<h3>S3</h3>
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<p>P9</p>
+
+<p>P5</p>
+
+<p>P12</p>
+
+<pre><code>This Foundry cannot open its stored secrets key, the Slack app Priya entered and Canzan Labs&#x27; Slack and Matrix connections cannot be opened, and no running Foundry server opens the key. Priya opens the start over page, reads what it costs, types START OVER and confirms; afterwards she asks for the address she landed on again.
+</code></pre>
+
+<pre><code>The start over page states the cost of discarding the 3 saved credentials this Foundry cannot open, and reading it changes neither the stored key nor the whole Activity list. Confirming lands her on the instance integrations page, which reads once that the secrets key is generated, Matrix is ready and the Slack app can now be entered; the address she lands on carries nothing, a stored secrets key this Foundry opens is in place with its key check naming it, no connection is marked lost and no workspace admin is emailed. Asking for that same address again reads the stored key as set, asks for the Slack app again, says nothing about a key being generated, and the Activity list reads exactly the started-over line with its count of 3 above the two shipped lines, in the words a reader of another release reads. Canzan Labs&#x27; workspace integrations page reads no connection as connected, offers to connect Matrix and reads the shipped words that Slack is not set up on this Foundry; no page carries the new key in any encoding.
+</code></pre>
+
+<pre><code>Priya gets out of a lost instance key with no backup at the cost she read first: a key that works again, Matrix ready, the Slack app asked for again, and Canzan Labs told to set its connections up again rather than left reading a connection that cannot post.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::Starting over makes a secrets key this Foundry opens and leaves the workspace told to set up again</p>
+
+<pre><code>A start over that discards every credential this Foundry cannot open but leaves one it can open behind: under a stored key this server cannot open there is no credential it opens, so that half is observed where a replacement is, and the kept connection rows and their routes are read through the workspace page alone.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<pre><code>This Foundry cannot open its stored secrets key, two saved credentials cannot be opened, and no running Foundry server opens the key. Priya pastes the confirmation with a space before and after it and confirms the start over.
+</code></pre>
+
+<pre><code>The start over is applied: she lands on the instance integrations page reading once that the secrets key is generated, Matrix is ready and the Slack app can now be entered, a stored secrets key this Foundry opens is in place, and the Activity reads the started-over line with its count of 2 exactly once.
+</code></pre>
+
+<pre><code>Priya is not refused for the spaces a paste brings along: the words she was asked to type are the words, whatever surrounds them.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::The Confirmation is read with the spaces a paste brings along trimmed</p>
+
+<pre><code>A confirmation read with any whitespace anywhere removed rather than only around the words: a value with a space inside the words is not tried here.
+</code></pre>
+
+<h6>Obligations</h6>
+
+<p>None.</p>
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<pre><code>This Foundry cannot open its stored secrets key, two saved credentials cannot be opened, and no running Foundry server opens the key. Priya confirms the start over with the field left empty, and again with the words in lower case; afterwards an operator restores the instance key the stored key was sealed with and Foundry restarts.
+</code></pre>
+
+<pre><code>Each attempt is answered with the start over page stating its cost for two credentials again, says nothing about a key being generated, and leaves the stored key, the whole Activity list and the version every server follows as they were. With the instance key restored the page reads the stored secrets key as set, Canzan Labs&#x27; saved Slack connection opens again, and the Slack app Priya entered is still in effect with both its secrets and its activity unchanged.
+</code></pre>
+
+<pre><code>Nothing is discarded unless Priya types the words exactly: a misread click, a stray submit or an empty field costs her nothing, and everything she still has keeps working once the instance key is back.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::A start over confirmed with other words than START OVER discards nothing</p>
+
+<pre><code>A Foundry that refuses every start over whatever is typed: only the accepted rows tell that apart, which is why they are recorded beside this one.
+</code></pre>
+
+<h6>Obligations</h6>
+
+<p>None.</p>
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<pre><code>A second Foundry server on this database still opens the stored secrets key while this one cannot. That server says nothing for a minute, so Priya reads the start over page and its cost; it then says again that it opens the stored key, and she types START OVER and confirms the form she is on. Afterwards an operator restores the instance key the stored key was sealed with and Foundry restarts.
+</code></pre>
+
+<pre><code>The confirmation is answered with the start over page and its cost again, says nothing about a key being generated, and leaves the stored key, the whole Activity list and the version every server follows as they were; with the instance key restored the page reads the stored secrets key as set and Canzan Labs&#x27; saved Slack connection opens again.
+</code></pre>
+
+<pre><code>No credential a running Foundry server is still serving with is discarded, even when that server goes quiet while Priya reads the page and speaks again before she confirms.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::A start over confirmed after another Foundry server speaks again discards nothing</p>
+
+<pre><code>A Foundry that reads the state of the other servers once more anywhere in the confirming request rather than inside the write that discards: a server that speaks between that read and the write is not observed here.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+<h5>Covers</h5>
+
+<p>P10</p>
+
+<pre><code>After a start over Priya enters the Slack app again, and the operator then rotates the instance key itself with the key-rotation command of the Foundry binary.
+</code></pre>
+
+<pre><code>The command reports no credential sealed again under the new key and succeeds, the Slack app Priya re-entered is still in effect with both its secrets and its activity unchanged, Slack&#x27;s events still verify with the secret it was saved with, and the instance integrations page reads the stored secrets key as set.
+</code></pre>
+
+<pre><code>The operator&#x27;s own key rotation stays safe after a start over: what Priya entered afterwards keeps opening, with nothing to re-enter.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::After a start over the operator&#x27;s own key rotation still leaves every credential opening</p>
+
+<pre><code>A rotation run while nothing had been entered again after the start over: the Slack app re-entered here is the one credential it is read over, and a workspace connection made again afterwards is not.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<pre><code>This Foundry opens its stored secrets key and holds one workspace connection and the Slack app Priya entered. A kept link asks for the start over address, and a stale tab posts to it.
+</code></pre>
+
+<pre><code>Both are answered with this Foundry&#x27;s own integrations page, neither reads anything about a key being generated, and the stored key, the whole Activity list and the version every server follows are as they were; Canzan Labs&#x27; saved Slack connection still opens and the Slack app is still in effect with both its secrets and its activity unchanged.
+</code></pre>
+
+<pre><code>A healthy Foundry never discards anything through the start-over address: an old link or a tab left open posts nothing away.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::While this Foundry opens its secrets key, starting over is not offered and changes nothing</p>
+
+<pre><code>A Foundry that refuses this post only because the kept form carries no confirmation: the typed confirmation is posted to this address only where starting over is offered.
+</code></pre>
+
+<h6>Obligations</h6>
+
+<p>None.</p>
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<pre><code>A replacement whose re-seal refuses, at the first workspace connection credential and again at the saved Slack app&#x27;s secrets, and a replacement whose stored key is no longer the one it was planned from.
+</code></pre>
+
+<pre><code>Each refusal stops at the slot it refused on and leaves every stored row as it was: the old key still in effect, every saved credential still sealed under it, no activity line and no version bump; the lost compare-and-set leaves the first replacement standing as the only recorded one.
+</code></pre>
+
+<pre><code>A replacement that cannot finish costs Priya nothing: every credential she had keeps opening and nothing claims a rotation that did not happen.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-store/tests/iis_instance_store.rs::a_refused_replacement_and_a_lost_compare_and_set_leave_everything_unchanged</p>
+
+<pre><code>A refusal observed at the write and not through the page: what Priya reads after a refused replacement is observed where the door is, and this row reads the stored rows only.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<pre><code>Two replace requests reach two Foundry servers of one database at the same moment while a workspace connection is routed to a Slack channel, and a new issue is filed afterwards.
+</code></pre>
+
+<pre><code>The key is replaced once, both requests are answered with the resulting page, within 60 seconds and with no restart every server opens every credential, no connection is marked lost, no workspace admin is emailed, and every server&#x27;s route history lists the new issue as delivered.
+</code></pre>
+
+<pre><code>The window in which the servers hold different keys costs the workspace nothing: deliveries still go out, nobody is told a connection was lost and nobody reconnects.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::Two replace requests at the same moment replace the key once, and every replica opens every credential</p>
+
+<pre><code>A delivery attempted only after every server had already reloaded: the attempt is made while the window is open but its exact moment inside the window is not controlled here.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+<h5>Covers</h5>
+
+<p>P6</p>
+
+<pre><code>This Foundry loses the instance key its stored secrets key was sealed with while a second Foundry server of the same database still opens that key; that server then stops, and a minute passes.
+</code></pre>
+
+<pre><code>While the other server still opens the key the page stays restore-only, adds that another Foundry server still opens the secrets key and offers neither way on; once its last word is a minute old the page offers Start over and the start over page states its cost for the credentials this Foundry cannot open.
+</code></pre>
+
+<pre><code>Priya is never offered a way out that would discard what another running server is still serving with, and she is offered it as soon as that server is gone.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::Once that server has stopped, starting over is offered with its cost</p>
+
+<pre><code>A page that reads the other server&#x27;s word rather than how old it is: the two states are told apart here only by that server stopping, which is what makes its word age.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<pre><code>The architecture check reads every crate&#x27;s sources for a write of a sealed column or of the stored secrets key, and for a module outside this Foundry&#x27;s integrations that opens or seals a credential.
+</code></pre>
+
+<pre><code>Every such write stands inside a listed fenced writer of the store&#x27;s instance module, the two new writes included, and nothing outside the integrations module opens or seals a credential; the check names any other writer and fails.
+</code></pre>
+
+<pre><code>No part of Foundry can quietly write a sealed credential or the stored key outside the one place that keeps a replacement and a start over all-or-nothing.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>xtask/src/check_arch.rs::integrations-seal-fence</p>
+
+<pre><code>A writer that is not Rust source of this repository: a direct database write or a restored backup is outside what this check can read.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<pre><code>Priya starts over under a stored key this Foundry cannot open, then enters the Slack app again and reconnects Canzan Labs to Slack. On the key the start over made, she replaces the secrets key.
+</code></pre>
+
+<pre><code>After the start over the page offers a way to replace the secrets key and no way to start over; the replacement reads that the 2 saved credentials are sealed under the new key, a different secrets key is stored, the page again offers only a replacement, Canzan Labs&#x27; saved Slack connection still opens and the Slack app is still in effect with both its secrets and its activity unchanged.
+</code></pre>
+
+<pre><code>Starting over leaves Priya a Foundry she can go on rotating: what she saved after it is sealed again under the next key, and nobody reconnects for that.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::A replacement after a start over seals what Priya saved since under the new key</p>
+
+<pre><code>A Foundry whose two ways on are decided per request rather than from the stored key&#x27;s one state: each state is read here after an apply, and the decision itself is read only through what the page offers.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+<h5>Covers</h5>
+
+<p>P8</p>
+
+<pre><code>Priya replaces the secrets key, and this Foundry then restarts with an instance key that cannot open the key she just made. She starts over from the page it leaves her.
+</code></pre>
+
+<pre><code>The page offers a way to start over and no Replace; the start over reads once that the secrets key is generated, Matrix is ready and the Slack app can now be entered, a stored secrets key this Foundry opens is in place, the page then offers a way to replace it and no way to start over, and Canzan Labs&#x27; workspace integrations page offers to connect Matrix.
+</code></pre>
+
+<pre><code>A replacement is no protection against the instance key going missing, and the way out is the same one either way: Priya ends on a Foundry whose key she can replace again, with Matrix ready.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/instance-integration-setup.feature::A start over after a replacement leads back to a Foundry whose key can be replaced</p>
+
+<pre><code>A start over that leaves the credentials of the replaced key readable: everything saved before the restart is a credential this Foundry cannot open, so what survives a start over is read where a credential saved after it is.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
 <h2>Expectations</h2>
 
 <h3>Rows</h3>

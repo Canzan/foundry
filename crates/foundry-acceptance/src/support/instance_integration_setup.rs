@@ -3218,6 +3218,187 @@ pub async fn given_other_server_stopped(world: &mut FoundryWorld) {
     world.iis.other_server_running = false;
 }
 
+/// The words I-21 carries, whether a key was generated, moved with nothing
+/// saved, or made by starting over.
+const GENERATED_NOTICE: &str = "Secrets key generated.";
+/// The text I-28a asks Priya to type, exactly as the copy spells it.
+pub const CONFIRMATION: &str = "START OVER";
+
+/// A form Priya fills in: where it posts, what it carries already, and the
+/// names of the fields she types in. The Confirmation field is the page's own,
+/// so a scenario types what she types and never spells how the page names it.
+struct TypedForm {
+    action: String,
+    fields: Vec<(String, String)>,
+    typed: Vec<String>,
+}
+
+/// The form on `body` with a button reading `label`, as Priya fills it in.
+fn typed_form(body: &str, label: &str) -> Option<TypedForm> {
+    let (action, hidden) = form_with_button(body, label)?;
+    let doc = parse(body);
+    let buttons = scraper::Selector::parse("button, input[type=submit]").expect("selector");
+    let inputs = scraper::Selector::parse("input[name], textarea[name]").expect("selector");
+    let typed = select_all(&doc, "form").into_iter().find_map(|form| {
+        let carries = form.select(&buttons).any(|b| {
+            let text = b.text().collect::<String>();
+            text.trim() == label || b.value().attr("value") == Some(label)
+        });
+        carries.then(|| {
+            form.select(&inputs)
+                .filter(|i| i.value().attr("type").unwrap_or("text") != "hidden")
+                .filter_map(|i| i.value().attr("name").map(str::to_string))
+                .filter(|n| !n.is_empty())
+                .collect::<Vec<String>>()
+        })
+    })?;
+    Some(TypedForm {
+        action,
+        fields: hidden,
+        typed,
+    })
+}
+
+/// Submit the start over page's form with `typed` in the field it asks Priya
+/// to fill in, as her click does. The page she is already on is the one she
+/// posts: a form she read while starting over was offered is posted exactly as
+/// she left it, which is how a server speaking again between her reading and
+/// her confirming is observed at all.
+async fn choose_on_start_over_page(world: &mut FoundryWorld, who: &str, typed: &str) -> Answer {
+    let held = answer(world);
+    let page =
+        match held.status.is_success() && held.path.split('?').next() == Some(START_OVER_DOOR) {
+            true => held,
+            false => {
+                let asked = start_over_page(world, who).await;
+                answered(&asked, "the start over page");
+                asked
+            }
+        };
+    let label = Button::StartOver.copy();
+    let TypedForm {
+        action,
+        mut fields,
+        typed: names,
+    } = typed_form(&page.body, label).unwrap_or_else(|| {
+        panic!(
+            "{who} finds {label:?} on the start over page beside the field it asks her to fill \
+             in, the one control that carries the start over out: without it she has read what \
+             starting over discards and has no way to make it, and a lost instance key with no \
+             backup stays a dead end. Offer the control on the start over page, posting the start \
+             over door with her Confirmation; {}",
+            tm::describe(&page)
+        )
+    });
+    assert!(
+        !names.is_empty(),
+        "{who} types her Confirmation in the same form as {label:?}: a control that discards \
+         every credential this Foundry cannot open on one click rules out no Foundry server of an \
+         earlier release, which is the one thing the gate cannot see. Ask for the Confirmation \
+         field in that form (I-28a); {}",
+        tm::describe(&page)
+    );
+    fields.retain(|(n, _)| !names.contains(n));
+    fields.extend(names.into_iter().map(|n| (n, typed.to_string())));
+    let posted = eip::post(world, who, &action, &fields, true).await;
+    match posted.status.is_redirection() {
+        true => eip::follow(world, who, posted).await,
+        false => posted,
+    }
+}
+
+/// "Priya types "<typed>" and chooses "Start over" on the start over page".
+pub async fn when_type_and_start_over(world: &mut FoundryWorld, who: &str, typed: &str) {
+    remember(world).await;
+    eip::capture_before(world).await;
+    let answer = choose_on_start_over_page(world, who, typed).await;
+    world.eip.when_answer = Some(answer);
+}
+
+/// "Priya has started over with a new secrets key" (from the start over page,
+/// typing what it asks for, as she would).
+pub async fn given_started_over(world: &mut FoundryWorld) {
+    remember(world).await;
+    let answer = choose_on_start_over_page(world, "Priya", CONFIRMATION).await;
+    assert!(
+        eip::text(&answer).contains(GENERATED_NOTICE),
+        "precondition: Priya started over with a new secrets key from the start over page; {}",
+        tm::describe(&answer)
+    );
+}
+
+/// "the stored secrets key is one this Foundry opens": the start over really
+/// made a key, and the stored key check names that same key - the seam reads
+/// the key only when it does. Without it, a page reading I-21 proves nothing
+/// but its own words.
+pub async fn then_key_started_over(world: &mut FoundryWorld) {
+    let before = world.iis.key_before.clone();
+    let now = stored_secrets_key(world).await;
+    assert!(
+        now.is_some() && now != before,
+        "this Foundry has stored a secrets key its own instance key opens, and the stored key \
+         check names that key: the page may read that a key was generated while the key this \
+         Foundry cannot open is still the stored one, which leaves Priya with the dead end she \
+         started over to get out of - and a check naming another key leaves every later credential \
+         sealed under a key nothing opens. Generate the key, store it wrapped under the instance \
+         key this server holds, and store its check with it in the same write"
+    );
+}
+
+/// "Canzan Labs' workspace integrations page reads no connection as
+/// connected": every credential this Foundry could not open is gone, so no
+/// connection may still read as connected - a page that says Slack is
+/// connected sends its workspace admin nowhere, because nothing can post with
+/// a credential that was discarded.
+pub async fn then_no_connection_connected(world: &mut FoundryWorld) {
+    let page = eip::get(world, "Priya", WORKSPACE_INTEGRATIONS).await;
+    answered(&page, "Canzan Labs' workspace integrations page");
+    let seen = seen(world, &page);
+    for words in ["Connected to ", "Connected as "] {
+        assert!(
+            !seen.contains(words),
+            "Canzan Labs' workspace integrations page reads no connection as {words:?}: the \
+             credential of a discarded connection is gone, so a line still reading it connected \
+             tells its workspace admin that issues are reaching a channel nothing can post to, \
+             and nobody reconnects. Leave a discarded connection reading as one to set up again; {}",
+            tm::describe(&page)
+        );
+    }
+}
+
+/// "that second Foundry server has said nothing for a minute": a minute passes
+/// for this Foundry while that server's own clock stands still, so what it
+/// last said about opening the stored secrets key is a minute old though it is
+/// still running - the state in which starting over is offered, and in which
+/// that server can still speak again.
+pub async fn given_other_server_quiet_for_a_minute(world: &mut FoundryWorld) {
+    assert!(
+        world.iis.other_server_running,
+        "precondition: a second Foundry server of this database is running"
+    );
+    tm::harness(world).fake_clock.advance(A_MINUTE);
+}
+
+/// "that second Foundry server says again that it opens the stored secrets
+/// key": its clock catches up with this Foundry's, so its own reload records
+/// again that it opens the stored key. The step goes on when that record is
+/// there, not when a wait runs out.
+pub async fn when_other_server_speaks_again(world: &mut FoundryWorld) {
+    use foundry_app::Clock as _;
+    let now = tm::harness(world).fake_clock.now();
+    let beaten_at = match &world.iis.other_server {
+        Some(other) => {
+            let theirs = other.now();
+            if now > theirs {
+                other.fake_clock.advance((now - theirs).unsigned_abs());
+            }
+            other.now()
+        }
+        None => panic!("a second Foundry server of this database is running"),
+    };
+    await_beats(world, beaten_at, 1, true).await;
+}
+
 /// "a minute passes": every Foundry server still running moves a minute on
 /// and beats its own state again at that time; a stopped one never beats
 /// again, so what it last said about opening the stored secrets key becomes a

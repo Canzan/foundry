@@ -752,3 +752,33 @@ async fn way_to(world: &mut FoundryWorld, who: String, offered: String, way: Str
 async fn typed_confirmation(world: &mut FoundryWorld, who: String, field: String, button: String) {
     iis::then_typed_confirmation(world, &who, &field, &button);
 }
+
+#[when(regex = r#"^(Priya) types "([^"]*)" and chooses "Start over" on the start over page$"#)]
+async fn type_and_start_over(world: &mut FoundryWorld, who: String, typed: String) {
+    iis::when_type_and_start_over(world, &who, &typed).await;
+}
+
+#[given(regex = r"^Priya has started over with a new secrets key$")]
+async fn started_over(world: &mut FoundryWorld) {
+    iis::given_started_over(world).await;
+}
+
+#[then(regex = r"^the stored secrets key is one this Foundry opens$")]
+async fn key_started_over(world: &mut FoundryWorld) {
+    iis::then_key_started_over(world).await;
+}
+
+#[then(regex = r"^Canzan Labs' workspace integrations page reads no connection as connected$")]
+async fn no_connection_connected(world: &mut FoundryWorld) {
+    iis::then_no_connection_connected(world).await;
+}
+
+#[given(regex = r"^that second Foundry server has said nothing for a minute$")]
+async fn other_server_quiet(world: &mut FoundryWorld) {
+    iis::given_other_server_quiet_for_a_minute(world).await;
+}
+
+#[when(regex = r"^that second Foundry server says again that it opens the stored secrets key$")]
+async fn other_server_speaks_again(world: &mut FoundryWorld) {
+    iis::when_other_server_speaks_again(world).await;
+}
