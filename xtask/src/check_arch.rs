@@ -15044,7 +15044,7 @@ const SEAL_FENCE_CANARY_COLUMN: &str = "sealed_canary";
 /// lock), and the replacement of the stored key (exclusive lock,
 /// compare-and-set, US-IIS-07). `doctor rotate-secrets` re-seals through
 /// `reseal_sealed_values` under the exclusive lock.
-const SEAL_FENCED_WRITERS: [(&str, &str); 7] = [
+const SEAL_FENCED_WRITERS: [(&str, &str); 8] = [
     (
         "crates/foundry-store/src/integrations/connections.rs",
         "upsert_connection",
@@ -15072,6 +15072,10 @@ const SEAL_FENCED_WRITERS: [(&str, &str); 7] = [
     (
         "crates/foundry-store/src/integrations/instance.rs",
         "reseal_sealed_values",
+    ),
+    (
+        "crates/foundry-store/src/integrations/instance.rs",
+        "discard_unopenable_credentials",
     ),
 ];
 

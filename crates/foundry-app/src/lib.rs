@@ -866,7 +866,8 @@ pub fn build_router(state: AppState) -> Router {
         // lands with that apply.
         .route(
             integrations::handlers::START_OVER_PATH,
-            get(integrations::handlers::show_secrets_key_start_over),
+            get(integrations::handlers::show_secrets_key_start_over)
+                .post(integrations::handlers::start_over_secrets_key),
         )
         // US-IIS-03: save the Slack app, behind the same guard; carries `_csrf`.
         .route(

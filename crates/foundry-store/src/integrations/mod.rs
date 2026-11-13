@@ -79,8 +79,8 @@ pub use instance::{
     InstanceActivityRow, InstanceSnapshot, KeyWrapper, NewSecretsKey, PendingApplied,
     PendingSlackApp, PendingSlackAppSave, RemoveOutcome, ReplaceOutcome, ReplicaState,
     RewrapOutcome, RotateOutcome, SavedSlackApp, SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap,
-    SlackAppSave, SlackSaveOutcome, SlackSubmissionPlan, StoredSecretsKey, SubmissionStored,
-    INSTANCE_INTEGRATIONS_LOCK,
+    SlackAppSave, SlackSaveOutcome, SlackSubmissionPlan, StartOverOutcome, StoredSecretsKey,
+    SubmissionStored, INSTANCE_INTEGRATIONS_LOCK,
 };
 pub(crate) use instance::{PROBE_0033_SQL, PROBE_0033_TABLES};
 pub use keys::KeyCheck;

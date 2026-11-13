@@ -1010,6 +1010,18 @@ mod retention_tests {
             unreachable!("the retention tick replaces no secrets key")
         }
 
+        async fn start_over_secrets_key(
+            &self,
+            _from_key_id: &str,
+            _key: &NewSecretsKey,
+            _canary: &KeyCheck,
+            _actor: uuid::Uuid,
+            _at: OffsetDateTime,
+            _gate: crate::integrations::store_capabilities::LiveReplicaGate<'_>,
+        ) -> Result<foundry_store::integrations::StartOverOutcome, StoreError> {
+            unreachable!("the retention tick starts over with no secrets key")
+        }
+
         async fn store_slack_submission(
             &self,
             _gate: SubmissionGate<'_>,

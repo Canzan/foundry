@@ -33,7 +33,8 @@ use foundry_store::integrations::{
     DispatchOutcome, EmailSendFacts, InstanceActivityRow, InstanceSnapshot, KeyCheck,
     LostConnection, NewDelivery, NewSecretsKey, PendingApplied, PendingDelivery, Pruned, Pruning,
     RecordOutcome, RemoveOutcome, ReplaceOutcome, ReplicaState, RetentionView, RewrapOutcome,
-    SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackSubmissionPlan, SubmissionStored,
+    SealedSlot, SecretsKeyOutcome, SecretsKeyRewrap, SlackSubmissionPlan, StartOverOutcome,
+    SubmissionStored,
 };
 use foundry_store::{Store, StoreError};
 use std::sync::Arc;
@@ -62,6 +63,10 @@ pub type HeldResealer<'a> =
 /// connected-workspace count read inside that write's own locked
 /// transaction, it answers which of the two sealed plans is written (D10).
 pub type SubmissionGate<'a> = &'a (dyn Fn(i64) -> SlackSubmissionPlan<'a> + Sync);
+
+/// Whether the replica states read inside the start-over transaction contain
+/// a server that still opens the stored secrets key.
+pub type LiveReplicaGate<'a> = &'a (dyn Fn(&[ReplicaState]) -> bool + Sync);
 
 /// A stored value the re-seal could not open or seal again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -227,6 +232,20 @@ pub trait InstanceKeyWrites: Send + Sync {
         at: OffsetDateTime,
         reseal: Resealer<'_>,
     ) -> Result<ReplaceOutcome<ResealRefused>, StoreError>;
+
+    /// Start over with a new secrets key while no live replica opens the
+    /// stored one: the gate is read inside the locked transaction, every
+    /// credential this Foundry cannot open is discarded, and the activity
+    /// records the count (US-IIS-07).
+    async fn start_over_secrets_key(
+        &self,
+        from_key_id: &str,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        actor: Uuid,
+        at: OffsetDateTime,
+        gate: LiveReplicaGate<'_>,
+    ) -> Result<StartOverOutcome, StoreError>;
 
     /// Write the submitted Slack app where `gate` sends it, over the
     /// connected-workspace count read inside that one write's own locked
@@ -485,6 +504,20 @@ impl InstanceKeyWrites for StoreCapabilities {
             .replace_secrets_key(from_key_id, key, canary, actor, at, |slot, sealed| {
                 reseal(slot, sealed)
             })
+            .await
+    }
+
+    async fn start_over_secrets_key(
+        &self,
+        from_key_id: &str,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        actor: Uuid,
+        at: OffsetDateTime,
+        gate: LiveReplicaGate<'_>,
+    ) -> Result<StartOverOutcome, StoreError> {
+        self.0
+            .start_over_secrets_key(from_key_id, key, canary, actor, at, gate)
             .await
     }
 

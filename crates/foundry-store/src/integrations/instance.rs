@@ -158,6 +158,20 @@ pub enum SealedSlot {
     PendingSlackSigningSecret,
 }
 
+/// What a start over did, or why it changed nothing (US-IIS-07).
+#[derive(Debug, PartialEq, Eq)]
+pub enum StartOverOutcome {
+    /// The new key, every discarded credential, its canary, one activity line
+    /// and the version bump were committed together. `discarded` counts
+    /// credentials (I-22).
+    StartedOver { discarded: usize, version: i64 },
+    /// A replica with a fresh heartbeat still opens the stored key: the
+    /// transaction was rolled back before anything was discarded.
+    LiveReplica,
+    /// The stored key is no longer the one the plan was made from.
+    KeyChanged,
+}
+
 /// What a replacement of the stored secrets key did, or why it changed
 /// nothing (US-IIS-07, D2). One row holds the key and no grace window is
 /// kept (D3), so the replacement is a compare-and-set over that row inside
@@ -361,6 +375,7 @@ pub struct InstanceActivityRow {
 enum Activity {
     SecretsKeyGenerated,
     SecretsKeyReplaced,
+    SecretsKeyStartedOver,
     CredentialsMoved,
     SlackAppSaved,
     SlackAppReplaced,
@@ -373,6 +388,7 @@ impl Activity {
         match self {
             Self::SecretsKeyGenerated => "secrets_key_generated",
             Self::SecretsKeyReplaced => "secrets_key_replaced",
+            Self::SecretsKeyStartedOver => "started_over",
             Self::CredentialsMoved => "credentials_moved",
             Self::SlackAppSaved => "slack_app_saved",
             Self::SlackAppReplaced => "slack_app_replaced",
@@ -500,6 +516,46 @@ impl Store {
         };
         let version = commit_recorded(tx, &line).await?;
         Ok(ReplaceOutcome::Replaced { resealed, version })
+    }
+
+    /// Start over with a new secrets key (US-IIS-07): under the exclusive
+    /// lock, refuse while `live_opener` says another replica still opens the
+    /// stored key, else store `key` over the stored row while it still holds
+    /// `from_key_id`, discard every credential this Foundry cannot open,
+    /// write `canary`, record the start over with that count and bump the
+    /// version. A lost compare-and-set rolls everything back.
+    pub async fn start_over_secrets_key(
+        &self,
+        from_key_id: &str,
+        key: &NewSecretsKey,
+        canary: &KeyCheck,
+        actor: Uuid,
+        at: OffsetDateTime,
+        gate: impl FnOnce(&[ReplicaState]) -> bool,
+    ) -> Result<StartOverOutcome, StoreError> {
+        let mut tx = self.pool.begin().await?;
+        lock_exclusive(&mut tx).await?;
+        let states = read_replica_states(&mut tx).await?;
+        let live_opener = gate(&states);
+        if live_opener {
+            tx.rollback().await?;
+            return Ok(StartOverOutcome::LiveReplica);
+        }
+        if !replace_stored_key(&mut tx, from_key_id, key, at).await? {
+            tx.rollback().await?;
+            return Ok(StartOverOutcome::KeyChanged);
+        }
+        let discarded = discard_unopenable_credentials(&mut tx).await?;
+        upsert_key_check(&mut tx, canary).await?;
+        let line = ActivityLine {
+            actor: Some(actor),
+            activity: Activity::SecretsKeyStartedOver,
+            client_id: None,
+            count: Some(count_of(discarded)),
+            at,
+        };
+        let version = commit_recorded(tx, &line).await?;
+        Ok(StartOverOutcome::StartedOver { discarded, version })
     }
 
     /// A boot's re-wrap of the stored secrets key under the operator's
@@ -1091,6 +1147,27 @@ async fn delete_pending_slack_app(tx: &mut Tx<'_>) -> Result<(), sqlx::Error> {
     Ok(())
 }
 
+async fn read_replica_states(tx: &mut Tx<'_>) -> Result<Vec<ReplicaState>, sqlx::Error> {
+    let rows: Vec<(String, i64, String, bool, OffsetDateTime)> = sqlx::query_as(
+        "SELECT replica, applied_version, key_mode, opens_secrets_key, beat_at
+           FROM integration_replica_states ORDER BY replica FOR UPDATE",
+    )
+    .fetch_all(&mut **tx)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(
+            |(replica, applied_version, key_mode, opens_secrets_key, beat_at)| ReplicaState {
+                replica,
+                applied_version,
+                key_mode,
+                opens_secrets_key,
+                beat_at,
+            },
+        )
+        .collect())
+}
+
 async fn stored_key_id(tx: &mut Tx<'_>) -> Result<Option<String>, sqlx::Error> {
     sqlx::query_scalar("SELECT key_id FROM integration_secrets_key WHERE id = 1")
         .fetch_optional(&mut **tx)
@@ -1146,6 +1223,29 @@ async fn replace_stored_key(
     .execute(&mut **tx)
     .await?;
     Ok(done.rows_affected() == 1)
+}
+
+/// Discard every credential this Foundry cannot open: clear each connection
+/// credential and delete the saved Slack app and the app held for its
+/// confirm. Connection rows, routes and history stay. The count follows
+/// I-22: each connection one, the saved app one.
+async fn discard_unopenable_credentials(tx: &mut Tx<'_>) -> Result<usize, sqlx::Error> {
+    let connections = sqlx::query(
+        "UPDATE integration_connections
+            SET sealed_credential = NULL, state = 'disconnected'
+          WHERE sealed_credential IS NOT NULL",
+    )
+    .execute(&mut **tx)
+    .await?
+    .rows_affected();
+    let app = sqlx::query("DELETE FROM instance_slack_app WHERE id = 1")
+        .execute(&mut **tx)
+        .await?
+        .rows_affected();
+    sqlx::query("DELETE FROM instance_slack_app_pending WHERE id = 1")
+        .execute(&mut **tx)
+        .await?;
+    Ok(usize::try_from(connections).unwrap_or(usize::MAX) + usize::try_from(app).unwrap_or(0))
 }
 
 /// What a re-seal changed.

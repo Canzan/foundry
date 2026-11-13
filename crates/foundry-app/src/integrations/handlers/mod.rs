@@ -111,7 +111,10 @@ pub use routes::{
     show_delete_route, show_edit_route, show_new_route, show_project, show_route_history,
     NewRouteQuery,
 };
-pub use secrets_key::{replace_secrets_key, show_secrets_key_replace, show_secrets_key_start_over};
+pub use secrets_key::{
+    replace_secrets_key, show_secrets_key_replace, show_secrets_key_start_over,
+    start_over_secrets_key,
+};
 pub use slack_setup::{
     finish_slack_install, show_slack_setup, slack_events, start_slack_install, SlackReturn,
 };

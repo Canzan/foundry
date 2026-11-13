@@ -41,7 +41,7 @@
 //! (a key that opens, a live server that still opens it, or no instance key
 //! read at all) it changes nothing and answers the instance page, as the
 //! replace door does. Its `POST`, which discards what it cannot open, lands
-//! with the next slice.
+//! with the typed confirmation and the live-replica gate read again inside the write.
 
 use super::instance::{
     answer, gate_of, ReadOnlyDoor, SavedNotice, MOVE_PATH, REPLACE_PATH, SECRETS_KEY_PATH,
@@ -62,7 +62,10 @@ use askama::Template;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Response;
-use foundry_store::integrations::{KeyWrapper, ReplaceOutcome, SecretsKeyOutcome};
+use axum::Form;
+use foundry_store::integrations::{
+    KeyWrapper, ReplaceOutcome, SecretsKeyOutcome, StartOverOutcome,
+};
 use time::OffsetDateTime;
 use tower_sessions::Session;
 use uuid::Uuid;
@@ -77,7 +80,7 @@ const MOVED_ONE: &str =
 const MOVED_MANY: &str =
     "Moved. {n} saved credentials are sealed under a new secrets key. Nobody needs to reconnect.";
 /// I-21.
-const SECRETS_KEY_GENERATED: &str = "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.";
+pub(super) const SECRETS_KEY_GENERATED: &str = "Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.";
 /// The words on the way out of a stored key this Foundry cannot open: the
 /// page's link to the confirm, and the confirm's own control (I-26, I-28).
 pub(super) const START_OVER_CONTROL: &str = "Start over";
@@ -374,6 +377,138 @@ pub async fn show_secrets_key_start_over(
     start_over_page(&state, &user, &headers).await
 }
 
+/// What the start-over form carries: the Confirmation she typed.
+#[derive(serde::Deserialize)]
+pub struct StartOverForm {
+    confirmation: Option<String>,
+}
+
+/// What a start over answers: a committed one earns I-21 once; a wrong
+/// confirmation or a live replica asks the cost again; anywhere else the page
+/// stays as it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartOverAnswer {
+    StartedOver,
+    AskAgain,
+    Unchanged,
+}
+
+/// `POST /admin/instance/integrations/secrets-key/start-over`: the start over
+/// where the way out applies and the Confirmation is the words the page asked
+/// for. A wrong or empty Confirmation asks the cost again and changes
+/// nothing. A live replica that speaks again before the write, and a stored
+/// key that opens, also change nothing.
+pub async fn start_over_secrets_key(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    Form(form): Form<StartOverForm>,
+) -> Response {
+    let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
+        return resource_not_found_page();
+    };
+    if !UnopenableOffer::confirms(form.confirmation.as_deref().unwrap_or_default()) {
+        return start_over_page(&state, &user, &headers).await;
+    }
+    let store = StoreCapabilities::new(state.store.clone());
+    match started_over(&state, &store, user.user_id).await {
+        StartOverAnswer::StartedOver => SavedNotice::StartedOver.answered(&session).await,
+        StartOverAnswer::AskAgain => start_over_answer(&state, &user, &headers).await,
+        StartOverAnswer::Unchanged => answer(&state, &user, &headers, None, String::new()).await,
+    }
+}
+
+/// Start over where the way out applies over the stored rows as they are at
+/// the post. The live-replica reading is taken again inside the locked write.
+async fn started_over(state: &AppState, store: &StoreCapabilities, actor: Uuid) -> StartOverAnswer {
+    let snapshot = match store.instance_snapshot().await {
+        Ok(snapshot) => snapshot,
+        Err(err) => {
+            tracing::warn!(error = %err, "reading the stored credentials failed");
+            return StartOverAnswer::Unchanged;
+        }
+    };
+    let integrations = state.integrations.current();
+    let facts = ReadOnlyDoor::SecretsKeyStartOver
+        .read(store, gate_of(state, &integrations))
+        .await;
+    if !startable(&integrations, facts.live_opener) {
+        return StartOverAnswer::AskAgain;
+    }
+    let settings = integrations.settings();
+    let wrapped_by = match settings.key_setting {
+        Some(_) => KeyWrapper::Operator,
+        None => KeyWrapper::File,
+    };
+    let (Some(instance), Some(from_key_id)) = (
+        settings.secrets.as_ref(),
+        snapshot
+            .secrets_key
+            .as_ref()
+            .map(|stored| stored.key_id.clone()),
+    ) else {
+        return StartOverAnswer::Unchanged;
+    };
+    let Some(plan) = plan_generate(instance, wrapped_by, Some(actor)) else {
+        tracing::warn!(probe = "secrets", "generating the new secrets key failed");
+        return StartOverAnswer::Unchanged;
+    };
+    let gate = gate_of(state, &integrations);
+    let answered = match store
+        .start_over_secrets_key(
+            &from_key_id,
+            &plan.key,
+            &plan.canary,
+            actor,
+            state.clock.now(),
+            &|states| gate.still_opening(states),
+        )
+        .await
+    {
+        Ok(StartOverOutcome::StartedOver { .. }) => StartOverAnswer::StartedOver,
+        Ok(StartOverOutcome::LiveReplica) => StartOverAnswer::AskAgain,
+        Ok(StartOverOutcome::KeyChanged) | Err(_) => StartOverAnswer::Unchanged,
+    };
+    reinstall(state, &integrations).await;
+    answered
+}
+
+/// The start-over confirm page answered for a post that asked again: the
+/// stored cost, not the replica gate, because the refusal must not erase the
+/// question she was reading.
+async fn start_over_answer(state: &AppState, user: &SessionUser, headers: &HeaderMap) -> Response {
+    let integrations = state.integrations.current();
+    let store = StoreCapabilities::new(state.store.clone());
+    let facts = ReadOnlyDoor::SecretsKeyStartOver
+        .read(&store, gate_of(state, &integrations))
+        .await;
+    let Some(saved) = facts.saved else {
+        return answer(state, user, headers, None, String::new()).await;
+    };
+    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
+    let nav = crate::nav::NavContext::home_for(
+        state,
+        user.user_id,
+        user.workspace_id,
+        true,
+        csrf.clone(),
+    )
+    .await;
+    render(
+        SecretsKeyStartOverPage {
+            nav,
+            csrf,
+            start_over_door: START_OVER_PATH,
+            line: saved.start_over_question(),
+            confirmation: CONFIRMATION,
+            asks: TYPE_START_OVER,
+            control: START_OVER_CONTROL,
+        }
+        .render(),
+        set_cookie,
+    )
+}
+
 /// The start-over page over the credentials stored now. Where the way out does
 /// not apply - a stored key that opens, a live server that still opens it, no
 /// instance key held to seal a new one with - and where the count could not be
@@ -605,6 +740,18 @@ mod tests {
                 .expect("the outcome")
                 .take()
                 .expect("one replacement"))
+        }
+
+        async fn start_over_secrets_key(
+            &self,
+            _from_key_id: &str,
+            _key: &foundry_store::integrations::NewSecretsKey,
+            _canary: &foundry_store::integrations::KeyCheck,
+            _actor: Uuid,
+            _at: OffsetDateTime,
+            _gate: crate::integrations::store_capabilities::LiveReplicaGate<'_>,
+        ) -> Result<StartOverOutcome, foundry_store::StoreError> {
+            unreachable!("the replace door starts over with no secrets key")
         }
 
         async fn store_slack_submission(

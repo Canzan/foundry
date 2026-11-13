@@ -62,7 +62,7 @@
 //! reads W-2 from the shipped cause afterwards. A remove while the
 //! environment's app is in effect changes nothing and answers the page.
 
-use super::secrets_key::{key_door, KeyOffer, NO_SECRETS_KEY};
+use super::secrets_key::{key_door, KeyOffer, NO_SECRETS_KEY, SECRETS_KEY_GENERATED};
 use super::{reinstall, render};
 use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
@@ -340,6 +340,8 @@ pub enum SavedNotice {
     /// I-24: the secrets key was replaced, with the credentials now sealed
     /// under it (US-IIS-07 AC 1, D7).
     Replaced(usize),
+    /// I-21: a start over stored a new secrets key.
+    StartedOver,
 }
 
 impl SavedNotice {
@@ -357,6 +359,7 @@ impl SavedNotice {
             Self::EnvironmentWins => "app-environment".to_string(),
             Self::Removed => "app-removed".to_string(),
             Self::Replaced(count) => format!("{}{count}", Self::REPLACED_WIRE),
+            Self::StartedOver => "started-over".to_string(),
         }
     }
 
@@ -367,6 +370,7 @@ impl SavedNotice {
             Self::EnvironmentWins => SLACK_SAVED_ENVIRONMENT_WINS.to_string(),
             Self::Removed => SLACK_APP_REMOVED.to_string(),
             Self::Replaced(count) => SavedCredentials::counted(count).replaced_notice(),
+            Self::StartedOver => SECRETS_KEY_GENERATED.to_string(),
         }
     }
 
@@ -378,9 +382,14 @@ impl SavedNotice {
         if let Some(count) = wire.strip_prefix(Self::REPLACED_WIRE) {
             return count.parse().ok().map(Self::Replaced);
         }
-        [Self::InEffect, Self::EnvironmentWins, Self::Removed]
-            .into_iter()
-            .find(|saved| saved.wire() == wire)
+        [
+            Self::InEffect,
+            Self::EnvironmentWins,
+            Self::Removed,
+            Self::StartedOver,
+        ]
+        .into_iter()
+        .find(|saved| saved.wire() == wire)
     }
 
     /// The admin sent to the page itself to read this notice (post, redirect,
@@ -811,6 +820,10 @@ fn activity_line(row: &InstanceActivityRow) -> String {
         "secrets_key_replaced" => match row.count.unwrap_or_default() {
             1 => "replaced the secrets key (1 credential sealed again)".to_string(),
             n => format!("replaced the secrets key ({n} credentials sealed again)"),
+        },
+        "started_over" => match row.count.unwrap_or_default() {
+            1 => "started over with a new secrets key (1 credential discarded)".to_string(),
+            n => format!("started over with a new secrets key ({n} credentials discarded)"),
         },
         "credentials_moved" => match row.count.unwrap_or_default() {
             1 => "moved 1 credential under a secrets key".to_string(),

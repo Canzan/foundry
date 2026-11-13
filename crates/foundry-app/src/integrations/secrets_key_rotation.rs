@@ -201,6 +201,12 @@ impl UnopenableOffer {
         matches!(self, Self::StartOver)
     }
 
+    /// Whether `typed` is the confirmation the page asks for: the exact words
+    /// START OVER after the spaces a paste brings along are removed.
+    pub fn confirms(typed: &str) -> bool {
+        typed.trim() == "START OVER"
+    }
+
     /// The sentence appended to the shipped I-26 restore words, which it never
     /// rewrites.
     pub fn appended(self) -> Option<&'static str> {
