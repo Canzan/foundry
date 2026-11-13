@@ -1,30 +1,35 @@
 <!doctype html>
-<html><head><meta charset="utf-8"><style>:root{
-  --paper:#fbfaf8; --ink:#14171c; --muted:#5f6672; --rule:#e3e0da;
-  --panel:#ffffff; --accent:#a8590c; --accent-soft:#f5ead9;
+<html lang="en"><head><meta charset="utf-8"><style>:root{
+  /* The font stack is inlined here because the nwdes renderer injects only
+     this stylesheet; the nwave_ai page builder takes the same stack from
+     manifest.json. Both carriers are pinned by tests. */
+  --nwave-font-stack:"Lato", -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
   --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
   --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
   --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
 }
 @media (prefers-color-scheme:dark){
   :root{
-    --paper:#11141a; --ink:#e7e5e0; --muted:#98a0ad; --rule:#252a33;
-    --panel:#171b22; --accent:#e0964a; --accent-soft:#2a2118;
+    --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+    --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
     --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
     --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
     --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
   }
 }
 :root[data-theme="light"]{
-  --paper:#fbfaf8; --ink:#14171c; --muted:#5f6672; --rule:#e3e0da;
-  --panel:#ffffff; --accent:#a8590c; --accent-soft:#f5ead9;
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
   --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
   --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
   --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
 }
 :root[data-theme="dark"]{
-  --paper:#11141a; --ink:#e7e5e0; --muted:#98a0ad; --rule:#252a33;
-  --panel:#171b22; --accent:#e0964a; --accent-soft:#2a2118;
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
   --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
   --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
   --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
@@ -37,7 +42,7 @@ body{
 }
 .wrap{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 6rem;
   display:flex;flex-direction:column;gap:1.1rem}
-.brandbar{background:#11141a;border-radius:4px;padding:.7rem 1rem;display:flex;align-items:center}
+.brandbar{background:#131316;border-radius:4px;padding:.7rem 1rem;display:flex;align-items:center}
 .brandbar-logo{height:1.9rem;width:auto;display:block}
 .provenance{
   display:flex;flex-wrap:wrap;gap:.5rem .9rem;align-items:baseline;
@@ -151,15 +156,13 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h2>Request</h2>
 
-<pre><code>Deliverable B Request 3: US-IIS-07 (docs/feature/instance-integration-setup/discuss/user-stories.md). An instance admin replaces the secrets key from the instance integrations page (GET then POST /admin/instance/integrations/secrets-key/replace, I-23 then I-24): every stored credential, the saved Slack app included, is re-sealed under a new key and nobody reconnects; a failed re-seal changes nothing. While the stored secrets key cannot be opened (I-26), Replace is withheld and the page offers Start over (GET then POST /admin/instance/integrations/secrets-key/start-over) with its cost (I-28): credentials it cannot open are discarded, workspaces reconnect, the Slack app is entered again.
-</code></pre>
+<p>Deliverable B Request 3: US-IIS-07 (docs/feature/instance-integration-setup/discuss/user-stories.md). An instance admin replaces the secrets key from the instance integrations page (GET then POST /admin/instance/integrations/secrets-key/replace, I-23 then I-24): every stored credential, the saved Slack app included, is re-sealed under a new key and nobody reconnects; a failed re-seal changes nothing. While the stored secrets key cannot be opened (I-26), Replace is withheld and the page offers Start over (GET then POST /admin/instance/integrations/secrets-key/start-over) with its cost (I-28): credentials it cannot open are discarded, workspaces reconnect, the Slack app is entered again.</p>
 
 <h2>Work</h2>
 
 <p>M</p>
 
-<pre><code>Priya can rotate the secrets key the moment she doubts it without making any workspace reconnect, and when the instance key is lost with no backup she has a confirmed way forward whose cost she reads before choosing.
-</code></pre>
+<p>Priya can rotate the secrets key the moment she doubts it without making any workspace reconnect, and when the instance key is lost with no backup she has a confirmed way forward whose cost she reads before choosing.</p>
 
 <h3>Rework</h3>
 
@@ -171,167 +174,139 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>Outcome</p>
 
-<pre><code>With a stored secrets key that opens, GET /admin/instance/integrations offers Replace secrets key next to I-2, and GET /admin/instance/integrations/secrets-key/replace shows the Replace secrets key button with I-23 for the count of saved credentials: &quot;Replace the secrets key? Foundry seals its {n} saved credentials again under a new key. Nobody needs to reconnect.&quot; for n &gt;= 2, &quot;Replace the secrets key? Foundry seals its 1 saved credential again under a new key. Nobody needs to reconnect.&quot; for n = 1, and &quot;Replace the secrets key? This Foundry has no saved credentials yet, so nothing needs to be sealed again.&quot; for n = 0. The page changes nothing, including when prefetched.
-</code></pre>
+<p>With a stored secrets key that opens, GET /admin/instance/integrations offers Replace secrets key next to I-2, and GET /admin/instance/integrations/secrets-key/replace shows the Replace secrets key button with I-23 for the count of saved credentials: &quot;Replace the secrets key? Foundry seals its {n} saved credentials again under a new key. Nobody needs to reconnect.&quot; for n &gt;= 2, &quot;Replace the secrets key? Foundry seals its 1 saved credential again under a new key. Nobody needs to reconnect.&quot; for n = 1, and &quot;Replace the secrets key? This Foundry has no saved credentials yet, so nothing needs to be sealed again.&quot; for n = 0. The page changes nothing, including when prefetched.</p>
 
 <h3>P2</h3>
 
 <p>Outcome</p>
 
-<pre><code>POST /admin/instance/integrations/secrets-key/replace generates a new secrets key, stores it encrypted under the instance key, re-seals every saved credential and the key check all-or-nothing, and redirects to GET /admin/instance/integrations, which reads I-24 once: &quot;Replaced. {n} saved credentials are sealed under the new key.&quot; for n &gt;= 2, &quot;Replaced. 1 saved credential is sealed under the new key.&quot; for n = 1, and &quot;Replaced. This Foundry has a new secrets key.&quot; for n = 0. A reload posts nothing again and claims no second replacement.
-</code></pre>
+<p>POST /admin/instance/integrations/secrets-key/replace generates a new secrets key, stores it encrypted under the instance key, re-seals every saved credential and the key check all-or-nothing, and redirects to GET /admin/instance/integrations, which reads I-24 once: &quot;Replaced. {n} saved credentials are sealed under the new key.&quot; for n &gt;= 2, &quot;Replaced. 1 saved credential is sealed under the new key.&quot; for n = 1, and &quot;Replaced. This Foundry has a new secrets key.&quot; for n = 0. A reload posts nothing again and claims no second replacement.</p>
 
 <h3>P3</h3>
 
 <p>Outcome</p>
 
-<pre><code>A failed re-seal changes nothing: the old secrets key stays in effect, every saved credential still opens, the Activity records no replacement, and the page does not read I-24.
-</code></pre>
+<p>A failed re-seal changes nothing: the old secrets key stays in effect, every saved credential still opens, the Activity records no replacement, and the page does not read I-24.</p>
 
 <h3>P4</h3>
 
 <p>Outcome</p>
 
-<pre><code>Observed on GET /workspace/integrations and the route history, within 60 seconds of a replacement every replica opens every credential; in between no connection reads lost, the mail double receives no email, and the next new issue of a team member still reaches its Slack channel and its Matrix room.
-</code></pre>
+<p>Observed on GET /workspace/integrations and the route history, within 60 seconds of a replacement every replica opens every credential; in between no connection reads lost, the mail double receives no email, and the next new issue of a team member still reaches its Slack channel and its Matrix room.</p>
 
 <h3>P5</h3>
 
 <p>Outcome</p>
 
-<pre><code>GET /admin/instance/integrations Activity shows the I-18 lines &quot;{date} - {name} replaced the secrets key ({n} credentials sealed again)&quot; and &quot;{date} - {name} started over with a new secrets key ({n} credentials discarded)&quot;.
-</code></pre>
+<p>GET /admin/instance/integrations Activity shows the I-18 lines &quot;{date} - {name} replaced the secrets key ({n} credentials sealed again)&quot; and &quot;{date} - {name} started over with a new secrets key ({n} credentials discarded)&quot;.</p>
 
 <h3>P6</h3>
 
 <p>Outcome</p>
 
-<pre><code>While the stored secrets key cannot be opened (I-26) and no running replica opens it, GET /admin/instance/integrations appends Start over to I-26 and offers no Replace secrets key. While another live server still opens the key, I-26 stays restore-only with no Start over and adds &quot;Another Foundry server still opens the secrets key, so Start over is not offered.&quot;; under I-31 GET /admin/instance/integrations reads I-31 in the instance key line&#x27;s place, reads no I-26 words, and offers no Replace secrets key, no Start over and no live-server sentence. GET and POST /admin/instance/integrations/secrets-key/replace under I-26 change nothing and answer the page.
-</code></pre>
+<p>While the stored secrets key cannot be opened (I-26) and no running replica opens it, GET /admin/instance/integrations appends Start over to I-26 and offers no Replace secrets key. While another live server still opens the key, I-26 stays restore-only with no Start over and adds &quot;Another Foundry server still opens the secrets key, so Start over is not offered.&quot;; under I-31 GET /admin/instance/integrations reads I-31 in the instance key line&#x27;s place, reads no I-26 words, and offers no Replace secrets key, no Start over and no live-server sentence. GET and POST /admin/instance/integrations/secrets-key/replace under I-26 change nothing and answer the page.</p>
 
 <h3>P7</h3>
 
 <p>Outcome</p>
 
-<pre><code>GET /admin/instance/integrations/secrets-key/start-over is answered only under I-26 with that same gate; it shows the I-28a Confirmation field &quot;Type START OVER to confirm that no Foundry server of an earlier release is still running.&quot; and I-28 for the count of credentials this Foundry cannot open: &quot;Start over with a new secrets key? The {n} saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.&quot; for n &gt;= 2, the same sentence with &quot;The 1 saved credential this Foundry cannot open is discarded&quot; for n = 1, and &quot;Start over with a new secrets key? This Foundry has no saved credentials to discard.&quot; for n = 0. It changes nothing.
-</code></pre>
+<p>GET /admin/instance/integrations/secrets-key/start-over is answered only under I-26 with that same gate; it shows the I-28a Confirmation field &quot;Type START OVER to confirm that no Foundry server of an earlier release is still running.&quot; and I-28 for the count of credentials this Foundry cannot open: &quot;Start over with a new secrets key? The {n} saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.&quot; for n &gt;= 2, the same sentence with &quot;The 1 saved credential this Foundry cannot open is discarded&quot; for n = 1, and &quot;Start over with a new secrets key? This Foundry has no saved credentials to discard.&quot; for n = 0. It changes nothing.</p>
 
 <h3>P8</h3>
 
 <p>Outcome</p>
 
-<pre><code>POST /admin/instance/integrations/secrets-key/start-over with the Confirmation START OVER, and the gate checked again inside the POST, generates a new secrets key, discards the credentials this Foundry cannot open, records the I-18 started over line, and redirects to GET /admin/instance/integrations, which reads I-21 &quot;Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.&quot; once. A wrong or empty Confirmation, or a running replica that opens the key, answers I-28 again and changes nothing.
-</code></pre>
+<p>POST /admin/instance/integrations/secrets-key/start-over with the Confirmation START OVER, and the gate checked again inside the POST, generates a new secrets key, discards the credentials this Foundry cannot open, records the I-18 started over line, and redirects to GET /admin/instance/integrations, which reads I-21 &quot;Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.&quot; once. A wrong or empty Confirmation, or a running replica that opens the key, answers I-28 again and changes nothing.</p>
 
 <h3>P9</h3>
 
 <p>Outcome</p>
 
-<pre><code>After a start-over, Matrix is ready, and GET /workspace/integrations shows no discarded connection as connected and tells its workspace admin to reconnect Slack and to re-enter the Matrix bot token; the instance integrations page asks for the Slack app again (I-5).
-</code></pre>
+<p>After a start-over, Matrix is ready, and GET /workspace/integrations shows no discarded connection as connected and tells its workspace admin to reconnect Slack and to re-enter the Matrix bot token; the instance integrations page asks for the Slack app again (I-5).</p>
 
 <h3>P10</h3>
 
 <p>Outcome</p>
 
-<pre><code>After a replacement or a start-over, rotating the instance key itself with the CLI foundry doctor rotate-secrets leaves every saved credential opening.
-</code></pre>
+<p>After a replacement or a start-over, rotating the instance key itself with the CLI foundry doctor rotate-secrets leaves every saved credential opening.</p>
 
 <h3>P11</h3>
 
 <p>Scenario</p>
 
-<pre><code>Replacing the key re-seals everything and nobody reconnects
-</code></pre>
+<p>Replacing the key re-seals everything and nobody reconnects</p>
 
-<pre><code>This Foundry holds 3 saved credentials for Canzan Labs and the Slack app, and the stored secrets key opens.
-</code></pre>
+<p>This Foundry holds 3 saved credentials for Canzan Labs and the Slack app, and the stored secrets key opens.</p>
 
-<pre><code>Priya confirms Replace secrets key.
-</code></pre>
+<p>Priya confirms Replace secrets key.</p>
 
-<pre><code>Priya reads &quot;Replaced. 3 saved credentials are sealed under the new key.&quot;, the next new issue of Sam in Identity Platform reaches #auth-dev and #auth:canzan.dev, no connection is marked lost, and no workspace admin is emailed.
-</code></pre>
+<p>Priya reads &quot;Replaced. 3 saved credentials are sealed under the new key.&quot;, the next new issue of Sam in Identity Platform reaches #auth-dev and #auth:canzan.dev, no connection is marked lost, and no workspace admin is emailed.</p>
 
 <h3>P12</h3>
 
 <p>Scenario</p>
 
-<pre><code>Starting over states its cost first, then leaves workspaces told to reconnect
-</code></pre>
+<p>Starting over states its cost first, then leaves workspaces told to reconnect</p>
 
-<pre><code>The stored secrets key cannot be opened with the instance key of this server, 3 saved credentials cannot be opened, and no running replica opens the key.
-</code></pre>
+<p>The stored secrets key cannot be opened with the instance key of this server, 3 saved credentials cannot be opened, and no running replica opens the key.</p>
 
-<pre><code>Priya chooses Start over, reads the cost, types START OVER and confirms.
-</code></pre>
+<p>Priya chooses Start over, reads the cost, types START OVER and confirms.</p>
 
-<pre><code>Before she confirms, Priya reads &quot;Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.&quot; and nothing has changed; after she confirms, she reads &quot;Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.&quot; once, and the workspace integrations page of Canzan Labs offers to connect Matrix and does not read Slack as connected.
-</code></pre>
+<p>Before she confirms, Priya reads &quot;Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.&quot; and nothing has changed; after she confirms, she reads &quot;Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.&quot; once, and the workspace integrations page of Canzan Labs offers to connect Matrix and does not read Slack as connected.</p>
 
 <h2>Scope</h2>
 
-<pre><code>US-IIS-07 AC 1-6 of docs/feature/instance-integration-setup/discuss/user-stories.md: the Replace confirm and its apply (I-23, I-24) with an all-or-nothing re-seal and every replica opening every credential within 60 seconds, the withheld Replace and offered Start over under I-26 with its live-replica gate, the Start over confirm with its cost and typed confirmation (I-28, I-28a), the Start over apply with discarded credentials and the reconnect state of the workspace pages, the I-18 activity lines, and the CLI instance-key rotation that leaves every credential opening; KPI-IIS-4 and KPI-IIS-G1.
-</code></pre>
+<p>US-IIS-07 AC 1-6 of docs/feature/instance-integration-setup/discuss/user-stories.md: the Replace confirm and its apply (I-23, I-24) with an all-or-nothing re-seal and every replica opening every credential within 60 seconds, the withheld Replace and offered Start over under I-26 with its live-replica gate, the Start over confirm with its cost and typed confirmation (I-28, I-28a), the Start over apply with discarded credentials and the reconnect state of the workspace pages, the I-18 activity lines, and the CLI instance-key rotation that leaves every credential opening; KPI-IIS-4 and KPI-IIS-G1.</p>
 
-<pre><code>Out: generating or moving the secrets key and the operator-side restore of the instance key, as Deliverable A shipped them (I-2, I-2e, I-2e0, I-3, I-21, I-22, I-25, the I-26 restore text, I-27, I-30, I-31); Replace and Remove of the Slack app (Request 2, delivered) and the setup links of US-IIS-04 (Request 1, delivered); no change to the Slack app manifest, to the workspace connect and disconnect flows, or to the W-2, W-3, K-2 and K-19 words.
-</code></pre>
+<p>Out: generating or moving the secrets key and the operator-side restore of the instance key, as Deliverable A shipped them (I-2, I-2e, I-2e0, I-3, I-21, I-22, I-25, the I-26 restore text, I-27, I-30, I-31); Replace and Remove of the Slack app (Request 2, delivered) and the setup links of US-IIS-04 (Request 1, delivered); no change to the Slack app manifest, to the workspace connect and disconnect flows, or to the W-2, W-3, K-2 and K-19 words.</p>
 
-<pre><code>Out: how the new key is stored and any grace window for the old one. D4 (the old secrets key is discarded once all replicas use the new one, approved by the user 2026-11-05) leaves the window to DESIGN; this value promises only the observable outcome.
-</code></pre>
+<p>Out: how the new key is stored and any grace window for the old one. D4 (the old secrets key is discarded once all replicas use the new one, approved by the user 2026-11-05) leaves the window to DESIGN; this value promises only the observable outcome.</p>
 
 <h2>Decisions</h2>
 
-<pre><code>The copy I-23, I-24, the Start over appended to I-26, I-28, I-28a and the Deliverable B I-18 lines are the locked copy of instance-integration-setup DISCUSS (section &quot;Copy (locked once approved)&quot;); I-28a (typing START OVER) and D4 (the old secrets key is discarded once all replicas use the new one) were approved by the user 2026-11-05. This value adds no new product decision to that authority.
-</code></pre>
+<p>The copy I-23, I-24, the Start over appended to I-26, I-28, I-28a and the Deliverable B I-18 lines are the locked copy of instance-integration-setup DISCUSS (section &quot;Copy (locked once approved)&quot;); I-28a (typing START OVER) and D4 (the old secrets key is discarded once all replicas use the new one) were approved by the user 2026-11-05. This value adds no new product decision to that authority.</p>
 
 <h4>Status</h4>
 
 <p>Confirmed</p>
 
 
-<pre><code>Replace and Start over answer post, redirect, get, and the notice waits once in the session of the acting instance admin, as D16 of iis-slack-replace-remove already decided for the Slack app changes: I-24 is never a query value, an address alone claims no change that was not made, and a session that cannot hold the notice leaves the committed change with no notice.
-</code></pre>
+<p>Replace and Start over answer post, redirect, get, and the notice waits once in the session of the acting instance admin, as D16 of iis-slack-replace-remove already decided for the Slack app changes: I-24 is never a query value, an address alone claims no change that was not made, and a session that cannot hold the notice leaves the committed change with no notice.</p>
 
 <h4>Status</h4>
 
 <p>Confirmed</p>
 
 
-<pre><code>The n = 1 forms, following I-22 and the I-15 n = 1 form: I-23 reads &quot;Replace the secrets key? Foundry seals its 1 saved credential again under a new key. Nobody needs to reconnect.&quot;; I-24 reads &quot;Replaced. 1 saved credential is sealed under the new key.&quot;; I-28 reads &quot;Start over with a new secrets key? The 1 saved credential this Foundry cannot open is discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.&quot; The n &gt;= 2 forms stay as locked. The user confirmed these exact words on 2026-11-11.
-</code></pre>
+<p>The n = 1 forms, following I-22 and the I-15 n = 1 form: I-23 reads &quot;Replace the secrets key? Foundry seals its 1 saved credential again under a new key. Nobody needs to reconnect.&quot;; I-24 reads &quot;Replaced. 1 saved credential is sealed under the new key.&quot;; I-28 reads &quot;Start over with a new secrets key? The 1 saved credential this Foundry cannot open is discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.&quot; The n &gt;= 2 forms stay as locked. The user confirmed these exact words on 2026-11-11.</p>
 
 <h4>Status</h4>
 
 <p>Confirmed</p>
 
 
-<pre><code>The n = 0 forms, following I-2e0 and the I-15 n = 0 form: Replace and Start over stay offered while nothing is saved, as I-2 does. With a stored secrets key and nothing saved yet, I-23 reads &quot;Replace the secrets key? This Foundry has no saved credentials yet, so nothing needs to be sealed again.&quot; and I-24 reads &quot;Replaced. This Foundry has a new secrets key.&quot;; under I-26 with no credential that cannot be opened, I-28 reads &quot;Start over with a new secrets key? This Foundry has no saved credentials to discard.&quot; The user confirmed these exact words on 2026-11-11.
-</code></pre>
+<p>The n = 0 forms, following I-2e0 and the I-15 n = 0 form: Replace and Start over stay offered while nothing is saved, as I-2 does. With a stored secrets key and nothing saved yet, I-23 reads &quot;Replace the secrets key? This Foundry has no saved credentials yet, so nothing needs to be sealed again.&quot; and I-24 reads &quot;Replaced. This Foundry has a new secrets key.&quot;; under I-26 with no credential that cannot be opened, I-28 reads &quot;Start over with a new secrets key? This Foundry has no saved credentials to discard.&quot; The user confirmed these exact words on 2026-11-11.</p>
 
 <h4>Status</h4>
 
 <p>Confirmed</p>
 
 
-<pre><code>After a successful start over, GET /admin/instance/integrations reads I-21 &quot;Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.&quot; once, as I-2e0 has a move with n = 0 answer I-21. The locked copy names no other notice for this apply. The user confirmed on 2026-11-11.
-</code></pre>
+<p>After a successful start over, GET /admin/instance/integrations reads I-21 &quot;Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.&quot; once, as I-2e0 has a move with n = 0 answer I-21. The locked copy names no other notice for this apply. The user confirmed on 2026-11-11.</p>
 
 <h4>Status</h4>
 
 <p>Confirmed</p>
 
 
-<pre><code>While another live server still opens the stored secrets key, I-26 stays restore-only and the page adds one sentence, so that Priya can tell this state from the plain restore case. Its locked exact words are &quot;Another Foundry server still opens the secrets key, so Start over is not offered.&quot; Under I-31 the page reads I-31 in the instance key line&#x27;s place, reads no I-26 words, and offers no Replace secrets key, no Start over and no live-server sentence. The user confirmed these exact words on 2026-11-11.
-</code></pre>
+<p>While another live server still opens the stored secrets key, I-26 stays restore-only and the page adds one sentence, so that Priya can tell this state from the plain restore case. Its locked exact words are &quot;Another Foundry server still opens the secrets key, so Start over is not offered.&quot; Under I-31 the page reads I-31 in the instance key line&#x27;s place, reads no I-26 words, and offers no Replace secrets key, no Start over and no live-server sentence. The user confirmed these exact words on 2026-11-11.</p>
 
 <h4>Status</h4>
 
 <p>Confirmed</p>
 
 
-<pre><code>Quint relevance of this one value: a bounded Quint exploration is not a product prerequisite here, because the Request and the locked US-IIS-07 copy already state every outcome recorded in these promises (nw-nwdes guidance). The six open interleaving and safety questions - Q1 an all-or-nothing re-seal, Q2 no lost marking and no email in the window where replicas hold different keys, Q3 the live-replica gate between the GET and the POST, Q4 reload, prefetch and double submit, Q5 no dead-end state, and Q6 replace-then-start-over ordering - pass to DESIGN as obligations the solution architect must verify formally with a model and receipts, as the design of Request 2 did with Quint and TLA+. The user decided this on 2026-11-11. Jev: typesafe unavailable (TYPESAFE_API_KEY absent), so the copy and slice judgments here stay local.
-</code></pre>
+<p>Quint relevance of this one value: a bounded Quint exploration is not a product prerequisite here, because the Request and the locked US-IIS-07 copy already state every outcome recorded in these promises (nw-nwdes guidance). The six open interleaving and safety questions - Q1 an all-or-nothing re-seal, Q2 no lost marking and no email in the window where replicas hold different keys, Q3 the live-replica gate between the GET and the POST, Q4 reload, prefetch and double submit, Q5 no dead-end state, and Q6 replace-then-start-over ordering - pass to DESIGN as obligations the solution architect must verify formally with a model and receipts, as the design of Request 2 did with Quint and TLA+. The user decided this on 2026-11-11. Jev: typesafe unavailable (TYPESAFE_API_KEY absent), so the copy and slice judgments here stay local.</p>
 
 <h4>Status</h4>
 
@@ -340,36 +315,27 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h2>Journey</h2>
 
-<pre><code>Priya doubts the secrets key of this Foundry and opens the instance integrations page, where Replace secrets key is offered next to the stored key.
-</code></pre>
+<p>Priya doubts the secrets key of this Foundry and opens the instance integrations page, where Replace secrets key is offered next to the stored key.</p>
 
-<pre><code>Not supplied; the authority records no account of emotion.
-</code></pre>
+<p>Not supplied; the authority records no account of emotion.</p>
 
-<pre><code>Priya reads that the 3 saved credentials of Canzan Labs and the Slack app are sealed again under a new key and that nobody needs to reconnect, confirms, and reads that they are sealed under the new key; the next issue of Sam still reaches #auth-dev and #auth:canzan.dev.
-</code></pre>
+<p>Priya reads that the 3 saved credentials of Canzan Labs and the Slack app are sealed again under a new key and that nobody needs to reconnect, confirms, and reads that they are sealed under the new key; the next issue of Sam still reaches #auth-dev and #auth:canzan.dev.</p>
 
-<pre><code>Not supplied; the authority records no account of emotion.
-</code></pre>
+<p>Not supplied; the authority records no account of emotion.</p>
 
-<pre><code>A docker compose volume is recreated and the instance key file is new, so the page reads I-26 and offers no Replace; Priya looks for a backup of that file and would restore it and restart.
-</code></pre>
+<p>A docker compose volume is recreated and the instance key file is new, so the page reads I-26 and offers no Replace; Priya looks for a backup of that file and would restore it and restart.</p>
 
-<pre><code>Not supplied; the authority records no account of emotion.
-</code></pre>
+<p>Not supplied; the authority records no account of emotion.</p>
 
-<pre><code>No backup exists, so Priya opens Start over, reads that the 3 credentials this Foundry cannot open are discarded, types START OVER and confirms; Matrix is ready, the workspace admins are told to reconnect Slack and re-enter the Matrix bot token, and Priya enters the Slack app again.
-</code></pre>
+<p>No backup exists, so Priya opens Start over, reads that the 3 credentials this Foundry cannot open are discarded, types START OVER and confirms; Matrix is ready, the workspace admins are told to reconnect Slack and re-enter the Matrix bot token, and Priya enters the Slack app again.</p>
 
-<pre><code>Not supplied; the authority records no account of emotion.
-</code></pre>
+<p>Not supplied; the authority records no account of emotion.</p>
 
 <h2>Slices</h2>
 
 <h3>S1</h3>
 
-<pre><code>An instance admin replaces the secrets key from the instance integrations page: she reads how many saved credentials are sealed again and that nobody needs to reconnect, confirms, and reads that they are sealed under the new key; within 60 seconds every replica opens every credential, no connection reads lost and no workspace admin is emailed, and a failed re-seal leaves the old key in effect with every credential still opening.
-</code></pre>
+<p>An instance admin replaces the secrets key from the instance integrations page: she reads how many saved credentials are sealed again and that nobody needs to reconnect, confirms, and reads that they are sealed under the new key; within 60 seconds every replica opens every credential, no connection reads lost and no workspace admin is emailed, and a failed re-seal leaves the old key in effect with every credential still opening.</p>
 
 <h4>Promises</h4>
 
@@ -395,8 +361,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>M</p>
 
-<pre><code>Rotate the secrets key the moment she doubts it, without making any workspace reconnect.
-</code></pre>
+<p>Rotate the secrets key the moment she doubts it, without making any workspace reconnect.</p>
 
 <h5>Rework</h5>
 
@@ -404,8 +369,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h3>S2</h3>
 
-<pre><code>While this Foundry cannot open its stored secrets key and no running replica opens it, the instance admin reads on the instance integrations page that Replace is withheld and Start over is offered, opens Start over, and reads its exact cost and the confirmation it asks for; nothing has changed yet, and while another live server still opens the key the page stays restore-only.
-</code></pre>
+<p>While this Foundry cannot open its stored secrets key and no running replica opens it, the instance admin reads on the instance integrations page that Replace is withheld and Start over is offered, opens Start over, and reads its exact cost and the confirmation it asks for; nothing has changed yet, and while another live server still opens the key the page stays restore-only.</p>
 
 <h4>Promises</h4>
 
@@ -421,8 +385,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>S</p>
 
-<pre><code>See a confirmed way forward and its cost before she chooses between restoring the instance key and starting over.
-</code></pre>
+<p>See a confirmed way forward and its cost before she chooses between restoring the instance key and starting over.</p>
 
 <h5>Rework</h5>
 
@@ -430,8 +393,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h3>S3</h3>
 
-<pre><code>The instance admin confirms Start over with the typed confirmation: a new secrets key is made, the credentials this Foundry cannot open are discarded, the Activity records it, Matrix is ready, and every workspace integrations page shows no discarded connection as connected and tells its admin to reconnect Slack and re-enter the Matrix bot token; a wrong or empty confirmation changes nothing.
-</code></pre>
+<p>The instance admin confirms Start over with the typed confirmation: a new secrets key is made, the credentials this Foundry cannot open are discarded, the Activity records it, Matrix is ready, and every workspace integrations page shows no discarded connection as connected and tells its admin to reconnect Slack and re-enter the Matrix bot token; a wrong or empty confirmation changes nothing.</p>
 
 <h4>Promises</h4>
 
@@ -453,8 +415,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>M</p>
 
-<pre><code>Get out of a lost instance key with no backup, at a cost she read first.
-</code></pre>
+<p>Get out of a lost instance key with no backup, at a cost she read first.</p>
 
 <h5>Rework</h5>
 

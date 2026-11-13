@@ -455,7 +455,7 @@
 "C": 3,
 "D": 9,
 "E": 26,
-"F": 492,
+"F": 503,
 "K": 5,
 "L": 11,
 "N": 7,
@@ -2241,6 +2241,187 @@
 }
 }
 },
+"examination": {
+"E1": {
+"observations": [
+"F493"
+],
+"verdict": "met"
+},
+"E10": {
+"class": "observation_gap",
+"observations": [
+"F498",
+"F499",
+"F502"
+],
+"verdict": "unmet"
+},
+"E11": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E12": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E14": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E15": {
+"class": "observation_gap",
+"observations": [
+"F503",
+"F502"
+],
+"verdict": "unmet"
+},
+"E16": {
+"observations": [
+"F503"
+],
+"verdict": "met"
+},
+"E17": {
+"class": "product_violation",
+"observations": [
+"F503"
+],
+"verdict": "unmet"
+},
+"E18": {
+"class": "observation_gap",
+"observations": [
+"F503",
+"F502"
+],
+"verdict": "unmet"
+},
+"E19": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E2": {
+"observations": [
+"F494",
+"F495",
+"F496"
+],
+"verdict": "met"
+},
+"E20": {
+"class": "observation_gap",
+"observations": [
+"F503",
+"F502"
+],
+"verdict": "unmet"
+},
+"E21": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E22": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E23": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E24": {
+"class": "observation_gap",
+"observations": [
+"F500",
+"F502"
+],
+"verdict": "unmet"
+},
+"E25": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E26": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E3": {
+"observations": [
+"F497"
+],
+"verdict": "met"
+},
+"E4": {
+"observations": [
+"F498",
+"F499"
+],
+"verdict": "met"
+},
+"E5": {
+"observations": [
+"F500",
+"F501"
+],
+"verdict": "met"
+},
+"E6": {
+"observations": [
+"F498"
+],
+"verdict": "met"
+},
+"E7": {
+"class": "observation_gap",
+"observations": [
+"F502"
+],
+"verdict": "unmet"
+},
+"E8": {
+"observations": [
+"F501",
+"F500"
+],
+"verdict": "met"
+},
+"E9": {
+"class": "observation_gap",
+"observations": [
+"F500",
+"F502"
+],
+"verdict": "unmet"
+}
+},
 "expectations": {
 "rows": [
 {
@@ -2836,8 +3017,19 @@
 "F490": "The page offers a way to start over and no Replace; the start over reads once that the secrets key is generated, Matrix is ready and the Slack app can now be entered, a stored secrets key this Foundry opens is in place, the page then offers a way to replace it and no way to start over, and Canzan Labs' workspace integrations page offers to connect Matrix.",
 "F491": "A replacement is no protection against the instance key going missing, and the way out is the same one either way: Priya ends on a Foundry whose key she can replace again, with Matrix ready.",
 "F492": "A start over that leaves the credentials of the replaced key readable: everything saved before the restart is a credential this Foundry cannot open, so what survives a start over is read where a credential saved after it is.",
+"F493": "On GET /admin/instance/integrations with a stored secrets key that opens (probe state slack-connected), the page reads \"Secrets key: set. Credentials entered here are sealed with it.\" and directly under it the action \"Replace secrets key\", linked to /admin/instance/integrations/secrets-key/replace. Following that link answers HTTP 200 with the page titled \"Replace the secrets key?\".",
+"F494": "Probe state slack-connected (saved Slack app plus one workspace Slack connection = 2 saved credentials): GET /admin/instance/integrations/secrets-key/replace answers 200 with a \"Replace secrets key\" button and the single sentence \"Replace the secrets key? Foundry seals its 2 saved credentials again under a new key. Nobody needs to reconnect.\"",
+"F495": "Probe state slack-app-saved (1 saved credential): the replace page reads \"Replace the secrets key? Foundry seals its 1 saved credential again under a new key. Nobody needs to reconnect.\"",
+"F496": "Probe state secrets-key-no-slack (0 saved credentials): the replace page reads \"Replace the secrets key? This Foundry has no saved credentials yet, so nothing needs to be sealed again.\"",
+"F497": "Two consecutive GETs of /admin/instance/integrations/secrets-key/replace (the second standing for a prefetch) returned identical pages, and the GET /admin/instance/integrations taken after them was identical to the one taken before them: no notice, Activity still only \"saved the Slack app\" and \"generated the secrets key\", the Slack app still saved, \"Replace secrets key\" still offered.",
+"F498": "POST /admin/instance/integrations/secrets-key/replace in state slack-connected answered with final-url https://foundry.example.org/admin/instance/integrations, reading once \"Replaced. 2 saved credentials are sealed under the new key.\" and Activity \"13 Nov 2026 - Priya Raman replaced the secrets key (2 credentials sealed again)\". Two further GETs of that same address read the page with no notice at all and with that one replacement line only, so the notice is not carried in the address and the reload posts nothing again.",
+"F499": "Apply notices for the other counts. State slack-app-saved: \"Replaced. 1 saved credential is sealed under the new key.\" with Activity \"(1 credential sealed again)\". State secrets-key-no-slack: \"Replaced. This Foundry has a new secrets key.\" with Activity \"(0 credentials sealed again)\". Each landing page reloaded afterwards reads no notice.",
 "F5": "A failed re-seal changes nothing: the old secrets key stays in effect, every saved credential still opens, the Activity records no replacement, and the page does not read I-24.",
 "F50": "Cross-layer algebra. Domain (keys.rs, secrets_key_rotation.rs): states KeyMode x the saved-credential count x the gate; operations plan a replacement or a start over and select copy; observations are the page offer, the chosen copy and the count; a plan is equal to another when it names the same key generation and the same slot decisions. Application/ports (handlers/instance.rs, store_capabilities.rs): operations are the two GETs and the two POSTs; outcomes are the page answered unchanged, a redirect with a notice, or a refusal that answers the confirm page again. Adapter (foundry-store instance.rs): operations are the two locked transactions; observations are the stored rows, the activity line and the config version; failures are the re-seal refusal, the compare-and-set loss and the database error, each rolling back. Infrastructure/recovery (reload.rs, worker.rs): operations are the reload and the delivery attempt; observations are applied_version, the key a replica holds and the delivery settlement; a credential no held key opens is SecretUnavailable settled by the backoff policy, never a loss and never an email.",
+"F500": "Probe state slack-delivery-pending (one New issue delivery to #auth-dev waiting because Slack stopped answering). After POST replace answered \"Replaced. 2 saved credentials are sealed under the new key.\", Slack was set to answering and 10 minutes passed: the project integrations page reads \"#auth-dev - Delivering - last delivery 22:08\", the route History reads \"22:08 - New issue - AUTH-2 - Delivered after 2 attempts (Slack did not answer)\", and the Slack double logs a chat.postMessage for AUTH-2 accepted after the replacement, so the workspace connection credential opens under the new key. The workspace integrations page reads \"Connected to Canzan Labs (canzanlabs.slack.com) - by Priya Raman\" with Disconnect Slack and no lost or unreadable wording. The mail double holds only the two original invitation mails; no mail reached a workspace admin in the window.",
+"F501": "Replica 2 (a second server on the same database, never restarted) directly after the replacement: GET /admin/instance/integrations answers 200 with \"Secrets key: set\" and the replacement Activity line; GET /workspace/integrations answers 200 with Slack connected; and a Slack event signed with the saved Slack app planted signing secret, sent to replica 2, is accepted with 200 and the echoed challenge. Replica 2 therefore opens the re-sealed Slack app credential without a restart.",
+"F502": "Capture limit of the admitted public probe. The probe admits one command, examine-foundry. Its states are secrets-key-no-slack, instance-key-no-secrets-key, env-slack-no-secrets-key, slack-app-saved, slack-connected, slack-connected-three, env-slack-connected, slack-app-awaiting-confirm and slack-delivery-pending. None of them has a stored secrets key this server cannot open (I-26) or an unreadable instance key file (I-31); none has a Matrix connection or a Matrix bot token; no verb makes a re-seal fail, stops or revives a replica heartbeat, or runs the CLI foundry doctor rotate-secrets. The start-over condition, the live-server sentence, the I-31 page, the failed re-seal, every Matrix leg and the CLI rotation could not be put on stage at all.",
+"F503": "Probe state slack-connected: the stored secrets key opens and this Foundry opens both saved credentials (proved in the same run by the replacement that re-sealed 2 of them). GET /admin/instance/integrations/secrets-key/start-over answered the instance integrations page and changed nothing. But POST /admin/instance/integrations/secrets-key/start-over with confirmation=START OVER answered HTTP 200 with the page titled \"Start over with a new secrets key?\", carrying the field text \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\", a Confirmation input, a \"Start over\" button, and the sentence \"Start over with a new secrets key? The 2 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.\" The number of credentials this Foundry cannot open was 0, so the sentence states a false count to the user. Nothing changed: no Activity line, the Slack app still saved, \"Replace secrets key\" still offered.",
 "F51": "The locked copy of instance-integration-setup DISCUSS, exact words, with no form invented: I-23 in its n >= 2, n = 1 and n = 0 forms; I-24 in its n >= 2, n = 1 and n = 0 forms; I-28 in its n >= 2, n = 1 and n = 0 forms; I-28a \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\"; the sentence appended to I-26 while another live server still opens the key, \"Another Foundry server still opens the secrets key, so Start over is not offered.\"; I-21 as the answer of a successful start over; and the two Deliverable B I-18 lines \"{date} - {name} replaced the secrets key ({n} credentials sealed again)\" and \"{date} - {name} started over with a new secrets key ({n} credentials discarded)\".",
 "F52": "The count n is the I-22 counting rule the store already applies: each connection credential one, the saved Slack app one however many of its secrets are sealed; the app held for its confirm is re-sealed with the rest and counted with the app. The authority states no upper bound on the number of credentials, and none is introduced: both writes walk every stored sealed row under FOR UPDATE.",
 "F53": "The typed confirmation is admitted only as the exact text START OVER after surrounding whitespace is trimmed, case-sensitive; an empty, lower-case or otherwise different value answers I-28 again and changes nothing. The authority fixes the words and not the trimming, so the trimming is a design choice, narrower than a free-text field and wider than a byte-exact comparison.",
