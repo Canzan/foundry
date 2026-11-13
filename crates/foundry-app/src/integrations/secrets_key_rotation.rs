@@ -2,7 +2,9 @@
 //! (US-IIS-07, D6): how many credentials a rotation touches and the words
 //! that say so ([`SavedCredentials`]), what the page offers while the stored
 //! key cannot be opened ([`UnopenableOffer`]) over the live-replica gate
-//! ([`LiveOpeners`]), and what a replacement stores ([`ReplacePlan`]).
+//! ([`LiveOpeners`]), the typed confirmation a start over cannot be applied
+//! without ([`StartOverConfirmation`]), and what a replacement
+//! ([`ReplacePlan`]) and a start over ([`StartOverPlan`]) store.
 //!
 //! The count is the I-22 counting rule the store already applies: each stored
 //! connection credential one, the saved Slack app one however many of its
@@ -201,10 +203,21 @@ impl UnopenableOffer {
         matches!(self, Self::StartOver)
     }
 
-    /// Whether `typed` is the confirmation the page asks for: the exact words
-    /// START OVER after the spaces a paste brings along are removed.
-    pub fn confirms(typed: &str) -> bool {
-        typed.trim() == "START OVER"
+    /// Whether the replica gate decides anything in `mode` with the instance
+    /// key file in `key_file`: the one owner of that fact, read beside
+    /// [`Self::decide`], whose table it follows. Only a stored key no held key
+    /// opens is I-26 at all, and with no key file made and no operator key
+    /// nothing is held to seal a new secrets key with, so everywhere else the
+    /// offer is restore-only whatever the gate says - which is what
+    /// [`Self::of_gate`] answers over an unread list - and a page that asks
+    /// after the other servers of this database there would read rows that
+    /// change no word it shows (L6, L7).
+    pub fn reads_gate(mode: KeyMode, key_file: KeyFile) -> bool {
+        match (mode, key_file) {
+            (KeyMode::Unopenable, KeyFile::Withheld) => false,
+            (KeyMode::Unopenable, _) => true,
+            _ => false,
+        }
     }
 
     /// The sentence appended to the shipped I-26 restore words, which it never
@@ -214,6 +227,77 @@ impl UnopenableOffer {
             Self::RestoreOnlyLiveReplica => Some(LIVE_REPLICA_OPENS),
             Self::StartOver | Self::RestoreOnly => None,
         }
+    }
+}
+
+/// The I-28a Confirmation as she typed it, admitted (D6): the value exists
+/// only where the field held the exact words the page asked for, so the apply
+/// that takes it cannot be reached without them. It carries no text: what it
+/// says is that this one was typed, and nothing it could be printed beside
+/// needs the field back.
+///
+/// Its one constructor is [`Self::typed`]; there is no public raw constructor,
+/// no setter and no deserializer, so no caller in this crate builds what the
+/// constructor refuses. A caller outside it could not either, because the
+/// field is private. Nothing here claims intent or authority: that she is the
+/// instance admin is the guard's, and that no server of an earlier release is
+/// still running is what the words assert on her behalf (I-28a, Y5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct StartOverConfirmation(());
+
+impl StartOverConfirmation {
+    /// The words the page asks her to type (I-28a).
+    const WORDS: &'static str = "START OVER";
+
+    /// `field` as the form posted it, admitted only where it is the exact
+    /// words START OVER after the spaces a paste brings along are removed;
+    /// `None` for anything else, an empty field and an absent one included.
+    pub fn typed(field: &str) -> Option<Self> {
+        (field.trim() == Self::WORDS).then_some(Self(()))
+    }
+}
+
+/// What a start over stores (US-IIS-07, D6): a fresh secrets key wrapped under
+/// the instance key this server holds with its check value, and the stored key
+/// id it replaces (the compare-and-set the store is judged over). Nothing is
+/// sealed again - the credentials this Foundry cannot open are discarded - so
+/// this plan holds no key in effect, which is all that tells it from its
+/// sibling [`ReplacePlan`]. No `Debug`: it carries the new key.
+pub struct StartOverPlan {
+    plan: GeneratePlan,
+    from_key_id: String,
+}
+
+impl StartOverPlan {
+    /// The plan that starts over from the stored key `from_key_id` with a
+    /// fresh key wrapped under the held `instance` key; `None` when the random
+    /// source or the wrapping fails. It is exactly a generated key and its
+    /// canary: a start over needs nothing re-sealed.
+    pub fn of(
+        instance: &SecretBox,
+        from_key_id: String,
+        wrapped_by: KeyWrapper,
+        actor: Uuid,
+    ) -> Option<Self> {
+        Some(Self {
+            plan: plan_generate(instance, wrapped_by, Some(actor))?,
+            from_key_id,
+        })
+    }
+
+    /// The stored key id this plan starts over from.
+    pub fn from_key_id(&self) -> &str {
+        &self.from_key_id
+    }
+
+    /// The new key, as the store writes it.
+    pub fn key(&self) -> &NewSecretsKey {
+        &self.plan.key
+    }
+
+    /// The new key's check value.
+    pub fn canary(&self) -> &KeyCheck {
+        &self.plan.canary
     }
 }
 
@@ -436,6 +520,14 @@ mod tests {
         for (key_file, live, offer) in table {
             let decided = UnopenableOffer::decide(KeyMode::Unopenable, live, key_file);
             assert_eq!(decided, offer, "{key_file:?}, live opener {live}");
+            // The gate is read exactly where it decides between two offers:
+            // where it is not, the offer is the same whatever it would have
+            // said, so a page that skips the read shows the same words.
+            assert_eq!(
+                UnopenableOffer::reads_gate(KeyMode::Unopenable, key_file),
+                decided != UnopenableOffer::decide(KeyMode::Unopenable, !live, key_file),
+                "{key_file:?} decides on the gate"
+            );
             assert_eq!(decided.offers_start_over(), offer == StartOver);
             assert_eq!(
                 decided.appended(),
@@ -461,6 +553,14 @@ mod tests {
                     let decided = UnopenableOffer::decide(mode, live, key_file);
                     assert_eq!(decided, RestoreOnly, "{mode:?}, {key_file:?}, live {live}");
                     assert!(!decided.offers_start_over());
+                    // Nothing to read the rows for: the offer is restore-only
+                    // whatever the gate says, and the unread reading is it.
+                    assert!(!UnopenableOffer::reads_gate(mode, key_file));
+                    assert_eq!(
+                        UnopenableOffer::of_gate(mode, None, key_file),
+                        decided,
+                        "{mode:?}, {key_file:?} with the gate unread"
+                    );
                     assert_eq!(decided.appended(), None);
                     // Replace's own state and Start over's are disjoint (L7).
                     assert!(!(mode.replaces(false) && decided.offers_start_over()));

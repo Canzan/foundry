@@ -1378,11 +1378,21 @@ pub(super) async fn answer(
     let integrations = state.integrations.current();
     let saver = saver_name(state, &integrations).await;
     let direct_seals = direct_seals(state, &integrations).await;
-    let opener = live_opener(
-        &StoreCapabilities::new(state.store.clone()),
-        gate_of(state, &integrations),
-    )
-    .await;
+    // The replica rows decide a word of this page only where the stored
+    // secrets key cannot be opened and a new one could be sealed; everywhere
+    // else the gate stays unread, and the offer is the one an unread gate
+    // answers anyway (F2, L6).
+    let opener = match UnopenableOffer::reads_gate(integrations.key_mode(), integrations.key_file())
+    {
+        true => {
+            live_opener(
+                &StoreCapabilities::new(state.store.clone()),
+                gate_of(state, &integrations),
+            )
+            .await
+        }
+        false => None,
+    };
     let page = page_state(&facts_of(&integrations, direct_seals, saver, opener));
     let form_client_id = page.form_client_id(&typed_client_id).to_string();
     let activity = match StoreCapabilities::new(state.store.clone())

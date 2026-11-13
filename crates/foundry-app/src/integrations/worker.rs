@@ -1012,9 +1012,8 @@ mod retention_tests {
 
         async fn start_over_secrets_key(
             &self,
-            _from_key_id: &str,
-            _key: &NewSecretsKey,
-            _canary: &KeyCheck,
+            _confirmed: crate::integrations::secrets_key_rotation::StartOverConfirmation,
+            _plan: &crate::integrations::secrets_key_rotation::StartOverPlan,
             _actor: uuid::Uuid,
             _at: OffsetDateTime,
             _gate: crate::integrations::store_capabilities::LiveReplicaGate<'_>,

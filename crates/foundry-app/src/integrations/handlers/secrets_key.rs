@@ -52,7 +52,9 @@ use crate::bootstrap::{resource_not_found_page, SessionUser};
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyMode};
 use crate::integrations::sealed_slot;
-use crate::integrations::secrets_key_rotation::{ReplacePlan, UnopenableOffer};
+use crate::integrations::secrets_key_rotation::{
+    ReplacePlan, StartOverConfirmation, StartOverPlan, UnopenableOffer,
+};
 use crate::integrations::store_capabilities::{
     InstanceKeyWrites, KeyProbe, ResealRefused, StoreCapabilities,
 };
@@ -402,11 +404,13 @@ pub async fn start_over_secrets_key(
     let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
-    if !UnopenableOffer::confirms(form.confirmation.as_deref().unwrap_or_default()) {
+    let Some(confirmed) =
+        StartOverConfirmation::typed(form.confirmation.as_deref().unwrap_or_default())
+    else {
         return start_over_page(&state, &user, &headers, StartOverCost::WhereOffered).await;
-    }
+    };
     let store = StoreCapabilities::new(state.store.clone());
-    match started_over(&state, &store, user.user_id).await {
+    match started_over(&state, &store, user.user_id, confirmed).await {
         StartOverAnswer::StartedOver => SavedNotice::StartedOver.answered(&session).await,
         StartOverAnswer::AskAgain => {
             start_over_page(&state, &user, &headers, StartOverCost::Again).await
@@ -416,8 +420,15 @@ pub async fn start_over_secrets_key(
 }
 
 /// Start over where the way out applies over the stored rows as they are at
-/// the post. The live-replica reading is taken again inside the locked write.
-async fn started_over(state: &AppState, store: &StoreCapabilities, actor: Uuid) -> StartOverAnswer {
+/// the post, with `confirmed` the words she typed: no caller reaches the apply
+/// without them, because there is no other way to hold the value (D6). The
+/// live-replica reading is taken again inside the locked write.
+async fn started_over(
+    state: &AppState,
+    store: &StoreCapabilities,
+    actor: Uuid,
+    confirmed: StartOverConfirmation,
+) -> StartOverAnswer {
     let snapshot = match store.instance_snapshot().await {
         Ok(snapshot) => snapshot,
         Err(err) => {
@@ -443,20 +454,15 @@ async fn started_over(state: &AppState, store: &StoreCapabilities, actor: Uuid) 
     ) else {
         return StartOverAnswer::Unchanged;
     };
-    let Some(plan) = plan_generate(instance, wrapped_by, Some(actor)) else {
+    let Some(plan) = StartOverPlan::of(instance, from_key_id, wrapped_by, actor) else {
         tracing::warn!(probe = "secrets", "generating the new secrets key failed");
         return StartOverAnswer::Unchanged;
     };
     let gate = gate_of(state, &integrations);
     let answered = match store
-        .start_over_secrets_key(
-            &from_key_id,
-            &plan.key,
-            &plan.canary,
-            actor,
-            state.clock.now(),
-            &|states| gate.still_opening(states),
-        )
+        .start_over_secrets_key(confirmed, &plan, actor, state.clock.now(), &|states| {
+            gate.still_opening(states)
+        })
         .await
     {
         Ok(StartOverOutcome::StartedOver { .. }) => StartOverAnswer::StartedOver,
@@ -729,9 +735,8 @@ mod tests {
 
         async fn start_over_secrets_key(
             &self,
-            _from_key_id: &str,
-            _key: &foundry_store::integrations::NewSecretsKey,
-            _canary: &foundry_store::integrations::KeyCheck,
+            _confirmed: StartOverConfirmation,
+            _plan: &StartOverPlan,
             _actor: Uuid,
             _at: OffsetDateTime,
             _gate: crate::integrations::store_capabilities::LiveReplicaGate<'_>,

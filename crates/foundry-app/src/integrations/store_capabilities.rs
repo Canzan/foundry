@@ -21,12 +21,15 @@
 //!   (`replace_secrets_key`, US-IIS-07), its Slack submission with the I-14 gate
 //!   inside that write (`store_slack_submission`), the confirm of a held app,
 //!   the removal, the connected-workspace count the I-14 and I-15 pages read,
-//!   the replica states the live-replica gate of the start over filters, the
-//!   held app's prune, its activity read and the saver's name;
+//!   its start over (`start_over_secrets_key`, which no caller reaches without
+//!   the typed confirmation), the replica states the live-replica gate of that
+//!   start over filters, the held app's prune, its activity read and the
+//!   saver's name;
 //! - [`IntegrationsReload`]: each replica's reload task (ADR-IIS-004 r4, r8):
 //!   the config version, the snapshot, and its one write, its own replica
 //!   state row.
 
+use crate::integrations::secrets_key_rotation::{StartOverConfirmation, StartOverPlan};
 use async_trait::async_trait;
 use foundry_store::integrations::{
     ClaimOutcome, ClaimView, DeliveryContext, DeliveryResult, DeliveryTally, DispatchBatch,
@@ -239,11 +242,16 @@ pub trait InstanceKeyWrites: Send + Sync {
     /// count (US-IIS-07). The store judges sealedness only, so the caller
     /// takes this door only where the stored key cannot be opened at all
     /// (I-26) and the two are the same credentials.
+    ///
+    /// `confirmed` is the I-28a Confirmation she typed, which exists only
+    /// where she typed the words the page asked for: rustc refuses this apply
+    /// to a caller that holds none, which is how the typed confirmation is
+    /// enforced (D6). The words are not re-checked inside the write; the gate
+    /// it does read again there is the live-replica one.
     async fn start_over_secrets_key(
         &self,
-        from_key_id: &str,
-        key: &NewSecretsKey,
-        canary: &KeyCheck,
+        confirmed: StartOverConfirmation,
+        plan: &StartOverPlan,
         actor: Uuid,
         at: OffsetDateTime,
         gate: LiveReplicaGate<'_>,
@@ -511,15 +519,23 @@ impl InstanceKeyWrites for StoreCapabilities {
 
     async fn start_over_secrets_key(
         &self,
-        from_key_id: &str,
-        key: &NewSecretsKey,
-        canary: &KeyCheck,
+        // The confirmation is spent at this call: the store write does not
+        // re-check the words, and nothing below this seam needs them.
+        _confirmed: StartOverConfirmation,
+        plan: &StartOverPlan,
         actor: Uuid,
         at: OffsetDateTime,
         gate: LiveReplicaGate<'_>,
     ) -> Result<StartOverOutcome, StoreError> {
         self.0
-            .start_over_secrets_key(from_key_id, key, canary, actor, at, gate)
+            .start_over_secrets_key(
+                plan.from_key_id(),
+                plan.key(),
+                plan.canary(),
+                actor,
+                at,
+                gate,
+            )
             .await
     }
 
