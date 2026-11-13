@@ -235,8 +235,10 @@ pub trait InstanceKeyWrites: Send + Sync {
 
     /// Start over with a new secrets key while no live replica opens the
     /// stored one: the gate is read inside the locked transaction, every
-    /// credential this Foundry cannot open is discarded, and the activity
-    /// records the count (US-IIS-07).
+    /// stored sealed credential is discarded, and the activity records the
+    /// count (US-IIS-07). The store judges sealedness only, so the caller
+    /// takes this door only where the stored key cannot be opened at all
+    /// (I-26) and the two are the same credentials.
     async fn start_over_secrets_key(
         &self,
         from_key_id: &str,

@@ -16,6 +16,7 @@ use foundry_auth::secret_box::{
     SECRETS_KEY_PREVIOUS_SETTING, SECRETS_KEY_SETTING,
 };
 use foundry_integrations::{MalformedAllowEntry, OutboundAllow, OUTBOUND_ALLOW_SETTING};
+use foundry_store::integrations::KeyWrapper;
 use secrecy::SecretString;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -286,6 +287,18 @@ impl IntegrationSettings {
             reload: Duration::from_millis(DEFAULT_RELOAD_MS),
             worker: WorkerSettings::off(),
             outbound: OutboundAllow::default(),
+        }
+    }
+
+    /// Which instance key wraps a secrets key this server makes: the
+    /// operator's wherever a key name supplied one, else the instance key
+    /// file (ADR-IIS-002). The one owner of that rule, so Generate, Move,
+    /// Replace and Start over cannot record different answers for the same
+    /// settings.
+    pub fn key_wrapper(&self) -> KeyWrapper {
+        match self.key_setting {
+            Some(_) => KeyWrapper::Operator,
+            None => KeyWrapper::File,
         }
     }
 }

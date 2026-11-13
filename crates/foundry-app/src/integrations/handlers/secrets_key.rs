@@ -63,9 +63,7 @@ use axum::extract::State;
 use axum::http::HeaderMap;
 use axum::response::Response;
 use axum::Form;
-use foundry_store::integrations::{
-    KeyWrapper, ReplaceOutcome, SecretsKeyOutcome, StartOverOutcome,
-};
+use foundry_store::integrations::{ReplaceOutcome, SecretsKeyOutcome, StartOverOutcome};
 use time::OffsetDateTime;
 use tower_sessions::Session;
 use uuid::Uuid;
@@ -188,10 +186,7 @@ async fn store_secrets_key(state: &AppState, actor: Uuid, door: KeyOffer) -> Opt
         return None;
     }
     let settings = integrations.settings();
-    let wrapped_by = match settings.key_setting {
-        Some(_) => KeyWrapper::Operator,
-        None => KeyWrapper::File,
-    };
+    let wrapped_by = settings.key_wrapper();
     let instance = settings.secrets.as_ref()?;
     let Some(plan) = plan_generate(instance, wrapped_by, Some(actor)) else {
         tracing::warn!(probe = "secrets", "generating the secrets key failed");
@@ -374,7 +369,7 @@ pub async fn show_secrets_key_start_over(
     let Some(user) = crate::instance_admin::require_instance_admin(&state, &session).await else {
         return resource_not_found_page();
     };
-    start_over_page(&state, &user, &headers).await
+    start_over_page(&state, &user, &headers, StartOverCost::WhereOffered).await
 }
 
 /// What the start-over form carries: the Confirmation she typed.
@@ -408,12 +403,14 @@ pub async fn start_over_secrets_key(
         return resource_not_found_page();
     };
     if !UnopenableOffer::confirms(form.confirmation.as_deref().unwrap_or_default()) {
-        return start_over_page(&state, &user, &headers).await;
+        return start_over_page(&state, &user, &headers, StartOverCost::WhereOffered).await;
     }
     let store = StoreCapabilities::new(state.store.clone());
     match started_over(&state, &store, user.user_id).await {
         StartOverAnswer::StartedOver => SavedNotice::StartedOver.answered(&session).await,
-        StartOverAnswer::AskAgain => start_over_answer(&state, &user, &headers).await,
+        StartOverAnswer::AskAgain => {
+            start_over_page(&state, &user, &headers, StartOverCost::Again).await
+        }
         StartOverAnswer::Unchanged => answer(&state, &user, &headers, None, String::new()).await,
     }
 }
@@ -436,10 +433,7 @@ async fn started_over(state: &AppState, store: &StoreCapabilities, actor: Uuid) 
         return StartOverAnswer::AskAgain;
     }
     let settings = integrations.settings();
-    let wrapped_by = match settings.key_setting {
-        Some(_) => KeyWrapper::Operator,
-        None => KeyWrapper::File,
-    };
+    let wrapped_by = settings.key_wrapper();
     let (Some(instance), Some(from_key_id)) = (
         settings.secrets.as_ref(),
         snapshot
@@ -473,48 +467,41 @@ async fn started_over(state: &AppState, store: &StoreCapabilities, actor: Uuid) 
     answered
 }
 
-/// The start-over confirm page answered for a post that asked again: the
-/// stored cost, not the replica gate, because the refusal must not erase the
-/// question she was reading.
-async fn start_over_answer(state: &AppState, user: &SessionUser, headers: &HeaderMap) -> Response {
-    let integrations = state.integrations.current();
-    let store = StoreCapabilities::new(state.store.clone());
-    let facts = ReadOnlyDoor::SecretsKeyStartOver
-        .read(&store, gate_of(state, &integrations))
-        .await;
-    let Some(saved) = facts.saved else {
-        return answer(state, user, headers, None, String::new()).await;
-    };
-    let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
-    let nav = crate::nav::NavContext::home_for(
-        state,
-        user.user_id,
-        user.workspace_id,
-        true,
-        csrf.clone(),
-    )
-    .await;
-    render(
-        SecretsKeyStartOverPage {
-            nav,
-            csrf,
-            start_over_door: START_OVER_PATH,
-            line: saved.start_over_question(),
-            confirmation: CONFIRMATION,
-            asks: TYPE_START_OVER,
-            control: START_OVER_CONTROL,
-        }
-        .render(),
-        set_cookie,
-    )
+/// When the start-over cost is asked: the one thing the page she opens and
+/// the page a refused post lands on do not share (D8, B6).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum StartOverCost {
+    /// Asked only where the way out applies on this server: the page the
+    /// control opens, and the one a wrong Confirmation asks again.
+    WhereOffered,
+    /// Asked whatever the replica gate now reads: the answer to a post the
+    /// write refused, because the refusal must not erase the question she was
+    /// reading.
+    Again,
 }
 
-/// The start-over page over the credentials stored now. Where the way out does
-/// not apply - a stored key that opens, a live server that still opens it, no
-/// instance key held to seal a new one with - and where the count could not be
-/// read, it answers the instance page instead of asking her to confirm a cost
-/// it would refuse to take or claiming a count it does not have (D8, B6).
-async fn start_over_page(state: &AppState, user: &SessionUser, headers: &HeaderMap) -> Response {
+impl StartOverCost {
+    /// Whether the cost is asked, over the facts this door read.
+    fn asked(self, integrations: &Integrations, live_opener: Option<bool>) -> bool {
+        match self {
+            Self::WhereOffered => startable(integrations, live_opener),
+            Self::Again => true,
+        }
+    }
+}
+
+/// The start-over confirm page over the credentials stored now, asked as
+/// `cost` says. Where it is not asked - a stored key that opens, a live server
+/// that still opens it, no instance key held to seal a new one with - and where
+/// the count could not be read, it answers the instance page instead of asking
+/// her to confirm a cost it would refuse to take or claiming a count it does
+/// not have (D8, B6).
+async fn start_over_page(
+    state: &AppState,
+    user: &SessionUser,
+    headers: &HeaderMap,
+    cost: StartOverCost,
+) -> Response {
     let integrations = state.integrations.current();
     let store = StoreCapabilities::new(state.store.clone());
     let facts = ReadOnlyDoor::SecretsKeyStartOver
@@ -522,7 +509,7 @@ async fn start_over_page(state: &AppState, user: &SessionUser, headers: &HeaderM
         .await;
     let Some(saved) = facts
         .saved
-        .filter(|_| startable(&integrations, facts.live_opener))
+        .filter(|_| cost.asked(&integrations, facts.live_opener))
     else {
         return answer(state, user, headers, None, String::new()).await;
     };
@@ -585,10 +572,7 @@ where
         return ReplaceAnswer::Unchanged;
     }
     let settings = integrations.settings();
-    let wrapped_by = match settings.key_setting {
-        Some(_) => KeyWrapper::Operator,
-        None => KeyWrapper::File,
-    };
+    let wrapped_by = settings.key_wrapper();
     let (Some(instance), Some(opening), Some(from_key_id)) = (
         settings.secrets.as_ref(),
         integrations.sealing_box(),
@@ -659,6 +643,7 @@ async fn written(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use foundry_store::integrations::KeyWrapper;
 
     /// What a Generate or Move that stored the key answers, over n in
     /// {0, 1, 2, many}: I-21 for none, I-22 singular for one, plural after.

@@ -15041,9 +15041,12 @@ const SEAL_FENCE_CANARY_COLUMN: &str = "sealed_canary";
 /// confirm's apply alike), the hold of a submitted app awaiting its confirm
 /// (shared lock and fence, ADR-IIS-003 r4), Generate and Move's key insert
 /// and re-seal, the secrets key's re-wrap at boot and in rotation (exclusive
-/// lock), and the replacement of the stored key (exclusive lock,
-/// compare-and-set, US-IIS-07). `doctor rotate-secrets` re-seals through
-/// `reseal_sealed_values` under the exclusive lock.
+/// lock), the replacement of the stored key (exclusive lock,
+/// compare-and-set, US-IIS-07) and the discard of the stored sealed
+/// credentials a start over makes (exclusive lock, US-IIS-07: it names
+/// `sealed_credential` in its `WHERE`, and clears it). `doctor
+/// rotate-secrets` re-seals through `reseal_sealed_values` under the
+/// exclusive lock.
 const SEAL_FENCED_WRITERS: [(&str, &str); 8] = [
     (
         "crates/foundry-store/src/integrations/connections.rs",
@@ -15075,7 +15078,7 @@ const SEAL_FENCED_WRITERS: [(&str, &str); 8] = [
     ),
     (
         "crates/foundry-store/src/integrations/instance.rs",
-        "discard_unopenable_credentials",
+        "discard_sealed_credentials",
     ),
 ];
 

@@ -521,9 +521,16 @@ impl Store {
     /// Start over with a new secrets key (US-IIS-07): under the exclusive
     /// lock, refuse while `live_opener` says another replica still opens the
     /// stored key, else store `key` over the stored row while it still holds
-    /// `from_key_id`, discard every credential this Foundry cannot open,
-    /// write `canary`, record the start over with that count and bump the
-    /// version. A lost compare-and-set rolls everything back.
+    /// `from_key_id`, discard every stored sealed credential
+    /// ([`discard_sealed_credentials`]), write `canary`, record the start over
+    /// with that count and bump the version. A lost compare-and-set rolls
+    /// everything back.
+    ///
+    /// The store holds no key, so it discards by sealedness, never by what a
+    /// server can open. The caller offers this way out only where the stored
+    /// secrets key cannot be opened at all (I-26), which is where the two are
+    /// the same credentials; called anywhere else it would discard credentials
+    /// that still open.
     pub async fn start_over_secrets_key(
         &self,
         from_key_id: &str,
@@ -545,7 +552,7 @@ impl Store {
             tx.rollback().await?;
             return Ok(StartOverOutcome::KeyChanged);
         }
-        let discarded = discard_unopenable_credentials(&mut tx).await?;
+        let discarded = discard_sealed_credentials(&mut tx).await?;
         upsert_key_check(&mut tx, canary).await?;
         let line = ActivityLine {
             actor: Some(actor),
@@ -1225,11 +1232,17 @@ async fn replace_stored_key(
     Ok(done.rows_affected() == 1)
 }
 
-/// Discard every credential this Foundry cannot open: clear each connection
+/// Discard every stored sealed credential: clear each sealed connection
 /// credential and delete the saved Slack app and the app held for its
 /// confirm. Connection rows, routes and history stay. The count follows
 /// I-22: each connection one, the saved app one.
-async fn discard_unopenable_credentials(tx: &mut Tx<'_>) -> Result<usize, sqlx::Error> {
+///
+/// Sealedness is all this function judges; which key sealed a value, and
+/// whether any server can open it, it cannot see. Its one caller
+/// ([`Store::start_over_secrets_key`]) is reached only where the stored key
+/// cannot be opened at all, so there it discards exactly the credentials this
+/// Foundry cannot open.
+async fn discard_sealed_credentials(tx: &mut Tx<'_>) -> Result<usize, sqlx::Error> {
     let connections = sqlx::query(
         "UPDATE integration_connections
             SET sealed_credential = NULL, state = 'disconnected'
