@@ -35,7 +35,7 @@ Replace is withheld wherever Generate and Move are withheld: under I-26 (the sto
 #### D5
 
 ```text
-The live-replica gate reads integration_replica_states: a replica counts as still opening the stored secrets key while its row says opens_secrets_key and its beat_at is no older than the gate window. The window is derived from the beat cadence, not from the reload interval: two beat intervals plus one reload interval, that is BEAT_EVERY of crates/foundry-app/src/integrations/reload.rs (10 s) twice plus FOUNDRY_INTEGRATIONS_RELOAD_MS, so 25 s at the 5000 ms default and 20.2 s at the 200 ms the acceptance lane sets. A running server beats at the first reload tick at least one beat interval after its last beat, so the longest gap it can leave between two beats is one beat interval plus one reload interval; the window keeps one whole beat interval of margin over that gap, which absorbs a failed beat row write, a slow tick or a stalled scheduler of up to one beat interval. The beat cadence does not follow the reload interval: the beat is one row write per server per cadence, and the 200 ms of the acceptance lane would multiply the writes of the shipped reload task by fifty. BEAT_EVERY stays owned by that task (ADR-IIS-004 r8) where it is and only becomes pub(crate), so the gate derives its window from the one cadence fact instead of restating 10 s; REPLICA_STATE_RETENTION of crates/foundry-app/src/integrations/worker.rs becomes pub(crate) for the same reason. The window needs no cap: for every setting up to an hour less two beat intervals it stays inside the hour the retention prune keeps rows for, and above that the prune, not the window, bounds what the gate can see at all. The gate is read again inside the POST own locked transaction, as D10 reads the connected-workspace count inside the write, so a replica that beats while the post is in flight cannot be started over from under.
+The live-replica gate reads integration_replica_states: a replica counts as still opening the stored secrets key while its row says opens_secrets_key and its beat_at is no older than the gate window. The window is a constant and the gate reads no reload setting at all: two beat intervals plus the reload envelope, that is BEAT_EVERY of crates/foundry-app/src/integrations/reload.rs (10 s) twice plus the 20 s K4 already names as the envelope of the 60-second figure, so 40 s. A server beats at the first reload tick at least one beat interval after its last beat, so the longest gap it can leave is one beat interval plus its own reload interval, at most 30 s inside the envelope, and the window keeps one whole beat interval of margin over that, which absorbs a failed beat row write, a slow tick or a stalled scheduler of up to one beat interval. The window is sized from the largest setting the envelope admits and not from the setting of the server that reads it, because the row carries no writer reload and this value takes no schema change (K5): a window of two beat intervals plus the reader own setting reads a server with a larger setting as stale between its beats - a 200 ms reader and a 5000 ms writer 24 s after its last beat - and Start over would be offered while that server still uses the credentials. The beat cadence does not follow the reload interval either: the beat is one row write per server per cadence, and the 200 ms of the acceptance lane would multiply the writes of the shipped reload task by fifty. BEAT_EVERY stays owned by that task (ADR-IIS-004 r8) where it is and only becomes pub(crate), so the gate derives its window from the one cadence fact instead of restating 10 s; REPLICA_STATE_RETENTION of crates/foundry-app/src/integrations/worker.rs becomes pub(crate) for the same reason; the window and the envelope it is sized from are constants of LiveOpeners in crates/foundry-app/src/integrations/secrets_key_rotation.rs, and LiveOpeners::at takes no reload argument. The window needs no cap: 40 s is far inside the hour the retention prune keeps rows for, at every setting. The gate is read again inside the POST own locked transaction, as D10 reads the connected-workspace count inside the write, so a replica that beats while the post is in flight cannot be started over from under.
 ```
 
 #### D6
@@ -97,7 +97,7 @@ No schema change: both writes use the 0033 tables as they are, and the two new a
 #### K6
 
 ```text
-FOUNDRY_INTEGRATIONS_RELOAD_MS is admitted from 1 ms up with no upper bound: crates/foundry-app/src/integrations/config.rs:271 raises 0 to 1 ms and the authority states no ceiling. The gate window of D5 is defined over that whole range, and the two constants it is derived from are read where they are owned, never restated: BEAT_EVERY, 10 s, at crates/foundry-app/src/integrations/reload.rs:25, and REPLICA_STATE_RETENTION, one hour, at crates/foundry-app/src/integrations/worker.rs:74. Two settings are deviations this design states rather than hides: above an hour less two beat intervals, about 59 min 40 s, the window would outlive the row the prune keeps, so the gate reads only the rows the prune left and withholds Start over over what it cannot see; and above 20 s the 60-second figure of K4 is already lost. Both are bounds on the setting, not on the code.
+FOUNDRY_INTEGRATIONS_RELOAD_MS is admitted from 1 ms up with no upper bound: crates/foundry-app/src/integrations/config.rs:271 raises 0 to 1 ms and the authority states no ceiling. The gate is designed for the 20 s envelope K4 already names, and its window is sized from that envelope and not from the setting of the server that reads it, so two replicas set differently are both safe while each stays inside it. Above the envelope the gate is not safe and this design says so instead of assuming otherwise: a server whose own setting exceeds 20 s can leave more than 40 s between two beats and be read as stale while it still opens the key, which is Y11, and I-28a stays the backstop. The constants the window is derived from are read where they are owned and never restated: BEAT_EVERY, 10 s, at crates/foundry-app/src/integrations/reload.rs:25, and REPLICA_STATE_RETENTION, one hour, at crates/foundry-app/src/integrations/worker.rs:74. The other consequence of the same bound stays as K4 states it: above 20 s the 60-second figure is lost. Both are bounds on the setting, not on the code.
 ```
 
 ### Reuse
@@ -965,7 +965,7 @@ docs\/feature\/iis\-secrets\-key\-replace\/design\/secrets\_key\_replace\.receip
 #### L12
 
 ```text
-For every admitted reload setting r and every beat age a, the gate counts a row that says opens_secrets_key as a live opener exactly while a is at most two beat intervals plus r. So every age up to one beat interval plus r, the longest gap a running server can leave between two beats, reads live with one whole beat interval of margin, and an age past the window reads stale.
+The gate counts a row that says opens_secrets_key as a live opener exactly while its beat is at most two beat intervals plus the reload envelope old, that is 40 s, whatever either server's FOUNDRY_INTEGRATIONS_RELOAD_MS is. So for every server inside the envelope, every beat age up to one beat interval plus its own reload interval - the longest gap it can leave - reads live with one whole beat interval of margin; an age past 40 s reads stale; and the answer never changes when the reading server's own setting changes.
 ```
 
 Invariant
@@ -981,7 +981,7 @@ Broad
 ###### Generator
 
 ```text
-r over the whole admitted range of FOUNDRY_INTEGRATIONS_RELOAD_MS - 1 ms to one hour, and u64::MAX ms for the saturating case - crossed with beat ages from one beat ahead of the reading clock to three times the window, as ReplicaState rows with opens_secrets_key both true and false.
+the writing server's setting over the envelope, 1 ms to 20 s, crossed with the reading server's setting over the whole admitted range - 1 ms to one hour, and u64::MAX ms - crossed with beat ages from one beat ahead of the reading clock to three times the window, as ReplicaState rows with opens_secrets_key both true and false.
 ```
 
 256 cases per run
@@ -991,31 +991,27 @@ fixed seed\, with the proptest regression file kept beside the module
 ###### Must include
 
 ```text
-r = 200 ms with a beat age of 1 s
+a 200 ms reader, a 5000 ms writer and a beat age of 24 s
 ```
 
 ```text
-r = 200 ms with a beat age of 12 s
+a 200 ms reader and a beat age of 1 s
 ```
 
 ```text
-r = 3340 ms with a beat age of 10.5 s
+a 20 s writer and a beat age of 39 s
 ```
 
 ```text
-r = 5000 ms with a beat age of 15.5 s
+a 20 s writer and a beat age of 41 s
 ```
 
 ```text
-r = 1 ms
+equal settings on both sides
 ```
 
 ```text
-r = one hour
-```
-
-```text
-r = u64::MAX ms
+a reader setting larger than the writer's
 ```
 
 ```text
@@ -1029,25 +1025,25 @@ a row that says it does not open the key, at every age
 one gate reading per case
 
 ```text
-proptest shrinks to the smallest refuting pair of reload setting and beat age
+proptest shrinks to the smallest refuting triple of writer setting, reader setting and beat age
 ```
 
 ```text
-the longest beat gap recomputed in the test from the rule of reload.rs itself - the first tick at or after BEAT_EVERY, so BEAT_EVERY rounded up to a multiple of r - compared with what the gate answers, never with the window LiveOpeners computed.
+the longest beat gap recomputed in the test from the rule of reload.rs itself - the first tick at or after BEAT_EVERY, so BEAT_EVERY rounded up to a multiple of the writer's own setting, plus one beat interval of lateness - compared with what the gate answers, never with the window LiveOpeners holds.
 ```
 
 ```text
-At r = 200 ms with a beat age of 1 s the gate answers not a live opener: the reading that offers Start over while another server still opens the key.
+A 200 ms reader reading a 5000 ms server 24 s after its last beat as not a live opener: the reading that offers Start over while that server still opens the key, and exactly what a window taken from the reading server's own setting answers.
 ```
 
 ##### Evidence
 
-docs\/feature\/iis\-secrets\-key\-replace\/design\/live\_replica\_gate\.receipt\.txt
+None.
 
 #### L13
 
 ```text
-The gate window never outlives the hour the replica-state prune keeps a row for, at every reload setting up to an hour less two beat intervals.
+The gate window is the constant 40 s, so it never outlives the hour the replica-state prune keeps a row for, at any setting of any server.
 ```
 
 Invariant
@@ -1063,28 +1059,28 @@ Finite
 ###### Cases
 
 ```text
-r = 1 ms: the window is 20.001 s, inside the hour
+both servers at 1 ms: the window is 40 s, inside the hour
 ```
 
 ```text
-r = 5000 ms, the default: the window is 25 s, inside the hour
+both at the 5000 ms default: 40 s, inside the hour
 ```
 
 ```text
-r = 3580 s, the largest setting whose window still fits: the window is exactly one hour
+a 200 ms reader with a 20 s writer: 40 s, inside the hour
 ```
 
 ```text
-r = 3581 s: the window would pass the hour, the deviation K6 states, where the prune and not the window bounds what the gate sees
+a one-hour setting on either side: still 40 s, so the window cannot outlive the row the prune keeps; what such a setting breaks is the cadence coverage of Y11, not this bound
 ```
 
 ```text
-The window is linear and monotone in the reload setting over two fixed constants, so the default and the two boundary settings decide the whole range and a generated input adds nothing. The same bound is the second invariant of live_replica_gate.qnt.
+The window reads no setting at all, so one table of settings decides the whole range and a generated input adds nothing.
 ```
 
 ##### Evidence
 
-docs\/feature\/iis\-secrets\-key\-replace\/design\/live\_replica\_gate\.receipt\.txt
+None.
 
 ### Refuted
 
@@ -1697,12 +1693,12 @@ gateAlwaysLive
 Invariant
 
 ```text
-The gate never reads a server that still opens the stored secrets key as stale, at any modelled reload setting and at any moment between its beats.
+The gate never reads a server that still opens the stored secrets key as stale, at any pair of reload settings inside the envelope and at any moment between its beats.
 ```
 
 LiveOpeners\:\:still\_opening
 
-crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs\:146
+crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs\:142
 
 windowInsideRetention
 
@@ -1714,7 +1710,7 @@ The gate window never outlives the hour the replica-state prune keeps a row for.
 
 LiveOpeners\:\:at
 
-crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs\:134
+crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs\:133
 
 neverNearTheWindow
 
@@ -1726,7 +1722,7 @@ Negated on purpose: its counterexample witnesses that the longest gap the model 
 
 model\-only
 
-docs\/feature\/iis\-secrets\-key\-replace\/design\/live\_replica\_gate\.qnt\:84
+docs\/feature\/iis\-secrets\-key\-replace\/design\/live\_replica\_gate\.qnt
 
 ##### Atoms
 
@@ -1752,9 +1748,9 @@ None.
 
 Constant
 
-RELOADS
+SETTINGS
 
-IntegrationSettings\.reload\, read from FOUNDRY\_INTEGRATIONS\_RELOAD\_MS
+IntegrationSettings\.reload of each server\, read from FOUNDRY\_INTEGRATIONS\_RELOAD\_MS
 
 crates\/foundry\-app\/src\/integrations\/config\.rs\:271
 
@@ -1804,10 +1800,50 @@ crates\/foundry\-app\/src\/integrations\/reload\.rs\:152
 the beat row write is its own statement: a failed write leaves last_beat unchanged and the next tick retries, which is the lateness the window must absorb
 ```
 
+State
+
+writerReload
+
+the reload period of the server that beats\, its own Reload task
+
+crates\/foundry\-app\/src\/integrations\/reload\.rs\:139
+
+None.
+
+State
+
+readerReload
+
+model\-only
+
+docs\/feature\/iis\-secrets\-key\-replace\/design\/live\_replica\_gate\.qnt
+
+None.
+
+Constant
+
+RELOAD\_ENVELOPE
+
+the 20 s reload envelope the window is sized from\, not built yet
+
+crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs\, LiveOpeners\, in place of INTERVALS at \:129
+
+None.
+
+Constant
+
+WINDOW
+
+the 40 s gate window LiveOpeners\:\:at fixes\, not built yet
+
+crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs\, LiveOpeners\, in place of INTERVALS at \:129
+
+None.
+
 ##### Assumptions
 
 ```text
-One unit of modelled time is a second and the reload settings are 1, 3, 5, 10 and 17 of them: the model carries the ratio of the beat interval to the reload interval, never milliseconds, so the 1 s setting stands for every setting at or below one beat interval, the 200 ms of the acceptance lane included. The exact admitted range is the domain of the executable projection.
+One unit of modelled time is a second, and the settings are pairs of seconds: the writing server from the 20 s envelope, the reading server from inside it and at its end, differing in both directions. A setting below a second, the 200 ms of the acceptance lane included, has the structure of the 1 s writer, and the exact admitted range is the domain of the executable projection.
 ```
 
 ```text
@@ -1815,19 +1851,33 @@ One other server that still opens the stored secrets key is enough: the gate cou
 ```
 
 ```text
-A running server's beat is at most one beat interval late - a failed row write, a slow tick, a stalled scheduler. A longer stall is a server the gate is meant to read stale.
+A running server's beat is at most one beat interval late - a failed row write, a slow tick, a stalled scheduler. A longer stall is a server the gate is meant to read stale. Whether one whole beat interval is the right margin is a human judgement this design returns with it.
 ```
 
 ```text
-The clock the gate is read against and the other server's reload ticks are separate variables, so the gate is read between two ticks as well; skew between the two clocks is Y3, not this model.
+The reading server's setting is carried as a variable no definition reads, so that mutant m9 - the window taken from it - is one line away. Skew between the two clocks is Y3, not this model.
+```
+
+```text
+Not checked anywhere: quint, java and apalache-mc are absent from the shared Lima VM local-dev, the only environment this project runs tools in, so no run of this file supports any claim yet.
 ```
 
 ##### Mutants
 
-###### N8
+###### N9
 
 ```text
-m8: the window is three reload intervals, as D5 read before this correction - window(r) = 3 * r.
+m9: the window is taken from the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS - two beat intervals plus readerReload - so a server with a larger setting reads stale between its beats.
+```
+
+###### Kills
+
+gateAlwaysLive
+
+###### N10
+
+```text
+m8: the window is three reload intervals, as D5 read before this correction - window = 3 * reload.
 ```
 
 ###### Kills
@@ -1999,22 +2049,22 @@ Not a model claim: the exclusion is the StartOverConfirmation constructor, which
 crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs
 
 ```text
-The live-replica gate window covers the cadence a running server beats at, at every reload setting
+The live-replica gate window covers the cadence a running server beats at, at every mix of reload settings inside the envelope
 ```
 
 Safety
 
-Pass
+Blocked
 
 DesignedNotBuilt
 
 ```text
-Exhaustive model checking of both invariants of live_replica_gate.qnt with Apalache through quint verify, bound 34 steps, outcome NoError; bounded simulation of each invariant on its own, 40 steps and 20000 samples; the tightness witness taken as a counterexample to its own negation; and the mutant that restores a window of three reload intervals refuted by a counterexample at state 4. The claim is about the design: the window law's executable projection over the exact admitted range, and the acceptance observation of a server read between two beats, are owed by S2.
+A two-server timing claim the Replace and Start over model does not carry. live_replica_gate.qnt states it with mixed settings and three invariants, and nothing has checked it: quint, java and apalache-mc are absent from the shared Lima VM local-dev, the only environment this project runs tools in, and the earlier host runs outside that VM were not allowed and covered the superseded single-setting model. The axis stays Blocked until that toolchain is in local-dev and the invariants, the tightness witness and mutants m8 and m9 are checked there, or a human waives the proof. Either way the executable projection of L12 and the acceptance run of a server read between two beats are owed by S2.
 ```
 
 ##### Evidence
 
-docs\/feature\/iis\-secrets\-key\-replace\/design\/live\_replica\_gate\.receipt\.txt
+None.
 
 ### Risks
 
@@ -2283,23 +2333,23 @@ the solution architect
 Stressor
 
 ```text
-Negates "a server that still opens the stored secrets key beats at least once inside the gate window": the beat cadence is 10 s and independent of the reload interval, so a window scaled by the reload interval alone is shorter than the gap between two beats at every setting below about 3.34 s.
+Negates "every server of this Foundry keeps its FOUNDRY_INTEGRATIONS_RELOAD_MS inside the 20 s envelope and beats at least once inside the gate window": the cadence is one beat interval plus the server's own setting, so a server set above the envelope - or any window sized from the reading server's own setting instead of the envelope - leaves a live opener read as stale between its beats.
 ```
 
 ```text
-Start over stays withheld while any row that says opens_secrets_key has beaten inside the window of D5, at the GET and again inside the POST own locked transaction.
+Inside the envelope, at any mix of settings, Start over stays withheld while any row that says opens_secrets_key has beaten inside the 40 s window, at the GET and again inside the POST own locked transaction.
 ```
 
 ```text
-Start over stays withheld for up to two beat intervals plus one reload interval, 25 s at the default, after the last live server stops beating; the admin reads the offer on her next page read.
+Start over stays withheld for up to 40 s after the last live server stops beating, whatever the settings are; the admin reads the offer on her next page read.
 ```
 
 ```text
-Start over offered or applied while a server that still opens the key is simply between two beats.
+Start over offered or applied while a server that still opens the key is simply between two beats, which a window sized from the reading server's own setting leaves reachable: a 200 ms reader and a 5000 ms writer 24 s after its last beat.
 ```
 
 ```text
-A server of an earlier release that beats no row at all stays invisible, and I-28a is its human backstop. A reload setting above the retention horizon leaves the gate with whatever the prune has not removed.
+A server set above the 20 s envelope can still be read as stale, and a server of an earlier release that beats no row at all stays invisible. I-28a is the backstop for both and K6 states the bound.
 ```
 
 the instance operator
@@ -2993,7 +3043,7 @@ crates\/foundry\-acceptance\/src\/support\/instance\_integration\_setup\.rs
 #### Public oracle
 
 ```text
-The instance key file of this server is new, so it cannot open the stored secrets key (I-26), and 3 saved credentials cannot be opened. Run A: a second replica is still running, its heartbeat says it opens the stored secrets key and it has just beaten. Run B: no running replica opens it (the second replica has stopped, its last beat older than the gate window, two beat intervals plus one reload interval). Run C: this server cannot read its instance key file at all (I-31). Run D: a second replica is still running and still opens the stored secrets key, and it is read between two beats - its last beat older than one beat interval and inside the gate window. In each run Priya Raman GETs /admin/instance/integrations, then GETs /admin/instance/integrations/secrets-key/start-over, then GETs and POSTs /admin/instance/integrations/secrets-key/replace, all with her CSRF token through the production router.
+The instance key file of this server is new, so it cannot open the stored secrets key (I-26), and 3 saved credentials cannot be opened. Run A: a second replica is still running, its heartbeat says it opens the stored secrets key and it has just beaten. Run B: no running replica opens it (the second replica has stopped, its last beat older than the 40 s gate window). Run C: this server cannot read its instance key file at all (I-31). Run D: a second replica is still running and still opens the stored secrets key, and it is read between two beats - its last beat older than one beat interval and inside the gate window. In each run Priya Raman GETs /admin/instance/integrations, then GETs /admin/instance/integrations/secrets-key/start-over, then GETs and POSTs /admin/instance/integrations/secrets-key/replace, all with her CSRF token through the production router.
 ```
 
 ```text
@@ -3001,7 +3051,7 @@ In run A the page reads the shipped I-26 restore words followed by "Another Foun
 ```
 
 ```text
-Start over offered while a live replica that still opens the key is merely between two beats, which is run D and is what a window of three reload intervals leaves reachable at the 200 ms the lane sets; Replace offered or applying under I-26 or under I-31; Start over offered under I-31; the live-replica sentence shown under I-31 or while no replica beats; the I-26 words read under I-31 at all; a start-over GET that writes a row, an activity line or a version bump; the n = 1 or n >= 2 sentence read for the wrong count, or the I-28a words paraphrased; the shipped I-26 restore words altered rather than appended to.
+Start over offered while a live replica that still opens the key is merely between two beats, which is run D and is what a window sized from the reading server's own reload setting leaves reachable; Replace offered or applying under I-26 or under I-31; Start over offered under I-31; the live-replica sentence shown under I-31 or while no replica beats; the I-26 words read under I-31 at all; a start-over GET that writes a row, an activity line or a version bump; the n = 1 or n >= 2 sentence read for the wrong count, or the I-28a words paraphrased; the shipped I-26 restore words altered rather than appended to.
 ```
 
 ##### Promises
@@ -3770,4 +3820,5 @@ None.
 ## ADRs
 
 - IIS\-SKR\-001 Replace or start over the secrets key — Superseded by IIS-SKR-002
-- IIS\-SKR\-002 Live\-replica gate window follows the beat cadence — Accepted
+- IIS\-SKR\-002 Live\-replica gate window follows the beat cadence — Superseded by IIS-SKR-003
+- IIS\-SKR\-003 Gate window sized from the reload envelope — Accepted

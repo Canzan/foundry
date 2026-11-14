@@ -1,3 +1,24 @@
+PROVENANCE AND LIMIT - READ FIRST.
+
+These runs were made on the macOS host, outside the shared Lima VM local-dev
+that this project runs every tool in; the host rule does not allow that, and
+it will not be repeated. quint, java and apalache-mc are absent from
+local-dev: there, every one of these commands exits 127. So this receipt
+supports no current design claim. It is kept as history only.
+
+It also covers the earlier single-setting model, whose sha256 is recorded
+below and no longer matches live_replica_gate.qnt: that file now carries two
+servers with different FOUNDRY_INTEGRATIONS_RELOAD_MS settings and a window
+that is a constant, and it has not been checked anywhere.
+
+Two exit lines below are not argv-faithful and are corrected in place: the
+runs of neverNearTheWindow and of the mutant were piped through `tail`, so
+the status recorded was tail's, not quint's. The true per-command status was
+not measured; the `[violation]` line in each block is what witnesses the
+refutation.
+
+----------------------------------------------------------------------------
+
 live_replica_gate.qnt - checker receipts (D5, the live-replica gate window against the beat cadence)
 host: darwin arm64; quint 0.33.1; java openjdk version "27.0.1" 2026-10-20
 model sha256: b93fb172053d9d6764fe0fb253d17c2fff393d3ffb97019b2095226ee983307f
@@ -57,7 +78,7 @@ $ quint run live_replica_gate.qnt --invariant=neverNearTheWindow --max-steps=40 
 Use --verbosity=3 to show executions.
 Use --seed=0x627eebd89c971545 --backend=rust to reproduce.
 error: Invariant violated
-exit=0
+exit=not measured (the output was piped through tail, which reported its own status)
 
 $ quint run mutant.qnt --invariant=gateAlwaysLive --max-steps=40 --max-samples=20000 --verbosity=3   # mutant kill
 An example execution:
@@ -76,7 +97,7 @@ An example execution:
 Use --verbosity=3 to show executions.
 Use --seed=0x5deb0dab4774bad6 --backend=rust to reproduce.
 error: Invariant violated
-exit=0
+exit=not measured (the output was piped through tail, which reported its own status)
 
 $ quint verify live_replica_gate.qnt --invariant=gateAlwaysLive,windowInsideRetention --max-steps=34
 State 33: Checking 1 state invariants                             I@10:00:55.569

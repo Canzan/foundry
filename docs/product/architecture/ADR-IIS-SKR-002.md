@@ -1,5 +1,5 @@
 # IIS\-SKR\-002 Live\-replica gate window follows the beat cadence
-Status: Accepted
+Status: Superseded by IIS-SKR-003
 
 ## Context
 
