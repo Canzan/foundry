@@ -14,6 +14,7 @@
 #     scripts/examine-foundry time-passes 11m
 #     scripts/examine-foundry slack-posting not-answering
 #     scripts/examine-foundry mail
+#     scripts/examine-foundry rotate-secrets
 #     scripts/examine-foundry stop
 #
 # Paths may be written with or without the leading slash; under
@@ -54,6 +55,11 @@
 # `time-passes <N>m|<N>h` moves the time stamps of the Slack app waiting for its
 # confirm and of every waiting delivery N minutes or hours into the past, as if
 # that time had passed: no supported setting changes Foundry's clock.
+#
+# A state may restart a replica with other settings once it is seeded (a
+# different FOUNDRY_INSTANCE_KEY, an instance key file it cannot read): each
+# replica's own settings are kept in $STATE_DIR/env-<N>, so `rotate-secrets`
+# runs `foundry doctor rotate-secrets` with replica 1's settings as they are now.
 #
 # No subcommand reads the caller's stdin: main runs with stdin from /dev/null.
 set -euo pipefail
@@ -99,6 +105,7 @@ usage: examine-foundry start <state> [--before] [--replicas 2]
        examine-foundry slack-posting <answering|not-answering|slow-down>
        examine-foundry time-passes <N>m | <N>h
        examine-foundry mail
+       examine-foundry rotate-secrets
        examine-foundry stop
        examine-foundry states | viewers
 Write each path without its leading slash: admin/instance/integrations, not /admin/instance/integrations.
@@ -116,6 +123,11 @@ slack-connected-three	As slack-connected, and Priya also made the workspaces Ops
 env-slack-connected	Foundry's environment sets the Slack app (SLACK_CLIENT_ID 6123456789012.7234567890123); Priya generated the secrets key and connected Canzan Labs to Slack through that app; no app is saved on the instance page.
 slack-app-awaiting-confirm	As slack-connected, and Priya made Kai Tanaka (a member of Canzan Labs) a second instance admin on the instance workspaces page; then Priya submitted another Slack app (client ID 6123456789012.8888888888888, both secrets) on the instance integrations page, which now waits for her confirm.
 slack-delivery-pending	As slack-connected, then Slack stopped answering Foundry's posts (slack-posting not-answering) and Lena created the issue "Expire the old sessions", so its New issue delivery to #auth-dev waits on the route's history; the route is listed on the project's integrations page, team/backend/project/identity-platform/integrations, which links to its History.
+secrets-key-unopenable	Foundry runs with the operator's instance key (FOUNDRY_INSTANCE_KEY); Priya generated the secrets key, saved the Slack app with client ID 6123456789012.7234567890123 and connected Canzan Labs to the Slack workspace Canzan Labs; Canzan Labs also has a Matrix connection to matrix.example.org with a bot token, planted with SQL (Foundry reaches no Matrix homeserver this probe can run); then Foundry restarted with a different FOUNDRY_INSTANCE_KEY, so it cannot open the stored secrets key or its 3 saved credentials, and no running server opens the key.
+secrets-key-unopenable-live-server	As secrets-key-unopenable, but replica 2 (port 18484) was started before that restart and still runs with the instance key that sealed the stored secrets key, so it still opens the key; replica 1, which get and post ask unless told --replica 2, cannot.
+instance-key-file-unreadable	This Foundry made its own instance key file; Priya generated the secrets key, saved the Slack app with client ID 6123456789012.7234567890123 and connected Canzan Labs to Slack; then Foundry restarted with no FOUNDRY_INSTANCE_KEY and its instance key file, /tmp/examine-foundry-data/instance.key, replaced by a file that holds no key.
+three-credentials-key-opens	Foundry runs with the operator's instance key (FOUNDRY_INSTANCE_KEY); Priya generated the secrets key and saved the Slack app with client ID 6123456789012.7234567890123; Canzan Labs (by Priya) and Ops Guild (admin Omar) are connected to Slack through it; Lena routed New issue on Identity Platform to #auth-dev and one issue was delivered. 3 saved credentials, all of which open. No Matrix connection: Foundry reaches no Matrix homeserver this probe can run.
+three-credentials-one-damaged	As three-credentials-key-opens, then the stored sealed credential of Ops Guild's Slack connection was damaged with SQL (one byte of it changed, as disk or database damage would), so it no longer opens; nothing told Foundry, so its pages still read as before, and a replacement's re-seal refuses it.
 STATES
 }
 
@@ -124,7 +136,7 @@ viewers_table() {
 Priya	Priya Raman: this Foundry's instance admin and an admin of the Canzan Labs workspace; lead of the teams General and Backend.
 Tomás	Tomás Rivera: an admin of the Canzan Labs workspace, not an instance admin; on no team.
 Lena	Lena Park: a member of the Canzan Labs workspace, lead of team Backend (project Identity Platform); neither kind of admin.
-Omar	Omar Haddad: the admin of the workspace Ops Guild, and nothing else; only in slack-connected-three.
+Omar	Omar Haddad: the admin of the workspace Ops Guild, and nothing else; only in slack-connected-three, three-credentials-key-opens and three-credentials-one-damaged.
 Rosa	Rosa Lind: the admin of the workspace Reading Club, and nothing else; only in slack-connected-three.
 Kai	Kai Tanaka: a member of the Canzan Labs workspace and this Foundry's second instance admin; on no team; only in slack-app-awaiting-confirm.
 signed-out	Nobody signed in.
@@ -308,6 +320,10 @@ host_main() {
     mail)
       [ "$#" -eq 0 ] || die "mail takes nothing more"
       run_op 60 mail
+      ;;
+    rotate-secrets)
+      [ "$#" -eq 0 ] || die "rotate-secrets takes nothing more"
+      run_op 120 rotate-secrets
       ;;
     slack-posting)
       [ "$#" -eq 1 ] || die "usage: examine-foundry slack-posting <answering|not-answering|slow-down>"
@@ -823,19 +839,31 @@ vm_start() {
   openssl pkey -in "$STATE_DIR/machine-token.pem" -pubout -out "$STATE_DIR/machine-token.pub" ||
     die "openssl could not derive the machine-token public key"
 
+  # Two operator instance keys (32 random bytes, base64url): the one a state
+  # starts with, and the different one it may restart with.
+  local k
+  for k in instance-key instance-key-other; do
+    python3 -I -c 'import base64, os; print(base64.urlsafe_b64encode(os.urandom(32)).decode().rstrip("="))' \
+      >"$STATE_DIR/$k" || die "could not make an instance key"
+  done
+
   start_slack_double
 
-  local extra=() hook="env_${state//-/_}"
+  # Each replica's own settings, beside the ones every replica has.
+  local hook="env_${state//-/_}"
+  : >"$STATE_DIR/env-1"
   if declare -F "$hook" >/dev/null; then
-    mapfile -t extra < <("$hook")
+    "$hook" >"$STATE_DIR/env-1"
   fi
+  cp "$STATE_DIR/env-1" "$STATE_DIR/env-2"
 
-  launch_foundry 1 "$PORT" "$METRICS_PORT" "$data_dir"
+  launch_foundry 1
   seed_people_team_project
   "seed_${state//-/_}"
-  # Replica 2 boots once the state is seeded, so the bootstrap link is replica 1's.
-  if [ "$replicas" = 2 ]; then
-    launch_foundry 2 "$PORT_2" "$METRICS_PORT_2" "$data_dir"
+  # Replica 2 boots once the state is seeded, so the bootstrap link is replica 1's;
+  # a state may have started it already.
+  if [ "$replicas" = 2 ] && [ ! -f "$STATE_DIR/foundry-2.pid" ]; then
+    launch_foundry 2
   fi
   printf '%s %s\n' "$state" "$root" >"$STATE_DIR/state"
   printf 'examine-foundry: started in state %s (%s)\n' "$state" \
@@ -843,31 +871,50 @@ vm_start() {
   printf 'examine-foundry: %s\n' "$(replicas_line)"
 }
 
-# launch_foundry N PORT METRICS_PORT DATA_DIR: replica N of this Foundry, and
-# wait until it is ready. Every replica has the same settings but its ports.
+# server_env N: replica N's settings, in SERVER_ENV, as env takes them. Every
+# replica has the same settings but its ports and what $STATE_DIR/env-N adds
+# (a later KEY=VALUE wins).
+server_env() {
+  local n="$1" port="$PORT" metrics="$METRICS_PORT" extra=()
+  if [ "$n" = 2 ]; then
+    port="$PORT_2"
+    metrics="$METRICS_PORT_2"
+  fi
+  if [ -s "$STATE_DIR/env-$n" ]; then
+    mapfile -t extra < <(grep -v '^$' "$STATE_DIR/env-$n" || true)
+  fi
+  # NixOS keeps its tools in /run/current-system/sw/bin, not /usr/bin.
+  SERVER_ENV=(PATH=/usr/local/bin:/usr/bin:/bin:/run/current-system/sw/bin HOME="$HOME"
+    DATABASE_URL="$DATABASE_URL"
+    SESSION_SECRET="$(cat "$STATE_DIR/session-secret")"
+    SESSION_COOKIE_SECURE=false
+    MACHINE_TOKEN_PUBLIC_KEYS="$(cat "$STATE_DIR/machine-token.pub")"
+    MACHINE_TOKEN_SIGNING_KEY="$(cat "$STATE_DIR/machine-token.pem")"
+    FOUNDRY_HOST=127.0.0.1 FOUNDRY_PORT="$port"
+    METRICS_HOST=127.0.0.1 METRICS_PORT="$metrics"
+    FOUNDRY_DATA_DIR="$(cat "$STATE_DIR/data-dir")"
+    FOUNDRY_PUBLIC_URL="$PUBLIC_URL"
+    FOUNDRY_INTEGRATIONS_RELOAD_MS=200
+    RUST_LOG=info
+    SLACK_API_BASE_URL="$SLACK_BASE/api"
+    SLACK_AUTHORIZE_URL="$SLACK_BASE/oauth/v2/authorize"
+    NOTIFICATION_PROVIDERS=email_api
+    EMAIL_API_URL="$SLACK_BASE/mail/send"
+    EMAIL_API_KEY=examine-foundry-mail-key
+    EMAIL_API_FROM=foundry@foundry.example.org
+    "${extra[@]+"${extra[@]}"}")
+}
+
+# launch_foundry N: replica N of this Foundry, and wait until it is ready.
 launch_foundry() {
-  local n="$1" port="$2" metrics="$3" data_dir="$4" suffix=
-  [ "$n" = 1 ] || suffix="-$n"
+  local n="$1" port="$PORT" suffix=
+  if [ "$n" = 2 ]; then
+    port="$PORT_2"
+    suffix="-$n"
+  fi
+  server_env "$n"
   # setsid + closed descriptors: the server outlives this shell and holds no lock.
-  env -i PATH=/usr/local/bin:/usr/bin:/bin HOME="$HOME" \
-    DATABASE_URL="$DATABASE_URL" \
-    SESSION_SECRET="$(cat "$STATE_DIR/session-secret")" \
-    SESSION_COOKIE_SECURE=false \
-    MACHINE_TOKEN_PUBLIC_KEYS="$(cat "$STATE_DIR/machine-token.pub")" \
-    MACHINE_TOKEN_SIGNING_KEY="$(cat "$STATE_DIR/machine-token.pem")" \
-    FOUNDRY_HOST=127.0.0.1 FOUNDRY_PORT="$port" \
-    METRICS_HOST=127.0.0.1 METRICS_PORT="$metrics" \
-    FOUNDRY_DATA_DIR="$data_dir" \
-    FOUNDRY_PUBLIC_URL="$PUBLIC_URL" \
-    FOUNDRY_INTEGRATIONS_RELOAD_MS=200 \
-    RUST_LOG=info \
-    SLACK_API_BASE_URL="$SLACK_BASE/api" \
-    SLACK_AUTHORIZE_URL="$SLACK_BASE/oauth/v2/authorize" \
-    NOTIFICATION_PROVIDERS=email_api \
-    EMAIL_API_URL="$SLACK_BASE/mail/send" \
-    EMAIL_API_KEY=examine-foundry-mail-key \
-    EMAIL_API_FROM=foundry@foundry.example.org \
-    "${extra[@]+"${extra[@]}"}" \
+  env -i "${SERVER_ENV[@]}" \
     setsid "$STATE_DIR/bin/foundry" >"$STATE_DIR/foundry$suffix.log" 2>&1 </dev/null 9>&- &
   printf '%s\n' "$!" >"$STATE_DIR/foundry$suffix.pid"
 
@@ -885,6 +932,44 @@ launch_foundry() {
     vm_teardown
     die "Foundry replica $n did not become ready within 60 seconds"
   fi
+}
+
+# stop_replica N: replica N stops as a pod does (TERM, then KILL after 10 s).
+stop_replica() {
+  local suffix=
+  [ "$1" = 1 ] || suffix="-$1"
+  local pidfile="$STATE_DIR/foundry$suffix.pid" pid
+  [ -f "$pidfile" ] || return 0
+  pid=$(cat "$pidfile")
+  kill "$pid" 2>/dev/null || true
+  for _ in $(seq 1 50); do
+    kill -0 "$pid" 2>/dev/null || break
+    sleep 0.2
+  done
+  kill -9 "$pid" 2>/dev/null || true
+  rm -f "$pidfile"
+}
+
+# restart_replica N KEY=VALUE...: replica N restarts with these settings in
+# place of the ones its state gave it.
+restart_replica() {
+  local n="$1"
+  shift
+  : >"$STATE_DIR/env-$n"
+  [ "$#" -eq 0 ] || printf '%s\n' "$@" >"$STATE_DIR/env-$n"
+  stop_replica "$n"
+  launch_foundry "$n"
+}
+
+# `foundry doctor rotate-secrets`, the operator's own key rotation, run as an
+# operator runs it: the same binary with replica 1's settings as they are now.
+rotate_secrets() {
+  server_env 1
+  local out status=0
+  out=$(env -i "${SERVER_ENV[@]}" timeout 60 "$STATE_DIR/bin/foundry" doctor rotate-secrets 2>&1) ||
+    status=$?
+  printf 'ran: foundry doctor rotate-secrets (with the settings replica 1 runs with)\n'
+  printf 'exit status: %s\n\n%s\n' "$status" "$out"
 }
 
 vm_stop() {
@@ -1329,6 +1414,10 @@ instance_key_made() {
 
 seed_secrets_key_no_slack() {
   instance_key_made
+  generate_secrets_key
+}
+
+generate_secrets_key() {
   http priya POST /admin/instance/integrations/secrets-key
   expect "generating the secrets key" 200
   expect_text "generating the secrets key" "Secrets key generated."
@@ -1453,10 +1542,134 @@ seed_slack_delivery_pending() {
 
 seed_slack_app_saved() {
   seed_secrets_key_no_slack
+  save_slack_app
+}
+
+save_slack_app() {
   http priya POST /admin/instance/integrations/slack "client_id=$SLACK_ID" \
     "client_secret=$SLACK_SECRET" "signing_secret=$SLACK_SIGNING"
   expect "saving the Slack app" 200
   expect_text "saving the Slack app" "Saved."
+}
+
+# ---- the secrets key Foundry cannot open, and the key file it cannot read ----
+
+# The operator's instance key, as the states that set FOUNDRY_INSTANCE_KEY start.
+env_operator_key() {
+  printf 'FOUNDRY_INSTANCE_KEY=%s\n' "$(cat "$STATE_DIR/instance-key")"
+}
+
+env_secrets_key_unopenable() { env_operator_key; }
+env_secrets_key_unopenable_live_server() { env_operator_key; }
+env_three_credentials_key_opens() { env_operator_key; }
+
+# Priya generates the secrets key, saves the Slack app and connects Canzan
+# Labs to Slack; Canzan Labs then gets a Matrix connection with a bot token.
+#
+# Direct SQL for the Matrix connection: connecting Matrix checks the bot token
+# at the homeserver over https, Foundry refuses loopback and trusts only the
+# public certificate authorities, so no homeserver this probe can run is one
+# Foundry may reach. The row is the one the connect form writes; its sealed
+# token is the Canzan Labs Slack credential's sealed bytes, sealed under the
+# stored secrets key and bound to another row, so it opens nowhere. That is
+# what every credential is to a Foundry that cannot open the secrets key,
+# which is the only state that uses this row.
+seed_three_credentials_with_matrix() {
+  generate_secrets_key
+  save_slack_app
+  connect_slack priya "Canzan Labs"
+  psql_exec "INSERT INTO integration_connections
+               (id, workspace_id, kind, state, external_id, bot_user_id, label, detail,
+                sealed_credential, credential_saved_at, connected_by, connected_at)
+             SELECT gen_random_uuid(), c.workspace_id, 'matrix', 'connected',
+                    'https://matrix.example.org', '@foundry:example.org', 'matrix.example.org',
+                    '@foundry:example.org', c.sealed_credential, now(), c.connected_by, now()
+               FROM integration_connections c JOIN workspaces w ON w.id = c.workspace_id
+              WHERE w.name = '$WORKSPACE_NAME' AND c.kind = 'slack' AND c.state = 'connected';"
+  local count
+  count=$(docker exec "$PG_NAME" psql -q -At -U postgres -d foundry -c \
+    "SELECT count(*) FROM integration_connections WHERE sealed_credential IS NOT NULL;")
+  [ "$count" = 2 ] || die "seeding: Canzan Labs holds $count connections, not its Slack and Matrix ones"
+}
+
+# Replica 1 restarts with a different FOUNDRY_INSTANCE_KEY, so the stored
+# secrets key is sealed under an instance key it does not hold (I-26).
+#
+# FOUNDRY_INTEGRATIONS_RELOAD_MS is the product's default (5000) from here on:
+# a server counts as still opening the key while its last beat is no older
+# than three reload periods, and a server beats every 10 seconds, so with the
+# probe's 200 ms a running server would count for only 0.6 s of every 10.
+lose_the_instance_key() {
+  restart_replica 1 "FOUNDRY_INSTANCE_KEY=$(cat "$STATE_DIR/instance-key-other")" \
+    FOUNDRY_INTEGRATIONS_RELOAD_MS=5000
+}
+
+# await_instance_page TEXT WHAT: GET the instance integrations page as Priya
+# (reading changes nothing) until it holds TEXT, for at most 45 seconds.
+await_instance_page() {
+  local text="$1" what="$2"
+  for _ in $(seq 1 45); do
+    http priya GET /admin/instance/integrations
+    [ "$HTTP_CODE" = 200 ] && grep -qF -- "$text" "$STATE_DIR/last.body" && return 0
+    sleep 1
+  done
+  die "seeding: the instance integrations page did not show $what within 45 seconds"
+}
+
+seed_secrets_key_unopenable() {
+  seed_three_credentials_with_matrix
+  lose_the_instance_key
+  # The old server's last beat ages out of the gate's window (15 s).
+  await_instance_page "secrets-key/start-over" "Start over"
+}
+
+# Replica 2 starts while the key still opens, with the instance key that
+# sealed it, and keeps running; then replica 1 loses the key.
+seed_secrets_key_unopenable_live_server() {
+  seed_three_credentials_with_matrix
+  launch_foundry 2
+  lose_the_instance_key
+  await_instance_page "Another Foundry server still opens the secrets key" \
+    "the sentence that another server still opens the key"
+}
+
+# Replica 1 restarts with no FOUNDRY_INSTANCE_KEY and its key file replaced by
+# one that holds no key (I-31): the operator's lost or damaged file. Direct
+# file write: the data directory is the operator's, and no flow of Foundry's
+# changes it.
+seed_instance_key_file_unreadable() {
+  seed_slack_app_saved
+  connect_slack priya "Canzan Labs"
+  local file
+  file="$(cat "$STATE_DIR/data-dir")/instance.key"
+  stop_replica 1
+  rm -f "$file"
+  (umask 077 && printf 'this is not an instance key\n' >"$file")
+  restart_replica 1
+  await_instance_page "cannot read its instance key file" "that it cannot read its instance key file"
+}
+
+seed_three_credentials_key_opens() {
+  generate_secrets_key
+  save_slack_app
+  connect_slack priya "Canzan Labs"
+  seed_slack_route
+  provision_and_connect "Ops Guild" omar "Omar Haddad"
+}
+
+env_three_credentials_one_damaged() { env_operator_key; }
+
+# Direct SQL: no flow of Foundry's damages a stored credential. The last byte
+# of Ops Guild's sealed Slack credential is flipped, so its seal no longer
+# verifies; the config version is left alone, as damage would leave it.
+seed_three_credentials_one_damaged() {
+  seed_three_credentials_key_opens
+  psql_exec "UPDATE integration_connections c
+                SET sealed_credential = overlay(sealed_credential placing
+                    set_byte('\\x00'::bytea, 0, get_byte(sealed_credential, length(sealed_credential) - 1) # 1)
+                    from length(sealed_credential))
+               FROM workspaces w
+              WHERE w.id = c.workspace_id AND w.name = 'Ops Guild' AND c.kind = 'slack';"
 }
 
 vm_main() {
@@ -1476,6 +1689,7 @@ vm_main() {
       ;;
     slack-posting) vm_require_running && slack_posting "$1" ;;
     mail) vm_require_running && mail_print ;;
+    rotate-secrets) vm_require_running && rotate_secrets ;;
     time-passes) vm_require_running && time_passes "$1" ;;
     get)
       use_replica "$1"
