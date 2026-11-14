@@ -1,5 +1,5 @@
 # IIS\-SKR\-001 Replace or start over the secrets key
-Status: Accepted
+Status: Superseded by IIS-SKR-002
 
 ## Context
 

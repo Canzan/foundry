@@ -471,21 +471,26 @@
 "C": 3,
 "D": 9,
 "E": 26,
-"F": 507,
-"K": 5,
-"L": 11,
-"N": 7,
+"F": 562,
+"K": 6,
+"L": 13,
+"N": 8,
 "P": 12,
 "S": 3,
 "T": 2,
-"Y": 10
+"Y": 11
 },
 "design": {
 "adrs": [
 {
 "key": "IIS-SKR-001",
-"status": "Accepted",
+"status": "Superseded by IIS-SKR-002",
 "title": "Replace or start over the secrets key"
+},
+{
+"key": "IIS-SKR-002",
+"status": "Accepted",
+"title": "Live-replica gate window follows the beat cadence"
 }
 ],
 "paradigm": "object_oriented",
@@ -727,6 +732,16 @@
 ],
 "runtime": "DesignedNotBuilt",
 "subject": "F236"
+},
+{
+"axis": "Safety",
+"basis": "F544",
+"design": "Pass",
+"evidence": [
+"docs/feature/iis-secrets-key-replace/design/live_replica_gate.receipt.txt"
+],
+"runtime": "DesignedNotBuilt",
+"subject": "F543"
 }
 ],
 "constraints": [
@@ -749,6 +764,10 @@
 {
 "id": "K5",
 "text": "F55"
+},
+{
+"id": "K6",
+"text": "F509"
 }
 ],
 "constructors": [
@@ -812,7 +831,7 @@
 },
 {
 "id": "D5",
-"text": "F46"
+"text": "F508"
 },
 {
 "id": "D6",
@@ -1108,6 +1127,59 @@
 "kind": "Finite",
 "reason": "F160"
 }
+},
+{
+"evidence": [
+"docs/feature/iis-secrets-key-replace/design/live_replica_gate.receipt.txt"
+],
+"id": "L12",
+"kind": "Invariant",
+"layer": "Infrastructure",
+"owner": "LiveOpeners::at and LiveOpeners::still_opening in crates/foundry-app/src/integrations/secrets_key_rotation.rs",
+"statement": "F510",
+"treatment": {
+"falsifier": "F523",
+"generator": {
+"depth_bound": "one gate reading per case",
+"domain": "F511",
+"must_include": [
+"F512",
+"F513",
+"F514",
+"F515",
+"F516",
+"F517",
+"F518",
+"F519",
+"F520"
+],
+"seed_policy": "fixed seed, with the proptest regression file kept beside the module",
+"shrinking": "F521",
+"size_bound": "256 cases per run"
+},
+"independent_observation": "F522",
+"kind": "Broad"
+}
+},
+{
+"evidence": [
+"docs/feature/iis-secrets-key-replace/design/live_replica_gate.receipt.txt"
+],
+"id": "L13",
+"kind": "Invariant",
+"layer": "Infrastructure",
+"owner": "LiveOpeners::at against REPLICA_STATE_RETENTION of crates/foundry-app/src/integrations/worker.rs",
+"statement": "F524",
+"treatment": {
+"cases": [
+"F525",
+"F526",
+"F527",
+"F528"
+],
+"kind": "Finite",
+"reason": "F529"
+}
 }
 ],
 "models": [
@@ -1339,6 +1411,94 @@
 "symbol": "the delivery worker over RetryPolicy::BACKOFF"
 }
 ]
+},
+{
+"assumptions": [
+"F538",
+"F539",
+"F540",
+"F541"
+],
+"atoms": [
+{
+"kind": "Constant",
+"name": "BEAT_EVERY",
+"site": "crates/foundry-app/src/integrations/reload.rs:25",
+"symbol": "BEAT_EVERY"
+},
+{
+"kind": "Constant",
+"name": "RETENTION",
+"site": "crates/foundry-app/src/integrations/worker.rs:74",
+"symbol": "REPLICA_STATE_RETENTION"
+},
+{
+"kind": "Constant",
+"name": "RELOADS",
+"site": "crates/foundry-app/src/integrations/config.rs:271",
+"symbol": "IntegrationSettings.reload, read from FOUNDRY_INTEGRATIONS_RELOAD_MS"
+},
+{
+"kind": "State",
+"name": "lastBeat",
+"site": "crates/foundry-store/src/integrations/instance.rs:916",
+"symbol": "ReplicaState.beat_at"
+},
+{
+"kind": "State",
+"name": "now",
+"site": "crates/foundry-app/src/integrations/handlers/instance.rs:582",
+"symbol": "the injected clock passed to LiveOpeners::at"
+},
+{
+"atomicity": "F536",
+"kind": "State",
+"name": "nextTick",
+"site": "crates/foundry-app/src/integrations/reload.rs:139",
+"symbol": "Reload::tick, the reload timer"
+},
+{
+"atomicity": "F537",
+"kind": "Action",
+"name": "step",
+"site": "crates/foundry-app/src/integrations/reload.rs:152",
+"symbol": "Reload::beat"
+}
+],
+"language": "Quint",
+"mutants": [
+{
+"description": "F542",
+"id": "N8",
+"kills": [
+"gateAlwaysLive"
+]
+}
+],
+"path": "docs/feature/iis-secrets-key-replace/design/live_replica_gate.qnt",
+"properties": [
+{
+"kind": "Invariant",
+"name": "gateAlwaysLive",
+"site": "crates/foundry-app/src/integrations/secrets_key_rotation.rs:146",
+"statement": "F533",
+"symbol": "LiveOpeners::still_opening"
+},
+{
+"kind": "Invariant",
+"name": "windowInsideRetention",
+"site": "crates/foundry-app/src/integrations/secrets_key_rotation.rs:134",
+"statement": "F534",
+"symbol": "LiveOpeners::at"
+},
+{
+"kind": "Invariant",
+"name": "neverNearTheWindow",
+"site": "docs/feature/iis-secrets-key-replace/design/live_replica_gate.qnt:84",
+"statement": "F535",
+"symbol": "model-only"
+}
+]
 }
 ],
 "observations": [
@@ -1383,6 +1543,11 @@
 "cause": "F165",
 "counterexample": "F166",
 "statement": "F164"
+},
+{
+"cause": "F531",
+"counterexample": "F532",
+"statement": "F530"
 }
 ],
 "risks": [
@@ -1413,7 +1578,7 @@
 "kind": "Stressor",
 "owner": "the instance operator",
 "preserved": "F249",
-"residue": "F252",
+"residue": "F545",
 "source": "F248"
 },
 {
@@ -1485,6 +1650,16 @@
 "preserved": "F284",
 "residue": "F287",
 "source": "F283"
+},
+{
+"allowed": "F548",
+"forbidden": "F549",
+"id": "Y11",
+"kind": "Stressor",
+"owner": "the instance operator",
+"preserved": "F547",
+"residue": "F550",
+"source": "F546"
 }
 ],
 "states": [
@@ -1840,13 +2015,13 @@
 "S2": {
 "oracle": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
 "public_oracle": {
-"expected": "F425",
-"falsifier": "F426",
+"expected": "F554",
+"falsifier": "F555",
 "promises": [
 "P6",
 "P7"
 ],
-"stimulus": "F424"
+"stimulus": "F553"
 },
 "records": {
 "impact": [
@@ -1903,6 +2078,18 @@
 "kind": "source file of the changed path",
 "locator": "crates/foundry-app/templates/integrations/secrets_key_start_over.html:1",
 "reason": "F314"
+},
+{
+"decision": "Changed",
+"kind": "Rust module constant",
+"locator": "crates/foundry-app/src/integrations/reload.rs:25",
+"reason": "F558"
+},
+{
+"decision": "Changed",
+"kind": "Rust module constant",
+"locator": "crates/foundry-app/src/integrations/worker.rs:74",
+"reason": "F559"
 }
 ],
 "not_applicable": [
@@ -1989,6 +2176,18 @@
 "locator": "crates/foundry-app/templates/integrations/secrets_key_start_over.html:1",
 "reason": "F305",
 "symbol": "secrets_key_start_over"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/reload.rs:25",
+"reason": "F556",
+"symbol": "BEAT_EVERY"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/worker.rs:74",
+"reason": "F557",
+"symbol": "REPLICA_STATE_RETENTION"
 }
 ]
 },
@@ -2032,6 +2231,16 @@
 {
 "change": "Extend",
 "path": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/reload.rs",
+"reason": "F551"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/worker.rs",
+"reason": "F552"
 }
 ],
 "verification": [
@@ -2044,8 +2253,8 @@
 "S3": {
 "oracle": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature",
 "public_oracle": {
-"expected": "F329",
-"falsifier": "F330",
+"expected": "F561",
+"falsifier": "F562",
 "promises": [
 "P8",
 "P9",
@@ -2053,7 +2262,7 @@
 "P10",
 "P12"
 ],
-"stimulus": "F328"
+"stimulus": "F560"
 },
 "records": {
 "impact": [
@@ -2788,7 +2997,6 @@
 "F25": "Replace and Start over answer post, redirect, get, and the notice waits once in the session of the acting instance admin, as D16 of iis-slack-replace-remove already decided for the Slack app changes: I-24 is never a query value, an address alone claims no change that was not made, and a session that cannot hold the notice leaves the committed change with no notice.",
 "F250": "The gate may withhold Start over while nothing opens the key (the admin restores or waits), or may admit it while a skewed-clock replica still opens it.",
 "F251": "Reading the clock of the database or of now() inside the judgement instead of the caller clock, which would hide the skew.",
-"F252": "The gate window is three reload intervals, so skew beyond that is visible as a wrong offer; I-28a remains the human backstop.",
 "F253": "Negates \"one admin at a time\": two instance admins post Replace from two confirm pages at once, or one double-submits.",
 "F254": "The advisory lock serialises them; each transaction is all-or-nothing, so every credential always opens under whichever key won.",
 "F255": "Two replacements in a row, each with its own activity line and its own notice to its own admin, or the second refused on the compare-and-set.",
@@ -2865,10 +3073,7 @@
 "F325": "The GET of the start-over door is registered behind the same guard; its POST lands with S3.",
 "F326": "The secrets-key block renders the appended sentence and the Start over link from PageState; it decides nothing itself.",
 "F327": "The one preserving move this design needs is the S1 move of the secrets-key door family out of handlers/instance.rs; S2 adds its doors to the module that move created and needs no further move of its own.",
-"F328": "As S2 run B: this Foundry cannot open its stored secrets key, 3 saved credentials of Canzan Labs and the Slack app cannot be opened, and no running replica opens the key. Priya Raman POSTs /admin/instance/integrations/secrets-key/start-over with her CSRF token and the Confirmation START OVER. Three more runs: the Confirmation left empty; the Confirmation typed as \"start over\"; and a POST with START OVER while the second replica has beaten fresh again saying it opens the key.",
-"F329": "The first POST answers a redirect to GET /admin/instance/integrations, which reads \"Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.\" once; a reload of that address reads the page with no notice. The page reads the stored secrets key as set, Matrix as ready, asks for the Slack app again (I-5), and the Activity reads \"{date} - Priya Raman started over with a new secrets key (3 credentials discarded)\". GET /workspace/integrations of Canzan Labs reads no discarded connection as connected, offers to connect Matrix and tells its workspace admin to reconnect Slack, in the shipped W-2 and K-2 words. foundry doctor rotate-secrets then exits 0 and the new key still opens. Each of the other three runs answers the start-over confirm page with I-28 again and changes nothing at all: the stored key, the remaining credentials, the activity list and the config version are as they were, and no I-21 is read.",
 "F33": "Priya reads that the 3 saved credentials of Canzan Labs and the Slack app are sealed again under a new key and that nobody needs to reconnect, confirms, and reads that they are sealed under the new key; the next issue of Sam still reaches #auth-dev and #auth:canzan.dev.",
-"F330": "A start over that commits while a replica beating fresh still opens the key, or that checks the gate only at the GET; a wrong or empty Confirmation that applies anything; a credential this Foundry can open being discarded, or one it cannot open surviving; an activity line reading \"secrets key started over\" or carrying the wrong count; a workspace page that still reads a discarded Slack connection as connected; I-21 read twice, or carried in the address; a state after the apply in which the stored key check names a different key than the stored key.",
 "F331": "start_over_secrets_key is its third sibling: the same lock and the same commit ending, with the gate read inside the transaction, a compare-and-set on the stored key id, and the credentials this Foundry cannot open deleted rather than re-sealed.",
 "F332": "A start over needs exactly a fresh secrets key wrapped under the held instance key with its check value, and nothing re-sealed; that is plan_generate unchanged.",
 "F333": "What a workspace admin reads about a connection that must be set up again is the shipped W-2 and K-2 wording, which the scope keeps unchanged; the discarded credential leaves the connection in exactly the state those words already describe, so the workspace page needs no new sentence.",
@@ -2961,9 +3166,6 @@
 "F420": "The replace address of the secrets key opened, then posted, while this Foundry cannot open the stored key; then the instance key it was sealed with is set again.",
 "F422": "A replacement that could never seal her credentials again is neither offered to her nor carried out behind her back by a link anyone kept.",
 "F423": "A door that answers the page while a saved credential no held key opens would still let a replacement through; that state is Deliverable A's own I-4.",
-"F424": "The instance key file of this server is new, so it cannot open the stored secrets key (I-26), and 3 saved credentials cannot be opened. Run A: a second replica is still running and its heartbeat says it opens the stored secrets key. Run B: no running replica opens it (the second replica has stopped beating). Run C: this server cannot read its instance key file at all (I-31). In each run Priya Raman GETs /admin/instance/integrations, then GETs /admin/instance/integrations/secrets-key/start-over, then GETs and POSTs /admin/instance/integrations/secrets-key/replace, all with her CSRF token through the production router.",
-"F425": "In run A the page reads the shipped I-26 restore words followed by \"Another Foundry server still opens the secrets key, so Start over is not offered.\", offers no Replace secrets key and no Start over, and the start-over GET answers the instance integrations page having changed nothing. In run B the page reads I-26 with Start over appended and no Replace; the start-over confirm page reads \"Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.\" with the Confirmation field \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\", and leaves the stored key, every credential, the activity list and the config version untouched. In run C the page reads I-31 in the instance key line place and reads no I-26 words at all, offering no Replace secrets key, no Start over and no live-server sentence. In every run the replace GET and POST change nothing and answer the instance integrations page.",
-"F426": "Replace offered or applying under I-26 or under I-31; Start over offered while a live replica still opens the key, or under I-31; the live-replica sentence shown under I-31 or while no replica beats; the I-26 words read under I-31 at all; a start-over GET that writes a row, an activity line or a version bump; the n = 1 or n >= 2 sentence read for the wrong count, or the I-28a words paraphrased; the shipped I-26 restore words altered rather than appended to.",
 "F427": "She reads the restore words she already read, with a way to start over beside them, no way to replace the key and nothing claiming another server still opens it. The way out states that the three credentials this Foundry cannot open are discarded, that workspace admins reconnect Slack and re-enter Matrix bot tokens and that the Slack app is entered again, and asks her to type a confirmation first. Reading it discards nothing: the stored key, the Activity and the version every replica follows are as they were, and with the instance key set again the page reads the secrets key as set and her saved Slack connection still opens.",
 "F428": "The restore words, followed by the sentence that another Foundry server still opens the secrets key so starting over is not offered, with no way to start over and no way to replace the key. The start over address answers this Foundry's integrations page, and the stored key, the Activity and the version every replica follows are as they were.",
 "F429": "The page offers the way out again and says nothing about another server, and the way out states that the two credentials this Foundry cannot open are discarded. The stored key, the Activity and the version every replica follows are as they were.",
@@ -2996,7 +3198,6 @@
 "F457": "A second Foundry server on this database still opens the stored secrets key while this one cannot. That server says nothing for a minute, so Priya reads the start over page and its cost; it then says again that it opens the stored key, and she types START OVER and confirms the form she is on. Afterwards an operator restores the instance key the stored key was sealed with and Foundry restarts.",
 "F458": "The confirmation is answered with the start over page and its cost again, says nothing about a key being generated, and leaves the stored key, the whole Activity list and the version every server follows as they were; with the instance key restored the page reads the stored secrets key as set and Canzan Labs' saved Slack connection opens again.",
 "F459": "No credential a running Foundry server is still serving with is discarded, even when that server goes quiet while Priya reads the page and speaks again before she confirms.",
-"F46": "The live-replica gate reads integration_replica_states: a replica counts as still opening the stored secrets key while its row says opens_secrets_key and its beat_at is no older than the gate window, which is three reload intervals (FOUNDRY_INTEGRATIONS_RELOAD_MS, default 5000 ms, so 15 s by default) and never longer than the hour the retention prune keeps rows for. The gate is read again inside the POST own locked transaction, as D10 reads the connected-workspace count inside the write, so a replica that beats while the post is in flight cannot be started over from under.",
 "F460": "A Foundry that reads the state of the other servers once more anywhere in the confirming request rather than inside the write that discards: a server that speaks between that read and the write is not observed here.",
 "F461": "After a start over Priya enters the Slack app again, and the operator then rotates the instance key itself with the key-rotation command of the Foundry binary.",
 "F462": "The command reports no credential sealed again under the new key and succeeds, the Slack app Priya re-entered is still in effect with both its secrets and its activity unchanged, Slack's events still verify with the secret it was saved with, and the instance integrations page reads the stored secrets key as set.",
@@ -3050,11 +3251,66 @@
 "F505": "The confirm is answered with this Foundry's own integrations page. Nothing she reads there asks the start-over cost question, and no way to start over is offered. The stored secrets key, the Activity and the version every replica follows are as they were, her saved Slack connection still opens, and the saved Slack app keeps its secrets and its activity.",
 "F506": "A confirm kept in an open tab cannot discard the credentials this Foundry can open again: the admin lands back on her integrations page with every connection and the saved Slack app intact, and is offered no way to discard them.",
 "F507": "A Foundry that answers its own integrations page here because it refuses every start-over confirm whose form it did not draw in this request (a one-shot form token), rather than because the stored secrets key opens on this server.",
+"F508": "The live-replica gate reads integration_replica_states: a replica counts as still opening the stored secrets key while its row says opens_secrets_key and its beat_at is no older than the gate window. The window is derived from the beat cadence, not from the reload interval: two beat intervals plus one reload interval, that is BEAT_EVERY of crates/foundry-app/src/integrations/reload.rs (10 s) twice plus FOUNDRY_INTEGRATIONS_RELOAD_MS, so 25 s at the 5000 ms default and 20.2 s at the 200 ms the acceptance lane sets. A running server beats at the first reload tick at least one beat interval after its last beat, so the longest gap it can leave between two beats is one beat interval plus one reload interval; the window keeps one whole beat interval of margin over that gap, which absorbs a failed beat row write, a slow tick or a stalled scheduler of up to one beat interval. The beat cadence does not follow the reload interval: the beat is one row write per server per cadence, and the 200 ms of the acceptance lane would multiply the writes of the shipped reload task by fifty. BEAT_EVERY stays owned by that task (ADR-IIS-004 r8) where it is and only becomes pub(crate), so the gate derives its window from the one cadence fact instead of restating 10 s; REPLICA_STATE_RETENTION of crates/foundry-app/src/integrations/worker.rs becomes pub(crate) for the same reason. The window needs no cap: for every setting up to an hour less two beat intervals it stays inside the hour the retention prune keeps rows for, and above that the prune, not the window, bounds what the gate can see at all. The gate is read again inside the POST own locked transaction, as D10 reads the connected-workspace count inside the write, so a replica that beats while the post is in flight cannot be started over from under.",
+"F509": "FOUNDRY_INTEGRATIONS_RELOAD_MS is admitted from 1 ms up with no upper bound: crates/foundry-app/src/integrations/config.rs:271 raises 0 to 1 ms and the authority states no ceiling. The gate window of D5 is defined over that whole range, and the two constants it is derived from are read where they are owned, never restated: BEAT_EVERY, 10 s, at crates/foundry-app/src/integrations/reload.rs:25, and REPLICA_STATE_RETENTION, one hour, at crates/foundry-app/src/integrations/worker.rs:74. Two settings are deviations this design states rather than hides: above an hour less two beat intervals, about 59 min 40 s, the window would outlive the row the prune keeps, so the gate reads only the rows the prune left and withholds Start over over what it cannot see; and above 20 s the 60-second figure of K4 is already lost. Both are bounds on the setting, not on the code.",
 "F51": "The locked copy of instance-integration-setup DISCUSS, exact words, with no form invented: I-23 in its n >= 2, n = 1 and n = 0 forms; I-24 in its n >= 2, n = 1 and n = 0 forms; I-28 in its n >= 2, n = 1 and n = 0 forms; I-28a \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\"; the sentence appended to I-26 while another live server still opens the key, \"Another Foundry server still opens the secrets key, so Start over is not offered.\"; I-21 as the answer of a successful start over; and the two Deliverable B I-18 lines \"{date} - {name} replaced the secrets key ({n} credentials sealed again)\" and \"{date} - {name} started over with a new secrets key ({n} credentials discarded)\".",
+"F510": "For every admitted reload setting r and every beat age a, the gate counts a row that says opens_secrets_key as a live opener exactly while a is at most two beat intervals plus r. So every age up to one beat interval plus r, the longest gap a running server can leave between two beats, reads live with one whole beat interval of margin, and an age past the window reads stale.",
+"F511": "r over the whole admitted range of FOUNDRY_INTEGRATIONS_RELOAD_MS - 1 ms to one hour, and u64::MAX ms for the saturating case - crossed with beat ages from one beat ahead of the reading clock to three times the window, as ReplicaState rows with opens_secrets_key both true and false.",
+"F512": "r = 200 ms with a beat age of 1 s",
+"F513": "r = 200 ms with a beat age of 12 s",
+"F514": "r = 3340 ms with a beat age of 10.5 s",
+"F515": "r = 5000 ms with a beat age of 15.5 s",
+"F516": "r = 1 ms",
+"F517": "r = one hour",
+"F518": "r = u64::MAX ms",
+"F519": "a beat ahead of the reading clock",
 "F52": "The count n is the I-22 counting rule the store already applies: each connection credential one, the saved Slack app one however many of its secrets are sealed; the app held for its confirm is re-sealed with the rest and counted with the app. The authority states no upper bound on the number of credentials, and none is introduced: both writes walk every stored sealed row under FOR UPDATE.",
+"F520": "a row that says it does not open the key, at every age",
+"F521": "proptest shrinks to the smallest refuting pair of reload setting and beat age",
+"F522": "the longest beat gap recomputed in the test from the rule of reload.rs itself - the first tick at or after BEAT_EVERY, so BEAT_EVERY rounded up to a multiple of r - compared with what the gate answers, never with the window LiveOpeners computed.",
+"F523": "At r = 200 ms with a beat age of 1 s the gate answers not a live opener: the reading that offers Start over while another server still opens the key.",
+"F524": "The gate window never outlives the hour the replica-state prune keeps a row for, at every reload setting up to an hour less two beat intervals.",
+"F525": "r = 1 ms: the window is 20.001 s, inside the hour",
+"F526": "r = 5000 ms, the default: the window is 25 s, inside the hour",
+"F527": "r = 3580 s, the largest setting whose window still fits: the window is exactly one hour",
+"F528": "r = 3581 s: the window would pass the hour, the deviation K6 states, where the prune and not the window bounds what the gate sees",
+"F529": "The window is linear and monotone in the reload setting over two fixed constants, so the default and the two boundary settings decide the whole range and a generated input adds nothing. The same bound is the second invariant of live_replica_gate.qnt.",
 "F53": "The typed confirmation is admitted only as the exact text START OVER after surrounding whitespace is trimmed, case-sensitive; an empty, lower-case or otherwise different value answers I-28 again and changes nothing. The authority fixes the words and not the trimming, so the trimming is a design choice, narrower than a free-text field and wider than a byte-exact comparison.",
+"F530": "A gate window of three reload intervals covers the cadence a running server beats at.",
+"F531": "Law scope, not carrier: the window was scaled by the wrong constant. A server beats at the first reload tick at least BEAT_EVERY (10 s) after its last beat, so the gap between two beats is one beat interval plus one reload interval and does not shrink with the reload interval, while three reload intervals does. A window must be derived from BEAT_EVERY.",
+"F532": "At FOUNDRY_INTEGRATIONS_RELOAD_MS = 200 the window is 600 ms while the other server beats at most every 10.2 s: for about 16 s, while that server still opened the stored secrets key, every read of the instance integrations page offered Start over, 8 of 8 samples. At the 5000 ms default the window of 15 s only equals the longest gap, so a read just before a late beat misses the live server too. The same window, taken as a model mutant, is refuted at state 4 of live_replica_gate.qnt.",
+"F533": "The gate never reads a server that still opens the stored secrets key as stale, at any modelled reload setting and at any moment between its beats.",
+"F534": "The gate window never outlives the hour the replica-state prune keeps a row for.",
+"F535": "Negated on purpose: its counterexample witnesses that the longest gap the model admits comes within one second of the window, so the window is tight and gateAlwaysLive is not vacuous.",
+"F536": "one tick applies a changed version and then beats, in that order",
+"F537": "the beat row write is its own statement: a failed write leaves last_beat unchanged and the next tick retries, which is the lateness the window must absorb",
+"F538": "One unit of modelled time is a second and the reload settings are 1, 3, 5, 10 and 17 of them: the model carries the ratio of the beat interval to the reload interval, never milliseconds, so the 1 s setting stands for every setting at or below one beat interval, the 200 ms of the acceptance lane included. The exact admitted range is the domain of the executable projection.",
+"F539": "One other server that still opens the stored secrets key is enough: the gate counts any row that says so, so a second such server adds no state.",
 "F54": "Within 60 seconds of a replacement every replica opens every credential. The design carries this as the eventual convergence the TLA+ model checks, times the reload interval FOUNDRY_INTEGRATIONS_RELOAD_MS (default 5000 ms): the model proves the convergence, not the wall-clock figure, which follows from that configured interval. An operator who sets the interval above 20 s loses the 60-second figure; that bound is on the setting, not on the code.",
+"F540": "A running server's beat is at most one beat interval late - a failed row write, a slow tick, a stalled scheduler. A longer stall is a server the gate is meant to read stale.",
+"F541": "The clock the gate is read against and the other server's reload ticks are separate variables, so the gate is read between two ticks as well; skew between the two clocks is Y3, not this model.",
+"F542": "m8: the window is three reload intervals, as D5 read before this correction - window(r) = 3 * r.",
+"F543": "The live-replica gate window covers the cadence a running server beats at, at every reload setting",
+"F544": "Exhaustive model checking of both invariants of live_replica_gate.qnt with Apalache through quint verify, bound 34 steps, outcome NoError; bounded simulation of each invariant on its own, 40 steps and 20000 samples; the tightness witness taken as a counterexample to its own negation; and the mutant that restores a window of three reload intervals refuted by a counterexample at state 4. The claim is about the design: the window law's executable projection over the exact admitted range, and the acceptance observation of a server read between two beats, are owed by S2.",
+"F545": "The gate window is two beat intervals plus one reload interval, so skew beyond that is visible as a wrong offer; I-28a remains the human backstop.",
+"F546": "Negates \"a server that still opens the stored secrets key beats at least once inside the gate window\": the beat cadence is 10 s and independent of the reload interval, so a window scaled by the reload interval alone is shorter than the gap between two beats at every setting below about 3.34 s.",
+"F547": "Start over stays withheld while any row that says opens_secrets_key has beaten inside the window of D5, at the GET and again inside the POST own locked transaction.",
+"F548": "Start over stays withheld for up to two beat intervals plus one reload interval, 25 s at the default, after the last live server stops beating; the admin reads the offer on her next page read.",
+"F549": "Start over offered or applied while a server that still opens the key is simply between two beats.",
 "F55": "No schema change: both writes use the 0033 tables as they are, and the two new activity actions are new text values of instance_integration_audit_events.action, which ADR-IIS-005 r1 already treats as wire names. No migration ships with this value.",
+"F550": "A server of an earlier release that beats no row at all stays invisible, and I-28a is its human backstop. A reload setting above the retention horizon leaves the gate with whatever the prune has not removed.",
+"F551": "BEAT_EVERY becomes pub(crate) so the gate derives its window from the one cadence fact (D5). No beat behaviour and no row shape changes.",
+"F552": "REPLICA_STATE_RETENTION becomes pub(crate) so the retention bound of the window is checked against the constant instead of a restated hour.",
+"F553": "The instance key file of this server is new, so it cannot open the stored secrets key (I-26), and 3 saved credentials cannot be opened. Run A: a second replica is still running, its heartbeat says it opens the stored secrets key and it has just beaten. Run B: no running replica opens it (the second replica has stopped, its last beat older than the gate window, two beat intervals plus one reload interval). Run C: this server cannot read its instance key file at all (I-31). Run D: a second replica is still running and still opens the stored secrets key, and it is read between two beats - its last beat older than one beat interval and inside the gate window. In each run Priya Raman GETs /admin/instance/integrations, then GETs /admin/instance/integrations/secrets-key/start-over, then GETs and POSTs /admin/instance/integrations/secrets-key/replace, all with her CSRF token through the production router.",
+"F554": "In run A the page reads the shipped I-26 restore words followed by \"Another Foundry server still opens the secrets key, so Start over is not offered.\", offers no Replace secrets key and no Start over, and the start-over GET answers the instance integrations page having changed nothing. In run B the page reads I-26 with Start over appended and no Replace; the start-over confirm page reads \"Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.\" with the Confirmation field \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\", and leaves the stored key, every credential, the activity list and the config version untouched. In run C the page reads I-31 in the instance key line place and reads no I-26 words at all, offering no Replace secrets key, no Start over and no live-server sentence. Run D reads exactly what run A reads: a server between two beats is still a live opener. In every run the replace GET and POST change nothing and answer the instance integrations page.",
+"F555": "Start over offered while a live replica that still opens the key is merely between two beats, which is run D and is what a window of three reload intervals leaves reachable at the 200 ms the lane sets; Replace offered or applying under I-26 or under I-31; Start over offered under I-31; the live-replica sentence shown under I-31 or while no replica beats; the I-26 words read under I-31 at all; a start-over GET that writes a row, an activity line or a version bump; the n = 1 or n >= 2 sentence read for the wrong count, or the I-28a words paraphrased; the shipped I-26 restore words altered rather than appended to.",
+"F556": "The one cadence fact the window is derived from. It stays owned by the replica reload task it belongs to (ADR-IIS-004 r8) and does not move: only its visibility widens to pub(crate), so no second module states 10 s. CreateNew would be a second authority over the cadence, and Reuse is not enough because the constant is private today.",
+"F557": "The retention horizon the window must stay inside. It stays owned by the retention sweep (DD-10) and does not move: only its visibility widens to pub(crate) so the bound law reads it. Restating an hour in the gate would be the same duplication the window law exists to prevent.",
+"F558": "Visibility only, from private to pub(crate). The beat rule, the cadence and the row shape are unchanged, so every reload test and every replica of an earlier release reads and writes exactly as before.",
+"F559": "Visibility only, from private to pub(crate). The retention sweep and its cutoff are unchanged; no caller outside the crate can see it.",
+"F560": "As S2 run B: this Foundry cannot open its stored secrets key, 3 saved credentials of Canzan Labs and the Slack app cannot be opened, and no running replica opens the key - the second replica's last beat is older than the gate window. Priya Raman POSTs /admin/instance/integrations/secrets-key/start-over with her CSRF token and the Confirmation START OVER. Four more runs: the Confirmation left empty; the Confirmation typed as \"start over\"; a POST with START OVER while the second replica has beaten fresh again saying it opens the key; and a POST with START OVER while that replica still opens the key and is between two beats, its last beat older than one beat interval and inside the gate window.",
+"F561": "The first POST answers a redirect to GET /admin/instance/integrations, which reads \"Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.\" once; a reload of that address reads the page with no notice. The page reads the stored secrets key as set, Matrix as ready, asks for the Slack app again (I-5), and the Activity reads \"{date} - Priya Raman started over with a new secrets key (3 credentials discarded)\". GET /workspace/integrations of Canzan Labs reads no discarded connection as connected, offers to connect Matrix and tells its workspace admin to reconnect Slack, in the shipped W-2 and K-2 words. foundry doctor rotate-secrets then exits 0 and the new key still opens. Each of the other four runs answers the start-over confirm page with I-28 again and changes nothing at all: the stored key, the remaining credentials, the activity list and the config version are as they were, and no I-21 is read.",
+"F562": "A start over that commits while a replica that still opens the key is between two beats - the last of the five runs - or while one beating fresh opens it, or that checks the gate only at the GET; a wrong or empty Confirmation that applies anything; a credential this Foundry can open being discarded, or one it cannot open surviving; an activity line reading \"secrets key started over\" or carrying the wrong count; a workspace page that still reads a discarded Slack connection as connected; I-21 read twice, or carried in the address; a state after the apply in which the stored key check names a different key than the stored key.",
 "F57": "The I-18 renderer gains the two Deliverable B lines with their counts; the generic underscore fallback must never answer for either, which the contract test observes.",
 "F58": "The beat already carries opens_secrets_key (mode == Sealed) and the caller clock beat_at; the gate needs no new column and no new write.",
 "F59": "Store::replica_states already returns every row; the gate filters on opens_secrets_key and the freshness window and is added to the StoreCapabilities trait, with no change to the row shape. A replica of an earlier release beats the same columns, which is exactly why the gate can see it.",
