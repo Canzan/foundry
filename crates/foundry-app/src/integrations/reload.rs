@@ -22,7 +22,12 @@ use std::sync::Arc;
 use time::OffsetDateTime;
 
 /// How often (on the clock) a replica beats its state row between reloads.
-const BEAT_EVERY: time::Duration = time::Duration::seconds(10);
+///
+/// The one cadence fact of this Foundry: the live-replica gate
+/// ([`super::secrets_key_rotation::LiveOpeners`], D5) sizes its window from
+/// it rather than restating 10 s, so it is `pub(crate)` and stays owned here
+/// (ADR-IIS-004 r8). Nothing outside this crate can see it.
+pub(crate) const BEAT_EVERY: time::Duration = time::Duration::seconds(10);
 /// How often (on the clock) an unknown key id may wake the reload early.
 const NUDGE_EVERY: time::Duration = time::Duration::seconds(1);
 

@@ -71,7 +71,11 @@ const DISPATCHER_ROLE: &str = "dispatcher";
 /// How often (on the clock) a worker runs the retention sweep.
 const RETENTION_SWEEP_EVERY: time::Duration = time::Duration::hours(1);
 /// How long a replica state row outlives its last beat (ADR-IIS-004 r8).
-const REPLICA_STATE_RETENTION: time::Duration = time::Duration::hours(1);
+///
+/// The retention horizon the live-replica gate window must stay inside (D5,
+/// L13), which is why it is `pub(crate)`: the bound reads it here instead of
+/// restating an hour beside the gate. It stays owned by the sweep below.
+pub(crate) const REPLICA_STATE_RETENTION: time::Duration = time::Duration::hours(1);
 /// Where a member changes what they get (K-12).
 const SETTINGS_PATH: &str = "/account/settings";
 

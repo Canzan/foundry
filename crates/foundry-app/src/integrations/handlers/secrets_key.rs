@@ -324,7 +324,7 @@ async fn replace_page(state: &AppState, user: &SessionUser, headers: &HeaderMap)
     let saved = match replaceable(&integrations) {
         true => {
             ReadOnlyDoor::SecretsKeyReplace
-                .read(&store, gate_of(state, &integrations))
+                .read(&store, gate_of(state))
                 .await
                 .saved
         }
@@ -447,7 +447,7 @@ async fn started_over(
     };
     let integrations = state.integrations.current();
     let facts = ReadOnlyDoor::SecretsKeyStartOver
-        .read(store, gate_of(state, &integrations))
+        .read(store, gate_of(state))
         .await;
     match offered(&integrations, facts.live_opener).confirmed_post() {
         ConfirmedStartOver::Applies => {}
@@ -469,7 +469,7 @@ async fn started_over(
         tracing::warn!(probe = "secrets", "generating the new secrets key failed");
         return StartOverAnswer::Unchanged;
     };
-    let gate = gate_of(state, &integrations);
+    let gate = gate_of(state);
     let answered = match store
         .start_over_secrets_key(confirmed, &plan, actor, state.clock.now(), &|states| {
             gate.still_opening(states)
@@ -526,7 +526,7 @@ async fn start_over_page(
     let integrations = state.integrations.current();
     let store = StoreCapabilities::new(state.store.clone());
     let facts = ReadOnlyDoor::SecretsKeyStartOver
-        .read(&store, gate_of(state, &integrations))
+        .read(&store, gate_of(state))
         .await;
     let Some(saved) = facts
         .saved

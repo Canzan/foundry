@@ -576,11 +576,12 @@ async fn live_opener(store: &StoreCapabilities, gate: LiveOpeners) -> Option<boo
     }
 }
 
-/// The gate as this server reads the time and its own reload period
-/// (`FOUNDRY_INTEGRATIONS_RELOAD_MS`, the interval every replica beats on):
-/// the clock is the injected one, never `now()`.
-pub(super) fn gate_of(state: &AppState, integrations: &Integrations) -> LiveOpeners {
-    LiveOpeners::at(state.clock.now(), integrations.settings().reload)
+/// The gate as this server reads the time: the clock is the injected one,
+/// never `now()`, and it is all the gate takes. The window is the gate's own
+/// constant, so no door and no setting of this server can move it (D5,
+/// ADR-IIS-SKR-003).
+pub(super) fn gate_of(state: &AppState) -> LiveOpeners {
+    LiveOpeners::at(state.clock.now())
 }
 
 /// What a [`ReadOnlyDoor`]'s reads answered.
@@ -997,7 +998,7 @@ pub async fn show_slack_confirm(
     let store = StoreCapabilities::new(state.store.clone());
     let integrations = state.integrations.current();
     let facts = ReadOnlyDoor::SlackConfirm
-        .read(&store, gate_of(&state, &integrations))
+        .read(&store, gate_of(&state))
         .await;
     let (Some(true), Some(connected)) = (facts.waiting, facts.connected) else {
         return answer(&state, &user, &headers, None, String::new()).await;
@@ -1077,7 +1078,7 @@ pub async fn show_slack_remove(
     }
     let store = StoreCapabilities::new(state.store.clone());
     let read = ReadOnlyDoor::SlackRemove
-        .read(&store, gate_of(&state, &integrations))
+        .read(&store, gate_of(&state))
         .await;
     let Some(connected) = read.connected else {
         return answer(&state, &user, &headers, None, String::new()).await;
@@ -1384,13 +1385,7 @@ pub(super) async fn answer(
     // answers anyway (F2, L6).
     let opener = match UnopenableOffer::reads_gate(integrations.key_mode(), integrations.key_file())
     {
-        true => {
-            live_opener(
-                &StoreCapabilities::new(state.store.clone()),
-                gate_of(state, &integrations),
-            )
-            .await
-        }
+        true => live_opener(&StoreCapabilities::new(state.store.clone()), gate_of(state)).await,
         false => None,
     };
     let page = page_state(&facts_of(&integrations, direct_seals, saver, opener));
