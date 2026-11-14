@@ -471,10 +471,10 @@
 "C": 3,
 "D": 9,
 "E": 26,
-"F": 597,
+"F": 602,
 "K": 6,
 "L": 13,
-"N": 10,
+"N": 12,
 "P": 12,
 "S": 3,
 "T": 2,
@@ -740,8 +740,11 @@
 },
 {
 "axis": "Safety",
-"basis": "F590",
-"design": "Blocked",
+"basis": "F602",
+"design": "Pass",
+"evidence": [
+"docs/feature/iis-secrets-key-replace/design/live_replica_gate.receipt.txt"
+],
 "runtime": "DesignedNotBuilt",
 "subject": "F589"
 }
@@ -1412,8 +1415,8 @@
 "F583",
 "F539",
 "F584",
-"F585",
-"F586"
+"F598",
+"F599"
 ],
 "atoms": [
 {
@@ -1488,15 +1491,15 @@
 "language": "Quint",
 "mutants": [
 {
-"description": "F587",
-"id": "N9",
+"description": "F600",
+"id": "N11",
 "kills": [
 "gateAlwaysLive"
 ]
 },
 {
-"description": "F588",
-"id": "N10",
+"description": "F601",
+"id": "N12",
 "kills": [
 "gateAlwaysLive"
 ]
@@ -3328,13 +3331,8 @@
 "F582": "The gate never reads a server that still opens the stored secrets key as stale, at any pair of reload settings inside the envelope and at any moment between its beats.",
 "F583": "One unit of modelled time is a second, and the settings are pairs of seconds: the writing server from the 20 s envelope, the reading server from inside it and at its end, differing in both directions. A setting below a second, the 200 ms of the acceptance lane included, has the structure of the 1 s writer, and the exact admitted range is the domain of the executable projection.",
 "F584": "A running server's beat is at most one beat interval late - a failed row write, a slow tick, a stalled scheduler. A longer stall is a server the gate is meant to read stale. Whether one whole beat interval is the right margin is a human judgement this design returns with it.",
-"F585": "The reading server's setting is carried as a variable no definition reads, so that mutant m9 - the window taken from it - is one line away. Skew between the two clocks is Y3, not this model.",
-"F586": "Not checked anywhere: quint, java and apalache-mc are absent from the shared Lima VM local-dev, the only environment this project runs tools in, so no run of this file supports any claim yet.",
-"F587": "m9: the window is taken from the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS - two beat intervals plus readerReload - so a server with a larger setting reads stale between its beats.",
-"F588": "m8: the window is three reload intervals, as D5 read before this correction - window = 3 * reload.",
 "F589": "The live-replica gate window covers the cadence a running server beats at, at every mix of reload settings inside the envelope",
 "F59": "Store::replica_states already returns every row; the gate filters on opens_secrets_key and the freshness window and is added to the StoreCapabilities trait, with no change to the row shape. A replica of an earlier release beats the same columns, which is exactly why the gate can see it.",
-"F590": "A two-server timing claim the Replace and Start over model does not carry. live_replica_gate.qnt states it with mixed settings and three invariants, and nothing has checked it: quint, java and apalache-mc are absent from the shared Lima VM local-dev, the only environment this project runs tools in, and the earlier host runs outside that VM were not allowed and covered the superseded single-setting model. The axis stays Blocked until that toolchain is in local-dev and the invariants, the tightness witness and mutants m8 and m9 are checked there, or a human waives the proof. Either way the executable projection of L12 and the acceptance run of a server read between two beats are owed by S2.",
 "F591": "Negates \"every server of this Foundry keeps its FOUNDRY_INTEGRATIONS_RELOAD_MS inside the 20 s envelope and beats at least once inside the gate window\": the cadence is one beat interval plus the server's own setting, so a server set above the envelope - or any window sized from the reading server's own setting instead of the envelope - leaves a live opener read as stale between its beats.",
 "F592": "Inside the envelope, at any mix of settings, Start over stays withheld while any row that says opens_secrets_key has beaten inside the 40 s window, at the GET and again inside the POST own locked transaction.",
 "F593": "Start over stays withheld for up to 40 s after the last live server stops beating, whatever the settings are; the admin reads the offer on her next page read.",
@@ -3342,8 +3340,13 @@
 "F595": "A server set above the 20 s envelope can still be read as stale, and a server of an earlier release that beats no row at all stays invisible. I-28a is the backstop for both and K6 states the bound.",
 "F596": "The instance key file of this server is new, so it cannot open the stored secrets key (I-26), and 3 saved credentials cannot be opened. Run A: a second replica is still running, its heartbeat says it opens the stored secrets key and it has just beaten. Run B: no running replica opens it (the second replica has stopped, its last beat older than the 40 s gate window). Run C: this server cannot read its instance key file at all (I-31). Run D: a second replica is still running and still opens the stored secrets key, and it is read between two beats - its last beat older than one beat interval and inside the gate window. In each run Priya Raman GETs /admin/instance/integrations, then GETs /admin/instance/integrations/secrets-key/start-over, then GETs and POSTs /admin/instance/integrations/secrets-key/replace, all with her CSRF token through the production router.",
 "F597": "Start over offered while a live replica that still opens the key is merely between two beats, which is run D and is what a window sized from the reading server's own reload setting leaves reachable; Replace offered or applying under I-26 or under I-31; Start over offered under I-31; the live-replica sentence shown under I-31 or while no replica beats; the I-26 words read under I-31 at all; a start-over GET that writes a row, an activity line or a version bump; the n = 1 or n >= 2 sentence read for the wrong count, or the I-28a words paraphrased; the shipped I-26 restore words altered rather than appended to.",
+"F598": "The reading server's setting is carried as a variable no definition reads, so that mutant m9 - the window taken from it - is one sed away. Skew between the two clocks is Y3, not this model.",
+"F599": "What the model does not carry: milliseconds, wall-clock latency, the number of servers beyond one other opener, and a server of an earlier release that beats no row at all. A step is a second of the modelled clock, never a measured one.",
 "F6": "Observed on GET /workspace/integrations and the route history, within 60 seconds of a replacement every replica opens every credential; in between no connection reads lost, the mail double receives no email, and the next new issue of a team member still reaches its Slack channel and its Matrix room.",
 "F60": "Two new wire names carry a count (\"replaced:{n}\", \"started-over\"); an unrecognised stored value still reads as the page itself, so a session written by the shipped release is never misread.",
+"F600": "m8: the window is three times the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, as D5 read before this correction.",
+"F601": "m9: the window is two beat intervals plus the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, as the first correction read it, so a server with a larger setting reads stale between its beats.",
+"F602": "Exhaustive model checking of both invariants of live_replica_gate.qnt with Apalache through quint verify in the shared Lima VM local-dev, bound 44 steps - the tight boundary of the 20 s writer falls at second 40 - outcome NoError, exit 0 in 25 s; bounded simulation of each invariant on its own at 44 steps and 20000 samples, exit 0; the tightness witness refuted as a counterexample to its own negation, exit 1, so gateAlwaysLive is not vacuous; and both mutants killed by counterexamples, exit 1 each: three times the reading server's own setting, and two beat intervals plus that setting. The claim is about the design, and the runtime is unbuilt: the executable projection of L12 over the exact admitted range and the acceptance run of a server read between two beats are owed by S2.",
 "F61": "show_instance parses the count out of the stored value; of_wire keeps answering None for anything it does not name.",
 "F62": "HTTP, the production axum router behind require_instance_admin with csrf_middleware and session_layer: GET and POST /admin/instance/integrations/secrets-key/replace, GET and POST /admin/instance/integrations/secrets-key/start-over, GET /admin/instance/integrations; and for the observed outcome GET /workspace/integrations and the CLI foundry doctor rotate-secrets. Everyone without the right reads the uniform 404.",
 "F63": "Postgres through foundry-store Store, reached by the StoreCapabilities trait: the two new locked write use-cases, instance_snapshot, replica_states, connected_slack_workspaces and the activity read.",

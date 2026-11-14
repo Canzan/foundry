@@ -1855,29 +1855,29 @@ A running server's beat is at most one beat interval late - a failed row write, 
 ```
 
 ```text
-The reading server's setting is carried as a variable no definition reads, so that mutant m9 - the window taken from it - is one line away. Skew between the two clocks is Y3, not this model.
+The reading server's setting is carried as a variable no definition reads, so that mutant m9 - the window taken from it - is one sed away. Skew between the two clocks is Y3, not this model.
 ```
 
 ```text
-Not checked anywhere: quint, java and apalache-mc are absent from the shared Lima VM local-dev, the only environment this project runs tools in, so no run of this file supports any claim yet.
+What the model does not carry: milliseconds, wall-clock latency, the number of servers beyond one other opener, and a server of an earlier release that beats no row at all. A step is a second of the modelled clock, never a measured one.
 ```
 
 ##### Mutants
 
-###### N9
+###### N11
 
 ```text
-m9: the window is taken from the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS - two beat intervals plus readerReload - so a server with a larger setting reads stale between its beats.
+m8: the window is three times the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, as D5 read before this correction.
 ```
 
 ###### Kills
 
 gateAlwaysLive
 
-###### N10
+###### N12
 
 ```text
-m8: the window is three reload intervals, as D5 read before this correction - window = 3 * reload.
+m9: the window is two beat intervals plus the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, as the first correction read it, so a server with a larger setting reads stale between its beats.
 ```
 
 ###### Kills
@@ -2054,17 +2054,17 @@ The live-replica gate window covers the cadence a running server beats at, at ev
 
 Safety
 
-Blocked
+Pass
 
 DesignedNotBuilt
 
 ```text
-A two-server timing claim the Replace and Start over model does not carry. live_replica_gate.qnt states it with mixed settings and three invariants, and nothing has checked it: quint, java and apalache-mc are absent from the shared Lima VM local-dev, the only environment this project runs tools in, and the earlier host runs outside that VM were not allowed and covered the superseded single-setting model. The axis stays Blocked until that toolchain is in local-dev and the invariants, the tightness witness and mutants m8 and m9 are checked there, or a human waives the proof. Either way the executable projection of L12 and the acceptance run of a server read between two beats are owed by S2.
+Exhaustive model checking of both invariants of live_replica_gate.qnt with Apalache through quint verify in the shared Lima VM local-dev, bound 44 steps - the tight boundary of the 20 s writer falls at second 40 - outcome NoError, exit 0 in 25 s; bounded simulation of each invariant on its own at 44 steps and 20000 samples, exit 0; the tightness witness refuted as a counterexample to its own negation, exit 1, so gateAlwaysLive is not vacuous; and both mutants killed by counterexamples, exit 1 each: three times the reading server's own setting, and two beat intervals plus that setting. The claim is about the design, and the runtime is unbuilt: the executable projection of L12 over the exact admitted range and the acceptance run of a server read between two beats are owed by S2.
 ```
 
 ##### Evidence
 
-None.
+docs\/feature\/iis\-secrets\-key\-replace\/design\/live\_replica\_gate\.receipt\.txt
 
 ### Risks
 

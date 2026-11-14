@@ -1,125 +1,65 @@
-PROVENANCE AND LIMIT - READ FIRST.
+live_replica_gate.qnt - checker receipts (D5, the live-replica gate window
+against the beat cadence a running Foundry server keeps).
 
-These runs were made on the macOS host, outside the shared Lima VM local-dev
-that this project runs every tool in; the host rule does not allow that, and
-it will not be repeated. quint, java and apalache-mc are absent from
-local-dev: there, every one of these commands exits 127. So this receipt
-supports no current design claim. It is kept as history only.
+WHERE. Every command below ran in the shared Lima VM local-dev, the only
+environment this project runs tools in, through scripts/test-in-lima.sh from
+the repository root, in one foreground call. Each command's own exit status is
+recorded on the line after it; nothing is piped between a command and its
+status. Tools: quint 0.32.0 and openjdk 21.0.12.1 in the VM; Apalache is not
+packaged there and quint fetched it on its first verify.
 
-It also covers the earlier single-setting model, whose sha256 is recorded
-below and no longer matches live_replica_gate.qnt: that file now carries two
-servers with different FOUNDRY_INTEGRATIONS_RELOAD_MS settings and a window
-that is a constant, and it has not been checked anywhere.
-
-Two exit lines below are not argv-faithful and are corrected in place: the
-runs of neverNearTheWindow and of the mutant were piped through `tail`, so
-the status recorded was tail's, not quint's. The true per-command status was
-not measured; the `[violation]` line in each block is what witnesses the
-refutation.
+WHAT RAN ON WHAT. The sha256 below is of these model bytes as they stand. The
+two mutants were written from the model by one sed each, inside /tmp in the
+VM, and deleted after their runs: m8 takes the window as three times the
+reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, m9 as two beat intervals
+plus that same setting - the two windows this design refuses. A [violation]
+with exit 1 on a mutant is its kill; the run of neverNearTheWindow is negated
+on purpose, so its violation is the witness that the longest gap the model
+admits comes within one second of the window.
 
 ----------------------------------------------------------------------------
 
-live_replica_gate.qnt - checker receipts (D5, the live-replica gate window against the beat cadence)
-host: darwin arm64; quint 0.33.1; java openjdk version "27.0.1" 2026-10-20
-model sha256: b93fb172053d9d6764fe0fb253d17c2fff393d3ffb97019b2095226ee983307f
-mutant sha256: a6c6434b3cbbfe88d0dd07b5128c704fd9d8ffc33e0f47249c0a12f654ec80ac (window(r) = 3 * r, the window this correction replaces; deleted after the run)
-
-$ quint typecheck live_replica_gate.qnt
+MODEL_SHA256 44e14b060b062903f7de1095009abb6b805200c78ea837ec922dbc8dd41c00b7  live_replica_gate.qnt
+M8_SHA256 5fe903f00629ad40836d59f026ca17313d2b949486d100c0f20905f628e59ab2  m8.qnt
+M9_SHA256 0ac8d22bd520d261daea8ee8e0acf0d3e06bcc2f67bb467acbb6290be55df685  m9.qnt
+QUINT 0.32.0 / JAVA openjdk version "21.0.12.1" 2026-08-18 / HOST Linux 6.18.62 aarch64 local-dev
+=== CMD quint typecheck live_replica_gate.qnt
 exit=0
-
-$ quint run live_replica_gate.qnt --invariant=gateAlwaysLive --max-steps=40 --max-samples=20000 --verbosity=1
-[ok] No violation found (160ms at 125000 traces/second).
-Use --seed=0xb1a190fb4bac129f --backend=rust to reproduce.
+=== CMD quint run live_replica_gate.qnt --invariant=gateAlwaysLive --max-steps=44 --max-samples=20000 --verbosity=1
+[ok] No violation found (348ms at 57471 traces/second).
+Use --seed=0x723b0ab9ee19a789 --backend=rust to reproduce.
 exit=0
-
-$ quint run live_replica_gate.qnt --invariant=windowInsideRetention --max-steps=40 --max-samples=20000 --verbosity=1
-[ok] No violation found (119ms at 168067 traces/second).
-Use --seed=0xeeb27b553de2d0a5 --backend=rust to reproduce.
+=== CMD quint run live_replica_gate.qnt --invariant=windowInsideRetention --max-steps=44 --max-samples=20000 --verbosity=1
+[ok] No violation found (321ms at 62305 traces/second).
+Use --seed=0x30ff0d85593f39fd --backend=rust to reproduce.
 exit=0
-
-$ quint run live_replica_gate.qnt --invariant=neverNearTheWindow --max-steps=40 --max-samples=20000 --verbosity=3   # negated on purpose: the tightness witness
-[State 7] { lastBeat: 0, nextTick: 10, now: 7, reload: 5 }
-
-[State 8] { lastBeat: 0, nextTick: 10, now: 8, reload: 5 }
-
-[State 9] { lastBeat: 0, nextTick: 10, now: 9, reload: 5 }
-
-[State 10] { lastBeat: 0, nextTick: 15, now: 10, reload: 5 }
-
-[State 11] { lastBeat: 0, nextTick: 15, now: 11, reload: 5 }
-
-[State 12] { lastBeat: 0, nextTick: 15, now: 12, reload: 5 }
-
-[State 13] { lastBeat: 0, nextTick: 15, now: 13, reload: 5 }
-
-[State 14] { lastBeat: 0, nextTick: 15, now: 14, reload: 5 }
-
-[State 15] { lastBeat: 0, nextTick: 20, now: 15, reload: 5 }
-
-[State 16] { lastBeat: 0, nextTick: 20, now: 16, reload: 5 }
-
-[State 17] { lastBeat: 0, nextTick: 20, now: 17, reload: 5 }
-
-[State 18] { lastBeat: 0, nextTick: 20, now: 18, reload: 5 }
-
-[State 19] { lastBeat: 0, nextTick: 20, now: 19, reload: 5 }
-
-[State 20] { lastBeat: 0, nextTick: 25, now: 20, reload: 5 }
-
-[State 21] { lastBeat: 0, nextTick: 25, now: 21, reload: 5 }
-
-[State 22] { lastBeat: 0, nextTick: 25, now: 22, reload: 5 }
-
-[State 23] { lastBeat: 0, nextTick: 25, now: 23, reload: 5 }
-
-[State 24] { lastBeat: 0, nextTick: 25, now: 24, reload: 5 }
-
-[violation] Found an issue (14ms at 8714 traces/second).
-Use --verbosity=3 to show executions.
-Use --seed=0x627eebd89c971545 --backend=rust to reproduce.
+=== CMD quint run live_replica_gate.qnt --invariant=neverNearTheWindow --max-steps=44 --max-samples=20000 --verbosity=1
+[violation] Found an issue (9ms at 3333 traces/second).
+Use --seed=0x3c5ecf3b215f6e8a --backend=rust to reproduce.
 error: Invariant violated
-exit=not measured (the output was piped through tail, which reported its own status)
-
-$ quint run mutant.qnt --invariant=gateAlwaysLive --max-steps=40 --max-samples=20000 --verbosity=3   # mutant kill
-An example execution:
-
-[State 0] { lastBeat: 0, nextTick: 1, now: 0, reload: 1 }
-
-[State 1] { lastBeat: 0, nextTick: 2, now: 1, reload: 1 }
-
-[State 2] { lastBeat: 0, nextTick: 3, now: 2, reload: 1 }
-
-[State 3] { lastBeat: 0, nextTick: 4, now: 3, reload: 1 }
-
-[State 4] { lastBeat: 0, nextTick: 5, now: 4, reload: 1 }
-
-[violation] Found an issue (13ms at 1769 traces/second).
-Use --verbosity=3 to show executions.
-Use --seed=0x5deb0dab4774bad6 --backend=rust to reproduce.
-error: Invariant violated
-exit=not measured (the output was piped through tail, which reported its own status)
-
-$ quint verify live_replica_gate.qnt --invariant=gateAlwaysLive,windowInsideRetention --max-steps=34
-State 33: Checking 1 state invariants                             I@10:00:55.569
-State 33: state invariant 0 holds.                                I@10:00:55.579
-State 33: Checking 1 state invariants                             I@10:00:55.644
-State 33: state invariant 0 holds.                                I@10:00:55.644
-State 33: Checking 1 state invariants                             I@10:00:55.773
-State 33: state invariant 0 holds.                                I@10:00:55.911
-Step 33: picking a transition out of 4 transition(s)              I@10:00:55.912
-State 34: Checking 1 state invariants                             I@10:00:55.962
-State 34: state invariant 0 holds.                                I@10:00:55.963
-State 34: Checking 1 state invariants                             I@10:00:56.175
-State 34: state invariant 0 holds.                                I@10:00:56.176
-State 34: Checking 1 state invariants                             I@10:00:56.228
-State 34: state invariant 0 holds.                                I@10:00:56.229
-State 34: Checking 1 state invariants                             I@10:00:56.628
-State 34: state invariant 0 holds.                                I@10:00:56.833
-Step 34: picking a transition out of 4 transition(s)              I@10:00:56.834
-The outcome is: NoError                                           I@10:00:56.838
-[ok] No violation found (11370ms).
-You may increase --max-steps.
-Use --verbosity to produce more (or less) output.
+exit=1
+=== CMD quint typecheck m8.qnt
 exit=0
+=== CMD quint run m8.qnt --invariant=gateAlwaysLive --max-steps=44 --max-samples=20000 --verbosity=1
+[violation] Found an issue (10ms at 1100 traces/second).
+Use --seed=0x327309fe6ae04966 --backend=rust to reproduce.
+error: Invariant violated
+exit=1
+=== CMD quint typecheck m9.qnt
+exit=0
+=== CMD quint run m9.qnt --invariant=gateAlwaysLive --max-steps=44 --max-samples=20000 --verbosity=1
+[violation] Found an issue (11ms at 2727 traces/second).
+Use --seed=0xfb1a73d4d7dfd7dd --backend=rust to reproduce.
+error: Invariant violated
+exit=1
+=== CMD quint verify live_replica_gate.qnt --invariant=gateAlwaysLive,windowInsideRetention --max-steps=44
+exit=0
+The outcome is: NoError                                           I@19:49:08.705
+[ok] No violation found (24821ms).
 
-note: the two runs above whose output is piped through tail report tail exit status; measured on their own, quint run on a violated invariant exits 1 (the tightness witness and the mutant), and every [ok] run exits 0.
+----------------------------------------------------------------------------
+
+An earlier round ran an earlier, single-setting model on the macOS host,
+outside this VM, which the project's host rule does not allow. Those runs are
+not part of this receipt, cover bytes that no longer exist, and support no
+claim.

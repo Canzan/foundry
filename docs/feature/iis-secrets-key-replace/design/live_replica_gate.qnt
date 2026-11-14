@@ -5,10 +5,9 @@
 // carry different FOUNDRY_INTEGRATIONS_RELOAD_MS settings: the window is a
 // constant, so the reading server's own setting cannot enter the judgement.
 //
-// NOT CHECKED YET. quint, java and apalache-mc are absent from the shared
-// Lima VM local-dev, the only environment this project runs tools in, so no
-// run of this file supports any claim. The design records the window claim as
-// Blocked until the toolchain is there and these invariants are checked.
+// Checked in the shared Lima VM local-dev, the only environment this project
+// runs tools in, through scripts/test-in-lima.sh; the receipt beside this file
+// records each command, its exit status and the sha256 of these bytes.
 module live_replica_gate {
   /// `BEAT_EVERY` of crates/foundry-app/src/integrations/reload.rs: how often
   /// a server beats its integration_replica_states row.
