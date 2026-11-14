@@ -41,7 +41,13 @@
 //! (a key that opens, a live server that still opens it, or no instance key
 //! read at all) it changes nothing and answers the instance page, as the
 //! replace door does. Its `POST`, which discards what it cannot open, lands
-//! with the typed confirmation and the live-replica gate read again inside the write.
+//! with the typed confirmation and the live-replica gate read again inside the
+//! write. Why the way out is withheld decides what that `POST` answers
+//! ([`ConfirmedStartOver`]): a live server that still opens the key is asked
+//! the cost again, while a state that offers no way out at all - a stored key
+//! this Foundry opens first among them - changes nothing and answers the
+//! instance page, so a tab left open never reads the discard-everything
+//! control on a Foundry whose key works.
 
 use super::instance::{
     answer, gate_of, ReadOnlyDoor, SavedNotice, MOVE_PATH, REPLACE_PATH, SECRETS_KEY_PATH,
@@ -53,7 +59,7 @@ use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::keys::{plan_generate, KeyMode};
 use crate::integrations::sealed_slot;
 use crate::integrations::secrets_key_rotation::{
-    ReplacePlan, StartOverConfirmation, StartOverPlan, UnopenableOffer,
+    ConfirmedStartOver, ReplacePlan, StartOverConfirmation, StartOverPlan, UnopenableOffer,
 };
 use crate::integrations::store_capabilities::{
     InstanceKeyWrites, KeyProbe, ResealRefused, StoreCapabilities,
@@ -381,8 +387,9 @@ pub struct StartOverForm {
 }
 
 /// What a start over answers: a committed one earns I-21 once; a wrong
-/// confirmation or a live replica asks the cost again; anywhere else the page
-/// stays as it is.
+/// confirmation, and a live replica that still opens the stored key, ask the
+/// cost again with nothing discarded; where the way out is not offered at all
+/// the instance page is answered as it is, with no cost asked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum StartOverAnswer {
     StartedOver,
@@ -393,8 +400,10 @@ enum StartOverAnswer {
 /// `POST /admin/instance/integrations/secrets-key/start-over`: the start over
 /// where the way out applies and the Confirmation is the words the page asked
 /// for. A wrong or empty Confirmation asks the cost again and changes
-/// nothing. A live replica that speaks again before the write, and a stored
-/// key that opens, also change nothing.
+/// nothing, and so does a live replica that speaks again before the write.
+/// Where starting over is not offered - a stored key this Foundry opens, the
+/// confirm posted from a tab left open on it - nothing changes and the
+/// instance page is answered, never the cost of a discard it would refuse.
 pub async fn start_over_secrets_key(
     State(state): State<AppState>,
     session: Session,
@@ -440,8 +449,10 @@ async fn started_over(
     let facts = ReadOnlyDoor::SecretsKeyStartOver
         .read(store, gate_of(state, &integrations))
         .await;
-    if !startable(&integrations, facts.live_opener) {
-        return StartOverAnswer::AskAgain;
+    match offered(&integrations, facts.live_opener).confirmed_post() {
+        ConfirmedStartOver::Applies => {}
+        ConfirmedStartOver::AsksAgain => return StartOverAnswer::AskAgain,
+        ConfirmedStartOver::NotOffered => return StartOverAnswer::Unchanged,
     }
     let settings = integrations.settings();
     let wrapped_by = settings.key_wrapper();
@@ -480,9 +491,11 @@ enum StartOverCost {
     /// Asked only where the way out applies on this server: the page the
     /// control opens, and the one a wrong Confirmation asks again.
     WhereOffered,
-    /// Asked whatever the replica gate now reads: the answer to a post the
-    /// write refused, because the refusal must not erase the question she was
-    /// reading.
+    /// The answer to a start over the live-replica gate refused, read at the
+    /// door or inside the write: asked whatever that gate now says, because
+    /// the refusal must not erase the question she was reading. Asked only
+    /// where that gate is what withholds the way out, so no refusal can draw
+    /// the cost of a discard this Foundry would not take (D8, L6).
     Again,
 }
 
@@ -490,8 +503,10 @@ impl StartOverCost {
     /// Whether the cost is asked, over the facts this door read.
     fn asked(self, integrations: &Integrations, live_opener: Option<bool>) -> bool {
         match self {
-            Self::WhereOffered => startable(integrations, live_opener),
-            Self::Again => true,
+            Self::WhereOffered => offered(integrations, live_opener).offers_start_over(),
+            Self::Again => {
+                UnopenableOffer::reads_gate(integrations.key_mode(), integrations.key_file())
+            }
         }
     }
 }
@@ -543,16 +558,17 @@ async fn start_over_page(
     )
 }
 
-/// Whether starting over is Priya's to take on this server: the same offer the
-/// page appends to I-26, over the key mode, the gate as it was read and the
-/// key file, so the door and the page cannot disagree (D5, D8, L6, L7).
-fn startable(integrations: &Integrations, live_opener: Option<bool>) -> bool {
+/// The offer this server makes on the way out of a stored secrets key: the
+/// same one the page appends to I-26, over the key mode, the gate as it was
+/// read and the key file. The page's link, the confirm page and the post read
+/// this one answer, so none of them can offer or carry out what another
+/// refuses (D5, D8, L6, L7).
+fn offered(integrations: &Integrations, live_opener: Option<bool>) -> UnopenableOffer {
     UnopenableOffer::of_gate(
         integrations.key_mode(),
         live_opener,
         integrations.key_file(),
     )
-    .offers_start_over()
 }
 
 /// Replace (US-IIS-07 AC 1): judged over the stored rows as they are at the

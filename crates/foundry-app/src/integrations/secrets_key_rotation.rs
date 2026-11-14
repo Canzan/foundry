@@ -2,7 +2,8 @@
 //! (US-IIS-07, D6): how many credentials a rotation touches and the words
 //! that say so ([`SavedCredentials`]), what the page offers while the stored
 //! key cannot be opened ([`UnopenableOffer`]) over the live-replica gate
-//! ([`LiveOpeners`]), the typed confirmation a start over cannot be applied
+//! ([`LiveOpeners`]) and what a confirmed start over does in each of those
+//! states ([`ConfirmedStartOver`]), the typed confirmation a start over cannot be applied
 //! without ([`StartOverConfirmation`]), and what a replacement
 //! ([`ReplacePlan`]) and a start over ([`StartOverPlan`]) store.
 //!
@@ -203,6 +204,20 @@ impl UnopenableOffer {
         matches!(self, Self::StartOver)
     }
 
+    /// What a confirmed start over does in this state (D8): the one place the
+    /// gate's refusal and a state that offers no way out at all are told
+    /// apart. A live server still opening the stored key is the one reason to
+    /// ask the cost again; everywhere else the way out is not this Foundry's
+    /// to offer, so the post changes nothing and answers the instance page,
+    /// exactly as the start-over page does.
+    pub fn confirmed_post(self) -> ConfirmedStartOver {
+        match self {
+            Self::StartOver => ConfirmedStartOver::Applies,
+            Self::RestoreOnlyLiveReplica => ConfirmedStartOver::AsksAgain,
+            Self::RestoreOnly => ConfirmedStartOver::NotOffered,
+        }
+    }
+
     /// Whether the replica gate decides anything in `mode` with the instance
     /// key file in `key_file`: the one owner of that fact, read beside
     /// [`Self::decide`], whose table it follows. Only a stored key no held key
@@ -228,6 +243,32 @@ impl UnopenableOffer {
             Self::StartOver | Self::RestoreOnly => None,
         }
     }
+}
+
+/// What a confirmed start over does, decided from [`UnopenableOffer`] alone
+/// and nowhere else (D8, L6, L7): the way out is carried out only where this
+/// Foundry offers it, the cost is asked again only where the live-replica gate
+/// is the reason it is withheld, and a state that offers no way out at all -
+/// a stored key this Foundry opens, I-27, I-31, nothing held to seal a new key
+/// with, a gate that could not be read - changes nothing and answers the
+/// instance integrations page.
+///
+/// Telling the last two apart is what keeps the discard-everything control off
+/// a page a healthy Foundry draws: a tab left open from a lost instance key
+/// that posts after the operator restored it is answered her own page, not the
+/// cost again with a live control on it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmedStartOver {
+    /// The way out applies here: the words she typed and the gate read again
+    /// inside the write are all that is left between her and the new key.
+    Applies,
+    /// Another live Foundry server still opens the stored key: nothing is
+    /// discarded, and the cost she was reading is asked again rather than
+    /// erased.
+    AsksAgain,
+    /// Starting over is not offered in this state: nothing is discarded and
+    /// nothing is asked.
+    NotOffered,
 }
 
 /// The I-28a Confirmation as she typed it, admitted (D6): the value exists
