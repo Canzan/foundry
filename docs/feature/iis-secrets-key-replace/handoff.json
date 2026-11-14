@@ -469,15 +469,15 @@
 "counters": {
 "B": 8,
 "C": 3,
-"D": 9,
+"D": 10,
 "E": 26,
-"F": 602,
+"F": 607,
 "K": 6,
 "L": 13,
 "N": 12,
 "P": 12,
 "S": 3,
-"T": 2,
+"T": 6,
 "Y": 11
 },
 "design": {
@@ -853,6 +853,10 @@
 {
 "id": "D9",
 "text": "F50"
+},
+{
+"id": "D10",
+"text": "F603"
 }
 ],
 "equality": [
@@ -2054,6 +2058,20 @@
 "stimulus": "F596"
 },
 "records": {
+"architectural_tests": [
+{
+"command": "scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation",
+"id": "T3",
+"obligation": "F604",
+"oracle": "crates/foundry-app/src/integrations/secrets_key_rotation.rs"
+},
+{
+"command": "scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation",
+"id": "T4",
+"obligation": "F605",
+"oracle": "crates/foundry-app/src/integrations/secrets_key_rotation.rs"
+}
+],
 "impact": [
 {
 "decision": "Changed",
@@ -2295,6 +2313,20 @@
 "stimulus": "F560"
 },
 "records": {
+"architectural_tests": [
+{
+"command": "scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation",
+"id": "T5",
+"obligation": "F606",
+"oracle": "crates/foundry-app/src/integrations/secrets_key_rotation.rs"
+},
+{
+"command": "scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation",
+"id": "T6",
+"obligation": "F607",
+"oracle": "crates/foundry-app/src/integrations/secrets_key_rotation.rs"
+}
+],
 "impact": [
 {
 "decision": "Changed",
@@ -3347,6 +3379,11 @@
 "F600": "m8: the window is three times the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, as D5 read before this correction.",
 "F601": "m9: the window is two beat intervals plus the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, as the first correction read it, so a server with a larger setting reads stale between its beats.",
 "F602": "Exhaustive model checking of both invariants of live_replica_gate.qnt with Apalache through quint verify in the shared Lima VM local-dev, bound 44 steps - the tight boundary of the 20 s writer falls at second 40 - outcome NoError, exit 0 in 25 s; bounded simulation of each invariant on its own at 44 steps and 20000 samples, exit 0; the tightness witness refuted as a counterexample to its own negation, exit 1, so gateAlwaysLive is not vacuous; and both mutants killed by counterexamples, exit 1 each: three times the reading server's own setting, and two beat intervals plus that setting. The claim is about the design, and the runtime is unbuilt: the executable projection of L12 over the exact admitted range and the acceptance run of a server read between two beats are owed by S2.",
+"F603": "Where each gate-window fact is observed, and who owns it. The page-reachable half of L12 belongs to the acceptance oracle: a fresh beat reads as a live opener, so Start over is withheld, and a beat older than the window reads as gone, so Start over is offered - the S2 run at the GET and the fifth S3 run at the POST. The rest of L12 and all of L13 are reachable through no page: the acceptance harness gives every server one FOUNDRY_INTEGRATIONS_RELOAD_MS and this design adds no seam for a second one, and the retention hour is on no page. They are observed where the window is decided, in the gate type's own test module beside LiveOpeners in crates/foundry-app/src/integrations/secrets_key_rotation.rs: the generated property over the writing server's setting, the reading server's setting and the beat age, and the finite table that compares the window with REPLICA_STATE_RETENTION. Both are declared architectural checks of S2 and of S3, and both are completion obligations of the gate's craft, the way the two halves of P3 are completion obligations of their own slice's verification; they run in the command those slices already carry, scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation. The acceptance designer owns neither run, writes no production test and adds no harness seam for them.",
+"F604": "The gate window is decided only by the gate type, from the beat cadence and the reload envelope, and never from a setting a call site supplies: LiveOpeners::at takes the clock alone. Over the writing server's setting, the reading server's setting and the beat age, generated together, the gate counts a row that says opens_secrets_key exactly while its beat is at most 40 s old: mixed settings in both directions, equal settings on both sides, a reader setting larger than the writer's, a beat ahead of the reading clock, and a row that says it does not open the key at every age, which never counts. No page can observe any of this: every server in the acceptance harness shares one FOUNDRY_INTEGRATIONS_RELOAD_MS and no seam is added for a second one.",
+"F605": "The gate window is the constant 40 s and never outlives the hour REPLICA_STATE_RETENTION keeps a replica state row for. The finite table crosses the settings at both ends of the admitted range with the two constants read where each is owned, reload.rs for the cadence and worker.rs for the retention, so neither is restated beside the gate. The retention hour is on no page, so no scenario can observe it.",
+"F606": "The gate window is decided only by the gate type, from the beat cadence and the reload envelope, and never from a setting a call site supplies: LiveOpeners::at takes the clock alone. Over the writing server's setting, the reading server's setting and the beat age, generated together, the gate counts a row that says opens_secrets_key exactly while its beat is at most 40 s old: mixed settings in both directions, equal settings on both sides, a reader setting larger than the writer's, a beat ahead of the reading clock, and a row that says it does not open the key at every age, which never counts. No page can observe any of this: every server in the acceptance harness shares one FOUNDRY_INTEGRATIONS_RELOAD_MS and no seam is added for a second one. The same gate type decides the window the POST re-reads inside its own locked transaction, so this projection covers the apply as well as the page.",
+"F607": "The gate window is the constant 40 s and never outlives the hour REPLICA_STATE_RETENTION keeps a replica state row for. The finite table crosses the settings at both ends of the admitted range with the two constants read where each is owned, reload.rs for the cadence and worker.rs for the retention, so neither is restated beside the gate. The retention hour is on no page, so no scenario can observe it. The window the POST re-reads is that same constant, so the bound holds for the apply as well as the page.",
 "F61": "show_instance parses the count out of the stored value; of_wire keeps answering None for anything it does not name.",
 "F62": "HTTP, the production axum router behind require_instance_admin with csrf_middleware and session_layer: GET and POST /admin/instance/integrations/secrets-key/replace, GET and POST /admin/instance/integrations/secrets-key/start-over, GET /admin/instance/integrations; and for the observed outcome GET /workspace/integrations and the CLI foundry doctor rotate-secrets. Everyone without the right reads the uniform 404.",
 "F63": "Postgres through foundry-store Store, reached by the StoreCapabilities trait: the two new locked write use-cases, instance_snapshot, replica_states, connected_slack_workspaces and the activity read.",

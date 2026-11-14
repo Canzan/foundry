@@ -62,6 +62,12 @@ The GET and POST of each door answer only where the door applies; anywhere else 
 Cross-layer algebra. Domain (keys.rs, secrets_key_rotation.rs): states KeyMode x the saved-credential count x the gate; operations plan a replacement or a start over and select copy; observations are the page offer, the chosen copy and the count; a plan is equal to another when it names the same key generation and the same slot decisions. Application/ports (handlers/instance.rs, store_capabilities.rs): operations are the two GETs and the two POSTs; outcomes are the page answered unchanged, a redirect with a notice, or a refusal that answers the confirm page again. Adapter (foundry-store instance.rs): operations are the two locked transactions; observations are the stored rows, the activity line and the config version; failures are the re-seal refusal, the compare-and-set loss and the database error, each rolling back. Infrastructure/recovery (reload.rs, worker.rs): operations are the reload and the delivery attempt; observations are applied_version, the key a replica holds and the delivery settlement; a credential no held key opens is SecretUnavailable settled by the backoff policy, never a loss and never an email.
 ```
 
+#### D10
+
+```text
+Where each gate-window fact is observed, and who owns it. The page-reachable half of L12 belongs to the acceptance oracle: a fresh beat reads as a live opener, so Start over is withheld, and a beat older than the window reads as gone, so Start over is offered - the S2 run at the GET and the fifth S3 run at the POST. The rest of L12 and all of L13 are reachable through no page: the acceptance harness gives every server one FOUNDRY_INTEGRATIONS_RELOAD_MS and this design adds no seam for a second one, and the retention hour is on no page. They are observed where the window is decided, in the gate type's own test module beside LiveOpeners in crates/foundry-app/src/integrations/secrets_key_rotation.rs: the generated property over the writing server's setting, the reading server's setting and the beat age, and the finite table that compares the window with REPLICA_STATE_RETENTION. Both are declared architectural checks of S2 and of S3, and both are completion obligations of the gate's craft, the way the two halves of P3 are completion obligations of their own slice's verification; they run in the command those slices already carry, scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation. The acceptance designer owns neither run, writes no production test and adds no harness seam for them.
+```
+
 ### Constraints
 
 #### K1
@@ -3396,7 +3402,29 @@ None.
 
 ##### Architectural tests
 
-None.
+###### T3
+
+```text
+The gate window is decided only by the gate type, from the beat cadence and the reload envelope, and never from a setting a call site supplies: LiveOpeners::at takes the clock alone. Over the writing server's setting, the reading server's setting and the beat age, generated together, the gate counts a row that says opens_secrets_key exactly while its beat is at most 40 s old: mixed settings in both directions, equal settings on both sides, a reader setting larger than the writer's, a beat ahead of the reading clock, and a row that says it does not open the key at every age, which never counts. No page can observe any of this: every server in the acceptance harness shares one FOUNDRY_INTEGRATIONS_RELOAD_MS and no seam is added for a second one.
+```
+
+crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs
+
+```text
+scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation
+```
+
+###### T4
+
+```text
+The gate window is the constant 40 s and never outlives the hour REPLICA_STATE_RETENTION keeps a replica state row for. The finite table crosses the settings at both ends of the admitted range with the two constants read where each is owned, reload.rs for the cadence and worker.rs for the retention, so neither is restated beside the gate. The retention hour is on no page, so no scenario can observe it.
+```
+
+crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs
+
+```text
+scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation
+```
 
 ##### Contract tests
 
@@ -3811,7 +3839,29 @@ None.
 
 ##### Architectural tests
 
-None.
+###### T5
+
+```text
+The gate window is decided only by the gate type, from the beat cadence and the reload envelope, and never from a setting a call site supplies: LiveOpeners::at takes the clock alone. Over the writing server's setting, the reading server's setting and the beat age, generated together, the gate counts a row that says opens_secrets_key exactly while its beat is at most 40 s old: mixed settings in both directions, equal settings on both sides, a reader setting larger than the writer's, a beat ahead of the reading clock, and a row that says it does not open the key at every age, which never counts. No page can observe any of this: every server in the acceptance harness shares one FOUNDRY_INTEGRATIONS_RELOAD_MS and no seam is added for a second one. The same gate type decides the window the POST re-reads inside its own locked transaction, so this projection covers the apply as well as the page.
+```
+
+crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs
+
+```text
+scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation
+```
+
+###### T6
+
+```text
+The gate window is the constant 40 s and never outlives the hour REPLICA_STATE_RETENTION keeps a replica state row for. The finite table crosses the settings at both ends of the admitted range with the two constants read where each is owned, reload.rs for the cadence and worker.rs for the retention, so neither is restated beside the gate. The retention hour is on no page, so no scenario can observe it. The window the POST re-reads is that same constant, so the bound holds for the apply as well as the page.
+```
+
+crates\/foundry\-app\/src\/integrations\/secrets\_key\_rotation\.rs
+
+```text
+scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation
+```
 
 ##### Contract tests
 
