@@ -782,3 +782,13 @@ async fn other_server_quiet(world: &mut FoundryWorld) {
 async fn other_server_speaks_again(world: &mut FoundryWorld) {
     iis::when_other_server_speaks_again(world).await;
 }
+
+#[given(
+    regex = r"^that second Foundry server has been quiet longer than the gap between its words, and not long enough to be gone$"
+)]
+#[when(
+    regex = r"^that second Foundry server has been quiet longer than the gap between its words, and not long enough to be gone$"
+)]
+async fn other_server_quiet_between_words(world: &mut FoundryWorld) {
+    iis::given_other_server_quiet_between_words(world).await;
+}

@@ -1247,6 +1247,31 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya's answer is this Foundry's integrations page
     And the stored secrets key and the Activity are as they were
 
+  # The same live server read in the quiet between two of its words: it speaks
+  # at a cadence of its own, so for most of the time between two words it is
+  # saying nothing at all while it keeps opening the stored key and serving
+  # every workspace with the credentials. How long that quiet may last is a
+  # fact about the server being judged, never about how often the server
+  # reading the page reloads its own integrations - the two are set apart, and
+  # a Foundry that measures the quiet by its own reload offers Priya a way to
+  # discard credentials a running server is using.
+  @us-iis-07 @iis-replica @error
+  Scenario: Between two words of that server, starting over is still not offered
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds one workspace connection and the Slack app Priya entered
+    And a second Foundry server on this database still opens the stored secrets key
+    And this Foundry has since restarted with a different instance key set by the operator
+    And that second Foundry server has been quiet longer than the gap between its words, and not long enough to be gone
+    When Priya opens the instance integrations page
+    Then Priya reads "This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry."
+    And Priya reads "Another Foundry server still opens the secrets key, so Start over is not offered."
+    And Priya is offered no way to start over
+    And Priya is not offered "Replace secrets key"
+    When Priya opens the start over page
+    Then Priya's answer is this Foundry's integrations page
+    And the stored secrets key and the Activity are as they were
+
   # The same database a moment later: that server is gone, so nothing it said
   # is current, and the way out is offered. What tells the two states apart is
   # how old its last word is, not that it ever said it.
@@ -1489,6 +1514,32 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     When Priya opens the start over page
     Then Priya reads "Start over with a new secrets key? The 2 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again."
     When that second Foundry server says again that it opens the stored secrets key
+    And Priya types "START OVER" and chooses "Start over" on the start over page
+    Then Priya is on the start over page
+    And nothing Priya reads there says "Secrets key generated."
+    And the stored secrets key and the Activity are as they were
+    When this Foundry restarts with the instance key it was sealed with
+    Then the instance integrations page reads "Secrets key: set. Credentials entered here are sealed with it."
+    And Canzan Labs' saved Slack connection still opens
+
+  # And the same confirm inside that server's own cadence: it spoke while Priya
+  # was reading, and between that word and its next one it says nothing while
+  # it keeps serving every workspace with the credentials this Foundry cannot
+  # open. The quiet she confirms in is longer than the gap between its words,
+  # so a Foundry that measures it by its own reload instead discards the
+  # credentials a running server is using - the one click nobody can take back.
+  @us-iis-07 @iis-replica @error
+  Scenario: A start over confirmed between two words of another Foundry server discards nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds one workspace connection and the Slack app Priya entered
+    And a second Foundry server on this database still opens the stored secrets key
+    And this Foundry has since restarted with a different instance key set by the operator
+    And that second Foundry server has said nothing for a minute
+    When Priya opens the start over page
+    Then Priya reads "Start over with a new secrets key? The 2 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again."
+    When that second Foundry server says again that it opens the stored secrets key
+    And that second Foundry server has been quiet longer than the gap between its words, and not long enough to be gone
     And Priya types "START OVER" and chooses "Start over" on the start over page
     Then Priya is on the start over page
     And nothing Priya reads there says "Secrets key generated."

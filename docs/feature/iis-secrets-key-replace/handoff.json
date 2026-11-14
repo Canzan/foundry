@@ -252,6 +252,67 @@
 "expected": "F443",
 "stimulus": "F442",
 "user_result": "F435"
+},
+{
+"covers": [
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L12",
+"L6"
+],
+"still_passes_if": "F611",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature::Between two words of that server, starting over is still not offered"
+},
+"expected": "F609",
+"stimulus": "F608",
+"user_result": "F610"
+},
+{
+"covers": [
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T3",
+"L12/F567",
+"L12/F568",
+"L12/F569",
+"L12/F570",
+"L12/F571",
+"L12/F572",
+"L12/F519",
+"L12/F520"
+],
+"still_passes_if": "F615",
+"test": "crates/foundry-app/src/integrations/secrets_key_rotation.rs::T3"
+},
+"expected": "F613",
+"stimulus": "F612",
+"user_result": "F614"
+},
+{
+"covers": [
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T4",
+"L13/F577",
+"L13/F578",
+"L13/F579",
+"L13/F580"
+],
+"still_passes_if": "F619",
+"test": "crates/foundry-app/src/integrations/secrets_key_rotation.rs::T4"
+},
+"expected": "F617",
+"stimulus": "F616",
+"user_result": "F618"
 }
 ],
 "S3": [
@@ -463,6 +524,66 @@
 "expected": "F505",
 "stimulus": "F504",
 "user_result": "F506"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L12"
+],
+"still_passes_if": "F623",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature::A start over confirmed between two words of another Foundry server discards nothing"
+},
+"expected": "F621",
+"stimulus": "F620",
+"user_result": "F622"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T5",
+"L12/F567",
+"L12/F568",
+"L12/F569",
+"L12/F570",
+"L12/F571",
+"L12/F572",
+"L12/F519",
+"L12/F520"
+],
+"still_passes_if": "F627",
+"test": "crates/foundry-app/src/integrations/secrets_key_rotation.rs::T5"
+},
+"expected": "F625",
+"stimulus": "F624",
+"user_result": "F626"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T6",
+"L13/F577",
+"L13/F578",
+"L13/F579",
+"L13/F580"
+],
+"still_passes_if": "F619",
+"test": "crates/foundry-app/src/integrations/secrets_key_rotation.rs::T6"
+},
+"expected": "F629",
+"stimulus": "F628",
+"user_result": "F630"
 }
 ]
 },
@@ -471,7 +592,7 @@
 "C": 3,
 "D": 10,
 "E": 26,
-"F": 607,
+"F": 630,
 "K": 6,
 "L": 13,
 "N": 12,
@@ -3384,9 +3505,32 @@
 "F605": "The gate window is the constant 40 s and never outlives the hour REPLICA_STATE_RETENTION keeps a replica state row for. The finite table crosses the settings at both ends of the admitted range with the two constants read where each is owned, reload.rs for the cadence and worker.rs for the retention, so neither is restated beside the gate. The retention hour is on no page, so no scenario can observe it.",
 "F606": "The gate window is decided only by the gate type, from the beat cadence and the reload envelope, and never from a setting a call site supplies: LiveOpeners::at takes the clock alone. Over the writing server's setting, the reading server's setting and the beat age, generated together, the gate counts a row that says opens_secrets_key exactly while its beat is at most 40 s old: mixed settings in both directions, equal settings on both sides, a reader setting larger than the writer's, a beat ahead of the reading clock, and a row that says it does not open the key at every age, which never counts. No page can observe any of this: every server in the acceptance harness shares one FOUNDRY_INTEGRATIONS_RELOAD_MS and no seam is added for a second one. The same gate type decides the window the POST re-reads inside its own locked transaction, so this projection covers the apply as well as the page.",
 "F607": "The gate window is the constant 40 s and never outlives the hour REPLICA_STATE_RETENTION keeps a replica state row for. The finite table crosses the settings at both ends of the admitted range with the two constants read where each is owned, reload.rs for the cadence and worker.rs for the retention, so neither is restated beside the gate. The retention hour is on no page, so no scenario can observe it. The window the POST re-reads is that same constant, so the bound holds for the apply as well as the page.",
+"F608": "A second Foundry server on the same database still opens the stored secrets key while this one cannot, and it is read in the quiet between two of its own words: longer than the gap it speaks at, and less than the time such a word counts as current for. The instance admin opens the instance integrations page and then the start over address.",
+"F609": "The restore words, followed by the sentence that another Foundry server still opens the secrets key so starting over is not offered, with no way to start over and no way to replace the key - exactly what she reads while that server has just spoken. The start over address answers this Foundry's integrations page, and the stored key, the Activity and the version every replica follows are as they were.",
 "F61": "show_instance parses the count out of the stored value; of_wire keeps answering None for anything it does not name.",
+"F610": "A running server that is simply between two of its words still counts as a server using the credentials, so she is never offered a way out that would discard what it is serving with.",
+"F611": "A gate that keeps the server live for longer than the whole window it should; this case only pins the quiet inside the window, and the stopped-server scenario is what refuses a window that never ends.",
+"F612": "The gate is asked whether a server whose own word says it opens the stored secrets key still counts as running, over the setting of the writing server, the setting of the reading server and the age of that word, generated together: settings mixed in both directions, equal settings on both sides, a reading setting larger than the writing one, a word dated ahead of the reading clock, and a word that says the server does not open the key at every age.",
+"F613": "Such a word counts exactly while it is at most two beat intervals plus the reload envelope old, whatever either setting is; a word that says the server does not open the key never counts at any age; and the answer is reached from the cadence and the envelope alone, with no setting handed to the gate.",
+"F614": "Whatever each of her Foundry servers is set to, she is withheld the way out while any of them is still using the credentials, and is offered it once none of them is.",
+"F615": "A gate that answers this range correctly while the page that offers the way out never asks it; the two page runs of this value are what refuse that.",
+"F616": "The time a word about opening the stored secrets key counts as current for is compared with the hour a server's record of itself is kept for, at both ends of the admitted range of the reload setting on either side, with the cadence and the retention read where each of them is owned.",
+"F617": "That time is the same length at every setting of every server and stays well inside the hour such a record is kept, so a word the gate would still count on can never have been forgotten first.",
+"F618": "She is never withheld the way out on the word of a server whose record of itself has already been swept away, at any setting of any of her servers.",
+"F619": "A time inside that hour that is nonetheless too short for the cadence a running server speaks at; the generated projection over the settings and the ages is what refuses that.",
 "F62": "HTTP, the production axum router behind require_instance_admin with csrf_middleware and session_layer: GET and POST /admin/instance/integrations/secrets-key/replace, GET and POST /admin/instance/integrations/secrets-key/start-over, GET /admin/instance/integrations; and for the observed outcome GET /workspace/integrations and the CLI foundry doctor rotate-secrets. Everyone without the right reads the uniform 404.",
+"F620": "This Foundry cannot open its stored secrets key and two saved credentials cannot be opened. The instance admin reads the way out while the second Foundry server of this database has been quiet long enough to be gone; that server speaks again, and she confirms with the typed confirmation in the quiet between that word and its next - longer than the gap it speaks at, and less than the time such a word counts as current for.",
+"F621": "Her confirm is answered the way out again, stating what starting over discards, with nothing claiming a secrets key was generated; the stored key, the Activity and the version every replica follows are as they were, and with the instance key set again the page reads the secrets key as set and her saved Slack connection still opens.",
+"F622": "The credentials a running server is still serving with are never discarded under it, not even when she confirms in the quiet between two of its words.",
+"F623": "A confirm refused for the wrong reason - a gate read only at the page she read, with her confirm refused by its own staleness; the scenario where that server speaks again after she read the page is what makes the confirm-time read the one that answers.",
+"F624": "The gate the confirm re-reads inside its own locked write is asked whether a server whose own word says it opens the stored secrets key still counts as running, over the setting of the writing server, the setting of the reading server and the age of that word, generated together: settings mixed in both directions, equal settings on both sides, a reading setting larger than the writing one, a word dated ahead of the reading clock, and a word that says the server does not open the key at every age.",
+"F625": "Such a word counts exactly while it is at most two beat intervals plus the reload envelope old, whatever either setting is; a word that says the server does not open the key never counts at any age; and the answer is reached from the cadence and the envelope alone, with no setting handed to the gate, for the confirm exactly as for the page.",
+"F626": "Whatever each of her Foundry servers is set to, her confirm never discards credentials a server is still using, and goes through once none of them is using them.",
+"F627": "A gate that answers this range correctly while the confirm asks it only at the page she read; the run where that server speaks again after she read the page is what refuses that.",
+"F628": "The time a word about opening the stored secrets key counts as current for, the same time the confirm re-reads it against, is compared with the hour a server's record of itself is kept for, at both ends of the admitted range of the reload setting on either side, with the cadence and the retention read where each of them is owned.",
+"F629": "That time is the same length at every setting of every server and stays well inside the hour such a record is kept, for the confirm as for the page, so a word the confirm would still refuse on can never have been forgotten first.",
 "F63": "Postgres through foundry-store Store, reached by the StoreCapabilities trait: the two new locked write use-cases, instance_snapshot, replica_states, connected_slack_workspaces and the activity read.",
+"F630": "Her confirm is never refused on the word of a server whose record of itself has already been swept away, at any setting of any of her servers.",
 "F64": "The instance key source (InstanceKeySource over the key file and the FOUNDRY_INSTANCE_KEY setting), unchanged.",
 "F65": "The clock, injected: every beat_at, the gate freshness judgement and every activity line take the caller clock, never now().",
 "F66": "The chat vendors through the existing delivery channels; no new outbound call.",

@@ -2984,10 +2984,36 @@ pub fn then_landing_address_plain(world: &FoundryWorld) {
 /// The question I-28 asks whatever the count is: read on its own page, with
 /// nothing discarded yet.
 const START_OVER_QUESTION: &str = "Start over with a new secrets key?";
+/// The cadence a running Foundry server speaks at: its own reload records
+/// what it opens once every beat interval, 10 s, whatever that server's
+/// integrations reload is set to. Stated once here, as every other duration of
+/// the gate is derived from it.
+const BEAT_INTERVAL: Duration = Duration::from_secs(10);
+/// The envelope every server of one Foundry keeps its integrations reload
+/// inside, 20 s: above it this feature's sixty-second figure is lost anyway.
+const RELOAD_ENVELOPE: Duration = Duration::from_secs(20);
+/// How long what a server last said about opening the stored secrets key still
+/// counts as current: two beat intervals plus that envelope. The longest gap a
+/// server inside the envelope can leave between two of its words is one beat
+/// interval plus its own reload, so this covers every mix of settings with a
+/// whole beat interval to spare - and it is the same length whatever the
+/// reading server's own reload is.
+const LIVE_WINDOW: Duration =
+    Duration::from_secs(2 * BEAT_INTERVAL.as_secs() + RELOAD_ENVELOPE.as_secs());
+/// How long a running server is quiet when it is read between two of its
+/// words: half that window, so it is well past the gap between its words and
+/// well inside the time it still counts as running.
+const QUIET_BETWEEN_WORDS: Duration = Duration::from_secs(LIVE_WINDOW.as_secs() / 2);
+const _: () = assert!(
+    QUIET_BETWEEN_WORDS.as_secs() > BEAT_INTERVAL.as_secs()
+        && QUIET_BETWEEN_WORDS.as_secs() < LIVE_WINDOW.as_secs(),
+    "a server read between two of its words is quiet longer than the gap between them and less \
+     than the time it counts as running for"
+);
 /// Long enough on a server's own clock that its reload beats its state row
-/// again (`BEAT_EVERY` is 10 s there), so what it last said about opening the
-/// stored secrets key is what it says now.
-const BEAT_WAIT: Duration = Duration::from_secs(15);
+/// again - half a beat interval past that cadence - so what it last said about
+/// opening the stored secrets key is what it says now.
+const BEAT_WAIT: Duration = Duration::from_secs(BEAT_INTERVAL.as_secs() * 3 / 2);
 /// The minute of a "a minute passes" step.
 const A_MINUTE: Duration = Duration::from_secs(60);
 /// How many beats recorded at `at` or later this scenario's running Foundry
@@ -3377,6 +3403,44 @@ pub async fn given_other_server_quiet_for_a_minute(world: &mut FoundryWorld) {
         "precondition: a second Foundry server of this database is running"
     );
     tm::harness(world).fake_clock.advance(A_MINUTE);
+}
+
+/// "that second Foundry server has been quiet longer than the gap between its
+/// words, and not long enough to be gone": what that server says is brought up
+/// to this Foundry's reading of the time, and then this Foundry alone moves on
+/// half the time such a word counts as current for. So the server is still
+/// running and still opening the stored secrets key, read in the quiet between
+/// two of its words - the one state a Foundry that measures the quiet against
+/// its own reload instead of the cadence of the server it judges reads as a
+/// server that is gone.
+pub async fn given_other_server_quiet_between_words(world: &mut FoundryWorld) {
+    use foundry_app::Clock as _;
+    assert!(
+        world.iis.other_server_running,
+        "precondition: a second Foundry server of this database is running, so the quiet this \
+         step makes is the quiet between two of its words and not a server that has stopped"
+    );
+    let now = tm::harness(world).fake_clock.now();
+    let spoke_at = match &world.iis.other_server {
+        Some(other) => {
+            let theirs = other.now();
+            if now > theirs {
+                other.fake_clock.advance((now - theirs).unsigned_abs());
+            }
+            other.now()
+        }
+        None => panic!("a second Foundry server of this database is running"),
+    };
+    await_beats(world, spoke_at, 1, true).await;
+    // Only this Foundry moves on, so that word ages by exactly that much while
+    // the server that said it keeps running and keeps the credentials open.
+    let reading_now = tm::harness(world).fake_clock.now();
+    let read_at = spoke_at + QUIET_BETWEEN_WORDS;
+    if read_at > reading_now {
+        tm::harness(world)
+            .fake_clock
+            .advance((read_at - reading_now).unsigned_abs());
+    }
 }
 
 /// "that second Foundry server says again that it opens the stored secrets
