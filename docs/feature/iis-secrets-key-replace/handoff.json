@@ -447,6 +447,22 @@
 "expected": "F490",
 "stimulus": "F489",
 "user_result": "F491"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6"
+],
+"still_passes_if": "F507",
+"test": "crates/foundry-acceptance/tests/features/instance-integration-setup.feature:1375 While this Foundry opens its secrets key, a start over confirmed from a tab left open changes nothing"
+},
+"expected": "F505",
+"stimulus": "F504",
+"user_result": "F506"
 }
 ]
 },
@@ -455,7 +471,7 @@
 "C": 3,
 "D": 9,
 "E": 26,
-"F": 503,
+"F": 507,
 "K": 5,
 "L": 11,
 "N": 7,
@@ -3030,6 +3046,10 @@
 "F501": "Replica 2 (a second server on the same database, never restarted) directly after the replacement: GET /admin/instance/integrations answers 200 with \"Secrets key: set\" and the replacement Activity line; GET /workspace/integrations answers 200 with Slack connected; and a Slack event signed with the saved Slack app planted signing secret, sent to replica 2, is accepted with 200 and the echoed challenge. Replica 2 therefore opens the re-sealed Slack app credential without a restart.",
 "F502": "Capture limit of the admitted public probe. The probe admits one command, examine-foundry. Its states are secrets-key-no-slack, instance-key-no-secrets-key, env-slack-no-secrets-key, slack-app-saved, slack-connected, slack-connected-three, env-slack-connected, slack-app-awaiting-confirm and slack-delivery-pending. None of them has a stored secrets key this server cannot open (I-26) or an unreadable instance key file (I-31); none has a Matrix connection or a Matrix bot token; no verb makes a re-seal fail, stops or revives a replica heartbeat, or runs the CLI foundry doctor rotate-secrets. The start-over condition, the live-server sentence, the I-31 page, the failed re-seal, every Matrix leg and the CLI rotation could not be put on stage at all.",
 "F503": "Probe state slack-connected: the stored secrets key opens and this Foundry opens both saved credentials (proved in the same run by the replacement that re-sealed 2 of them). GET /admin/instance/integrations/secrets-key/start-over answered the instance integrations page and changed nothing. But POST /admin/instance/integrations/secrets-key/start-over with confirmation=START OVER answered HTTP 200 with the page titled \"Start over with a new secrets key?\", carrying the field text \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\", a Confirmation input, a \"Start over\" button, and the sentence \"Start over with a new secrets key? The 2 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.\" The number of credentials this Foundry cannot open was 0, so the sentence states a false count to the user. Nothing changed: no Activity line, the Slack app still saved, \"Replace secrets key\" still offered.",
+"F504": "While this Foundry cannot open its stored secrets key, the instance admin opens the start-over page and reads its cost. An instance operator then restores the instance key the stored key was sealed with and restarts Foundry, so the stored key and the 2 saved credentials open again. From the tab she left open she confirms the start over with the Confirmation typed as START OVER.",
+"F505": "The confirm is answered with this Foundry's own integrations page. Nothing she reads there asks the start-over cost question, and no way to start over is offered. The stored secrets key, the Activity and the version every replica follows are as they were, her saved Slack connection still opens, and the saved Slack app keeps its secrets and its activity.",
+"F506": "A confirm kept in an open tab cannot discard the credentials this Foundry can open again: the admin lands back on her integrations page with every connection and the saved Slack app intact, and is offered no way to discard them.",
+"F507": "A Foundry that answers its own integrations page here because it refuses every start-over confirm whose form it did not draw in this request (a one-shot form token), rather than because the stored secrets key opens on this server.",
 "F51": "The locked copy of instance-integration-setup DISCUSS, exact words, with no form invented: I-23 in its n >= 2, n = 1 and n = 0 forms; I-24 in its n >= 2, n = 1 and n = 0 forms; I-28 in its n >= 2, n = 1 and n = 0 forms; I-28a \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\"; the sentence appended to I-26 while another live server still opens the key, \"Another Foundry server still opens the secrets key, so Start over is not offered.\"; I-21 as the answer of a successful start over; and the two Deliverable B I-18 lines \"{date} - {name} replaced the secrets key ({n} credentials sealed again)\" and \"{date} - {name} started over with a new secrets key ({n} credentials discarded)\".",
 "F52": "The count n is the I-22 counting rule the store already applies: each connection credential one, the saved Slack app one however many of its secrets are sealed; the app held for its confirm is re-sealed with the rest and counted with the app. The authority states no upper bound on the number of credentials, and none is introduced: both writes walk every stored sealed row under FOR UPDATE.",
 "F53": "The typed confirmation is admitted only as the exact text START OVER after surrounding whitespace is trimmed, case-sensitive; an empty, lower-case or otherwise different value answers I-28 again and changes nothing. The authority fixes the words and not the trimming, so the trimming is a design choice, narrower than a free-text field and wider than a byte-exact comparison.",

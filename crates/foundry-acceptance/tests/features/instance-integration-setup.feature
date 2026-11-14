@@ -1365,6 +1365,30 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Canzan Labs' saved Slack connection still opens
     And the Slack app 6123456789012.7234567890123 is still in effect, with its secrets and its activity unchanged
 
+  # The same door with the words already typed in it: Priya read the cost while
+  # the instance key was lost, the operator found the backup and restarted, and
+  # the tab she left open confirms. The credentials this Foundry opens again
+  # are nobody's to discard, so the door answers her own page - and a Foundry
+  # that asks the cost again instead hands her a live way to discard every
+  # credential it can open, which is the one click she cannot take back.
+  @us-iis-07 @error
+  Scenario: While this Foundry opens its secrets key, a start over confirmed from a tab left open changes nothing
+    Given this Foundry starts with its instance key set by the operator
+    And Priya has generated the secrets key
+    And this Foundry holds one workspace connection and the Slack app Priya entered
+    And this Foundry has since restarted with a different instance key set by the operator
+    And a minute passes
+    When Priya opens the start over page
+    Then Priya reads "Start over with a new secrets key? The 2 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again."
+    When this Foundry restarts with the instance key it was sealed with
+    And Priya types "START OVER" and chooses "Start over" on the start over page
+    Then Priya's answer is this Foundry's integrations page
+    And nothing Priya reads there says "Start over with a new secrets key?"
+    And Priya is offered no way to start over
+    And the stored secrets key and the Activity are as they were
+    And Canzan Labs' saved Slack connection still opens
+    And the Slack app 6123456789012.7234567890123 is still in effect, with its secrets and its activity unchanged
+
   # ------------------------------- the start over Priya confirms (B)
 
   # No backup of the instance key exists, so the 3 credentials this Foundry

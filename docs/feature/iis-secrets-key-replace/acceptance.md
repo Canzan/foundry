@@ -811,6 +811,35 @@ A start over that leaves the credentials of the replaced key readable: everythin
 
 
 
+##### Covers
+
+P8
+
+```text
+While this Foundry cannot open its stored secrets key, the instance admin opens the start-over page and reads its cost. An instance operator then restores the instance key the stored key was sealed with and restarts Foundry, so the stored key and the 2 saved credentials open again. From the tab she left open she confirms the start over with the Confirmation typed as START OVER.
+```
+
+```text
+The confirm is answered with this Foundry's own integrations page. Nothing she reads there asks the start-over cost question, and no way to start over is offered. The stored secrets key, the Activity and the version every replica follows are as they were, her saved Slack connection still opens, and the saved Slack app keeps its secrets and its activity.
+```
+
+```text
+A confirm kept in an open tab cannot discard the credentials this Foundry can open again: the admin lands back on her integrations page with every connection and the saved Slack app intact, and is offered no way to discard them.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-integration\-setup\.feature\:1375 While this Foundry opens its secrets key\, a start over confirmed from a tab left open changes nothing
+
+```text
+A Foundry that answers its own integrations page here because it refuses every start-over confirm whose form it did not draw in this request (a one-shot form token), rather than because the stored secrets key opens on this server.
+```
+
+###### Obligations
+
+
 ## Expectations
 
 ### Rows
