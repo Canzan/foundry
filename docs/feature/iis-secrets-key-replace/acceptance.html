@@ -631,6 +631,39 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 
 
+<h5>Covers</h5>
+
+<p>P6</p>
+
+<pre><code>The setting that says how often a Foundry server reloads its integrations is read the way a server reads it as it boots, over everything a deployment can leave in it, generated: nothing at all, something that is not a whole number of milliseconds, zero, one, every value up to twenty seconds, twenty seconds itself, the first value past it, a minute, and the largest number there is.
+</code></pre>
+
+<pre><code>Every value up to twenty seconds inclusive is admitted and read as given, with nothing in the setting read as the five-second default and zero read as one millisecond. Every value above twenty seconds is refused where the setting is read, with no settings value produced at all, so the server refuses to start instead of serving, and the refusal names the setting, the value it read and the bound. Something that is not a whole number is still refused as that and not as one out of range. The admitted and refused sets are worked out from the bound itself, not from what the read answers.
+</code></pre>
+
+<pre><code>No operator can leave her Foundry serving with a reload so slow that its own running servers look gone to one another and she is offered a way out that would discard the credentials they are still serving with: such a setting stops the server as it starts and says what to set instead.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-app/tests/iis_secrets_key_bound.rs::the_reload_setting_is_admitted_only_up_to_the_envelope</p>
+
+<pre><code>A refusal whose words differ from the admitted range the operator documentation states: this check reads the setting, the value and the bound in the refusal but pins none of the surrounding prose, so review and the examiner are what refuse that.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+
+
+
+
+
+
 <h3>S3</h3>
 
 <h5>Covers</h5>

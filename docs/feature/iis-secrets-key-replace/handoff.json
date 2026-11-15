@@ -313,6 +313,30 @@
 "expected": "F617",
 "stimulus": "F616",
 "user_result": "F618"
+},
+{
+"covers": [
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T7",
+"L14",
+"L14/F636",
+"L14/F637",
+"L14/F638",
+"L14/F639",
+"L14/F640",
+"L14/F641",
+"L14/F642"
+],
+"still_passes_if": "F674",
+"test": "crates/foundry-app/tests/iis_secrets_key_bound.rs::the_reload_setting_is_admitted_only_up_to_the_envelope"
+},
+"expected": "F672",
+"stimulus": "F671",
+"user_result": "F673"
 }
 ],
 "S3": [
@@ -592,7 +616,7 @@
 "C": 3,
 "D": 12,
 "E": 26,
-"F": 670,
+"F": 674,
 "K": 6,
 "L": 14,
 "N": 14,
@@ -3675,6 +3699,10 @@
 "F669": "the setting's text over the whole numeric range a u64 admits - 0, 1, every value up to and past 20000, u64::MAX - with the unset case and a non-numeric value, read through the same environment-map door a server boots with.",
 "F67": "Inward: the axum handlers depend on crates/foundry-app/src/integrations/secrets_key_rotation.rs and keys.rs, which depend on foundry-auth secret_box and on the foundry-store types; the domain modules call no handler and no store adapter, and the store never calls back into the app. The new re-seal closures stay inside the integrations module, as check-arch integrations-secret-seam requires.",
 "F670": "The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is checked where the setting is read: over the setting's text - unset, a non-numeric value, 0, 1, every value up to and past 20000, and u64::MAX, generated - every value to 20000 is admitted, 0 reads as 1 ms, unset reads as 5000, and every larger value is refused with an error naming the setting, the value and the bound, in the shape of the MIN_LEASE_SECONDS check at crates/foundry-app/src/integrations/config.rs:140. The acceptance designer writes it as the generated test the_reload_setting_is_admitted_only_up_to_the_envelope in crates/foundry-app/tests/iis_secrets_key_bound.rs, driving the public IntegrationSettings::from_lookup at config.rs:250 with its own environment lookup, as eip_phase5_doors.rs:40 does; it is RED before the craft because 20001 and 60000 are admitted today. No page can observe this and no scenario is needed: the refusal happens where from_lookup reads the setting, before anything serves, and crates/foundry-app/src/main.rs:347 already refuses to start on any config error.",
+"F671": "The setting that says how often a Foundry server reloads its integrations is read the way a server reads it as it boots, over everything a deployment can leave in it, generated: nothing at all, something that is not a whole number of milliseconds, zero, one, every value up to twenty seconds, twenty seconds itself, the first value past it, a minute, and the largest number there is.",
+"F672": "Every value up to twenty seconds inclusive is admitted and read as given, with nothing in the setting read as the five-second default and zero read as one millisecond. Every value above twenty seconds is refused where the setting is read, with no settings value produced at all, so the server refuses to start instead of serving, and the refusal names the setting, the value it read and the bound. Something that is not a whole number is still refused as that and not as one out of range. The admitted and refused sets are worked out from the bound itself, not from what the read answers.",
+"F673": "No operator can leave her Foundry serving with a reload so slow that its own running servers look gone to one another and she is offered a way out that would discard the credentials they are still serving with: such a setting stops the server as it starts and says what to set instead.",
+"F674": "A refusal whose words differ from the admitted range the operator documentation states: this check reads the setting, the value and the bound in the refusal but pins none of the surrounding prose, so review and the examiner are what refuse that.",
 "F68": "The re-seal closure cannot open a stored sealed value, or cannot seal it again under the new key.",
 "F69": "The transaction is rolled back, the old key stays in effect, every credential still opens, no activity line is written, no version bump, and the confirm page is answered again with no I-24 anywhere.",
 "F7": "GET /admin/instance/integrations Activity shows the I-18 lines \"{date} - {name} replaced the secrets key ({n} credentials sealed again)\" and \"{date} - {name} started over with a new secrets key ({n} credentials discarded)\".",

@@ -545,6 +545,43 @@ A time inside that hour that is nonetheless too short for the cadence a running 
 
 
 
+##### Covers
+
+P6
+
+```text
+The setting that says how often a Foundry server reloads its integrations is read the way a server reads it as it boots, over everything a deployment can leave in it, generated: nothing at all, something that is not a whole number of milliseconds, zero, one, every value up to twenty seconds, twenty seconds itself, the first value past it, a minute, and the largest number there is.
+```
+
+```text
+Every value up to twenty seconds inclusive is admitted and read as given, with nothing in the setting read as the five-second default and zero read as one millisecond. Every value above twenty seconds is refused where the setting is read, with no settings value produced at all, so the server refuses to start instead of serving, and the refusal names the setting, the value it read and the bound. Something that is not a whole number is still refused as that and not as one out of range. The admitted and refused sets are worked out from the bound itself, not from what the read answers.
+```
+
+```text
+No operator can leave her Foundry serving with a reload so slow that its own running servers look gone to one another and she is offered a way out that would discard the credentials they are still serving with: such a setting stops the server as it starts and says what to set instead.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-app\/tests\/iis\_secrets\_key\_bound\.rs\:\:the\_reload\_setting\_is\_admitted\_only\_up\_to\_the\_envelope
+
+```text
+A refusal whose words differ from the admitted range the operator documentation states: this check reads the setting, the value and the bound in the refusal but pins none of the surrounding prose, so review and the examiner are what refuse that.
+```
+
+###### Obligations
+
+
+
+
+
+
+
+
+
+
 ### S3
 
 ##### Covers
