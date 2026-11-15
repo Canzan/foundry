@@ -616,7 +616,7 @@
 "C": 3,
 "D": 12,
 "E": 26,
-"F": 697,
+"F": 720,
 "K": 6,
 "L": 14,
 "N": 14,
@@ -2789,156 +2789,152 @@
 "examination": {
 "E1": {
 "observations": [
-"F675"
+"F698"
 ],
 "verdict": "met"
 },
 "E10": {
 "observations": [
-"F682"
+"F705"
 ],
 "verdict": "met"
 },
 "E11": {
 "observations": [
-"F684"
+"F706"
 ],
 "verdict": "met"
 },
 "E12": {
 "observations": [
-"F685"
+"F707",
+"F708"
 ],
 "verdict": "met"
 },
 "E14": {
 "observations": [
-"F686"
+"F709"
 ],
 "verdict": "met"
 },
 "E15": {
 "observations": [
-"F687",
-"F688",
-"F685"
+"F710"
 ],
 "verdict": "met"
 },
 "E16": {
 "observations": [
-"F687"
+"F711"
 ],
 "verdict": "met"
 },
 "E17": {
-"reason": "F696",
-"verdict": "not_examined"
+"observations": [
+"F712"
+],
+"verdict": "met"
 },
 "E18": {
 "observations": [
-"F689",
-"F687"
+"F713"
 ],
 "verdict": "met"
 },
 "E19": {
 "observations": [
-"F690"
+"F714"
 ],
 "verdict": "met"
 },
 "E2": {
 "observations": [
-"F676"
+"F699"
 ],
 "verdict": "met"
 },
 "E20": {
 "observations": [
-"F691",
-"F685"
+"F715",
+"F708"
 ],
 "verdict": "met"
 },
 "E21": {
 "observations": [
-"F690"
+"F714"
 ],
 "verdict": "met"
 },
 "E22": {
 "observations": [
-"F692"
+"F716"
 ],
 "verdict": "met"
 },
 "E23": {
 "observations": [
-"F693"
+"F717"
 ],
 "verdict": "met"
 },
 "E24": {
-"reason": "F697",
+"reason": "F720",
 "verdict": "not_examined"
 },
 "E25": {
 "observations": [
-"F690",
-"F689",
-"F692",
-"F687"
+"F713",
+"F714",
+"F716"
 ],
 "verdict": "met"
 },
 "E26": {
 "observations": [
-"F694"
+"F718"
 ],
 "verdict": "met"
 },
 "E3": {
 "observations": [
-"F677"
+"F700"
 ],
 "verdict": "met"
 },
 "E4": {
 "observations": [
-"F678"
+"F701"
 ],
 "verdict": "met"
 },
 "E5": {
 "observations": [
-"F679",
-"F680"
+"F702"
 ],
 "verdict": "met"
 },
 "E6": {
 "observations": [
-"F681",
-"F682"
+"F703"
 ],
 "verdict": "met"
 },
 "E7": {
 "observations": [
-"F683"
+"F704"
 ],
 "verdict": "met"
 },
 "E8": {
 "observations": [
-"F680",
-"F679"
+"F702"
 ],
 "verdict": "met"
 },
 "E9": {
-"reason": "F695",
+"reason": "F719",
 "verdict": "not_examined"
 }
 },
@@ -3667,35 +3663,35 @@
 "F672": "Every value up to twenty seconds inclusive is admitted and read as given, with nothing in the setting read as the five-second default and zero read as one millisecond. Every value above twenty seconds is refused where the setting is read, with no settings value produced at all, so the server refuses to start instead of serving, and the refusal names the setting, the value it read and the bound. Something that is not a whole number is still refused as that and not as one out of range. The admitted and refused sets are worked out from the bound itself, not from what the read answers.",
 "F673": "No operator can leave her Foundry serving with a reload so slow that its own running servers look gone to one another and she is offered a way out that would discard the credentials they are still serving with: such a setting stops the server as it starts and says what to set instead.",
 "F674": "A refusal whose words differ from the admitted range the operator documentation states: this check reads the setting, the value and the bound in the refusal but pins none of the surrounding prose, so review and the examiner are what refuse that.",
-"F675": "With a secrets key that opens, GET /admin/instance/integrations reads \"Secrets key: set. Credentials entered here are sealed with it.\" and directly below it the action \"Replace secrets key\", linking to /admin/instance/integrations/secrets-key/replace. Captured in the probe states secrets-key-no-slack, slack-app-saved, three-credentials-key-opens, three-credentials-one-damaged and slack-delivery-pending, all as the instance admin Priya Raman.",
-"F676": "GET /admin/instance/integrations/secrets-key/replace, title \"Replace the secrets key?\", carried a \"Replace secrets key\" button (form POST /admin/instance/integrations/secrets-key/replace) and exactly one count sentence in each state: with 3 saved credentials \"Replace the secrets key? Foundry seals its 3 saved credentials again under a new key. Nobody needs to reconnect.\"; with 2 saved credentials the same sentence with 2; with 1 saved credential \"Replace the secrets key? Foundry seals its 1 saved credential again under a new key. Nobody needs to reconnect.\"; with none \"Replace the secrets key? This Foundry has no saved credentials yet, so nothing needs to be sealed again.\"",
-"F677": "Two consecutive GETs of the replace confirm page returned byte-identical pages, and the next GET /admin/instance/integrations was identical to the one before them: no notice, the same Activity lines (\"saved the Slack app\", \"generated the secrets key\"), the Slack app and connections unchanged, and the later POST still counted the same credentials. Observed with 0 credentials and with 3 credentials.",
-"F678": "POST /admin/instance/integrations/secrets-key/replace answered at final-url https://foundry.example.org/admin/instance/integrations with the notice read once at the top of that page: \"Replaced. 3 saved credentials are sealed under the new key.\" (3 credentials), \"Replaced. 2 saved credentials are sealed under the new key.\" (2), \"Replaced. 1 saved credential is sealed under the new key.\" (1), and \"Replaced. This Foundry has a new secrets key.\" (none).",
-"F679": "Credential opening after the replacement, with a negative control. A Slack event signed with a secret the saved Slack app does not hold answered 401 Unauthorized, both before and after the replacement; a Slack event signed with the saved signing secret answered 200 OK with the challenge, both before and after the replacement, so Foundry opened the saved credential under the new key. In the slack-delivery-pending state the Slack delivery of issue AUTH-2 was waiting; after the replacement the Slack double received chat.postMessage team=Canzan Labs channel=C0AUTHDEV text=AUTH-2 Expire the old sessions, so the workspace bot token also opened under the new key. No person reconnected anything and no page asked anybody to.",
 "F68": "The re-seal closure cannot open a stored sealed value, or cannot seal it again under the new key.",
-"F680": "After the replacement both running replicas, on one database and with no restart, read every saved credential as usable: GET /workspace/integrations on replica 1 and on replica 2 read \"Connected to Canzan Labs (canzanlabs.slack.com)\" and, for Omar, \"Connected to Ops Guild (opsguild.slack.com)\", with no unopenable wording anywhere; replica 2 read the route as \"#auth-dev - Delivering - last delivery 13:57\". The same pages do carry an unopenable rendering when it applies: under the unopenable key they read \"Slack: saved, but this Foundry cannot read it (see the secrets key above).\"",
-"F681": "A reload of GET /admin/instance/integrations after the replacement read the page with no notice at all, and the Activity held exactly one replacement line. Observed after the 3-credential replacement and after the no-credential replacement.",
-"F682": "Activity lines read on GET /admin/instance/integrations: \"15 Nov 2026 - Priya Raman replaced the secrets key (3 credentials sealed again)\", the same line with \"(1 credential sealed again)\" and with \"(0 credentials sealed again)\", and \"15 Nov 2026 - Priya Raman started over with a new secrets key (3 credentials discarded)\". Each line carries the date and the name of the person who acted. The page prints the date and the name separated by a middle dot.",
-"F683": "Refused re-seal (state three-credentials-one-damaged, one stored credential damaged by one byte). The confirm page read the 3-credential sentence; POST /admin/instance/integrations/secrets-key/replace answered the same confirm page again with no notice; GET /admin/instance/integrations afterwards was unchanged - \"Secrets key: set.\", no \"Replaced.\" notice, Activity still only \"saved the Slack app\" and \"generated the secrets key\", no replacement line; a Slack event signed with the saved signing secret still answered 200 OK, so the key in effect before was still in effect, and both workspace pages still read their connections.",
-"F684": "With the stored secrets key unopenable and no running replica that opens it, GET /admin/instance/integrations read \"This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry.\" and immediately after it the action \"Start over\" linking to /admin/instance/integrations/secrets-key/start-over. The page offered no \"Replace secrets key\" link and no replace form.",
-"F685": "With a second replica still running that opens the stored secrets key, GET /admin/instance/integrations read the same restore notice and then \"Another Foundry server still opens the secrets key, so Start over is not offered.\", with no Start over link and no Replace secrets key link. GET /admin/instance/integrations/secrets-key/start-over answered that same instance page. POST /admin/instance/integrations/secrets-key/start-over with confirmation START OVER answered the start-over cost page again, and the instance page afterwards was unchanged: the key still unopenable, Activity still only \"saved the Slack app\" and \"generated the secrets key\", so the live-opener gate is checked inside the POST as well.",
-"F686": "Under the unopenable stored secrets key, GET and POST /admin/instance/integrations/secrets-key/replace both answered the instance integrations page carrying the restore notice, and the page after them was unchanged: still unopenable, no \"Replaced.\" notice, no new Activity line. Under the unreadable instance key file, GET and POST of the same route likewise answered the instance integrations page carrying the unreadable-file message with nothing changed.",
-"F687": "GET /admin/instance/integrations/secrets-key/start-over, answered only while the stored secrets key cannot be opened and no running replica opens it, had the title \"Start over with a new secrets key?\" and read \"Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.\", the field text \"Type START OVER to confirm that no Foundry server of an earlier release is still running.\" and a form POST /admin/instance/integrations/secrets-key/start-over with the single text field confirmation and the button Start over.",
-"F688": "The start-over page was withheld in every condition but the one it names. With a secrets key that opens, GET /admin/instance/integrations/secrets-key/start-over answered the instance integrations page; with a live replica that opens the key it answered the instance integrations page with the live-server sentence; with the instance key file unreadable it answered the instance integrations page with the unreadable-file message.",
-"F689": "GET of the start-over page changed nothing a user can see: the next GET /admin/instance/integrations was identical to the one before it - same restore notice, same Start over action, same Activity, the stored key still unopenable and the later POST still counting 3 credentials to discard.",
 "F69": "The transaction is rolled back, the old key stays in effect, every credential still opens, no activity line is written, no version bump, and the confirm page is answered again with no I-24 anywhere.",
-"F690": "POST /admin/instance/integrations/secrets-key/start-over with confirmation START OVER answered at final-url https://foundry.example.org/admin/instance/integrations, which read once \"Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.\", then \"Secrets key: set. Credentials entered here are sealed with it.\", \"Slack: not set up. Create the Foundry Slack app in Slack from the manifest below, then enter its credentials.\" with the Save Slack app form, \"Matrix: ready. Workspace admins connect their own Matrix bot on their workspace integrations page.\", and the Activity line \"15 Nov 2026 - Priya Raman started over with a new secrets key (3 credentials discarded)\". A reload of that address read the page with no notice.",
-"F691": "A POST of the start-over form with the confirmation left empty, and a POST with the confirmation typed \"start over\", each answered the start-over cost page again with the same 3-credential sentence and the same Confirmation field; GET /admin/instance/integrations afterwards was unchanged - the stored secrets key still unopenable, no new key, Activity still only \"saved the Slack app\" and \"generated the secrets key\", and no \"Secrets key generated.\" notice anywhere.",
-"F692": "After the start-over, GET /workspace/integrations of Canzan Labs read no discarded connection as connected: the Slack section read \"Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once.\" with the links \"How to set up Slack\" and \"Set up integrations for this Foundry\", and the Matrix section read the Connect Matrix form with the fields Homeserver and Bot access token. After the instance admin entered the Slack app again on the instance page (\"Saved. Workspace admins can now choose Add to Slack.\"), the same workspace page offered \"Add to Slack\". The page used no sentence with the words reconnect or re-enter, and the workspace Activity still read \"15 Nov 2026 - Priya Raman connected Slack (Canzan Labs)\" with no line saying the connection was discarded.",
-"F693": "CLI foundry doctor rotate-secrets. After the 3-credential replacement it exited 0 and printed \"rotate-secrets: 0 credential(s) sealed again under key 237c526268bc8a62\"; afterwards a Slack event signed with the saved signing secret still answered 200 OK while one signed with another secret answered 401, and GET /admin/instance/integrations still read \"Secrets key: set.\" with no unopenable notice. After the start-over it also exited 0. In a state where Foundry keeps its own instance key file it exited 2 with \"foundry doctor rotate-secrets: FOUNDRY_INSTANCE_KEY is not set, and FOUNDRY_SECRETS_KEY is not set; set the new instance key first\", a precondition of the CLI and not an effect of the replacement. After the rotate only the saved Slack app credential was exercised; the two Slack connection tokens were only read as connected.",
-"F694": "While this Foundry cannot read its instance key file, GET /admin/instance/integrations read in the place of the instance key line \"This Foundry cannot read its instance key file (/tmp/examine-foundry-data/instance.key). Slack and Matrix are paused until it can. An instance operator restores the file from backup, or sets FOUNDRY_INSTANCE_KEY, and restarts Foundry.\" The page carried no secrets key line, none of the words of the notice that the stored secrets key cannot be opened, no Replace secrets key link, no Start over link and no sentence about another Foundry server. GET of the start-over route answered that same page. The Slack and Matrix status lines still read \"saved, but this Foundry cannot read it (see the secrets key above)\" and \"Matrix: needs the secrets key (above)\" although no secrets key line stands above them.",
-"F695": "The Slack half holds on my observations (O6, O7, O8): after the replacement no page read a connection as lost, the waiting delivery of AUTH-2 reached #auth-dev, and the mail double held only the two invitation mails. The Matrix half could not be examined: the public probe reaches no Matrix homeserver in any state and its only Matrix connection sits in a state that cannot open the key (O21), so no delivery to a Matrix room could be captured, and the probe offers no verb or form to create a new issue. Evidence capture is owned by the acceptance designer of the examine-foundry harness. No counterexample was observed.",
-"F696": "The two-or-more branch holds exactly: the start-over page read \"Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again.\" (O14). The one-credential and no-credential branches could not be examined: no probe state offers an unopenable stored secrets key with exactly 1, or with 0, credentials this Foundry cannot open (O22). Evidence capture is owned by the acceptance designer of the examine-foundry harness. No counterexample was observed.",
-"F697": "Observed: the 3-credential replacement read \"Replaced. 3 saved credentials are sealed under the new key.\" (O4), the saved credentials opened afterwards under a signature negative control and the waiting Slack delivery reached #auth-dev (O6), no connection read as lost on either replica (O7) and no workspace admin was emailed (O8). Not examinable: the delivery of a newly created issue, because the probe offers no verb or form to create one, and the Matrix room #auth:canzan.dev, because no probe state reaches a Matrix homeserver (O21). Evidence capture is owned by the acceptance designer of the examine-foundry harness. No counterexample was observed.",
+"F698": "State three-credentials-key-opens, GET admin/instance/integrations as Priya: the page reads Secrets key: set. Credentials entered here are sealed with it. and, in that same secrets key line, offers the action Replace secrets key linking to /admin/instance/integrations/secrets-key/replace, which the probe then opened.",
+"F699": "GET admin/instance/integrations/secrets-key/replace, three counts. With 3 saved credentials: Replace the secrets key? Foundry seals its 3 saved credentials again under a new key. Nobody needs to reconnect. With 1 saved credential (state slack-app-saved): Replace the secrets key? Foundry seals its 1 saved credential again under a new key. Nobody needs to reconnect. With none (state secrets-key-no-slack): Replace the secrets key? This Foundry has no saved credentials yet, so nothing needs to be sealed again. Each page carried a Replace secrets key button posting to the same address.",
 "F7": "GET /admin/instance/integrations Activity shows the I-18 lines \"{date} - {name} replaced the secrets key ({n} credentials sealed again)\" and \"{date} - {name} started over with a new secrets key ({n} credentials discarded)\".",
 "F70": "The stored secrets key is no longer the one the plan was made from (another admin replaced it first).",
+"F700": "The replace confirm page was fetched twice in a row (the second as a prefetch) and answered the same sentence both times. The instance integrations page fetched right after the two GETs was word for word the one fetched before them: no notice, Secrets key: set unchanged, and the Activity still only the two setup lines (saved the Slack app, generated the secrets key). No replacement line appeared.",
+"F701": "POST admin/instance/integrations/secrets-key/replace answered with final-url https://foundry.example.org/admin/instance/integrations, and that page read Replaced. 3 saved credentials are sealed under the new key. In the one-credential state the same POST read Replaced. 1 saved credential is sealed under the new key., and in the no-credential state Replaced. This Foundry has a new secrets key.",
+"F702": "After the confirmed replacement in three-credentials-key-opens with two replicas on one database, nobody reconnected anything and every credential still opened. Asked directly, replica 2 read the Canzan Labs workspace integrations page as Connected to Canzan Labs (canzanlabs.slack.com) and the Ops Guild page as Connected to Ops Guild (opsguild.slack.com), with no cannot-open or lost wording; the project route page on replica 2 read #auth-dev - Delivering - last delivery 18:05. A new issue filed on replica 2 after the replacement, AUTH-2, was posted to Slack: the Slack double recorded chat.postMessage team=Canzan Labs channel=C0AUTHDEV text=AUTH-2 After the replacement New issue in Identity Platform by Lena Park - Backlog. All of this happened inside the same probe run, well under a minute per command.",
+"F703": "The instance integrations page reloaded twice after the replacement read no notice at all, and its Activity held exactly one replacement line, 15 Nov 2026 - Priya Raman replaced the secrets key (3 credentials sealed again). Nothing was posted again and no second replacement was claimed.",
+"F704": "State three-credentials-one-damaged (one stored sealed credential damaged so it no longer opens): the confirm page still read Replace the secrets key? Foundry seals its 3 saved credentials again under a new key., and POST of it answered that same confirm page rather than a redirect. The instance integrations page afterwards read no Replaced notice and its Activity held only the two setup lines, with no replacement line; the workspace integrations page still read Connected to Canzan Labs. The old key stayed in effect and the pages were unchanged.",
+"F705": "The Activity on GET admin/instance/integrations read, with date and person, 15 Nov 2026 - Priya Raman replaced the secrets key (3 credentials sealed again) after the replacement, and 15 Nov 2026 - Priya Raman started over with a new secrets key (3 credentials discarded) after the start over. Neither line read secrets key replaced or secrets key started over, and both counts matched the credentials involved.",
+"F706": "State secrets-key-unopenable (3 credentials, no running server opens the key): GET admin/instance/integrations read This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry. followed by Start over, linking to /admin/instance/integrations/secrets-key/start-over. The page offered no Replace secrets key action and no replace link. The same page in the one-credential and no-credential unopenable states also offered Start over and no Replace.",
+"F707": "State secrets-key-unopenable-live-server (replica 2 still runs with the instance key that sealed the stored key): GET admin/instance/integrations on the server that cannot open the key read the same restore words and then Another Foundry server still opens the secrets key, so Start over is not offered. The page listed no link at all: no Start over, no Replace secrets key. The restore words themselves were unaltered; the live-server sentence was added after them.",
+"F708": "Limit of the live-opener observations: the probe starts and stops replicas but gives no way to read the page at a chosen moment between two heartbeats of a replica that is alive and still opens the key. The live-opener runs were therefore read while replica 2 was running and beating normally. Whether a live opener read exactly between two beats is still treated as live was not observed either way.",
+"F709": "While the stored secrets key could not be opened, the replace route changed nothing. Under secrets-key-unopenable both GET and POST of admin/instance/integrations/secrets-key/replace answered the instance integrations page with the cannot-open notice; the page read afterwards was identical, with no Replaced notice and no new Activity line. Under the live-opener state the same GET and POST answered the restore-only page. Under instance-key-file-unreadable both answered the instance-key-file page. No replacement happened in any of these.",
 "F71": "The compare-and-set matches no row, the transaction is rolled back and the page is answered as it is; the first replacement stands and is the only one recorded.",
+"F710": "GET admin/instance/integrations/secrets-key/start-over was answered as its own page only while the stored secrets key could not be opened and no running replica opened it: it answered the start-over page in secrets-key-unopenable, secrets-key-unopenable-one and secrets-key-unopenable-none. While the key opened (three-credentials-key-opens), while a live replica still opened it, and while the instance key file could not be read, the same GET answered the instance integrations page instead, never the start-over page.",
+"F711": "The start-over page carried the field text Type START OVER to confirm that no Foundry server of an earlier release is still running. with a field labelled Confirmation, in a form posting to /admin/instance/integrations/secrets-key/start-over with the single text field confirmation and the button Start over.",
+"F712": "The start-over page stated its cost for the count this Foundry cannot open. With 3: Start over with a new secrets key? The 3 saved credentials this Foundry cannot open are discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again. With 1 (secrets-key-unopenable-one): Start over with a new secrets key? The 1 saved credential this Foundry cannot open is discarded: workspace admins reconnect Slack and re-enter Matrix bot tokens, and the Slack app is entered again. With none (secrets-key-unopenable-none): Start over with a new secrets key? This Foundry has no saved credentials to discard.",
+"F713": "Opening the start-over page changed nothing a user can see: the instance integrations page read immediately after that GET was word for word the one read before it, still with the cannot-open notice and Start over, the Slack line still reading saved, but this Foundry cannot read it, and the Activity still only the two setup lines. The workspace integrations page was likewise unchanged.",
+"F714": "POST admin/instance/integrations/secrets-key/start-over with confirmation=START OVER answered with final-url https://foundry.example.org/admin/instance/integrations, and that page read Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it. once. The same page read twice more afterwards carried no notice. It read Secrets key: set., Matrix: ready., asked for the Slack app again with the manifest and a Save Slack app form, and its Activity read 15 Nov 2026 - Priya Raman started over with a new secrets key (3 credentials discarded).",
+"F715": "Three refusals of start over, each answering the cost page again with the I-28 sentence and the Confirmation field and changing nothing. An empty Confirmation; a Confirmation typed as start over in lower case; and confirmation=START OVER while a live replica still opened the key. After each one the instance integrations page was unchanged: still the cannot-open notice, no new key, the saved credentials still listed as unreadable rather than discarded, and no new Activity line. In the live-opener run the gate was applied inside the POST, since no start-over page had been answered for it at all.",
+"F716": "After the start over, the Canzan Labs workspace integrations page read no discarded connection as connected: the Slack section read Slack is not set up on this Foundry yet. An instance operator adds the Foundry Slack app once. with the links How to set up Slack and Set up integrations for this Foundry, in place of the former Connected to Canzan Labs line, and the Matrix section offered a Connect Matrix form with Homeserver and Bot access token fields. The instance integrations page read Matrix: ready. and asked for the Slack app again.",
+"F717": "foundry doctor rotate-secrets ran with the settings replica 1 runs with and exited 0 both after a replacement and after a start over. After the replacement it reported 0 credential(s) sealed again under key fc3b0d508d0700d6, and a new issue filed afterwards still reached Slack: the double recorded chat.postMessage team=Canzan Labs channel=C0AUTHDEV text=AUTH-3 After the rotation New issue in Identity Platform by Lena Park - Backlog. After the start over it exited 0 and the instance page still read Secrets key: set.",
+"F718": "State instance-key-file-unreadable: GET admin/instance/integrations read, in the place of the instance key line, This Foundry cannot read its instance key file (/tmp/examine-foundry-data/instance.key). Slack and Matrix are paused until it can. An instance operator restores the file from backup, or sets FOUNDRY_INSTANCE_KEY, and restarts Foundry. No words of the cannot-open-the-secrets-key notice appeared, and the page offered no Replace secrets key, no Start over and no sentence about another Foundry server. The replace and start-over routes both answered this same page.",
+"F719": "Half of this row was observed holding and half cannot be captured. Observed: after the replacement no page read any connection as lost, the route stayed Delivering, the mail double held only the two setup invitations with no message to any workspace admin, and the next new issue reached its Slack channel #auth-dev (chat.postMessage channel=C0AUTHDEV). Not examined: that the next new issue still reaches its Matrix room. Every Matrix-bearing probe state states that Foundry reaches no Matrix homeserver this probe can run, and the public projection of this packet is empty, so no waiver records that limit. Prerequisite: a public observation of a new issue reaching a Matrix room, or a waiver carried in the public packet. Owner: the evidence-capture owner of the examine-foundry harness, with the acceptance designer. Remedy: add a Matrix homeserver double to the probe, or publish the Matrix waiver in the examination packet. No violation was observed.",
 "F72": "A replica with a fresh heartbeat still opens the stored secrets key when the start over reaches its transaction.",
+"F720": "The Slack half of this charter scenario was observed holding: with 3 saved credentials Priya read Replaced. 3 saved credentials are sealed under the new key., the next new issue of a team member (AUTH-2) reached #auth-dev, no page read a connection as lost, and no workspace admin was emailed. Not examined: that the same issue also reaches the Matrix room #auth:canzan.dev. The probe reaches no Matrix homeserver in any state and the public projection of this packet is empty, so no waiver records that limit. Prerequisite, owner and remedy as for E9: a Matrix homeserver double in examine-foundry or a published Matrix waiver, owned by the evidence-capture owner of the harness with the acceptance designer. No violation was observed.",
 "F73": "Nothing is discarded, no key is stored, and the start-over confirm page is answered again with I-28.",
 "F74": "A wrong, empty or differently cased Confirmation field.",
 "F75": "The start-over confirm page again with I-28; the stored rows, the activity list and the config version unchanged.",
