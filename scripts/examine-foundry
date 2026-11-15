@@ -15,6 +15,7 @@
 #     scripts/examine-foundry slack-posting not-answering
 #     scripts/examine-foundry mail
 #     scripts/examine-foundry rotate-secrets
+#     scripts/examine-foundry new-issue Lena backend/identity-platform "Rotate the bind password"
 #     scripts/examine-foundry stop
 #
 # Paths may be written with or without the leading slash; under
@@ -61,6 +62,10 @@
 # replica's own settings are kept in $STATE_DIR/env-<N>, so `rotate-secrets`
 # runs `foundry doctor rotate-secrets` with replica 1's settings as they are now.
 #
+# `new-issue <viewer> <team>/<project> <title>` creates an issue as that viewer
+# through the project's public issue form, as the seeds do, and prints where
+# the browser lands; its deliveries then show in slack-info and mail.
+#
 # No subcommand reads the caller's stdin: main runs with stdin from /dev/null.
 set -euo pipefail
 
@@ -106,6 +111,7 @@ usage: examine-foundry start <state> [--before] [--replicas 2]
        examine-foundry time-passes <N>m | <N>h
        examine-foundry mail
        examine-foundry rotate-secrets
+       examine-foundry new-issue [--replica 2] <viewer> <team>/<project> <title>
        examine-foundry stop
        examine-foundry states | viewers
 Write each path without its leading slash: admin/instance/integrations, not /admin/instance/integrations.
@@ -124,6 +130,8 @@ env-slack-connected	Foundry's environment sets the Slack app (SLACK_CLIENT_ID 61
 slack-app-awaiting-confirm	As slack-connected, and Priya made Kai Tanaka (a member of Canzan Labs) a second instance admin on the instance workspaces page; then Priya submitted another Slack app (client ID 6123456789012.8888888888888, both secrets) on the instance integrations page, which now waits for her confirm.
 slack-delivery-pending	As slack-connected, then Slack stopped answering Foundry's posts (slack-posting not-answering) and Lena created the issue "Expire the old sessions", so its New issue delivery to #auth-dev waits on the route's history; the route is listed on the project's integrations page, team/backend/project/identity-platform/integrations, which links to its History.
 secrets-key-unopenable	Foundry runs with the operator's instance key (FOUNDRY_INSTANCE_KEY); Priya generated the secrets key, saved the Slack app with client ID 6123456789012.7234567890123 and connected Canzan Labs to the Slack workspace Canzan Labs; Canzan Labs also has a Matrix connection to matrix.example.org with a bot token, planted with SQL (Foundry reaches no Matrix homeserver this probe can run); then Foundry restarted with a different FOUNDRY_INSTANCE_KEY, so it cannot open the stored secrets key or its 3 saved credentials, and no running server opens the key.
+secrets-key-unopenable-one	Foundry runs with the operator's instance key (FOUNDRY_INSTANCE_KEY); Priya generated the secrets key and saved the Slack app with client ID 6123456789012.7234567890123, and no workspace is connected; then Foundry restarted with a different FOUNDRY_INSTANCE_KEY, so it cannot open the stored secrets key or its 1 saved credential, and no running server opens the key.
+secrets-key-unopenable-none	Foundry runs with the operator's instance key (FOUNDRY_INSTANCE_KEY); Priya generated the secrets key and saved nothing under it; then Foundry restarted with a different FOUNDRY_INSTANCE_KEY, so it cannot open the stored secrets key, it holds no saved credential, and no running server opens the key.
 secrets-key-unopenable-live-server	As secrets-key-unopenable, but replica 2 (port 18484) was started before that restart and still runs with the instance key that sealed the stored secrets key, so it still opens the key; replica 1, which get and post ask unless told --replica 2, cannot.
 instance-key-file-unreadable	This Foundry made its own instance key file; Priya generated the secrets key, saved the Slack app with client ID 6123456789012.7234567890123 and connected Canzan Labs to Slack; then Foundry restarted with no FOUNDRY_INSTANCE_KEY and its instance key file, /tmp/examine-foundry-data/instance.key, replaced by a file that holds no key.
 three-credentials-key-opens	Foundry runs with the operator's instance key (FOUNDRY_INSTANCE_KEY); Priya generated the secrets key and saved the Slack app with client ID 6123456789012.7234567890123; Canzan Labs (by Priya) and Ops Guild (admin Omar) are connected to Slack through it; Lena routed New issue on Identity Platform to #auth-dev and one issue was delivered. 3 saved credentials, all of which open. No Matrix connection: Foundry reaches no Matrix homeserver this probe can run.
@@ -324,6 +332,24 @@ host_main() {
     rotate-secrets)
       [ "$#" -eq 0 ] || die "rotate-secrets takes nothing more"
       run_op 120 rotate-secrets
+      ;;
+    new-issue)
+      local replica=1
+      if [ "${1:-}" = --replica ]; then
+        replica=$(replica_number "${2:-}")
+        shift 2
+      fi
+      [ "$#" -eq 3 ] || die "usage: examine-foundry new-issue [--replica 2] <viewer> <team>/<project> <title>"
+      local viewer
+      viewer=$(viewer_key "$1") || die "no viewer named $1 (see: examine-foundry viewers)"
+      [ "$viewer" != signed-out ] || die "new-issue needs a signed-in viewer"
+      case "$2" in
+        */*/* | /* | */ | *[!a-z0-9/-]*) die "the project is <team>/<project>, such as backend/identity-platform, not $2" ;;
+        */*) ;;
+        *) die "the project is <team>/<project>, such as backend/identity-platform, not $2" ;;
+      esac
+      [ -n "$3" ] || die "new-issue needs a title"
+      run_op 120 post "$replica" "$viewer" "team/${2%%/*}/project/${2#*/}/issues" "title=$3"
       ;;
     slack-posting)
       [ "$#" -eq 1 ] || die "usage: examine-foundry slack-posting <answering|not-answering|slow-down>"
@@ -1595,31 +1621,49 @@ seed_three_credentials_with_matrix() {
 # Replica 1 restarts with a different FOUNDRY_INSTANCE_KEY, so the stored
 # secrets key is sealed under an instance key it does not hold (I-26).
 #
-# FOUNDRY_INTEGRATIONS_RELOAD_MS is the product's default (5000) from here on:
-# a server counts as still opening the key while its last beat is no older
-# than three reload periods, and a server beats every 10 seconds, so with the
-# probe's 200 ms a running server would count for only 0.6 s of every 10.
+# FOUNDRY_INTEGRATIONS_RELOAD_MS is the product's default (5000) from here on,
+# as an operator's deploy would run. A server counts as still opening the key
+# while its last beat is no older than 40 seconds, so a state with no live
+# opener waits that long for the old server's last beat to age out.
 lose_the_instance_key() {
   restart_replica 1 "FOUNDRY_INSTANCE_KEY=$(cat "$STATE_DIR/instance-key-other")" \
     FOUNDRY_INTEGRATIONS_RELOAD_MS=5000
 }
 
 # await_instance_page TEXT WHAT: GET the instance integrations page as Priya
-# (reading changes nothing) until it holds TEXT, for at most 45 seconds.
+# (reading changes nothing) until it holds TEXT, for at most 75 seconds.
 await_instance_page() {
   local text="$1" what="$2"
-  for _ in $(seq 1 45); do
+  for _ in $(seq 1 75); do
     http priya GET /admin/instance/integrations
     [ "$HTTP_CODE" = 200 ] && grep -qF -- "$text" "$STATE_DIR/last.body" && return 0
     sleep 1
   done
-  die "seeding: the instance integrations page did not show $what within 45 seconds"
+  die "seeding: the instance integrations page did not show $what within 75 seconds"
 }
 
 seed_secrets_key_unopenable() {
   seed_three_credentials_with_matrix
   lose_the_instance_key
-  # The old server's last beat ages out of the gate's window (15 s).
+  # The old server's last beat ages out of the gate's window (40 s).
+  await_instance_page "secrets-key/start-over" "Start over"
+}
+
+env_secrets_key_unopenable_one() { env_operator_key; }
+env_secrets_key_unopenable_none() { env_operator_key; }
+
+# One saved credential, the Slack app; no workspace is connected.
+seed_secrets_key_unopenable_one() {
+  generate_secrets_key
+  save_slack_app
+  lose_the_instance_key
+  await_instance_page "secrets-key/start-over" "Start over"
+}
+
+# The secrets key alone: nothing is saved under it.
+seed_secrets_key_unopenable_none() {
+  generate_secrets_key
+  lose_the_instance_key
   await_instance_page "secrets-key/start-over" "Start over"
 }
 
