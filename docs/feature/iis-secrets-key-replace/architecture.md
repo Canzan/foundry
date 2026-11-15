@@ -77,7 +77,7 @@ Refuse, not clamp, when FOUNDRY_INTEGRATIONS_RELOAD_MS is above the 20 s bound t
 #### D12
 
 ```text
-Where L14 is observed, and who writes it. The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is observable through a public interface without any page: IntegrationSettings::read is public and a test can call it over an environment map, which is how the sibling bound MIN_LEASE_SECONDS is already observed at crates/foundry-app/tests/eip_phase5_doors.rs:51. So L14 belongs to the acceptance part of S2, not to the craft's completion record: the acceptance designer writes one generated test, crates/foundry-app/tests/iis_secrets_key_bound.rs::the_reload_setting_is_admitted_only_up_to_the_envelope, over the setting's text - the unset case, a non-numeric value, 0, 1, every value up to and past 20000, and u64::MAX - asserting that every value to 20000 is admitted, that 0 reads as 1 ms, and that every larger value is refused by an error naming the setting, the value and the bound. It is RED before the craft for the right reason: no bound exists yet, so 20001 and 60000 are admitted and read back as themselves. A new file, pure and acceptance-owned, because the two files that already read settings in tests share their binary with testcontainers tests (eip_phase5_doors.rs and iis_reload.rs), so binding this law there would make every run of it pay for Docker; and because a test inside the config module's own mod tests would put an acceptance-owned test in a production file the crafter owns. proptest 1 is already a dev-dependency of foundry-app, so no manifest change is needed. The craft then adds the constant, the check and the error variant, and that same test turns GREEN.
+Where L14 is observed, and who writes it. The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is observable through a public interface without any page: IntegrationSettings::from_lookup at crates/foundry-app/src/integrations/config.rs:250 is the environment-map door, and a test calls it with its own lookup, which is how the sibling bound MIN_LEASE_SECONDS is already observed at crates/foundry-app/tests/eip_phase5_doors.rs:40 and :51. So L14 belongs to the acceptance part of S2, not to the craft's completion record: the acceptance designer writes one generated test, crates/foundry-app/tests/iis_secrets_key_bound.rs::the_reload_setting_is_admitted_only_up_to_the_envelope, over the setting's text - the unset case, a non-numeric value, 0, 1, every value up to and past 20000, and u64::MAX - asserting that every value to 20000 is admitted, that 0 reads as 1 ms, and that every larger value is refused by an error naming the setting, the value and the bound. It is RED before the craft for the right reason: no bound exists yet, so 20001 and 60000 are admitted and read back as themselves. A new file, pure and acceptance-owned, because the two files that already read settings in tests share their binary with testcontainers tests (eip_phase5_doors.rs and iis_reload.rs), so binding this law there would make every run of it pay for Docker; and because a test inside the config module's own test module would put an acceptance-owned test in a production file the crafter owns. proptest 1 is already a dev-dependency of foundry-app, so no manifest change is needed. The craft then adds the constant, the check where from_lookup reads the reload value at config.rs:271, and the error variant, and that same test turns GREEN.
 ```
 
 ### Constraints
@@ -1110,7 +1110,7 @@ Invariant
 
 Application
 
-IntegrationSettings\:\:read in crates\/foundry\-app\/src\/integrations\/config\.rs\, the bound beside the MIN\_LEASE\_SECONDS check at \:140
+IntegrationSettings\:\:from\_lookup in crates\/foundry\-app\/src\/integrations\/config\.rs\:250\, where the reload value is read at \:271\, in the shape of the MIN\_LEASE\_SECONDS check at \:140
 
 ##### Treatment
 
@@ -1119,7 +1119,7 @@ Broad
 ###### Generator
 
 ```text
-the setting's text over the whole numeric range a u64 admits - 0, 1, every value up to and past 20000, u64::MAX - with the unset case and a non-numeric value, read through the same settings read a server boots with.
+the setting's text over the whole numeric range a u64 admits - 0, 1, every value up to and past 20000, u64::MAX - with the unset case and a non-numeric value, read through the same environment-map door a server boots with.
 ```
 
 256 cases per run
@@ -3626,7 +3626,7 @@ scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_ke
 ###### T7
 
 ```text
-The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is checked where the setting is read: over the setting's text - unset, a non-numeric value, 0, 1, every value up to and past 20000, and u64::MAX, generated - every value to 20000 is admitted, 0 reads as 1 ms, unset reads as 5000, and every larger value is refused with an error naming the setting, the value and the bound, in the shape the MIN_LEASE_SECONDS check already uses. The acceptance designer writes it as the generated test the_reload_setting_is_admitted_only_up_to_the_envelope in crates/foundry-app/tests/iis_secrets_key_bound.rs, through the public IntegrationSettings::read; it is RED before the craft because 20001 and 60000 are admitted today. No page can observe this and no scenario is needed: the refusal happens when the settings are read, before anything serves, and main.rs already refuses to start on any config error.
+The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is checked where the setting is read: over the setting's text - unset, a non-numeric value, 0, 1, every value up to and past 20000, and u64::MAX, generated - every value to 20000 is admitted, 0 reads as 1 ms, unset reads as 5000, and every larger value is refused with an error naming the setting, the value and the bound, in the shape of the MIN_LEASE_SECONDS check at crates/foundry-app/src/integrations/config.rs:140. The acceptance designer writes it as the generated test the_reload_setting_is_admitted_only_up_to_the_envelope in crates/foundry-app/tests/iis_secrets_key_bound.rs, driving the public IntegrationSettings::from_lookup at config.rs:250 with its own environment lookup, as eip_phase5_doors.rs:40 does; it is RED before the craft because 20001 and 60000 are admitted today. No page can observe this and no scenario is needed: the refusal happens where from_lookup reads the setting, before anything serves, and crates/foundry-app/src/main.rs:347 already refuses to start on any config error.
 ```
 
 crates\/foundry\-app\/tests\/iis\_secrets\_key\_bound\.rs
