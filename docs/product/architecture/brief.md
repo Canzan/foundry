@@ -1144,7 +1144,9 @@ release gate are in `docs/feature/external-integration-plugins/deliver/upstream-
 - One advisory lock (`foundry.instance-integrations`) serialises instance key and app writes.
 - Credential-sealing writes take it shared, and fence on the sealing key id.
 - `integration_config_version` is bumped in the same transaction.
-- Each replica's reload task polls it (`FOUNDRY_INTEGRATIONS_RELOAD_MS`, default 5000). On a change
+- Each replica's reload task polls it (`FOUNDRY_INTEGRATIONS_RELOAD_MS`, default 5000, admitted
+  from 1 ms to 20 s only — a slower poll stops Foundry at start, because the live-replica gate
+  cannot cover the gap it leaves between two of a server's own beats). On a change
   it rebuilds `Integrations` through the one shared boot function and `install`s it.
 - An unknown key id triggers an immediate reload.
 
@@ -1218,7 +1220,7 @@ Component placement (no new crate):
 - **Settings in scenarios** go through the scenario lookup, as today:
   - `FOUNDRY_INSTANCE_KEY` or the legacy `FOUNDRY_SECRETS_KEY`;
   - `FOUNDRY_DATA_DIR`, a temp directory per scenario;
-  - `FOUNDRY_INTEGRATIONS_RELOAD_MS`, short (for example 200);
+  - `FOUNDRY_INTEGRATIONS_RELOAD_MS`, short (for example 200), inside the admitted 1 ms to 20 s;
   - `FOUNDRY_PUBLIC_URL`, set or unset.
 - **Boot and restart** use the one shared boot function. It replaces the hand-written probe in
   `restart_in_process_with_key`.

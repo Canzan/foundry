@@ -379,11 +379,12 @@ single binary they are plain environment settings (`.env.example`).
 | `SLACK_CLIENT_ID`, `SLACK_CLIENT_SECRET`, `SLACK_SIGNING_SECRET` | Secret | Optional: the Slack app entered in the UI is used otherwise. All three or none; all three win over the saved app |
 | `SLACK_API_BASE_URL`, `SLACK_AUTHORIZE_URL` | none | Never set in a deploy (test seams; the defaults are Slack's) |
 | `FOUNDRY_INTEGRATIONS_POLL_MS`, `_GIVE_UP_SECONDS`, `_LEASE_SECONDS` | none | Unset (defaults 1000, 86400, 45) |
-| `FOUNDRY_INTEGRATIONS_RELOAD_MS` | none | Unset (default 5000); a test knob, like `_POLL_MS` |
+| `FOUNDRY_INTEGRATIONS_RELOAD_MS` | none | Unset (default 5000); a test knob, like `_POLL_MS`. Admitted from 1 to 20000 only: a slower poll now stops Foundry at start, because a server polling that slowly looks gone to the other servers of the same Foundry. Lower it before upgrading |
 
 An instance key that is not 32 bytes, `FOUNDRY_INSTANCE_KEY` and `FOUNDRY_SECRETS_KEY` set to
-different values, two of the three Slack settings, or a lease under 35 seconds stops Foundry at
-start: `health.startup.refused` names the setting (never its value), the new pod crash-loops and
+different values, two of the three Slack settings, a lease under 35 seconds, or a reload over
+20000 ms stops Foundry at start: `health.startup.refused` names the setting (never a secret's
+value; the reload refusal names the number it read), the new pod crash-loops and
 the old one keeps serving. An empty value counts as unset, under either name. A missing key, or
 one that cannot open the stored secrets key, does **not** stop Foundry (see R-8).
 

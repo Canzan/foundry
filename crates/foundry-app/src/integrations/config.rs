@@ -44,6 +44,14 @@ pub const DEFAULT_RELOAD_MS: u64 = 5_000;
 pub const DEFAULT_POLL_MS: u64 = 1_000;
 pub const DEFAULT_LEASE_SECONDS: u64 = 45;
 pub const DEFAULT_GIVE_UP_SECONDS: u64 = 86_400;
+/// The slowest reload a deployment may ask for, 20 s (ADR-IIS-SKR-004, L14):
+/// the envelope the live-replica gate window is sized from, and the one owner
+/// of that number - [`super::secrets_key_rotation::LiveOpeners`] reads it from
+/// here. A server polling more slowly leaves longer between two of its own
+/// replica-state beats than the gate counts one as current for, so its running
+/// servers look gone to one another; above this the read refuses rather than
+/// serve with a window its own beats outgrow (D11).
+pub const MAX_RELOAD_MS: u64 = 20_000;
 /// The worst-case claim-to-record path (resolve, pre-send read, send) plus a
 /// spare: a shorter lease could expire under a live send.
 pub const MIN_LEASE_SECONDS: u64 =
@@ -71,6 +79,8 @@ pub enum ConfigError {
     NotANumber { setting: &'static str },
     #[error("FOUNDRY_INTEGRATIONS_LEASE_SECONDS is under {MIN_LEASE_SECONDS}: a delivery's lease could expire during its send")]
     LeaseTooShort,
+    #[error("{RELOAD_MS} is {value}, over the {MAX_RELOAD_MS} ms (20 s) a Foundry may reload at: a server polling that slowly leaves longer between two of its own replica-state beats than another server counts one as current for, so running servers look gone to one another and an instance admin is offered a way out that discards credentials they are still serving with. Unset {RELOAD_MS} for the {DEFAULT_RELOAD_MS} ms default, or set it to {MAX_RELOAD_MS} or less")]
+    ReloadTooSlow { value: u64 },
     #[error(transparent)]
     OutboundAllow(#[from] MalformedAllowEntry),
 }
@@ -260,6 +270,15 @@ impl IntegrationSettings {
             .to_string();
         let (key_setting, secrets) = secrets(&get)?;
         let slack_urls = SlackUrls::read(&get);
+        // The reload bound, read here and refused here: no settings value is
+        // produced above it, so the server never serves with a reload the
+        // live-replica gate window cannot cover (L14, D11). A value under a
+        // millisecond still reads as one, and a value that is no whole number
+        // still reads as the number error.
+        let reload_ms = whole_number(&get, RELOAD_MS, DEFAULT_RELOAD_MS)?;
+        if reload_ms > MAX_RELOAD_MS {
+            return Err(ConfigError::ReloadTooSlow { value: reload_ms });
+        }
         Ok(Self {
             public_url,
             public_url_fell_back,
@@ -268,7 +287,7 @@ impl IntegrationSettings {
             secrets,
             key_setting,
             data_dir: get(DATA_DIR).map_or_else(|| PathBuf::from(DEFAULT_DATA_DIR), PathBuf::from),
-            reload: Duration::from_millis(whole_number(&get, RELOAD_MS, DEFAULT_RELOAD_MS)?.max(1)),
+            reload: Duration::from_millis(reload_ms.max(1)),
             worker: WorkerSettings::read(&get)?,
             outbound: OutboundAllow::parse(&get(OUTBOUND_ALLOW_SETTING).unwrap_or_default())?,
         })

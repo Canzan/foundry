@@ -17,6 +17,7 @@
 //! the store hands it the count it sealed again, so the words, the offer and
 //! the plan are decided in one place (L6, L7, L10).
 
+use super::config::MAX_RELOAD_MS;
 use super::keys::{plan_generate, GeneratePlan, KeyFile, KeyMode};
 use super::reload::BEAT_EVERY;
 use super::sealed_slot;
@@ -137,10 +138,12 @@ pub struct LiveOpeners {
 }
 
 impl LiveOpeners {
-    /// The reload envelope the window is sized from: the 20 s K4 already names
-    /// as the bound of this feature's 60-second figure, and so the largest
-    /// reload interval a server this gate judges is designed for (D5).
-    const RELOAD_ENVELOPE: time::Duration = time::Duration::seconds(20);
+    /// The reload envelope the window is sized from: the largest reload any
+    /// server of this Foundry may be set to, read where the settings read owns
+    /// and refuses it ([`MAX_RELOAD_MS`], L14, ADR-IIS-SKR-004), so the bound
+    /// and the window it sizes are one fact. It is also the 20 s K4 names as
+    /// the bound of this feature's 60-second figure (D5).
+    const RELOAD_ENVELOPE: time::Duration = time::Duration::milliseconds(MAX_RELOAD_MS as i64);
 
     /// How old a beat may be and still count: two beat intervals plus that
     /// envelope, 40 s. The cadence is read where the replica reload task owns
@@ -763,7 +766,11 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(256))]
+        #![proptest_config(ProptestConfig {
+            cases: 256,
+            failure_persistence: None,
+            ..ProptestConfig::default()
+        })]
         /// S2 T3 and S3 T5, the generated half of L12: over the writing
         /// server's setting across the 20 s envelope, the reading server's
         /// setting across the whole admitted range - 1 ms to an hour, and
