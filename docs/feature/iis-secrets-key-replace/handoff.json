@@ -590,15 +590,15 @@
 "counters": {
 "B": 8,
 "C": 3,
-"D": 10,
+"D": 11,
 "E": 26,
-"F": 630,
+"F": 665,
 "K": 6,
-"L": 13,
-"N": 12,
+"L": 14,
+"N": 14,
 "P": 12,
 "S": 3,
-"T": 6,
+"T": 7,
 "Y": 11
 },
 "design": {
@@ -615,8 +615,13 @@
 },
 {
 "key": "IIS-SKR-003",
-"status": "Accepted",
+"status": "Superseded by IIS-SKR-004",
 "title": "Gate window sized from the reload envelope"
+},
+{
+"key": "IIS-SKR-004",
+"status": "Accepted",
+"title": "The reload envelope becomes a checked bound"
 }
 ],
 "paradigm": "object_oriented",
@@ -861,13 +866,13 @@
 },
 {
 "axis": "Safety",
-"basis": "F602",
+"basis": "F649",
 "design": "Pass",
 "evidence": [
 "docs/feature/iis-secrets-key-replace/design/live_replica_gate.receipt.txt"
 ],
 "runtime": "DesignedNotBuilt",
-"subject": "F589"
+"subject": "F648"
 }
 ],
 "constraints": [
@@ -893,7 +898,7 @@
 },
 {
 "id": "K6",
-"text": "F564"
+"text": "F633"
 }
 ],
 "constructors": [
@@ -957,7 +962,7 @@
 },
 {
 "id": "D5",
-"text": "F563"
+"text": "F631"
 },
 {
 "id": "D6",
@@ -978,6 +983,10 @@
 {
 "id": "D10",
 "text": "F603"
+},
+{
+"id": "D11",
+"text": "F632"
 }
 ],
 "equality": [
@@ -1303,6 +1312,34 @@
 "kind": "Finite",
 "reason": "F581"
 }
+},
+{
+"id": "L14",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "IntegrationSettings::read in crates/foundry-app/src/integrations/config.rs, the bound beside the MIN_LEASE_SECONDS check at :140",
+"statement": "F634",
+"treatment": {
+"falsifier": "F645",
+"generator": {
+"depth_bound": "one settings read per case",
+"domain": "F635",
+"must_include": [
+"F636",
+"F637",
+"F638",
+"F639",
+"F640",
+"F641",
+"F642"
+],
+"seed_policy": "fixed seed, with the proptest regression file kept beside the module",
+"shrinking": "F643",
+"size_bound": "256 cases per run"
+},
+"independent_observation": "F644",
+"kind": "Broad"
+}
 }
 ],
 "models": [
@@ -1537,7 +1574,8 @@
 },
 {
 "assumptions": [
-"F583",
+"F646",
+"F647",
 "F539",
 "F584",
 "F598",
@@ -1617,14 +1655,14 @@
 "mutants": [
 {
 "description": "F600",
-"id": "N11",
+"id": "N13",
 "kills": [
 "gateAlwaysLive"
 ]
 },
 {
 "description": "F601",
-"id": "N12",
+"id": "N14",
 "kills": [
 "gateAlwaysLive"
 ]
@@ -1807,14 +1845,14 @@
 "source": "F283"
 },
 {
-"allowed": "F593",
+"allowed": "F652",
 "forbidden": "F594",
 "id": "Y11",
 "kind": "Stressor",
 "owner": "the instance operator",
-"preserved": "F592",
-"residue": "F595",
-"source": "F591"
+"preserved": "F651",
+"residue": "F653",
+"source": "F650"
 }
 ],
 "states": [
@@ -2191,6 +2229,12 @@
 "id": "T4",
 "obligation": "F605",
 "oracle": "crates/foundry-app/src/integrations/secrets_key_rotation.rs"
+},
+{
+"command": "scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::config",
+"id": "T7",
+"obligation": "F665",
+"oracle": "crates/foundry-app/src/integrations/config.rs"
 }
 ],
 "impact": [
@@ -2259,6 +2303,30 @@
 "kind": "Rust module constant",
 "locator": "crates/foundry-app/src/integrations/worker.rs:74",
 "reason": "F559"
+},
+{
+"decision": "Changed",
+"kind": "Rust module",
+"locator": "crates/foundry-app/src/integrations/config.rs:271",
+"reason": "F661"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "Rust binary",
+"locator": "crates/foundry-app/src/main.rs:347",
+"reason": "F662"
+},
+{
+"decision": "Changed",
+"kind": "operator documentation",
+"locator": "RELEASING.md:382",
+"reason": "F663"
+},
+{
+"decision": "Changed",
+"kind": "operator documentation",
+"locator": "docs/product/architecture/brief.md:1221",
+"reason": "F664"
 }
 ],
 "not_applicable": [
@@ -2357,6 +2425,30 @@
 "locator": "crates/foundry-app/src/integrations/worker.rs:74",
 "reason": "F557",
 "symbol": "REPLICA_STATE_RETENTION"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/integrations/config.rs:140",
+"reason": "F657",
+"symbol": "MIN_LEASE_SECONDS"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/main.rs:347",
+"reason": "F658",
+"symbol": "ConfigError"
+},
+{
+"decision": "Extend",
+"locator": "RELEASING.md:382",
+"reason": "F659",
+"symbol": "FOUNDRY_INTEGRATIONS_RELOAD_MS"
+},
+{
+"decision": "Extend",
+"locator": "docs/product/architecture/brief.md:1221",
+"reason": "F660",
+"symbol": "FOUNDRY_INTEGRATIONS_RELOAD_MS"
 }
 ]
 },
@@ -2410,6 +2502,21 @@
 "change": "Extend",
 "path": "crates/foundry-app/src/integrations/worker.rs",
 "reason": "F552"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/integrations/config.rs",
+"reason": "F654"
+},
+{
+"change": "Extend",
+"path": "RELEASING.md",
+"reason": "F655"
+},
+{
+"change": "Extend",
+"path": "docs/product/architecture/brief.md",
+"reason": "F656"
 }
 ],
 "verification": [
@@ -3460,8 +3567,6 @@
 "F560": "As S2 run B: this Foundry cannot open its stored secrets key, 3 saved credentials of Canzan Labs and the Slack app cannot be opened, and no running replica opens the key - the second replica's last beat is older than the gate window. Priya Raman POSTs /admin/instance/integrations/secrets-key/start-over with her CSRF token and the Confirmation START OVER. Four more runs: the Confirmation left empty; the Confirmation typed as \"start over\"; a POST with START OVER while the second replica has beaten fresh again saying it opens the key; and a POST with START OVER while that replica still opens the key and is between two beats, its last beat older than one beat interval and inside the gate window.",
 "F561": "The first POST answers a redirect to GET /admin/instance/integrations, which reads \"Secrets key generated. Matrix is ready, and you can now enter the Slack app. Foundry keeps the key and never shows it.\" once; a reload of that address reads the page with no notice. The page reads the stored secrets key as set, Matrix as ready, asks for the Slack app again (I-5), and the Activity reads \"{date} - Priya Raman started over with a new secrets key (3 credentials discarded)\". GET /workspace/integrations of Canzan Labs reads no discarded connection as connected, offers to connect Matrix and tells its workspace admin to reconnect Slack, in the shipped W-2 and K-2 words. foundry doctor rotate-secrets then exits 0 and the new key still opens. Each of the other four runs answers the start-over confirm page with I-28 again and changes nothing at all: the stored key, the remaining credentials, the activity list and the config version are as they were, and no I-21 is read.",
 "F562": "A start over that commits while a replica that still opens the key is between two beats - the last of the five runs - or while one beating fresh opens it, or that checks the gate only at the GET; a wrong or empty Confirmation that applies anything; a credential this Foundry can open being discarded, or one it cannot open surviving; an activity line reading \"secrets key started over\" or carrying the wrong count; a workspace page that still reads a discarded Slack connection as connected; I-21 read twice, or carried in the address; a state after the apply in which the stored key check names a different key than the stored key.",
-"F563": "The live-replica gate reads integration_replica_states: a replica counts as still opening the stored secrets key while its row says opens_secrets_key and its beat_at is no older than the gate window. The window is a constant and the gate reads no reload setting at all: two beat intervals plus the reload envelope, that is BEAT_EVERY of crates/foundry-app/src/integrations/reload.rs (10 s) twice plus the 20 s K4 already names as the envelope of the 60-second figure, so 40 s. A server beats at the first reload tick at least one beat interval after its last beat, so the longest gap it can leave is one beat interval plus its own reload interval, at most 30 s inside the envelope, and the window keeps one whole beat interval of margin over that, which absorbs a failed beat row write, a slow tick or a stalled scheduler of up to one beat interval. The window is sized from the largest setting the envelope admits and not from the setting of the server that reads it, because the row carries no writer reload and this value takes no schema change (K5): a window of two beat intervals plus the reader own setting reads a server with a larger setting as stale between its beats - a 200 ms reader and a 5000 ms writer 24 s after its last beat - and Start over would be offered while that server still uses the credentials. The beat cadence does not follow the reload interval either: the beat is one row write per server per cadence, and the 200 ms of the acceptance lane would multiply the writes of the shipped reload task by fifty. BEAT_EVERY stays owned by that task (ADR-IIS-004 r8) where it is and only becomes pub(crate), so the gate derives its window from the one cadence fact instead of restating 10 s; REPLICA_STATE_RETENTION of crates/foundry-app/src/integrations/worker.rs becomes pub(crate) for the same reason; the window and the envelope it is sized from are constants of LiveOpeners in crates/foundry-app/src/integrations/secrets_key_rotation.rs, and LiveOpeners::at takes no reload argument. The window needs no cap: 40 s is far inside the hour the retention prune keeps rows for, at every setting. The gate is read again inside the POST own locked transaction, as D10 reads the connected-workspace count inside the write, so a replica that beats while the post is in flight cannot be started over from under.",
-"F564": "FOUNDRY_INTEGRATIONS_RELOAD_MS is admitted from 1 ms up with no upper bound: crates/foundry-app/src/integrations/config.rs:271 raises 0 to 1 ms and the authority states no ceiling. The gate is designed for the 20 s envelope K4 already names, and its window is sized from that envelope and not from the setting of the server that reads it, so two replicas set differently are both safe while each stays inside it. Above the envelope the gate is not safe and this design says so instead of assuming otherwise: a server whose own setting exceeds 20 s can leave more than 40 s between two beats and be read as stale while it still opens the key, which is Y11, and I-28a stays the backstop. The constants the window is derived from are read where they are owned and never restated: BEAT_EVERY, 10 s, at crates/foundry-app/src/integrations/reload.rs:25, and REPLICA_STATE_RETENTION, one hour, at crates/foundry-app/src/integrations/worker.rs:74. The other consequence of the same bound stays as K4 states it: above 20 s the 60-second figure is lost. Both are bounds on the setting, not on the code.",
 "F565": "The gate counts a row that says opens_secrets_key as a live opener exactly while its beat is at most two beat intervals plus the reload envelope old, that is 40 s, whatever either server's FOUNDRY_INTEGRATIONS_RELOAD_MS is. So for every server inside the envelope, every beat age up to one beat interval plus its own reload interval - the longest gap it can leave - reads live with one whole beat interval of margin; an age past 40 s reads stale; and the answer never changes when the reading server's own setting changes.",
 "F566": "the writing server's setting over the envelope, 1 ms to 20 s, crossed with the reading server's setting over the whole admitted range - 1 ms to one hour, and u64::MAX ms - crossed with beat ages from one beat ahead of the reading clock to three times the window, as ReplicaState rows with opens_secrets_key both true and false.",
 "F567": "a 200 ms reader, a 5000 ms writer and a beat age of 24 s",
@@ -3482,15 +3587,9 @@
 "F580": "a one-hour setting on either side: still 40 s, so the window cannot outlive the row the prune keeps; what such a setting breaks is the cadence coverage of Y11, not this bound",
 "F581": "The window reads no setting at all, so one table of settings decides the whole range and a generated input adds nothing.",
 "F582": "The gate never reads a server that still opens the stored secrets key as stale, at any pair of reload settings inside the envelope and at any moment between its beats.",
-"F583": "One unit of modelled time is a second, and the settings are pairs of seconds: the writing server from the 20 s envelope, the reading server from inside it and at its end, differing in both directions. A setting below a second, the 200 ms of the acceptance lane included, has the structure of the 1 s writer, and the exact admitted range is the domain of the executable projection.",
 "F584": "A running server's beat is at most one beat interval late - a failed row write, a slow tick, a stalled scheduler. A longer stall is a server the gate is meant to read stale. Whether one whole beat interval is the right margin is a human judgement this design returns with it.",
-"F589": "The live-replica gate window covers the cadence a running server beats at, at every mix of reload settings inside the envelope",
 "F59": "Store::replica_states already returns every row; the gate filters on opens_secrets_key and the freshness window and is added to the StoreCapabilities trait, with no change to the row shape. A replica of an earlier release beats the same columns, which is exactly why the gate can see it.",
-"F591": "Negates \"every server of this Foundry keeps its FOUNDRY_INTEGRATIONS_RELOAD_MS inside the 20 s envelope and beats at least once inside the gate window\": the cadence is one beat interval plus the server's own setting, so a server set above the envelope - or any window sized from the reading server's own setting instead of the envelope - leaves a live opener read as stale between its beats.",
-"F592": "Inside the envelope, at any mix of settings, Start over stays withheld while any row that says opens_secrets_key has beaten inside the 40 s window, at the GET and again inside the POST own locked transaction.",
-"F593": "Start over stays withheld for up to 40 s after the last live server stops beating, whatever the settings are; the admin reads the offer on her next page read.",
 "F594": "Start over offered or applied while a server that still opens the key is simply between two beats, which a window sized from the reading server's own setting leaves reachable: a 200 ms reader and a 5000 ms writer 24 s after its last beat.",
-"F595": "A server set above the 20 s envelope can still be read as stale, and a server of an earlier release that beats no row at all stays invisible. I-28a is the backstop for both and K6 states the bound.",
 "F596": "The instance key file of this server is new, so it cannot open the stored secrets key (I-26), and 3 saved credentials cannot be opened. Run A: a second replica is still running, its heartbeat says it opens the stored secrets key and it has just beaten. Run B: no running replica opens it (the second replica has stopped, its last beat older than the 40 s gate window). Run C: this server cannot read its instance key file at all (I-31). Run D: a second replica is still running and still opens the stored secrets key, and it is read between two beats - its last beat older than one beat interval and inside the gate window. In each run Priya Raman GETs /admin/instance/integrations, then GETs /admin/instance/integrations/secrets-key/start-over, then GETs and POSTs /admin/instance/integrations/secrets-key/replace, all with her CSRF token through the production router.",
 "F597": "Start over offered while a live replica that still opens the key is merely between two beats, which is run D and is what a window sized from the reading server's own reload setting leaves reachable; Replace offered or applying under I-26 or under I-31; Start over offered under I-31; the live-replica sentence shown under I-31 or while no replica beats; the I-26 words read under I-31 at all; a start-over GET that writes a row, an activity line or a version bump; the n = 1 or n >= 2 sentence read for the wrong count, or the I-28a words paraphrased; the shipped I-26 restore words altered rather than appended to.",
 "F598": "The reading server's setting is carried as a variable no definition reads, so that mutant m9 - the window taken from it - is one sed away. Skew between the two clocks is Y3, not this model.",
@@ -3499,7 +3598,6 @@
 "F60": "Two new wire names carry a count (\"replaced:{n}\", \"started-over\"); an unrecognised stored value still reads as the page itself, so a session written by the shipped release is never misread.",
 "F600": "m8: the window is three times the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, as D5 read before this correction.",
 "F601": "m9: the window is two beat intervals plus the reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, as the first correction read it, so a server with a larger setting reads stale between its beats.",
-"F602": "Exhaustive model checking of both invariants of live_replica_gate.qnt with Apalache through quint verify in the shared Lima VM local-dev, bound 44 steps - the tight boundary of the 20 s writer falls at second 40 - outcome NoError, exit 0 in 25 s; bounded simulation of each invariant on its own at 44 steps and 20000 samples, exit 0; the tightness witness refuted as a counterexample to its own negation, exit 1, so gateAlwaysLive is not vacuous; and both mutants killed by counterexamples, exit 1 each: three times the reading server's own setting, and two beat intervals plus that setting. The claim is about the design, and the runtime is unbuilt: the executable projection of L12 over the exact admitted range and the acceptance run of a server read between two beats are owed by S2.",
 "F603": "Where each gate-window fact is observed, and who owns it. The page-reachable half of L12 belongs to the acceptance oracle: a fresh beat reads as a live opener, so Start over is withheld, and a beat older than the window reads as gone, so Start over is offered - the S2 run at the GET and the fifth S3 run at the POST. The rest of L12 and all of L13 are reachable through no page: the acceptance harness gives every server one FOUNDRY_INTEGRATIONS_RELOAD_MS and this design adds no seam for a second one, and the retention hour is on no page. They are observed where the window is decided, in the gate type's own test module beside LiveOpeners in crates/foundry-app/src/integrations/secrets_key_rotation.rs: the generated property over the writing server's setting, the reading server's setting and the beat age, and the finite table that compares the window with REPLICA_STATE_RETENTION. Both are declared architectural checks of S2 and of S3, and both are completion obligations of the gate's craft, the way the two halves of P3 are completion obligations of their own slice's verification; they run in the command those slices already carry, scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation. The acceptance designer owns neither run, writes no production test and adds no harness seam for them.",
 "F604": "The gate window is decided only by the gate type, from the beat cadence and the reload envelope, and never from a setting a call site supplies: LiveOpeners::at takes the clock alone. Over the writing server's setting, the reading server's setting and the beat age, generated together, the gate counts a row that says opens_secrets_key exactly while its beat is at most 40 s old: mixed settings in both directions, equal settings on both sides, a reader setting larger than the writer's, a beat ahead of the reading clock, and a row that says it does not open the key at every age, which never counts. No page can observe any of this: every server in the acceptance harness shares one FOUNDRY_INTEGRATIONS_RELOAD_MS and no seam is added for a second one.",
 "F605": "The gate window is the constant 40 s and never outlives the hour REPLICA_STATE_RETENTION keeps a replica state row for. The finite table crosses the settings at both ends of the admitted range with the two constants read where each is owned, reload.rs for the cadence and worker.rs for the retention, so neither is restated beside the gate. The retention hour is on no page, so no scenario can observe it.",
@@ -3531,9 +3629,44 @@
 "F629": "That time is the same length at every setting of every server and stays well inside the hour such a record is kept, for the confirm as for the page, so a word the confirm would still refuse on can never have been forgotten first.",
 "F63": "Postgres through foundry-store Store, reached by the StoreCapabilities trait: the two new locked write use-cases, instance_snapshot, replica_states, connected_slack_workspaces and the activity read.",
 "F630": "Her confirm is never refused on the word of a server whose record of itself has already been swept away, at any setting of any of her servers.",
+"F631": "The live-replica gate reads integration_replica_states: a replica counts as still opening the stored secrets key while its row says opens_secrets_key and its beat_at is no older than the gate window. The window is a constant and the gate reads no reload setting at all: two beat intervals plus the reload envelope, that is BEAT_EVERY of crates/foundry-app/src/integrations/reload.rs (10 s) twice plus the 20 s K4 already names as the envelope of the 60-second figure, so 40 s. The envelope is not an assumption: L14 bounds FOUNDRY_INTEGRATIONS_RELOAD_MS at 20 s where the setting is read, and a server above it refuses to start, so every deployment that serves beats inside the window. A server beats at the first reload tick at least one beat interval after its last beat, so the longest gap it can leave is one beat interval plus its own reload interval, at most 30 s under the bound, and the window keeps one whole beat interval of margin over that, which absorbs a failed beat row write, a slow tick or a stalled scheduler of up to one beat interval. The window is sized from the bound and not from the setting of the server that reads it, because the row carries no writer reload and this value takes no schema change (K5): a window of two beat intervals plus the reader own setting reads a server with a larger setting as stale between its beats - a 200 ms reader and a 5000 ms writer 24 s after its last beat - and Start over would be offered while that server still uses the credentials. The beat cadence does not follow the reload interval either: the beat is one row write per server per cadence, and the 200 ms of the acceptance lane would multiply the writes of the shipped reload task by fifty. BEAT_EVERY stays owned by that task (ADR-IIS-004 r8) where it is and only becomes pub(crate), so the gate derives its window from the one cadence fact instead of restating 10 s; REPLICA_STATE_RETENTION of crates/foundry-app/src/integrations/worker.rs becomes pub(crate) for the same reason; the window and the envelope it is sized from are constants of LiveOpeners in crates/foundry-app/src/integrations/secrets_key_rotation.rs, and LiveOpeners::at takes no reload argument. The window needs no cap: 40 s is far inside the hour the retention prune keeps rows for. The gate is read again inside the POST own locked transaction, as D10 reads the connected-workspace count inside the write, so a replica that beats while the post is in flight cannot be started over from under.",
+"F632": "Refuse, not clamp, when FOUNDRY_INTEGRATIONS_RELOAD_MS is above the 20 s bound the gate window is sized from. Refusing fails closed: a server that cannot keep the gate honest does not serve, instead of serving with a window shorter than its own beat gaps and offering Start over against a server that still opens the key. It reuses a pattern this config already owns - the MIN_LEASE_SECONDS check and ConfigError::LeaseTooShort at crates/foundry-app/src/integrations/config.rs:140 - rather than inventing a second shape, and crates/foundry-app/src/main.rs already logs health.startup.refused and refuses to start for any ConfigError through its catch-all, so no boot path is added. Clamping with a logged warning was refused for two reasons: the declared setting and the effective one would differ, so the operator reads one value while the gate uses another, which is a second authority over one fact; and a log line is missed exactly when nobody is watching, while a refusal is read the first time the server is started. The cost is stated, not hidden: a deployment polling more slowly than 20 s must lower the setting before this release, which the RELEASING.md settings table and the product brief settings list now say.",
+"F633": "FOUNDRY_INTEGRATIONS_RELOAD_MS is admitted only from 1 ms to 20 s inclusive, and that bound is checked where the setting is read rather than assumed: crates/foundry-app/src/integrations/config.rs:271 raises 0 to 1 ms as it already does, and a value above 20000 is refused with a config error beside the MIN_LEASE_SECONDS one at :140, naming the setting, the value read, the bound and why the gate needs it, and telling the operator to unset the setting for the 5000 ms default or to set it at or below 20000. crates/foundry-app/src/main.rs already turns any such error into health.startup.refused and refuses to start, so no boot path is added. The gate window is sized from that bound and not from the setting of the server that reads it, so two replicas set differently are both covered while each is admitted. The constants are read where they are owned and never restated: BEAT_EVERY, 10 s, at crates/foundry-app/src/integrations/reload.rs:25, and REPLICA_STATE_RETENTION, one hour, at crates/foundry-app/src/integrations/worker.rs:74. The same bound is what K4's 60-second figure needs, so one check serves both. A deployment polling more slowly than 20 s must lower the setting before this release: a deliberate breaking change, stated in the RELEASING.md settings table and the product brief settings list.",
+"F634": "FOUNDRY_INTEGRATIONS_RELOAD_MS is admitted only from 1 ms to 20 s inclusive. A value above 20 s is refused where the settings are read, with a config error naming the setting, the value read, the 20 s bound and why the gate needs it, and no settings value is produced, so the server refuses to start instead of serving with a window shorter than its own beat gaps. A value under 1 ms still reads as 1 ms through the floor that is already there, and a value that is not a whole number still reads as the number error, not as out of range.",
+"F635": "the setting's text over the whole numeric range a u64 admits - 0, 1, every value up to and past 20000, u64::MAX - with the unset case and a non-numeric value, read through the same settings read a server boots with.",
+"F636": "unset, which reads the 5000 ms default",
+"F637": "0, which the floor raises to 1 ms",
+"F638": "20000, the bound itself, admitted",
+"F639": "20001, refused",
 "F64": "The instance key source (InstanceKeySource over the key file and the FOUNDRY_INSTANCE_KEY setting), unchanged.",
+"F640": "60000, refused: the uniform setting whose 70 s beat gaps the 40 s window cannot cover",
+"F641": "u64::MAX, refused",
+"F642": "a value that is not a whole number, which still reads as the number error",
+"F643": "proptest shrinks to the smallest refused value and the largest admitted one",
+"F644": "the admitted set recomputed in the test from the bound constant itself rather than from the read: every value at or below it is admitted and every value above it refused, with the refusal asserted to name the setting, the value and the bound.",
+"F645": "A server started with FOUNDRY_INTEGRATIONS_RELOAD_MS = 60000 that serves instead of refusing: its beats are up to 70 s apart against the 40 s window, so a server that still opens the key reads as gone and Start over offers to discard the credentials it is serving with.",
+"F646": "One unit of modelled time is a second, and the settings are pairs of seconds: the writing server and the reading server, differing in both directions, drawn from the admitted range the config bound now closes at 20 s. A setting below a second, the 200 ms of the acceptance lane included, has the structure of the 1 s writer, and the exact admitted range is the domain of the executable projections.",
+"F647": "The 20 s envelope the window is sized from is a checked bound, not an assumption of this model: L14 refuses a larger setting where it is read, so no serving deployment lies outside the settings these pairs are drawn from.",
+"F648": "The live-replica gate window covers the cadence a running server beats at, at every mix of reload settings a serving deployment may hold",
+"F649": "Replayed in the shared Lima VM local-dev after the model took the checked bound, with quint 0.32.0 and openjdk 21.0.12.1: quint verify over both invariants with Apalache, bound 44 steps - the tight boundary of the 20 s writer falls at second 40 - outcome NoError, exit 0 in 20 s; bounded simulation of each invariant on its own at 44 steps and 20000 samples, exit 0 each; the tightness witness refuted as a counterexample to its own negation, exit 1, so gateAlwaysLive is not vacuous; both refused windows killed by counterexamples, exit 1 each. The window covers every setting a deployment may serve with because L14 refuses a larger one where it is read. The claim is about the design and the runtime is unbuilt: the executable projection of L12 and of L14, and the acceptance run of a server read between two beats, are owed by S2.",
 "F65": "The clock, injected: every beat_at, the gate freshness judgement and every activity line take the caller clock, never now().",
+"F650": "Negates \"every server of this Foundry beats at least once inside the gate window\": the cadence is one beat interval plus the server's own setting, so any window sized from the reading server's own setting instead of the bound leaves a server that still opens the key read as stale between its beats, and a setting above the bound would leave gaps no fixed window covers.",
+"F651": "Start over stays withheld while any row that says opens_secrets_key has beaten inside the 40 s window, at the GET and again inside the POST own locked transaction, at every setting a serving deployment may run with.",
+"F652": "Start over stays withheld for up to 40 s after the last live server stops beating; the admin reads the offer on her next page read.",
+"F653": "A server of an earlier release that beats no row at all stays invisible, and I-28a is the backstop for that one hazard, which is what its words actually say. The setting hazard is no longer residual and no longer assigned to I-28a: L14 bounds FOUNDRY_INTEGRATIONS_RELOAD_MS at 20 s where it is read and a server above it refuses to start, so no serving deployment leaves gaps the window cannot cover.",
+"F654": "The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS: a public constant for the 20 s envelope, the check beside the MIN_LEASE_SECONDS one, and its ConfigError variant.",
+"F655": "Its settings table names this setting and must state the admitted range and that a slower poll now refuses to start. Prose only: reviewed, with no test pinning its wording.",
+"F656": "Its settings list names this setting for a standalone deploy and must carry the same bound. Prose only: reviewed, with no test pinning its wording.",
+"F657": "The shape this config already owns for a bound on a setting: a public constant, one check inside the read and one error variant whose message says what is wrong and what to set. The new bound is a sibling of it and of ConfigError::LeaseTooShort, so no second refusal shape is invented.",
+"F658": "The startup arm already logs health.startup.refused with the error detail and returns through its catch-all, so a new variant refuses to start with its own message and this file needs no change.",
+"F659": "The settings table already has this row; it gains the admitted range and the refusal instead of a second table. Prose only, reviewed, with no test pinning its wording.",
 "F66": "The chat vendors through the existing delivery channels; no new outbound call.",
+"F660": "The settings list a standalone deploy reads already names this setting; it gains the same bound in place. Prose only, reviewed, with no test pinning its wording.",
+"F661": "The read gains the bound and the error variant. Every value a current deployment may hold at or below 20 s reads exactly as before; above it the server refuses to start, which is the deliberate breaking change K6 states.",
+"F662": "The catch-all arm already carries any new ConfigError to health.startup.refused.",
+"F663": "The settings row gains the admitted range and the refusal. Verified by review and EXAMINE; no test pins its wording.",
+"F664": "The settings list gains the same bound. Verified by review and EXAMINE; no test pins its wording.",
+"F665": "The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is checked where the setting is read: over the numeric range, the unset case and a non-numeric value, every value from 1 ms to 20000 is admitted - 0 raised to 1 ms, unset read as 5000 - and every value above 20000 is refused with a config error that names the setting, the value and the bound, in the shape the MIN_LEASE_SECONDS check already uses. No page can observe this and no acceptance scenario is needed: the refusal happens when the settings are read, before anything serves, and main.rs already refuses to start on any config error.",
 "F67": "Inward: the axum handlers depend on crates/foundry-app/src/integrations/secrets_key_rotation.rs and keys.rs, which depend on foundry-auth secret_box and on the foundry-store types; the domain modules call no handler and no store adapter, and the store never calls back into the app. The new re-seal closures stay inside the integrations module, as check-arch integrations-secret-seam requires.",
 "F68": "The re-seal closure cannot open a stored sealed value, or cannot seal it again under the new key.",
 "F69": "The transaction is rolled back, the old key stays in effect, every credential still opens, no activity line is written, no version bump, and the confirm page is answered again with no I-24 anywhere.",

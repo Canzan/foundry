@@ -13,9 +13,11 @@ module live_replica_gate {
   /// a server beats its integration_replica_states row.
   pure val BEAT_EVERY: int = 10
 
-  /// The reload envelope this value is designed for, the same 20 s K4 names
-  /// for the 60-second figure. The window is sized from it, never from the
-  /// reading server's own setting.
+  /// The reload envelope the window is sized from, never the reading
+  /// server's own setting: the same 20 s K4 names for the 60-second figure,
+  /// and a checked bound on FOUNDRY_INTEGRATIONS_RELOAD_MS - a server whose
+  /// setting exceeds it refuses to start, so no deployment runs outside the
+  /// settings this model draws from.
   pure val RELOAD_ENVELOPE: int = 20
 
   /// `REPLICA_STATE_RETENTION` of crates/foundry-app/src/integrations/worker.rs:

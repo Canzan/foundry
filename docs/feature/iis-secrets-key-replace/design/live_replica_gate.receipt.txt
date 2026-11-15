@@ -4,58 +4,61 @@ against the beat cadence a running Foundry server keeps).
 WHERE. Every command below ran in the shared Lima VM local-dev, the only
 environment this project runs tools in, through scripts/test-in-lima.sh from
 the repository root, in one foreground call. Each command's own exit status is
-recorded on the line after it; nothing is piped between a command and its
-status. Tools: quint 0.32.0 and openjdk 21.0.12.1 in the VM; Apalache is not
-packaged there and quint fetched it on its first verify.
+on the line after it; nothing is piped between a command and its status.
+Tools: quint 0.32.0 and openjdk 21.0.12.1 in the VM; Apalache is not packaged
+there and quint fetched it on its first verify.
 
-WHAT RAN ON WHAT. The sha256 below is of these model bytes as they stand. The
-two mutants were written from the model by one sed each, inside /tmp in the
-VM, and deleted after their runs: m8 takes the window as three times the
-reading server's own FOUNDRY_INTEGRATIONS_RELOAD_MS, m9 as two beat intervals
-plus that same setting - the two windows this design refuses. A [violation]
-with exit 1 on a mutant is its kill; the run of neverNearTheWindow is negated
-on purpose, so its violation is the witness that the longest gap the model
-admits comes within one second of the window.
+WHAT RAN ON WHAT. The sha256 below is of these model bytes as they stand,
+which now state that the 20 s reload envelope is a checked bound: a server
+whose FOUNDRY_INTEGRATIONS_RELOAD_MS exceeds it refuses to start, so no
+deployment runs outside the settings this model draws from. The two mutants
+were written from the model by one sed each, inside /tmp in the VM, and
+deleted after their runs: m8 takes the window as three times the reading
+server's own setting, m9 as two beat intervals plus that same setting - the
+two windows this design refuses. A [violation] with exit 1 on a mutant is its
+kill; the run of neverNearTheWindow is negated on purpose, so its violation is
+the witness that the longest gap the model admits comes within one second of
+the window.
 
 ----------------------------------------------------------------------------
 
-MODEL_SHA256 44e14b060b062903f7de1095009abb6b805200c78ea837ec922dbc8dd41c00b7  live_replica_gate.qnt
-M8_SHA256 5fe903f00629ad40836d59f026ca17313d2b949486d100c0f20905f628e59ab2  m8.qnt
-M9_SHA256 0ac8d22bd520d261daea8ee8e0acf0d3e06bcc2f67bb467acbb6290be55df685  m9.qnt
+MODEL_SHA256 4297271499b0d44a247c9d32da85d08eedd5b212d03795e3e611d6b76167c116  live_replica_gate.qnt
+M8_SHA256 37933559cc87902c1e1f8823e256f260dcb9546ea02211ec2566eae99e29882c  m8.qnt
+M9_SHA256 396b6183da4c802cf075dd07055d39c32dd3a2b3419688c4e5dca75fd47770b9  m9.qnt
 QUINT 0.32.0 / JAVA openjdk version "21.0.12.1" 2026-08-18 / HOST Linux 6.18.62 aarch64 local-dev
 === CMD quint typecheck live_replica_gate.qnt
 exit=0
 === CMD quint run live_replica_gate.qnt --invariant=gateAlwaysLive --max-steps=44 --max-samples=20000 --verbosity=1
-[ok] No violation found (348ms at 57471 traces/second).
-Use --seed=0x723b0ab9ee19a789 --backend=rust to reproduce.
+[ok] No violation found (390ms at 51282 traces/second).
+Use --seed=0xef6f521939bcc979 --backend=rust to reproduce.
 exit=0
 === CMD quint run live_replica_gate.qnt --invariant=windowInsideRetention --max-steps=44 --max-samples=20000 --verbosity=1
-[ok] No violation found (321ms at 62305 traces/second).
-Use --seed=0x30ff0d85593f39fd --backend=rust to reproduce.
+[ok] No violation found (358ms at 55866 traces/second).
+Use --seed=0x80c77c46435f8909 --backend=rust to reproduce.
 exit=0
 === CMD quint run live_replica_gate.qnt --invariant=neverNearTheWindow --max-steps=44 --max-samples=20000 --verbosity=1
-[violation] Found an issue (9ms at 3333 traces/second).
-Use --seed=0x3c5ecf3b215f6e8a --backend=rust to reproduce.
+[violation] Found an issue (12ms at 3667 traces/second).
+Use --seed=0x3667d598ddc2b19d --backend=rust to reproduce.
 error: Invariant violated
 exit=1
 === CMD quint typecheck m8.qnt
 exit=0
 === CMD quint run m8.qnt --invariant=gateAlwaysLive --max-steps=44 --max-samples=20000 --verbosity=1
-[violation] Found an issue (10ms at 1100 traces/second).
-Use --seed=0x327309fe6ae04966 --backend=rust to reproduce.
+[violation] Found an issue (10ms at 1500 traces/second).
+Use --seed=0x2abbceaed4d88984 --backend=rust to reproduce.
 error: Invariant violated
 exit=1
 === CMD quint typecheck m9.qnt
 exit=0
 === CMD quint run m9.qnt --invariant=gateAlwaysLive --max-steps=44 --max-samples=20000 --verbosity=1
-[violation] Found an issue (11ms at 2727 traces/second).
-Use --seed=0xfb1a73d4d7dfd7dd --backend=rust to reproduce.
+[violation] Found an issue (10ms at 3400 traces/second).
+Use --seed=0x33729e711de8f960 --backend=rust to reproduce.
 error: Invariant violated
 exit=1
 === CMD quint verify live_replica_gate.qnt --invariant=gateAlwaysLive,windowInsideRetention --max-steps=44
 exit=0
-The outcome is: NoError                                           I@19:49:08.705
-[ok] No violation found (24821ms).
+The outcome is: NoError                                           I@02:39:44.712
+[ok] No violation found (19679ms).
 
 ----------------------------------------------------------------------------
 

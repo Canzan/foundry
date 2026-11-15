@@ -1,5 +1,5 @@
 # IIS\-SKR\-003 Gate window sized from the reload envelope
-Status: Accepted
+Status: Superseded by IIS-SKR-004
 
 ## Context
 
