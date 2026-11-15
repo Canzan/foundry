@@ -590,9 +590,9 @@
 "counters": {
 "B": 8,
 "C": 3,
-"D": 11,
+"D": 12,
 "E": 26,
-"F": 665,
+"F": 667,
 "K": 6,
 "L": 14,
 "N": 14,
@@ -987,6 +987,10 @@
 {
 "id": "D11",
 "text": "F632"
+},
+{
+"id": "D12",
+"text": "F666"
 }
 ],
 "equality": [
@@ -2231,10 +2235,10 @@
 "oracle": "crates/foundry-app/src/integrations/secrets_key_rotation.rs"
 },
 {
-"command": "scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::config",
+"command": "scripts/test-in-lima.sh cargo test -p foundry-app --test iis_secrets_key_bound",
 "id": "T7",
-"obligation": "F665",
-"oracle": "crates/foundry-app/src/integrations/config.rs"
+"obligation": "F667",
+"oracle": "crates/foundry-app/tests/iis_secrets_key_bound.rs"
 }
 ],
 "impact": [
@@ -2454,7 +2458,8 @@
 },
 "supports": [
 "crates/foundry-acceptance/src/steps/feature_instance_integration_setup.rs",
-"crates/foundry-acceptance/src/support/instance_integration_setup.rs"
+"crates/foundry-acceptance/src/support/instance_integration_setup.rs",
+"crates/foundry-app/tests/iis_secrets_key_bound.rs"
 ],
 "targets": [
 {
@@ -2523,7 +2528,8 @@
 "scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_key_rotation",
 "scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::handlers",
 "scripts/test-in-lima.sh bash -c \"source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-07\"",
-"scripts/test-in-lima.sh cargo xtask check-arch"
+"scripts/test-in-lima.sh cargo xtask check-arch",
+"scripts/test-in-lima.sh cargo test -p foundry-app --test iis_secrets_key_bound"
 ]
 },
 "S3": {
@@ -3666,7 +3672,8 @@
 "F662": "The catch-all arm already carries any new ConfigError to health.startup.refused.",
 "F663": "The settings row gains the admitted range and the refusal. Verified by review and EXAMINE; no test pins its wording.",
 "F664": "The settings list gains the same bound. Verified by review and EXAMINE; no test pins its wording.",
-"F665": "The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is checked where the setting is read: over the numeric range, the unset case and a non-numeric value, every value from 1 ms to 20000 is admitted - 0 raised to 1 ms, unset read as 5000 - and every value above 20000 is refused with a config error that names the setting, the value and the bound, in the shape the MIN_LEASE_SECONDS check already uses. No page can observe this and no acceptance scenario is needed: the refusal happens when the settings are read, before anything serves, and main.rs already refuses to start on any config error.",
+"F666": "Where L14 is observed, and who writes it. The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is observable through a public interface without any page: IntegrationSettings::read is public and a test can call it over an environment map, which is how the sibling bound MIN_LEASE_SECONDS is already observed at crates/foundry-app/tests/eip_phase5_doors.rs:51. So L14 belongs to the acceptance part of S2, not to the craft's completion record: the acceptance designer writes one generated test, crates/foundry-app/tests/iis_secrets_key_bound.rs::the_reload_setting_is_admitted_only_up_to_the_envelope, over the setting's text - the unset case, a non-numeric value, 0, 1, every value up to and past 20000, and u64::MAX - asserting that every value to 20000 is admitted, that 0 reads as 1 ms, and that every larger value is refused by an error naming the setting, the value and the bound. It is RED before the craft for the right reason: no bound exists yet, so 20001 and 60000 are admitted and read back as themselves. A new file, pure and acceptance-owned, because the two files that already read settings in tests share their binary with testcontainers tests (eip_phase5_doors.rs and iis_reload.rs), so binding this law there would make every run of it pay for Docker; and because a test inside the config module's own mod tests would put an acceptance-owned test in a production file the crafter owns. proptest 1 is already a dev-dependency of foundry-app, so no manifest change is needed. The craft then adds the constant, the check and the error variant, and that same test turns GREEN.",
+"F667": "The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is checked where the setting is read: over the setting's text - unset, a non-numeric value, 0, 1, every value up to and past 20000, and u64::MAX, generated - every value to 20000 is admitted, 0 reads as 1 ms, unset reads as 5000, and every larger value is refused with an error naming the setting, the value and the bound, in the shape the MIN_LEASE_SECONDS check already uses. The acceptance designer writes it as the generated test the_reload_setting_is_admitted_only_up_to_the_envelope in crates/foundry-app/tests/iis_secrets_key_bound.rs, through the public IntegrationSettings::read; it is RED before the craft because 20001 and 60000 are admitted today. No page can observe this and no scenario is needed: the refusal happens when the settings are read, before anything serves, and main.rs already refuses to start on any config error.",
 "F67": "Inward: the axum handlers depend on crates/foundry-app/src/integrations/secrets_key_rotation.rs and keys.rs, which depend on foundry-auth secret_box and on the foundry-store types; the domain modules call no handler and no store adapter, and the store never calls back into the app. The new re-seal closures stay inside the integrations module, as check-arch integrations-secret-seam requires.",
 "F68": "The re-seal closure cannot open a stored sealed value, or cannot seal it again under the new key.",
 "F69": "The transaction is rolled back, the old key stays in effect, every credential still opens, no activity line is written, no version bump, and the confirm page is answered again with no I-24 anywhere.",

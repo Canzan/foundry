@@ -74,6 +74,12 @@ Where each gate-window fact is observed, and who owns it. The page-reachable hal
 Refuse, not clamp, when FOUNDRY_INTEGRATIONS_RELOAD_MS is above the 20 s bound the gate window is sized from. Refusing fails closed: a server that cannot keep the gate honest does not serve, instead of serving with a window shorter than its own beat gaps and offering Start over against a server that still opens the key. It reuses a pattern this config already owns - the MIN_LEASE_SECONDS check and ConfigError::LeaseTooShort at crates/foundry-app/src/integrations/config.rs:140 - rather than inventing a second shape, and crates/foundry-app/src/main.rs already logs health.startup.refused and refuses to start for any ConfigError through its catch-all, so no boot path is added. Clamping with a logged warning was refused for two reasons: the declared setting and the effective one would differ, so the operator reads one value while the gate uses another, which is a second authority over one fact; and a log line is missed exactly when nobody is watching, while a refusal is read the first time the server is started. The cost is stated, not hidden: a deployment polling more slowly than 20 s must lower the setting before this release, which the RELEASING.md settings table and the product brief settings list now say.
 ```
 
+#### D12
+
+```text
+Where L14 is observed, and who writes it. The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is observable through a public interface without any page: IntegrationSettings::read is public and a test can call it over an environment map, which is how the sibling bound MIN_LEASE_SECONDS is already observed at crates/foundry-app/tests/eip_phase5_doors.rs:51. So L14 belongs to the acceptance part of S2, not to the craft's completion record: the acceptance designer writes one generated test, crates/foundry-app/tests/iis_secrets_key_bound.rs::the_reload_setting_is_admitted_only_up_to_the_envelope, over the setting's text - the unset case, a non-numeric value, 0, 1, every value up to and past 20000, and u64::MAX - asserting that every value to 20000 is admitted, that 0 reads as 1 ms, and that every larger value is refused by an error naming the setting, the value and the bound. It is RED before the craft for the right reason: no bound exists yet, so 20001 and 60000 are admitted and read back as themselves. A new file, pure and acceptance-owned, because the two files that already read settings in tests share their binary with testcontainers tests (eip_phase5_doors.rs and iis_reload.rs), so binding this law there would make every run of it pay for Docker; and because a test inside the config module's own mod tests would put an acceptance-owned test in a production file the crafter owns. proptest 1 is already a dev-dependency of foundry-app, so no manifest change is needed. The craft then adds the constant, the check and the error variant, and that same test turns GREEN.
+```
+
 ### Constraints
 
 #### K1
@@ -3146,6 +3152,7 @@ scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_ke
 scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::handlers
 scripts/test-in-lima.sh bash -c "source scripts/eip-lanes.sh; eip_warm; eip_lane us-iis-07"
 scripts/test-in-lima.sh cargo xtask check-arch
+scripts/test-in-lima.sh cargo test -p foundry-app --test iis_secrets_key_bound
 ```
 
 #### Supports
@@ -3153,6 +3160,8 @@ scripts/test-in-lima.sh cargo xtask check-arch
 crates\/foundry\-acceptance\/src\/steps\/feature\_instance\_integration\_setup\.rs
 
 crates\/foundry\-acceptance\/src\/support\/instance\_integration\_setup\.rs
+
+crates\/foundry\-app\/tests\/iis\_secrets\_key\_bound\.rs
 
 #### Public oracle
 
@@ -3617,13 +3626,13 @@ scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::secrets_ke
 ###### T7
 
 ```text
-The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is checked where the setting is read: over the numeric range, the unset case and a non-numeric value, every value from 1 ms to 20000 is admitted - 0 raised to 1 ms, unset read as 5000 - and every value above 20000 is refused with a config error that names the setting, the value and the bound, in the shape the MIN_LEASE_SECONDS check already uses. No page can observe this and no acceptance scenario is needed: the refusal happens when the settings are read, before anything serves, and main.rs already refuses to start on any config error.
+The bound on FOUNDRY_INTEGRATIONS_RELOAD_MS is checked where the setting is read: over the setting's text - unset, a non-numeric value, 0, 1, every value up to and past 20000, and u64::MAX, generated - every value to 20000 is admitted, 0 reads as 1 ms, unset reads as 5000, and every larger value is refused with an error naming the setting, the value and the bound, in the shape the MIN_LEASE_SECONDS check already uses. The acceptance designer writes it as the generated test the_reload_setting_is_admitted_only_up_to_the_envelope in crates/foundry-app/tests/iis_secrets_key_bound.rs, through the public IntegrationSettings::read; it is RED before the craft because 20001 and 60000 are admitted today. No page can observe this and no scenario is needed: the refusal happens when the settings are read, before anything serves, and main.rs already refuses to start on any config error.
 ```
 
-crates\/foundry\-app\/src\/integrations\/config\.rs
+crates\/foundry\-app\/tests\/iis\_secrets\_key\_bound\.rs
 
 ```text
-scripts/test-in-lima.sh cargo test -p foundry-app --lib integrations::config
+scripts/test-in-lima.sh cargo test -p foundry-app --test iis_secrets_key_bound
 ```
 
 ##### Contract tests
