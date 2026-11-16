@@ -86,7 +86,11 @@ fn read_with(given: &Given) -> Result<IntegrationSettings, ConfigError> {
 }
 
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(ProptestConfig {
+        cases: 256,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    })]
 
     /// Every reload a deployment may ask for is admitted up to the envelope
     /// and refused above it, with the refusal naming the setting, the value
