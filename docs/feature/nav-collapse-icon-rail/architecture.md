@@ -89,7 +89,7 @@ DECISION: the collapsed geometry stops hiding the destinations. Today the styles
 #### D14
 
 ```text
-DECISION: the acceptance crate gets one owner for the served head. crates/foundry-acceptance/src/support/served_markup.rs reads the head script tags of a served document - each src paired with the subset of defer, async and type=module it carries - and both step modules call it. The xtask copy in check_arch stays a deliberately independent second implementation: the gate must not depend on the oracle crate it is meant to be able to contradict.
+DECISION (mine, with its reason; NOT a user confirmation, and it narrows nothing the user fixed). The user fixed that all five review findings are met. Finding 3 names THREE head-script parses: feature_nav_collapse.rs, feature_canzan_theme.rs and xtask. It is met like this. The two ACCEPTANCE copies get ONE owner, crates/foundry-acceptance/src/support/served_markup.rs, which reads each head script src paired with the subset of defer, async and type=module it carries; both step modules call it and neither keeps a copy. The GATE copy, head_script_tags in xtask/src/check_arch.rs, stays a SECOND implementation for a technical reason: xtask depends on anyhow, sha2, serde_json and tempfile only, so a dependency on foundry-acceptance would make cargo xtask check-arch build the whole scraper, cucumber, fantoccini and testcontainers stack for a gate that must run on a host with no Docker, and it would make the gate depend on the very crate it has to be able to contradict. Duplication is therefore reduced from three to two, and the remaining two are not left to agree by luck: a contract test PAIRS them on the shipped head, each asserting the same independently written expected table rather than asserting against the other output. That is the whole of finding 3, and no reduction of it is claimed.
 ```
 
 #### D15
@@ -138,6 +138,12 @@ DECISION: the stylesheet bytes change, so its content-hashed name changes with t
 
 ```text
 DECISION: paradigm stays procedural, the repository evidenced style for this surface. The three touched languages are an Askama template, a hand-authored stylesheet and straight-line Rust rule functions over a staged tree; none of them is an object model and none of them is a functional core. No class, no new module layer and no FP relabelling is introduced to fit a carrier.
+```
+
+#### D23
+
+```text
+DECISION, closing the dependency-direction gap: the rail READING moves to a shared owner too. NAV_PROBE and read_nav are a private const and a private function in feature_nav_collapse.rs, so a second step module could reach them only by a step-to-step import or a visibility change, which contradicts the boundary that no step module depends on another. They move to crates foundry-acceptance/src/support/rail_reading.rs, beside served_markup.rs and for the same reason, and both step modules call the one owner. The new observations this feature needs - the accessible name of each rail item, the invisible-focusable set and the visible label of the focused icon - are added to that ONE reading, so a geometry claim and an accessibility claim still cannot drift into two moments. No step-to-step exception is taken and none is recorded, because none is needed.
 ```
 
 ### Constraints
@@ -446,13 +452,45 @@ UnchangedCompatible
 The finite stored-value outline keeps its six rows and its meaning; a browser holding the sentinel from an earlier version still reads as collapsed.
 ```
 
-### Not applicable
+The live rail reading\: one probe returning the rail geometry\, the mark\, the item set with each accessible name\, the invisible\-focusable set\, the focused label box and the controls
 
-contract_tests
+crates\/foundry\-acceptance\/src\/support\/rail\_reading\.rs
+
+Producer
+
+Migrated
 
 ```text
-No party of any contract this change touches can change apart from the others. The rail class contract, the head-script shape contract, the shared head reader and the content-hashed stylesheet URL all have their producers and every consumer inside the one deployable, changing in the same commit, so the primary oracle and the gate cover them. The one piece of data that outlives a producer version - the foundry.nav sentinel a browser holds from an earlier visit - is not changed by this feature: its key, its single sentinel and its total reader are untouched, and the delivered oracle already drives the whole finite stored-value domain.
+New shared owner, moved out of feature_nav_collapse.rs so neither step module depends on the other. VERIFIED DIRECTION: support depends on fantoccini and serde_json only; it names no step module and no feature.
 ```
+
+The live rail reading\: one probe returning the rail geometry\, the mark\, the item set with each accessible name\, the invisible\-focusable set\, the focused label box and the controls
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_collapse\.rs\:1246
+
+Consumer
+
+Migrated
+
+```text
+Its private const and reader are deleted and it calls the shared owner; the delivered assertions keep their inputs.
+```
+
+The live rail reading\: one probe returning the rail geometry\, the mark\, the item set with each accessible name\, the invisible\-focusable set\, the focused label box and the controls
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_icon\_rail\.rs
+
+Consumer
+
+Migrated
+
+```text
+The new lane calls the same owner rather than declaring a second probe, so the two lanes cannot read the rail differently. VERIFIED DIRECTION: it imports from support, never from another step module.
+```
+
+### Not applicable
+
+None.
 
 ### Boundaries
 
@@ -483,13 +521,13 @@ The gate depends on the templates and the static assets and on nothing else - no
 ##### B1
 
 ```text
-A head script of the document shell names localStorage or sessionStorage and names documentElement, and its tag carries defer, async or type=module.
+A head script of the document shell NAMES localStorage or sessionStorage and NAMES documentElement in its comment-stripped source, and its tag carries defer, async or type=module.
 ```
 
 Refusal
 
 ```text
-cargo xtask check-arch exits non-zero with one entry naming that src, saying the asset reads the operator stored choice and stamps the document element and so must run before the browser is permitted to paint, and telling the contributor to remove the attribute.
+cargo xtask check-arch exits non-zero with one entry naming that src, saying that the asset NAMES stored state and the document element - which is what the gate can decide from source, and the reason it is treated as a pre-paint script that must run before the browser is permitted to paint - and telling the contributor to remove the attribute. The wording claims naming, never that the asset was observed to read and stamp: that is what the names test establishes and no more.
 ```
 
 ##### B2
@@ -586,6 +624,18 @@ Indeterminate
 
 ```text
 The rail is the expanded text nav it is today and no collapse control exists; the collapsed icon rail is simply not reachable, which is a bound on the promise rather than a degraded rail.
+```
+
+##### B10
+
+```text
+THE FALSE POSITIVE of a names test: a head script that NAMES localStorage or sessionStorage and NAMES documentElement but touches neither before the first paint, because it acts on the settled DOM. Three shipped neighbours - board-dnd.js, form-errors.js and keyboard.js - already name documentElement, so one added storage name reaches this shape.
+```
+
+Refusal
+
+```text
+The gate refuses it while it carries defer and names it, saying that the gate decided BY NAME: the asset names stored state and the document element, so it is treated as a pre-paint script. The refusal names the two legitimate resolutions and warns against the third. RESOLVE by splitting the stored-state read into its own deferred asset, so the settled-DOM asset no longer names both; or by recording a deliberate exception as a design decision with its reason. DO NOT answer the refusal by dropping defer: that satisfies the gate and puts a non-pre-paint script on the render-blocking path, which the gate then accepts and nothing observes.
 ```
 
 ### Observations
@@ -911,7 +961,7 @@ docs\/feature\/nav\-collapse\-icon\-rail\/design\/verification\-receipt\.md
 #### L6
 
 ```text
-The classifier recognises every asset that names localStorage or sessionStorage and names documentElement, in whatever idiom its comment-stripped source spells them, and recognises no asset that names neither.
+The membership test is a NAMES test and is sound in the direction that matters: it recognises every asset that names localStorage or sessionStorage and names documentElement, in whatever idiom its comment-stripped source spells them, so no true pre-paint stamp is missed; it recognises no asset that names neither; and it DELIBERATELY OVER-APPROXIMATES, recognising an asset that names both and touches them only after the settled DOM, which is refused loudly rather than accepted silently.
 ```
 
 Invariant
@@ -927,7 +977,7 @@ Broad
 ###### Generator
 
 ```text
-Asset sources composed from a closed grammar of segment kinds: a direct getItem read; a bracket read, window.localStorage of a key; a local alias, var s = window.localStorage then s.getItem; a destructured read; a direct documentElement.setAttribute stamp; an element-reference stamp, var root = document.documentElement then root.setAttribute; a dataset stamp; a mention of either name inside a line comment only; a mention inside a block comment only; and a neutral settled-DOM line that names neither.
+Asset sources composed from a closed grammar of segment kinds: a direct getItem read; a bracket read, window.localStorage of a key; a local alias, var s = window.localStorage then s.getItem; a destructured read; a direct documentElement.setAttribute stamp; an element-reference stamp, var root = document.documentElement then root.setAttribute; a dataset stamp; a settled-DOM line that names documentElement inside a DOMContentLoaded handler; a mention of either name inside a line comment only; a mention inside a block comment only; and a neutral line that names neither.
 ```
 
 sequences of one to three segments\, enumerated exhaustively over the segment kinds\, in the shape of the existing exhaustive property in this module
@@ -937,7 +987,11 @@ none\: the enumeration is total over the bound and therefore deterministic and r
 ###### Must include
 
 ```text
-the local-alias read paired with the element-reference stamp, which is the idiom the shipped narrow classifier misses
+the local-alias read paired with the element-reference stamp, which is the idiom the shipped narrow classifier misses and which MUST be recognised
+```
+
+```text
+a settled-DOM segment naming documentElement paired with any storage read, which MUST be recognised even though it is not a true pre-paint stamp - the over-approximation, asserted rather than tolerated
 ```
 
 ```text
@@ -955,7 +1009,7 @@ the expected classification is computed from the segment kinds the generator cho
 ```
 
 ```text
-an asset built from the local-alias read plus the element-reference stamp is classified as a non-stamper, so defer on its tag is accepted
+an asset built from the local-alias read plus the element-reference stamp is classified as a non-stamper, so defer on its tag is accepted; or an asset built from a settled-DOM segment plus a storage read is classified as a non-stamper, so the over-approximation this law asserts is absent and the law has become a claim about intent that no source test can keep
 ```
 
 ##### Evidence
@@ -1274,6 +1328,22 @@ Unknown
 
 ```text
 Whether an asset whose identifiers are built at runtime, or an inline or runtime-added head script, can reach the document before the first paint without the gate seeing it.
+```
+
+architect
+
+Admitted
+
+```text
+A names test cannot decide WHEN an asset touches what it names, so a settled-DOM neighbour that names storage and documentElement is classed as a pre-paint script and refused. The over-approximation is deliberate and errs toward refusing.
+```
+
+architect
+
+Unknown
+
+```text
+Whether a contributor answers the names-test refusal by dropping defer rather than by splitting the stored-state read: the gate accepts the plain result, so nothing observes a non-pre-paint script placed on the render-blocking path.
 ```
 
 architect
@@ -1624,6 +1694,30 @@ paints\_stored\_state\_onto\_the\_document as it is shipped today
 
 xtask\/src\/check\_arch\.rs\:2014
 
+overApproximationNeverSilent
+
+Invariant
+
+```text
+A script the gate recognises by name but that is not a true pre-paint stamp is REFUSED while it carries a deferring attribute - the over-approximation is loud, never a silent accept.
+```
+
+the stamper arm of check\_pre\_paint\_scripts\_are\_render\_blocking\, reached through the names\-based membership test
+
+xtask\/src\/check\_arch\.rs\:1844
+
+settledOnlyNeverRenderBlocking
+
+Invariant
+
+```text
+Deliberately refutable, and the hazard the names test leaves behind: no settled-DOM asset that names stored state and the document element is loaded plain. The gate ACCEPTS it once it is plain, so a contributor who answers the refusal by dropping defer puts a non-pre-paint script on the render-blocking path with the gate green.
+```
+
+the head of the document shell\, which no gate arm can protect from this answer
+
+crates\/foundry\-app\/templates\/base\.html\:48
+
 ##### Atoms
 
 State
@@ -1714,7 +1808,7 @@ Inline scripts and scripts added at runtime are outside the model.
 
 ##### Mutants
 
-###### N4
+###### N6
 
 ```text
 init_as_written_wide: every other head script defers, read as written, with no reading for async or type=module.
@@ -1724,7 +1818,7 @@ init_as_written_wide: every other head script defers, read as written, with no r
 
 noThirdVerdict
 
-###### N5
+###### N7
 
 ```text
 init_defer_attr_narrow: the classifier recognises only the direct getItem and documentElement idioms, so an aliased stamper escapes the pre-paint set.
@@ -1829,7 +1923,7 @@ Pass
 DesignedNotBuilt
 
 ```text
-Checked exhaustively under Apalache at bound 6 on head_guard.qnt: totalVerdicts, noThirdVerdict, classifierSeesEveryStamper and gateMatchesPaint, each NoError. The as-written reading kills noThirdVerdict and the narrow classifier kills both classifierSeesEveryStamper and gateMatchesPaint, so each law has a matching mutant. Runtime is DesignedNotBuilt: the layer shipped today refuses only the deferring direction and decides membership by three narrow substrings, so neither the totality arm nor the widened classifier is built.
+Checked exhaustively under Apalache at bound 6 on head_guard.qnt: totalVerdicts, noThirdVerdict, classifierSeesEveryStamper, gateMatchesPaint and overApproximationNeverSilent, each NoError. classifierSeesEveryStamper is stated over the TRUE pre-paint stampers, not over what the source names, so it says the one thing that matters for the flash promise: no real stamp is missed. overApproximationNeverSilent says the other direction is loud: a script recognised by name that is not a true stamper is refused while deferred, never silently accepted. The as-written reading kills noThirdVerdict and the narrow classifier kills both classifierSeesEveryStamper and gateMatchesPaint, so each law has a matching mutant. One hazard is carried rather than closed: settledOnlyNeverRenderBlocking is deliberately refutable and exhibits the trace in which a settled-DOM asset made plain to satisfy the refusal is accepted on the render-blocking path; no gate arm can cover it, so it lives in the refusal wording and in a recorded risk. Runtime is DesignedNotBuilt: the layer shipped today refuses only the deferring direction and decides membership by three narrow substrings, so neither the totality arm nor the widened classifier is built.
 ```
 
 ##### Evidence
@@ -2212,6 +2306,32 @@ None: the gate decides it, and the delivered feature already walked this path on
 
 crafter
 
+#### Y13
+
+Stressor
+
+```text
+NEGATE the assumption that naming stored state and the document element means stamping from stored state before the paint: a settled-DOM neighbour names both for work it does after the DOM is settled.
+```
+
+```text
+No true stamper is ever missed - the over-approximation errs toward refusing, never toward accepting, and classifierSeesEveryStamper holds over the TRUE stampers. The refusal is loud and names the script: overApproximationNeverSilent was verified at bound 6.
+```
+
+```text
+A legitimately deferred asset is refused and its author has to split the stored-state read into its own deferred asset, or record a deliberate exception as a design decision.
+```
+
+```text
+Answering that refusal by dropping defer. The gate ACCEPTS the asset once it is plain, so a non-pre-paint script would then sit on the render-blocking path with the gate green - the hazard the deliberately refutable settledOnlyNeverRenderBlocking exhibits as a trace.
+```
+
+```text
+No gate arm covers the plain-made case, because no source test can tell a real pre-paint stamp from a settled-DOM one. The remaining obligation is the refusal WORDING, which must name the two legitimate resolutions and warn against the third, plus the standing review obligation on the head: a new plain head script needs a recorded reason.
+```
+
+architect
+
 ### Architectural tests
 
 #### T1
@@ -2314,15 +2434,15 @@ crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-toggle\.feature
 #### Public oracle
 
 ```text
-A contributor runs the project gate, cargo xtask check-arch, over the repository as it stands, and over staged trees that differ only in the head of the document shell and in the bytes of the asset that head names: (a) the shipped head, two plain stampers above seven deferred neighbours; (b) a head whose stamping asset reads the stored choice through a local alias and stamps through an element reference, with defer on its tag; (c) the same asset with async, and again with type=module; (d) a head one of whose deferred neighbours has lost its defer; (e) a head whose non-stamping script carries async, and one whose non-stamping script carries type=module. She also runs the gate over each of the twenty-four head-script shapes - three storage values by document element named or not by the four loading modes.
+A contributor runs the project gate, cargo xtask check-arch, over the repository as it stands, and over staged trees that differ only in the head of the document shell and in the bytes of the asset that head names: (a) the shipped head, two plain stampers above seven deferred neighbours; (b) a head whose stamping asset reads the stored choice through a local alias and stamps through an element reference, with defer on its tag; (c) the same asset with async, and again with type=module; (d) a head one of whose deferred neighbours has lost its defer; (e) a head whose non-stamping script carries async, and one whose non-stamping script carries type=module; (f) a head whose DEFERRED neighbour names localStorage and documentElement but touches both only inside a DOMContentLoaded handler - the false positive of a names test. She also runs the gate over each of the twenty-four head-script shapes - three storage values by document element named or not by the four loading modes. Independently, the gate reader and the shared acceptance reader are each asserted against the same expected table of the shipped head nine (src, deferring) pairs.
 ```
 
 ```text
-(a) exit 0, with the PASSED line still naming the pre-paint-script layer. (b) and (c) non-zero, each with one entry naming that src, saying the asset reads the operator stored choice and stamps the document element and therefore must run before the browser is permitted to paint, and telling her to remove the attribute - whichever idiom the asset spells localStorage, sessionStorage and documentElement in. (d) non-zero, with one entry naming the neighbour that lost its defer and telling her to add defer - not a pass earned because the other six neighbours still defer. (e) non-zero for each, naming the script and telling her to add defer, rather than answering nothing. Over the twenty-four shapes, each shape receives exactly one verdict, accept or refuse, and every refusal names what failed, why it matters and how to fix it. The operator sees no change in the app: no served byte of the head changes.
+(a) exit 0, with the PASSED line still naming the pre-paint-script layer. (b) and (c) non-zero, each with one entry naming that src, saying that the asset NAMES stored state and the document element and so is treated as a script that must run before the browser is permitted to paint, and telling her to remove the attribute - whichever idiom the asset spells localStorage, sessionStorage and documentElement in. (d) non-zero, with one entry naming the neighbour that lost its defer and telling her to add defer - not a pass earned because the other six neighbours still defer. (e) non-zero for each, naming the script and telling her to add defer, rather than answering nothing. (f) non-zero, with one entry naming that src and saying the gate decided BY NAME, offering the two legitimate resolutions - split the stored-state read into its own deferred asset, or record a deliberate exception - and warning that dropping defer would put a non-pre-paint script on the render-blocking path. Over the twenty-four shapes, each shape receives exactly one verdict, accept or refuse, and every refusal names what failed, why it matters and how to fix it. The two readers yield the identical nine pairs for the shipped head. The operator sees no change in the app: no served byte of the head changes.
 ```
 
 ```text
-Any of these fails the slice: the aliased stamper carrying defer, async or type=module is accepted; a deferred neighbour that silently lost its defer is accepted; a non-stamping head script carrying async or type=module receives no entry; a shape appears twice or not at all in the sweep; a refusal names no script, or omits what failed, why, or how to fix it; the shipped head is refused; the fail-closed arm stops reporting a head whose pre-paint set came out empty; or a served byte of the document shell head other than a comment changes.
+Any of these fails the slice: the aliased stamper carrying defer, async or type=module is accepted; a deferred neighbour that silently lost its defer is accepted; a non-stamping head script carrying async or type=module receives no entry; the deferred neighbour that names both is accepted, or is refused with wording that claims the asset was observed to READ and STAMP rather than to name, or with wording whose only remedy is to drop defer; a shape appears twice or not at all in the sweep; a refusal names no script, or omits what failed, why, or how to fix it; the shipped head is refused; the fail-closed arm stops reporting a head whose pre-paint set came out empty; either reader yields a different set of pairs from the expected table for the shipped head; or a served byte of the document shell head other than a comment changes.
 ```
 
 ##### Promises
@@ -2645,7 +2765,27 @@ None.
 
 ##### Contract tests
 
-None.
+###### T4
+
+```text
+The gate reader and the acceptance reader must agree about the shipped head, so the claim that they are independent implementations is observed rather than asserted. TWO HALVES, ONE EXPECTED TABLE. The xtask half asserts that head_script_tags over crates/foundry-app/templates/base.html yields exactly the nine expected pairs - the two plain pre-paint tags, and the seven neighbours each carrying defer - written out independently in the test, not read from the other reader. The acceptance half asserts that the shared reader over the SERVED page yields exactly the same nine pairs; it runs under scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=canzan-theme-system CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release. A reader that drifts - a fourth deferring attribute, a different quoting form, a missed tag - fails on exactly the side that drifted. STATED LIMIT: a drift that changes both readers identically is not caught, and the two inputs differ by construction (template source against served markup), which is what makes the pairing worth having rather than a tautology.
+```
+
+The head\-script reading\: each head script src of the document shell paired with the subset of defer\, async and type\=module it carries
+
+xtask\/src\/check\_arch\.rs\:1935
+
+crates\/foundry\-acceptance\/src\/support\/served\_markup\.rs
+
+```text
+Both readers yield the identical set of nine (src, deferring attributes) pairs for the shipped head, each compared with the same independently written expected table.
+```
+
+xtask\/src\/check\_arch\.rs
+
+```text
+scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo test -p xtask check_arch::
+```
 
 ### S2
 
@@ -2719,6 +2859,10 @@ scripts/test-in-lima.sh env FOUNDRY_XTASK_INCLUDE_DOCKER=1 CARGO_BUILD_JOBS=4 ca
 
 crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_icon\_rail\.rs
 
+crates\/foundry\-acceptance\/src\/support\/rail\_reading\.rs
+
+crates\/foundry\-acceptance\/src\/support\/mod\.rs
+
 crates\/foundry\-acceptance\/src\/lib\.rs
 
 crates\/foundry\-acceptance\/tests\/acceptance\.rs
@@ -2763,7 +2907,22 @@ P11
 
 #### Prefactoring
 
-None.
+```text
+L3, extract to a shared owner, BEFORE any behaviour changes: move NAV_PROBE and read_nav out of crates/foundry-acceptance/src/steps/feature_nav_collapse.rs into crates/foundry-acceptance/src/support/rail_reading.rs and have that step module call the owner, with every assertion it feeds unchanged and no new observation added yet. This makes the follow-up change easier and legal: the new lane then extends ONE reading with the accessible-name, invisible-focusable and focused-label observations, instead of either importing a private const across step modules - which the boundaries forbid - or declaring a second probe that could drift from the first.
+```
+
+```text
+Every delivered nav-collapse observation keeps its verdict: the geometry and content widths, the mark and its value, the nav and workspace display, the item count, shown and focusable counts, and the control and theme-control readings.
+```
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-toggle\.feature
+
+##### Verification
+
+```text
+scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo build --release -p foundry-app
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-toggle CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+```
 
 #### Records
 
@@ -2851,10 +3010,10 @@ NAV\_PROBE
 
 crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_collapse\.rs\:1246
 
-Extend
+Replace
 
 ```text
-One probe already reads the geometry and the state together so a geometry claim and a state claim cannot drift into two moments. The new observations - the accessible name of each rail item, the invisible-focusable set, the visible label of the focused icon - belong in that same reading rather than in a second probe.
+The one probe that reads the geometry and the state together is the right reading to extend, and it is PRIVATE to this step module, so the new lane cannot call it without a step-to-step import. It is replaced by a move: the const and its read_nav wrapper go to support/rail_reading.rs and this module calls that owner instead. Extending it in place and widening its visibility was rejected: it would make one step module a dependency of another, which the boundaries forbid and which D14 already refused for the head reader.
 ```
 
 browser\_harness
@@ -2895,6 +3054,16 @@ Extend
 
 ```text
 The project keeps one release-notes file and every change adds its entry at the top of it; there is no second place for it.
+```
+
+read\_nav
+
+crates\/foundry\-acceptance\/src\/support\/rail\_reading\.rs
+
+CreateNew
+
+```text
+CANDIDATES CONSIDERED. support/browser_harness.rs owns the session and the Selenium node contract, not what a page shows, so a rail reading there would mix two responsibilities. support/html_assertions.rs is a scraper wrapper over served markup and cannot execute script in a live browser. Leaving the probe in feature_nav_collapse.rs is what the boundary forbids. A new support module beside served_markup.rs leaves neither feature oracle depending on the other, which is the same shape D14 chose for the head reader.
 ```
 
 ##### Impact
@@ -3059,22 +3228,48 @@ Changed
 One entry for the collapsed icon rail and the re-hashed stylesheet.
 ```
 
+oracle support\, new
+
+crates\/foundry\-acceptance\/src\/support\/rail\_reading\.rs
+
+Migrated
+
+```text
+One owner for the live rail reading, called by both step modules; it gains the accessible-name, invisible-focusable and focused-label observations.
+```
+
+crate support interface
+
+crates\/foundry\-acceptance\/src\/support\/mod\.rs\:16
+
+Changed
+
+```text
+One module declaration added for the rail reading, beside browser_harness and served_markup.
+```
+
+oracle step module
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_collapse\.rs\:1246
+
+Migrated
+
+```text
+The private probe const and its reader move out to the shared owner; this module calls it and keeps every assertion it feeds.
+```
+
 ##### Agreement
 
 None.
 
 ##### Not applicable
 
-prefactoring
-
-```text
-No preserving move makes this change easier. The one candidate was an Askama macro for the rail item row, rejected in the reuse analysis: seven literal rows in one file with a glyph each would gain an indirection and a per-icon branch without removing a decision. The stylesheet change is additive inside the collapsed-geometry region the delivered feature created, and the one rule that must change meaning - the negated-descendant hide - cannot be rewritten preservingly, because any rewrite that keeps its computed effect keeps hiding the destinations. The shared-owner extraction this feature does owe is a move of the HEAD-SCRIPT parse and belongs to S1, where it is declared with its own GREEN oracle and verification recipe.
-```
+None.
 
 ##### Boundaries
 
 ```text
-The running app shell in a real browser: the operator press of the collapse control, her Tab presses, her activation of a rail icon, her submit of the rail Sign out form, her sign-in through the real form, and the viewport width. Observations are layout and accessibility facts read from the live document - which rail members are in the layout and focusable, the computed accessible name of each, which item carries aria-current=page, whether a focused icon label is visibly shown, the strip and content widths, and the horizontal-overflow verdict - plus the choice the origin holds.
+The running app shell in a real browser: the operator press of the collapse control, her Tab presses, her activation of a rail icon, her submit of the rail Sign out form, her sign-in through the real form, and the viewport width. Observations are layout and accessibility facts read from the live document through ONE shared reading - which rail members are in the layout and focusable, the computed accessible name of each, which item carries aria-current=page, whether a focused icon label is visibly shown, the strip and content widths, and the horizontal-overflow verdict - plus the choice the origin holds.
 ```
 
 ###### Driven ports
@@ -3088,7 +3283,7 @@ ServeDir over crates/foundry-app/static, which serves the content-hashed stylesh
 ```
 
 ```text
-The template and the stylesheet are leaves: the browser consumes them and they know nothing of the acceptance crate. The oracle depends only on the served output and on the shared browser harness. Nothing in the app depends on the oracle. static/js/nav-collapse.js is not a dependency of the icons: they are server-rendered precisely so the rail does not wait for a script.
+The template and the stylesheet are leaves: the browser consumes them and they know nothing of the acceptance crate. NO STEP MODULE DEPENDS ON ANOTHER STEP MODULE, and this slice keeps that direction by MOVING the rail reading into support/rail_reading.rs rather than by importing a private const across modules or widening its visibility; both step modules depend on support, support depends on neither. The oracle depends only on the served output and on that shared support. Nothing in the app depends on the oracle. static/js/nav-collapse.js is not a dependency of the icons: they are server-rendered precisely so the rail does not wait for a script.
 ```
 
 ###### Failures
@@ -3146,4 +3341,5 @@ None.
 ## ADRs
 
 - NAV\-ICON\-RAIL\-001 Collapsed left nav is an icon rail\, not a hidden one — Accepted
-- NAV\-ICON\-RAIL\-002 The head\-script gate answers every shape\, by what the asset names — Accepted
+- NAV\-ICON\-RAIL\-002 The head\-script gate answers every shape\, by what the asset names — Superseded by NAV-ICON-RAIL-003
+- NAV\-ICON\-RAIL\-003 A names test over\-approximates\, and its refusal says so — Accepted

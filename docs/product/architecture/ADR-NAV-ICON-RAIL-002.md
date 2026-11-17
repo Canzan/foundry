@@ -1,5 +1,5 @@
 # NAV\-ICON\-RAIL\-002 The head\-script gate answers every shape\, by what the asset names
-Status: Accepted
+Status: Superseded by NAV-ICON-RAIL-003
 
 ## Context
 

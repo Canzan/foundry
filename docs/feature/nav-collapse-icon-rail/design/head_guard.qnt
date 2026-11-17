@@ -17,7 +17,7 @@
 module headGuard {
   type Shape = { storage: str, docEl: bool, loading: str }
   type Verdict = { storage: str, docEl: bool, loading: str, verdict: str, message: str }
-  type Script = { name: str, storage: str, docEl: bool, loading: str, idiom: str }
+  type Script = { name: str, storage: str, docEl: bool, loading: str, idiom: str, settledOnly: bool }
 
   pure val STORAGES = Set("localStorage", "sessionStorage", "neither")
   pure val LOADINGS = Set("plain", "defer", "async", "type=module")
@@ -25,13 +25,19 @@ module headGuard {
     tuples(STORAGES, Set(true, false), LOADINGS).map(t => { storage: t._1, docEl: t._2, loading: t._3 })
 
   pure def mustPrePaint(storage: str, docEl: bool): bool = storage != "neither" and docEl
-  pure def isStamper(sc: Script): bool = mustPrePaint(sc.storage, sc.docEl)
+  // What the asset NAMES. This is all a names test can establish.
+  pure def namesBoth(sc: Script): bool = mustPrePaint(sc.storage, sc.docEl)
+  // What the asset really DOES. A settled-DOM asset may name both and touch
+  // them only after the DOM is settled, so it is NOT a pre-paint script even
+  // though a names test recognises it.
+  pure def trueStamper(sc: Script): bool = namesBoth(sc) and not(sc.settledOnly)
 
-  // What the GATE sees. Under "wide" this is the truth; under "narrow" an
-  // aliased stamper is invisible to the gate and falls into the "every other
-  // head script" branch, where `defer` is accepted.
+  // What the GATE sees. Under "wide" it is the naming facts, which OVER-
+  // APPROXIMATE the true stampers; under "narrow" an aliased stamper is
+  // invisible to the gate and falls into the "every other head script" branch,
+  // where `defer` is accepted.
   pure def recognised(rec: str, sc: Script): bool =
-    isStamper(sc) and (rec == "wide" or sc.idiom == "direct")
+    namesBoth(sc) and (rec == "wide" or sc.idiom == "direct")
 
   pure def judge(reading: str, sh: Shape): Verdict = {
     val r =
@@ -60,20 +66,28 @@ module headGuard {
   }
 
   // Paint-order heads. All scripts are external (src); see assumptions.
-  pure val NAV   = { name: "nav-state stamp", storage: "localStorage", docEl: true, loading: "plain", idiom: "direct" }
-  pure val THEME = { name: "theme stamp", storage: "sessionStorage", docEl: true, loading: "plain", idiom: "direct" }
-  pure val APP   = { name: "app bundle", storage: "neither", docEl: false, loading: "defer", idiom: "direct" }
-  pure val READ  = { name: "stored-state reader (no stamp)", storage: "localStorage", docEl: false, loading: "defer", idiom: "direct" }
+  pure val NAV   = { name: "nav-state stamp", storage: "localStorage", docEl: true, loading: "plain", idiom: "direct", settledOnly: false }
+  pure val THEME = { name: "theme stamp", storage: "sessionStorage", docEl: true, loading: "plain", idiom: "direct", settledOnly: false }
+  pure val APP   = { name: "app bundle", storage: "neither", docEl: false, loading: "defer", idiom: "direct", settledOnly: false }
+  pure val READ  = { name: "stored-state reader (no stamp)", storage: "localStorage", docEl: false, loading: "defer", idiom: "direct", settledOnly: false }
   // A third stamp added later, spelled through a local alias and an element
   // reference, and given `defer` by a contributor copying its neighbours.
-  pure val ALIAS = { name: "aliased stamp", storage: "localStorage", docEl: true, loading: "defer", idiom: "alias" }
+  pure val ALIAS = { name: "aliased stamp", storage: "localStorage", docEl: true, loading: "defer", idiom: "alias", settledOnly: false }
+  // The FALSE POSITIVE of a names test: a settled-DOM neighbour that names
+  // storage and documentElement and touches neither before the paint. Three of
+  // the shipped deferred neighbours already name documentElement, so one added
+  // storage name reaches this shape.
+  pure val SETTLED = { name: "settled-DOM asset naming both", storage: "localStorage", docEl: true, loading: "defer", idiom: "direct", settledOnly: true }
 
   pure def headOf(h: str): List[Script] =
     if (h == "accepted head") [NAV, THEME, APP, READ]
     else if (h == "stamper deferred") [NAV, THEME.with("loading", "defer"), APP, READ]
     else if (h == "stamper async") [NAV, THEME.with("loading", "async"), APP, READ]
+    else if (h == "settled-only deferred") [NAV, THEME, SETTLED, APP, READ]
+    else if (h == "settled-only made plain") [NAV, THEME, SETTLED.with("loading", "plain"), APP, READ]
     else [NAV, THEME, ALIAS, APP, READ]
-  pure val HEADS = Set("accepted head", "stamper deferred", "stamper async", "aliased stamp deferred")
+  pure val HEADS = Set("accepted head", "stamper deferred", "stamper async", "aliased stamp deferred",
+                       "settled-only deferred", "settled-only made plain")
   pure def runsEarly(sc: Script): bool = sc.loading == "plain"
   pure def runsLate(sc: Script): bool = sc.loading == "defer" or sc.loading == "type=module"
 
@@ -122,7 +136,7 @@ module headGuard {
 
   action runOne(sc: Script, nextPhase: str): bool = all {
     ran' = ran.append(sc.name),
-    stampsLanded' = if (isStamper(sc)) stampsLanded.union(Set(sc.name)) else stampsLanded,
+    stampsLanded' = if (trueStamper(sc)) stampsLanded.union(Set(sc.name)) else stampsLanded,
     phase' = nextPhase, stampsAtPaint' = stampsAtPaint,
     last' = sc.name,
     reading' = reading, rec' = rec, verdicts' = verdicts, hd' = hd, headVerdict' = headVerdict
@@ -165,10 +179,25 @@ module headGuard {
   // L-S1-2 / P8: the classifier sees every script that really stamps stored
   // state onto the document element, whatever idiom it is spelled in.
   val classifierSeesEveryStamper =
-    headOf(hd).select(isStamper).foldl(true, (b, sc) => b and recognised(rec, sc))
+    headOf(hd).select(trueStamper).foldl(true, (b, sc) => b and recognised(rec, sc))
+  // L-S1-4: the over-approximation of a names test is LOUD, never silent. A
+  // script the gate recognises but that is not a true stamper is refused while
+  // it carries a deferring attribute - the contributor is told, by name, that
+  // the gate decided by names.
+  pure def verdictOf(rd: str, rc: str, sc: Script): str = judge(rd, gateShape(rc, sc)).verdict
+  val overApproximationNeverSilent =
+    headOf(hd).foldl(true, (b, sc) =>
+      b and ((recognised(rec, sc) and not(trueStamper(sc)) and sc.loading != "plain")
+               implies verdictOf(reading, rec, sc) == "refuse"))
+  // DELIBERATELY REFUTABLE, and the hazard the false positive leaves behind:
+  // the gate accepts a settled-DOM asset that a contributor made PLAIN to
+  // satisfy the refusal, so a non-pre-paint script is now render-blocking. No
+  // gate arm covers this; the resolution is a design decision.
+  val settledOnlyNeverRenderBlocking =
+    headOf(hd).foldl(true, (b, sc) => b and not(sc.settledOnly and sc.loading == "plain"))
   // Paint order: every stamp in the head has landed by the first paint.
   pure def stampers(h: str): Set[str] =
-    headOf(h).select(isStamper).foldl(Set(), (acc, sc) => acc.union(Set(sc.name)))
+    headOf(h).select(trueStamper).foldl(Set(), (acc, sc) => acc.union(Set(sc.name)))
   val stampsBeforePaint =
     (phase == "first paint" or phase == "run deferred" or phase == "done") implies stampsAtPaint == stampers(hd)
   // L-S1-3 / P8: a head the gate ACCEPTS has all of its stamps landed by the
