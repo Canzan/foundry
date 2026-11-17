@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><style>:root{
+  /* The font stack is inlined here because the nwdes renderer injects only
+     this stylesheet; the nwave_ai page builder takes the same stack from
+     manifest.json. Both carriers are pinned by tests. */
+  --nwave-font-stack:"Lato", -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+    --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+    --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+    --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+    --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+  }
+}
+:root[data-theme="light"]{
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+:root[data-theme="dark"]{
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+  --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+  --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--nwave-font-stack);
+  font-size:15px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 6rem;
+  display:flex;flex-direction:column;gap:1.1rem}
+.brandbar{background:#131316;border-radius:4px;padding:.7rem 1rem;display:flex;align-items:center}
+.brandbar-logo{height:1.9rem;width:auto;display:block}
+.provenance{
+  display:flex;flex-wrap:wrap;gap:.5rem .9rem;align-items:baseline;
+  background:var(--accent-soft);border-left:3px solid var(--accent);
+  padding:.7rem .95rem;border-radius:0 4px 4px 0;font-size:.8rem;color:var(--muted);
+}
+.provenance strong{color:var(--ink);font-weight:600}
+.provenance code{background:none;padding:0;color:var(--accent)}
+h1,h2,h3,h4{text-wrap:balance;line-height:1.22;margin:0;font-weight:640}
+h1{font-size:1.9rem;letter-spacing:-.018em;margin-top:.6rem}
+h2{font-size:1.28rem;letter-spacing:-.01em;margin-top:2.2rem;
+  padding-bottom:.4rem;border-bottom:1px solid var(--rule)}
+h3{font-size:1.02rem;margin-top:1.5rem;color:var(--accent)}
+h4{font-size:.9rem;margin-top:1.1rem;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted)}
+p{margin:0;max-width:74ch}
+ul,ol{margin:0;padding-left:1.3rem;display:flex;flex-direction:column;gap:.35rem;max-width:74ch}
+hr{border:0;border-top:1px solid var(--rule);margin:1.6rem 0;width:100%}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.86em;
+  background:var(--accent-soft);padding:.1em .34em;border-radius:3px}
+pre{background:var(--panel);border:1px solid var(--rule);border-radius:5px;
+  padding:1rem 1.1rem;overflow-x:auto;margin:0;font-size:.78rem;line-height:1.5}
+pre code{background:none;padding:0;font-size:inherit}
+blockquote{margin:0;padding:.75rem 1rem;background:var(--panel);
+  border-left:3px solid var(--quar);border-radius:0 4px 4px 0;color:var(--muted);max-width:74ch}
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:5px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:.83rem;
+  font-variant-numeric:tabular-nums}
+th{position:sticky;top:0;background:var(--panel);text-align:left;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);font-weight:620;padding:.6rem .75rem;
+  border-bottom:1px solid var(--rule);white-space:nowrap}
+td{padding:.55rem .75rem;border-bottom:1px solid var(--rule);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+.chip{display:inline-block;padding:.12em .55em;border-radius:100px;
+  font-size:.7rem;font-weight:650;letter-spacing:.03em;white-space:nowrap;
+  border:1px solid currentColor}
+.s-ready{color:var(--ready)} .s-wip{color:var(--wip)} .s-done{color:var(--done)}
+.s-quar{color:var(--quar)} .s-cont{color:var(--cont)} .s-guard{color:var(--guard)}
+.s-dsn{color:var(--dsn)}
+.v-keep{color:var(--keep)} .v-simp{color:var(--simp)}
+.v-drop{color:var(--drop)} .v-unk{color:var(--unk)}
+/* --- directory tree: connectors drawn with borders, not characters,
+   so the chips stay aligned regardless of name length --- */
+.treewrap{border:1px solid var(--rule);border-radius:5px;background:var(--panel);
+  padding:.9rem 1.1rem;overflow-x:auto}
+ul.tree{list-style:none;margin:0;padding:0;display:block;max-width:none;
+  font-size:.83rem;line-height:1.5}
+ul.tree ul.tree{margin-left:.62rem;padding-left:.95rem;border-left:1px solid var(--rule)}
+ul.tree li{position:relative;padding:.16rem 0 .16rem .95rem;margin:0}
+ul.tree ul.tree>li::before{content:"";position:absolute;left:-.95rem;top:.72rem;
+  width:.82rem;border-top:1px solid var(--rule)}
+ul.tree ul.tree>li:last-child::after{content:"";position:absolute;left:-1.02rem;
+  top:.75rem;bottom:0;width:1px;background:var(--panel)}
+ul.tree summary{cursor:pointer;list-style:none;padding:.16rem 0;margin-left:-.95rem;
+  padding-left:.95rem;border-radius:3px}
+ul.tree summary::-webkit-details-marker{display:none}
+ul.tree summary::before{content:"▾";position:absolute;left:-.15rem;color:var(--muted);
+  font-size:.7rem;transition:transform .12s ease}
+ul.tree details:not([open])>summary::before{content:"▸"}
+ul.tree summary:hover{background:var(--accent-soft)}
+ul.tree summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.t-id{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-weight:650;
+  color:var(--accent);margin-right:.55rem;white-space:nowrap}
+.t-name{color:var(--ink);margin-right:.55rem}
+.t-badge{display:inline-block;font-size:.7rem;color:var(--muted);
+  border:1px solid var(--rule);border-radius:3px;padding:.02em .4em;
+  margin-right:.35rem;white-space:nowrap}
+li.t-branch>details>summary .t-id{font-size:.86rem;letter-spacing:.01em}
+/* --- colore del TESTO per stato: si legge la riga intera, non solo la chip --- */
+li.row-s-done>.t-name,li.row-s-done>details>summary .t-name{color:var(--done);
+  text-decoration:line-through;text-decoration-thickness:1px;opacity:.82}
+li.row-s-done>.t-id,li.row-s-done>details>summary .t-id{color:var(--done)}
+li.row-s-wip>.t-name,li.row-s-wip>details>summary .t-name{color:var(--wip);font-weight:560}
+li.row-s-wip>.t-id,li.row-s-wip>details>summary .t-id{color:var(--wip)}
+li.row-s-wip>details>summary{background:color-mix(in srgb,var(--wip) 9%,transparent);
+  border-left:2px solid var(--wip);margin-left:-1.15rem;padding-left:1.1rem}
+li.row-s-quar>.t-name,li.row-s-quar>details>summary .t-name{color:var(--muted);opacity:.72}
+li.row-s-cont>.t-name,li.row-s-cont>details>summary .t-name{color:var(--cont)}
+li.row-s-dsn>.t-name,li.row-s-dsn>details>summary .t-name{color:var(--dsn)}
+li.row-s-dsn>.t-id,li.row-s-dsn>details>summary .t-id{color:var(--dsn)}
+/* leaf with detail: closed by default, so the tree stays scannable
+   and the full row is a click away instead of a table to search */
+li.t-has-detail>details>summary::before{content:"›";font-size:.85rem}
+li.t-has-detail>details[open]>summary::before{content:"⌄";font-size:.7rem}
+li.t-has-detail>details[open]>summary{background:var(--accent-soft)}
+dl.t-detail{display:grid;grid-template-columns:auto 1fr;gap:.28rem .9rem;
+  margin:.45rem 0 .6rem .3rem;padding:.6rem .8rem;font-size:.78rem;
+  background:var(--paper);border:1px solid var(--rule);border-radius:4px}
+dl.t-detail dt{color:var(--muted);font-size:.7rem;text-transform:uppercase;
+  letter-spacing:.05em;font-weight:620;white-space:nowrap;padding-top:.06rem}
+dl.t-detail dd{margin:0;color:var(--ink)}
+@media (max-width:640px){.wrap{padding:1.5rem 1rem 4rem}h1{font-size:1.5rem}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200.0001 281.99999" width="1200" height="282">
+  <!-- nWave wordmark (nWave-logo-tYW) — yellow n + white Wave, for dark backgrounds -->
+  <g transform="matrix(1.4449288,0,0,1.4449288,-451.84019,-521.62622)">
+    <path
+      d="m 452.34925,552.58492 q -15.46668,0 -25.60003,-10.13335 -10.13334,-10.13334 -10.13334,-26.40003 0,-8.00001 2.13333,-18.66669 2.13334,-10.93335 4.80001,-21.86669 2.93334,-10.93335 5.60001,-19.46669 2.93333,-8.80001 4,-12.80002 3.46667,-11.20001 2.93334,-16.53335 -0.53334,-5.60001 -3.73334,-7.46668 -3.2,-1.86667 -7.73334,-1.86667 -5.86668,0 -13.06669,4.80001 -7.2,4.8 -15.73335,18.13335 -2.66667,4.26668 -8.00001,13.86669 -5.33334,9.33334 -12.00001,21.60002 -6.40001,12.00002 -13.33335,25.33337 -6.93334,13.06668 -13.06668,25.33336 -6.13335,12.00002 -10.66668,21.06669 -2.93334,5.86668 -8.80001,6.40001 -5.86668,0.8 -10.66668,-2.66667 -4.53334,-3.73334 -4.26668,-10.13334 2.13334,-29.86671 6.40001,-60.00008 4.53334,-30.13337 11.73335,-60.00007 1.6,-6.13334 5.86667,-8.26668 4.53334,-2.13333 9.33335,-0.8 5.06667,1.33334 8.00001,5.33334 3.2,3.73334 1.86667,9.60001 -2.66667,11.46668 -5.33334,23.4667 -2.40001,11.73335 -4.53334,23.46669 8.26667,-15.46668 15.20002,-28.2667 7.20001,-12.80001 10.93334,-18.66669 9.86668,-15.46668 22.13336,-25.06669 12.53335,-9.60001 28.00004,-9.60001 15.73335,0 24.53336,8.53334 8.80001,8.26668 10.93335,21.60003 2.13333,13.33334 -2.40001,28.2667 -1.06666,3.73333 -3.73333,12.53335 -2.40001,8.53334 -5.06668,19.20002 -2.66667,10.40001 -4.8,19.73336 -1.86667,9.06667 -1.86667,13.86668 0,4.26667 1.6,8.00001 1.86667,3.46667 8.53334,3.46667 5.06668,0 11.20002,-2.93334 6.40001,-3.2 13.06668,-9.33334 4.53334,-4.26667 9.33335,-3.46667 4.8,0.8 8.00001,4.53334 3.46667,3.73333 3.73333,8.80001 0.53334,4.8 -4,8.80001 -9.06668,8.26667 -19.46669,13.60001 -10.13335,5.06668 -21.8667,5.06668 z"
+      fill="#fbcf09" aria-label="n" />
+    <path
+      fill="#ffffff"
+      d="m 491.73113,362.45678 h 29.19637 q 4.52157,0 7.49288,2.19618 3.1005,2.067 4.134,5.68425 L 564.3345,482.0844 q 1.16269,4.134 2.067,9.04313 1.0335,4.77993 1.93782,10.20581 1.0335,-5.42588 2.19618,-10.20581 1.29188,-4.90913 2.71294,-9.04313 l 36.68925,-111.74719 q 1.0335,-2.97131 4.00481,-5.42587 3.1005,-2.45456 7.49288,-2.45456 h 10.20581 q 4.52156,0 7.49288,2.19618 2.97131,2.067 4.134,5.68425 l 36.43087,111.74719 q 2.84213,8.268 4.90913,18.34463 0.90431,-5.03832 1.80862,-9.68907 1.0335,-4.65075 2.067,-8.65556 l 31.78013,-111.74719 q 0.90431,-3.22968 4.00481,-5.55506 3.1005,-2.32537 7.49287,-2.32537 h 27.25857 L 701.01488,549.2619 H 669.62232 L 628.79907,421.62465 q -0.77513,-2.45456 -1.67944,-5.29669 -0.77513,-2.84212 -1.55025,-6.07181 -0.77513,3.22969 -1.67944,6.07181 -0.77512,2.84213 -1.55025,5.29669 L 581.12888,549.2619 H 549.73632 Z M 868.7002,549.2619 h -14.33981 q -4.52156,0 -7.10531,-1.29187 -2.58375,-1.42107 -3.87563,-5.55507 l -2.84212,-9.43068 q -5.03832,4.52156 -9.94744,8.00962 -4.77994,3.35888 -9.94744,5.68425 -5.1675,2.32538 -10.98094,3.48806 -5.81343,1.16269 -12.91875,1.16269 -8.39718,0 -15.5025,-2.19619 -7.10531,-2.32537 -12.27281,-6.84693 -5.03831,-4.52157 -7.88044,-11.23932 -2.84212,-6.71775 -2.84212,-15.63168 0,-7.49288 3.87562,-14.72738 4.00482,-7.36369 13.17713,-13.17712 9.17231,-5.94263 24.41644,-9.81825 15.24412,-3.87563 37.85193,-4.39238 v -7.75125 q 0,-13.30631 -5.68425,-19.6365 -5.55506,-6.45937 -16.27762,-6.45937 -7.75125,0 -12.91875,1.80862 -5.1675,1.80863 -9.04313,4.134 -3.74643,2.19619 -6.97612,4.00481 -3.22969,1.80863 -7.10531,1.80863 -3.22969,0 -5.55507,-1.67944 -2.32537,-1.67944 -3.74643,-4.134 l -5.81344,-10.20581 q 22.86619,-20.92838 55.16306,-20.92838 11.62688,0 20.67,3.87563 9.17231,3.74644 15.5025,10.59337 6.33019,6.71775 9.55988,16.14844 3.35887,9.43069 3.35887,20.67 z m -62.01,-19.89487 q 4.90913,0 9.04313,-0.90432 4.134,-0.90431 7.75125,-2.71293 3.74643,-1.80863 7.10531,-4.39238 3.48806,-2.71294 6.97612,-6.33019 v -22.34943 q -13.95225,0.64593 -23.38293,2.45456 -9.3015,1.67944 -14.98575,4.39237 -5.68425,2.71294 -8.13882,6.33019 -2.32537,3.61725 -2.32537,7.88044 0,8.39719 4.90912,12.01444 5.03832,3.61725 13.04794,3.61725 z m 155.15439,19.89487 h -28.938 l -52.7085,-132.54637 h 26.48344 q 3.48806,0 5.81344,1.67943 2.45456,1.67944 3.35887,4.26319 l 25.57913,70.79475 q 2.19618,6.201 3.61725,12.14363 1.55025,5.94262 2.71293,11.88525 1.16269,-5.94263 2.58375,-11.88525 1.55025,-5.94263 3.87563,-12.14363 l 26.22506,-70.79475 q 0.90431,-2.58375 3.22969,-4.26319 2.32537,-1.67943 5.55506,-1.67943 h 25.19156 z M 1083.7976,414.64853 q 12.5312,0 22.9954,4.00481 10.5934,4.00481 18.2155,11.75606 7.622,7.62206 11.8852,18.86138 4.2632,11.11012 4.2632,25.44993 0,3.61725 -0.3876,6.07182 -0.2583,2.32537 -1.1627,3.74643 -0.7751,1.29188 -2.1961,1.93782 -1.4211,0.51675 -3.6173,0.51675 h -81.9049 q 1.4211,20.41162 10.981,29.9715 9.5598,9.55987 25.3207,9.55987 7.7513,0 13.3063,-1.80862 5.6843,-1.80863 9.8183,-4.00482 4.2632,-2.19618 7.3637,-4.00481 3.2297,-1.80862 6.201,-1.80862 1.9378,0 3.3588,0.77512 1.4211,0.77513 2.4546,2.19619 l 9.3015,11.62687 q -5.2967,6.201 -11.8852,10.46419 -6.5886,4.134 -13.8231,6.71775 -7.1053,2.45456 -14.5982,3.48806 -7.3637,1.0335 -14.3398,1.0335 -13.8231,0 -25.7083,-4.52156 -11.8853,-4.65075 -20.67,-13.56469 -8.7848,-9.04312 -13.8231,-22.22025 -5.0383,-13.30631 -5.0383,-30.74662 0,-13.56469 4.3924,-25.44994 4.3924,-12.01444 12.5312,-20.79919 8.268,-8.91393 20.024,-14.08143 11.8853,-5.1675 26.7418,-5.1675 z m 0.646,22.86618 q -13.9523,0 -21.8327,7.88044 -7.8804,7.88044 -10.0766,22.34944 h 59.943 q 0,-6.201 -1.6795,-11.62688 -1.6794,-5.55506 -5.1675,-9.68906 -3.488,-4.134 -8.7847,-6.45937 -5.2967,-2.45457 -12.402,-2.45457 z"
+      aria-label="Wave" />
+  </g>
+</svg>
+
+<h1>Product brief: nav-collapse-icon-rail</h1>
+
+<h2>Request</h2>
+
+<p>Follow-up to nav-collapse-toggle (EXAMINE accepted at 60a4e36). The user decided: (1) Sign out stays in the collapsed strip; (2) fix all five non-blocking findings of the nav-collapse-toggle whole-candidate review; (3) the collapsed left nav shows icons instead of hiding its links. The five findings: [oracle] feature_canzan_theme.rs neighbour arm weakened to deferred_neighbours &gt; 0 — assert every non-pre-paint head script defers; [oracle] its panic text says theme.js is the ONE pre-paint script and its doc says five neighbouring tags (there are two pre-paint and seven deferred); [oracle] fn head_scripts duplicated in feature_nav_collapse.rs, feature_canzan_theme.rs and xtask — one shared owner under crates/foundry-acceptance/src/support/; [implementation] xtask check_arch pre-paint set decided by narrow substrings — widen to names localStorage/sessionStorage AND names documentElement; [implementation] base.html comments say the deferred five, the head declares seven. Second-tab sync stays out of scope.</p>
+
+<h2>Work</h2>
+
+<p>M</p>
+
+<p>With the left nav collapsed, the operator still reaches every nav destination and Sign out from a narrow icon rail, and the pre-paint and theme guards keep their full strength.</p>
+
+<h3>Rework</h3>
+
+<p>None.</p>
+
+<h2>Promises</h2>
+
+<h3>P1</h3>
+
+<p>Outcome</p>
+
+<p>With the left nav collapsed, the operator reaches every destination the expanded nav offers her - Home, Board, Settings, keyboard shortcuts, and the workspace or instance admin entries when she has them - by activating an icon in the narrow rail.</p>
+
+<h3>P2</h3>
+
+<p>Outcome</p>
+
+<p>With the left nav collapsed, the operator signs out from the rail with one press, as she does when the nav is expanded.</p>
+
+<h3>P3</h3>
+
+<p>Outcome</p>
+
+<p>Each icon in the collapsed rail carries the name of the destination it opens, so a screen-reader operator hears the destination and a pointer operator sees it.</p>
+
+<h3>P4</h3>
+
+<p>Outcome</p>
+
+<p>The collapsed rail marks the page the operator is on, as the expanded nav does.</p>
+
+<h3>P5</h3>
+
+<p>Scenario</p>
+
+<p>Collapsed nav still goes everywhere</p>
+
+<p>the operator collapsed the left nav and is on the home page</p>
+
+<p>she activates the Board icon in the narrow rail</p>
+
+<p>the board opens, the left nav is still collapsed, and the Board icon is marked as the page she is on</p>
+
+<h3>P6</h3>
+
+<p>Scenario</p>
+
+<p>Nothing becomes unreachable when the rail narrows</p>
+
+<p>the operator can reach Home, Board, Settings, keyboard shortcuts, her admin destinations and Sign out from the expanded left nav</p>
+
+<p>she collapses the left nav</p>
+
+<p>every one of those destinations is still reachable from the rail as an icon, Sign out included, and no link is left focusable or announced while it is invisible</p>
+
+<h3>P7</h3>
+
+<p>Outcome</p>
+
+<p>At phone width (480 px and below) the page has no horizontal scroll with the icons shown in the collapsed bar.</p>
+
+<h3>P8</h3>
+
+<p>Outcome</p>
+
+<p>A contributor who adds or changes a head script that stamps the document from stored state is refused by the project gate when that script defers, whichever stored-state spelling it uses, so no new pre-paint script slips past the gate and brings the flash back.</p>
+
+<h3>P9</h3>
+
+<p>Scenario</p>
+
+<p>A silently deferred neighbour fails the suite</p>
+
+<p>the document head declares the scripts that must run before paint and the neighbours that defer</p>
+
+<p>any head script that is not one of the pre-paint scripts loses its defer</p>
+
+<p>the acceptance suite fails and names that script, instead of passing because another neighbour still defers</p>
+
+<h3>P10</h3>
+
+<p>Outcome</p>
+
+<p>A contributor reading the head comments, the gate&#x27;s refusal text and its documentation is told correctly which head scripts must run before paint and which must defer, with no claim that contradicts the head the suite asserts.</p>
+
+<h3>P11</h3>
+
+<p>Scenario</p>
+
+<p>The collapsed choice survives signing out</p>
+
+<p>the operator collapsed the left nav and signed out from the rail in the same browser</p>
+
+<p>she signs in again</p>
+
+<p>the left nav is collapsed, as she left it, and its icons are the destinations her current rights give her</p>
+
+<h3>P12</h3>
+
+<p>Scenario</p>
+
+<p>Every head script shape gets one verdict</p>
+
+<p>a head script that does not stamp stored state on the document</p>
+
+<p>it is loaded async or type=module and the gate checks the head</p>
+
+<p>the gate refuses it and tells the contributor to add defer, instead of answering no verdict</p>
+
+<h2>Scope</h2>
+
+<p>The collapsed left nav shows an icon for every destination the expanded nav shows the operator, and an icon for Sign out.</p>
+
+<p>The monogram, the collapse control and the theme control stay in the collapsed rail as they are today.</p>
+
+<p>The project gate recognises a head script that stamps the document from stored state by what it does - it names localStorage or sessionStorage and it names documentElement - instead of by a narrow spelling.</p>
+
+<p>The acceptance oracle asserts that every head script that is not a pre-paint script defers, and one shared owner reads the head for all of its callers instead of three copies.</p>
+
+<p>The head comments, the gate&#x27;s refusal text and its documentation are corrected to agree with the head the suite asserts.</p>
+
+<p>At phone width (480 px and below) the collapsed bar shows the same icons and lets them wrap inside the bar.</p>
+
+<p>The gate answers every head-script shape with exactly one verdict: no shape is left with no verdict.</p>
+
+<p>Carrying the collapsed-or-expanded choice to a second tab, another browser, another device or another account.</p>
+
+<p>The workspace name and the operator&#x27;s display name stay out of the collapsed rail: it carries destinations and controls only.</p>
+
+<p>The expanded left nav keeps the look and the links it has today; no icon is added beside its text labels.</p>
+
+<p>A confirmation step for Sign out: in the rail it stays the one press it is when the nav is expanded.</p>
+
+<p>Refreshing the nav&#x27;s rights without a page load: the nav keeps showing the rights of the last load, in both states, as it does today.</p>
+
+<h2>Decisions</h2>
+
+<p>Sign out stays reachable in the collapsed strip. The user decided this in chat on 2026-11-17.</p>
+
+<h4>Status</h4>
+
+<p>Confirmed</p>
+
+
+<p>The collapsed left nav shows its links as icons instead of hiding them. The user decided this in chat on 2026-11-17.</p>
+
+<h4>Status</h4>
+
+<p>Confirmed</p>
+
+
+<p>All five non-blocking findings of the nav-collapse-toggle whole-candidate review are fixed in this feature. The user decided this in chat on 2026-11-17.</p>
+
+<h4>Status</h4>
+
+<p>Confirmed</p>
+
+
+<p>Carrying the collapse choice to a second tab stays out of scope. The user decided this in chat on 2026-11-17.</p>
+
+<h4>Status</h4>
+
+<p>Confirmed</p>
+
+
+<p>Every destination the expanded nav shows the operator becomes an icon, not only Home and Board. Reason: the supplied value says every nav destination and Sign out, and the user-section links are nav destinations.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>The icons are inline SVG vendored from Lucide (ISC), recorded in the vendored-asset provenance file, and they inherit the theme colour. Reason: this was stated to the user as a host default and not objected to; silence is not agreement, so it stays a proposal.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>Each icon link keeps the accessible name its text link has today, so the collapsed rail loses the word on screen and never the name. Reason: the rail is the operator&#x27;s only route while collapsed, and an unnamed icon is not a destination she can choose.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>Sign out in the rail stays one press, with no new confirmation step. Reason: the request asks for Sign out to stay reachable, not for its behaviour to change; adding a confirmation would change the expanded nav too.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>The collapsed rail marks the page the operator is on the same way the expanded nav marks it. Reason: the shell already renders the current-page marking, and an icon strip with no mark leaves her guessing where she is.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>This feature extends the walking skeleton the delivered nav-collapse-toggle feature established - the collapse control, the stored choice and the pre-paint stamp, end to end - and adds no second skeleton of its own.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>Scenario exploration, guards value: relevant. Reason: its sad path is the gate&#x27;s refusal, and the behaviour turns on execution order around the first paint and on which head scripts count as pre-paint - the boundary the review finding says let cases through silently.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>Scenario exploration, icon-rail value: relevant. Reason: its sad path is a trapping state - a collapsed rail from which a destination the operator has, or Sign out, cannot be reached - over the collapsed-or-expanded, scripting-on-or-off and permission combinations. Second-tab sync is excluded, so no race belongs in the exploration.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>At phone width (480 px and below) the collapsed bar shows the same icons and lets them wrap inside the bar; no destination is dropped below the breakpoint. The human chose this in chat on 2026-11-17, over a sideways-scrolled row and over keeping today&#x27;s behaviour.</p>
+
+<h4>Status</h4>
+
+<p>Confirmed</p>
+
+
+<p>The expanded left nav stays text only; no icon is added beside its labels. The human chose this in chat on 2026-11-17.</p>
+
+<h4>Status</h4>
+
+<p>Confirmed</p>
+
+
+<p>Signing out does not clear the stored collapsed choice: the operator who collapsed the rail finds it collapsed at her next sign-in in the same browser. Reason: this follows from the delivered nav-collapse-toggle product - the choice is kept per browser the way the theme choice is kept, and it stays until the operator expands it with the toggle, which Sign out is not. The exploration shows both variants: keeping it starts the next sign-in collapsed (witness a_icons_keep_w_q3), clearing it starts it expanded (a_icons_clear_q3). The per-browser consequence is the accepted one: another person on the same browser inherits the choice, exactly as she inherits the theme.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>For a head script that does not stamp stored state, defers means it carries the defer attribute: async and type=module in the head are refused for it too, and the contributor is told to add defer. Reason: the exploration shows the rule as written leaves eight shapes with no verdict at all (a_written reading: 6 accept, 10 refuse, 8 none - the contributor reads &#x27;no verdict&#x27;), which a gate must never answer; this reading is the literal one of the confirmed finding &#x27;assert every non-pre-paint head script defers&#x27;, it is total (6 accept, 18 refuse), and it changes no verdict for any script in the shipped head, where every neighbour already carries defer. A contributor who later wants an async or module head script changes this decision deliberately instead of slipping past a silent gap.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>The nav shows the rights of the last page load, in both the expanded and the collapsed state, and activating a destination whose right was revoked is refused. The exploration found this (a_icons_keep_rights); it is pre-existing, it is not caused by collapsing, and this feature neither repairs nor worsens it.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>Exploration evidence, icon rail: model iconRail.qnt, sha256 0a61ac1540f4f0fdf453c76aea6e322f0b35e6906ab1b571bca8a63e942f81e3, Quint 0.32.0 in the local-dev VM, typecheck exit 0. Command form: quint run iconRail.qnt &lt;flags&gt; --seed=7 --max-steps=8 --max-samples=20000 --out-itf=a_&lt;name&gt;.itf.json. With the icon rail, noTrap, matrixNoTrap, noInvisibleFocusable, focusNeverInvisible, matrixNoInvisibleFocusable and nextSignInStartsCollapsed hold together (icons_keep_all, exit 0): over all twelve state combinations the activatable set is the operator&#x27;s destinations plus Sign out, and the invisible-focusable set is empty. The old design fails both: hiding the links leaves &#x27;activatable links: {}&#x27; and &#x27;Sign out can be activated: false&#x27; after collapse (hide_none_q1, exit 1), and hiding them visually leaves {Board, Home, Keyboard shortcuts, Settings, Sign out} able to take the focus while invisible (hide_clip_q2, exit 1).</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>Exploration evidence, guards: model headGuard.qnt, sha256 099b5168dfba5919b8ba253ff0466816b1c4b2dca3c932bac56c8c378faac0f3, Quint 0.32.0 in the local-dev VM, typecheck exit 0. Command form: quint run headGuard.qnt &lt;flags&gt; --seed=11 --max-steps=12 --max-samples=5000 --out-itf=b_&lt;name&gt;.itf.json. In every reading a stamper is accepted plain and refused with defer, async or type=module, and a script that names documentElement but no stored state must defer. The chosen defer-attribute reading gives every one of the twenty-four shapes exactly one verdict and keeps gateMatchesPaint and stampsBeforePaint_acceptedHead (defer_attr_all, exit 0). Its paint-order trace runs the nav-state stamp and the theme stamp, then first paint with both stamps landed, then the app bundle and the stored-state reader (defer_attr_w_accepted); with the theme stamp loaded defer or async only the nav-state stamp has landed at first paint.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<p>Evidence limits of the exploration: quint run with a seed samples, it does not prove; quint verify did not run because Apalache is not cached in the VM. The static tables (matrix for the rail, verdicts for the gate) are exhaustive over their combinations. Not modelled, so not evidenced here: pixel layout, including the 480 px bar and the icon wrapping the human chose; screen-reader output beyond what is visible and focusable; a second tab; how the gate finds the names in script text, including aliases and strings built at runtime; inline scripts and scripts added at runtime. The icon wrapping and the accessible names need the real browser observation, not this model.</p>
+
+<h4>Status</h4>
+
+<p>Proposed</p>
+
+
+<h2>Journey</h2>
+
+<p>The operator collapses the left nav to give the board the width.</p>
+
+<p>Not supplied.</p>
+
+<p>The rail narrows to an icon strip; she still sees an icon for every destination she had, and one for Sign out.</p>
+
+<p>Not supplied.</p>
+
+<p>She focuses or hovers an icon and reads the destination&#x27;s name before she presses it.</p>
+
+<p>Not supplied.</p>
+
+<p>She activates the Board icon and lands on the board with the rail still narrow and the Board icon marked as her page.</p>
+
+<p>Not supplied.</p>
+
+<p>When she is done she signs out from the narrow rail, in one press.</p>
+
+<p>Not supplied.</p>
+
+<p>A contributor later adds a head script that stamps the page from stored state; the gate refuses the deferred shape and the head&#x27;s own text tells her which scripts must run before paint.</p>
+
+<p>Not supplied.</p>
+
+<h2>Slices</h2>
+
+<h3>S1</h3>
+
+<p>A contributor runs the project gate and the acceptance suite: a head script that stamps the document from stored state and defers is refused whichever stored-state spelling it uses, a non-stamping head script loaded plain, async or type=module is refused and told to add defer, any other head script that loses its defer makes the suite fail and name it, and the head comments, the refusal text and the documentation agree with the head the suite asserts. The operator sees no change in the app.</p>
+
+<h4>Promises</h4>
+
+<p>P8</p>
+
+<p>P9</p>
+
+<p>P10</p>
+
+<p>P12</p>
+
+<h4>Depends on</h4>
+
+<p>None.</p>
+
+<h4>Slice work</h4>
+
+<p>S</p>
+
+<p>The guards that hold the pre-paint promise, and the texts a contributor reads before she touches the head, stop letting a flash-reintroducing change through in silence, and leave no head-script shape without a verdict.</p>
+
+<h5>Rework</h5>
+
+<p>None.</p>
+
+<h3>S2</h3>
+
+<p>With the left nav collapsed in the running app shell, the operator reaches Home, Board, Settings, keyboard shortcuts and her admin destinations by activating their icons in the narrow rail, signs out from it in one press, finds it still collapsed at her next sign-in, hears or sees each icon&#x27;s destination name, sees the page she is on marked, and at 480 px and below the icons wrap inside the bar with no horizontal scroll.</p>
+
+<h4>Promises</h4>
+
+<p>P1</p>
+
+<p>P2</p>
+
+<p>P3</p>
+
+<p>P4</p>
+
+<p>P5</p>
+
+<p>P6</p>
+
+<p>P7</p>
+
+<p>P11</p>
+
+<h4>Depends on</h4>
+
+<p>S1</p>
+
+<h4>Slice work</h4>
+
+<p>M</p>
+
+<p>The collapsed nav stops being a dead end: every destination the operator had, and Sign out, stay one press away in the narrow rail, at every width.</p>
+
+<h5>Rework</h5>
+
+<p>None.</p>
+
+</body></html>

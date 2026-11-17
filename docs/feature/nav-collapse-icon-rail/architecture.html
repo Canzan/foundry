@@ -1,0 +1,2933 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>:root{
+  /* The font stack is inlined here because the nwdes renderer injects only
+     this stylesheet; the nwave_ai page builder takes the same stack from
+     manifest.json. Both carriers are pinned by tests. */
+  --nwave-font-stack:"Lato", -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+    --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+    --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+    --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+    --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+  }
+}
+:root[data-theme="light"]{
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+:root[data-theme="dark"]{
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+  --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+  --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--nwave-font-stack);
+  font-size:15px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 6rem;
+  display:flex;flex-direction:column;gap:1.1rem}
+.brandbar{background:#131316;border-radius:4px;padding:.7rem 1rem;display:flex;align-items:center}
+.brandbar-logo{height:1.9rem;width:auto;display:block}
+.provenance{
+  display:flex;flex-wrap:wrap;gap:.5rem .9rem;align-items:baseline;
+  background:var(--accent-soft);border-left:3px solid var(--accent);
+  padding:.7rem .95rem;border-radius:0 4px 4px 0;font-size:.8rem;color:var(--muted);
+}
+.provenance strong{color:var(--ink);font-weight:600}
+.provenance code{background:none;padding:0;color:var(--accent)}
+h1,h2,h3,h4{text-wrap:balance;line-height:1.22;margin:0;font-weight:640}
+h1{font-size:1.9rem;letter-spacing:-.018em;margin-top:.6rem}
+h2{font-size:1.28rem;letter-spacing:-.01em;margin-top:2.2rem;
+  padding-bottom:.4rem;border-bottom:1px solid var(--rule)}
+h3{font-size:1.02rem;margin-top:1.5rem;color:var(--accent)}
+h4{font-size:.9rem;margin-top:1.1rem;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted)}
+p{margin:0;max-width:74ch}
+ul,ol{margin:0;padding-left:1.3rem;display:flex;flex-direction:column;gap:.35rem;max-width:74ch}
+hr{border:0;border-top:1px solid var(--rule);margin:1.6rem 0;width:100%}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.86em;
+  background:var(--accent-soft);padding:.1em .34em;border-radius:3px}
+pre{background:var(--panel);border:1px solid var(--rule);border-radius:5px;
+  padding:1rem 1.1rem;overflow-x:auto;margin:0;font-size:.78rem;line-height:1.5}
+pre code{background:none;padding:0;font-size:inherit}
+blockquote{margin:0;padding:.75rem 1rem;background:var(--panel);
+  border-left:3px solid var(--quar);border-radius:0 4px 4px 0;color:var(--muted);max-width:74ch}
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:5px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:.83rem;
+  font-variant-numeric:tabular-nums}
+th{position:sticky;top:0;background:var(--panel);text-align:left;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);font-weight:620;padding:.6rem .75rem;
+  border-bottom:1px solid var(--rule);white-space:nowrap}
+td{padding:.55rem .75rem;border-bottom:1px solid var(--rule);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+.chip{display:inline-block;padding:.12em .55em;border-radius:100px;
+  font-size:.7rem;font-weight:650;letter-spacing:.03em;white-space:nowrap;
+  border:1px solid currentColor}
+.s-ready{color:var(--ready)} .s-wip{color:var(--wip)} .s-done{color:var(--done)}
+.s-quar{color:var(--quar)} .s-cont{color:var(--cont)} .s-guard{color:var(--guard)}
+.s-dsn{color:var(--dsn)}
+.v-keep{color:var(--keep)} .v-simp{color:var(--simp)}
+.v-drop{color:var(--drop)} .v-unk{color:var(--unk)}
+/* --- directory tree: connectors drawn with borders, not characters,
+   so the chips stay aligned regardless of name length --- */
+.treewrap{border:1px solid var(--rule);border-radius:5px;background:var(--panel);
+  padding:.9rem 1.1rem;overflow-x:auto}
+ul.tree{list-style:none;margin:0;padding:0;display:block;max-width:none;
+  font-size:.83rem;line-height:1.5}
+ul.tree ul.tree{margin-left:.62rem;padding-left:.95rem;border-left:1px solid var(--rule)}
+ul.tree li{position:relative;padding:.16rem 0 .16rem .95rem;margin:0}
+ul.tree ul.tree>li::before{content:"";position:absolute;left:-.95rem;top:.72rem;
+  width:.82rem;border-top:1px solid var(--rule)}
+ul.tree ul.tree>li:last-child::after{content:"";position:absolute;left:-1.02rem;
+  top:.75rem;bottom:0;width:1px;background:var(--panel)}
+ul.tree summary{cursor:pointer;list-style:none;padding:.16rem 0;margin-left:-.95rem;
+  padding-left:.95rem;border-radius:3px}
+ul.tree summary::-webkit-details-marker{display:none}
+ul.tree summary::before{content:"▾";position:absolute;left:-.15rem;color:var(--muted);
+  font-size:.7rem;transition:transform .12s ease}
+ul.tree details:not([open])>summary::before{content:"▸"}
+ul.tree summary:hover{background:var(--accent-soft)}
+ul.tree summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.t-id{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-weight:650;
+  color:var(--accent);margin-right:.55rem;white-space:nowrap}
+.t-name{color:var(--ink);margin-right:.55rem}
+.t-badge{display:inline-block;font-size:.7rem;color:var(--muted);
+  border:1px solid var(--rule);border-radius:3px;padding:.02em .4em;
+  margin-right:.35rem;white-space:nowrap}
+li.t-branch>details>summary .t-id{font-size:.86rem;letter-spacing:.01em}
+/* --- colore del TESTO per stato: si legge la riga intera, non solo la chip --- */
+li.row-s-done>.t-name,li.row-s-done>details>summary .t-name{color:var(--done);
+  text-decoration:line-through;text-decoration-thickness:1px;opacity:.82}
+li.row-s-done>.t-id,li.row-s-done>details>summary .t-id{color:var(--done)}
+li.row-s-wip>.t-name,li.row-s-wip>details>summary .t-name{color:var(--wip);font-weight:560}
+li.row-s-wip>.t-id,li.row-s-wip>details>summary .t-id{color:var(--wip)}
+li.row-s-wip>details>summary{background:color-mix(in srgb,var(--wip) 9%,transparent);
+  border-left:2px solid var(--wip);margin-left:-1.15rem;padding-left:1.1rem}
+li.row-s-quar>.t-name,li.row-s-quar>details>summary .t-name{color:var(--muted);opacity:.72}
+li.row-s-cont>.t-name,li.row-s-cont>details>summary .t-name{color:var(--cont)}
+li.row-s-dsn>.t-name,li.row-s-dsn>details>summary .t-name{color:var(--dsn)}
+li.row-s-dsn>.t-id,li.row-s-dsn>details>summary .t-id{color:var(--dsn)}
+/* leaf with detail: closed by default, so the tree stays scannable
+   and the full row is a click away instead of a table to search */
+li.t-has-detail>details>summary::before{content:"›";font-size:.85rem}
+li.t-has-detail>details[open]>summary::before{content:"⌄";font-size:.7rem}
+li.t-has-detail>details[open]>summary{background:var(--accent-soft)}
+dl.t-detail{display:grid;grid-template-columns:auto 1fr;gap:.28rem .9rem;
+  margin:.45rem 0 .6rem .3rem;padding:.6rem .8rem;font-size:.78rem;
+  background:var(--paper);border:1px solid var(--rule);border-radius:4px}
+dl.t-detail dt{color:var(--muted);font-size:.7rem;text-transform:uppercase;
+  letter-spacing:.05em;font-weight:620;white-space:nowrap;padding-top:.06rem}
+dl.t-detail dd{margin:0;color:var(--ink)}
+@media (max-width:640px){.wrap{padding:1.5rem 1rem 4rem}h1{font-size:1.5rem}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200.0001 281.99999" width="1200" height="282">
+  <!-- nWave wordmark (nWave-logo-tYW) — yellow n + white Wave, for dark backgrounds -->
+  <g transform="matrix(1.4449288,0,0,1.4449288,-451.84019,-521.62622)">
+    <path
+      d="m 452.34925,552.58492 q -15.46668,0 -25.60003,-10.13335 -10.13334,-10.13334 -10.13334,-26.40003 0,-8.00001 2.13333,-18.66669 2.13334,-10.93335 4.80001,-21.86669 2.93334,-10.93335 5.60001,-19.46669 2.93333,-8.80001 4,-12.80002 3.46667,-11.20001 2.93334,-16.53335 -0.53334,-5.60001 -3.73334,-7.46668 -3.2,-1.86667 -7.73334,-1.86667 -5.86668,0 -13.06669,4.80001 -7.2,4.8 -15.73335,18.13335 -2.66667,4.26668 -8.00001,13.86669 -5.33334,9.33334 -12.00001,21.60002 -6.40001,12.00002 -13.33335,25.33337 -6.93334,13.06668 -13.06668,25.33336 -6.13335,12.00002 -10.66668,21.06669 -2.93334,5.86668 -8.80001,6.40001 -5.86668,0.8 -10.66668,-2.66667 -4.53334,-3.73334 -4.26668,-10.13334 2.13334,-29.86671 6.40001,-60.00008 4.53334,-30.13337 11.73335,-60.00007 1.6,-6.13334 5.86667,-8.26668 4.53334,-2.13333 9.33335,-0.8 5.06667,1.33334 8.00001,5.33334 3.2,3.73334 1.86667,9.60001 -2.66667,11.46668 -5.33334,23.4667 -2.40001,11.73335 -4.53334,23.46669 8.26667,-15.46668 15.20002,-28.2667 7.20001,-12.80001 10.93334,-18.66669 9.86668,-15.46668 22.13336,-25.06669 12.53335,-9.60001 28.00004,-9.60001 15.73335,0 24.53336,8.53334 8.80001,8.26668 10.93335,21.60003 2.13333,13.33334 -2.40001,28.2667 -1.06666,3.73333 -3.73333,12.53335 -2.40001,8.53334 -5.06668,19.20002 -2.66667,10.40001 -4.8,19.73336 -1.86667,9.06667 -1.86667,13.86668 0,4.26667 1.6,8.00001 1.86667,3.46667 8.53334,3.46667 5.06668,0 11.20002,-2.93334 6.40001,-3.2 13.06668,-9.33334 4.53334,-4.26667 9.33335,-3.46667 4.8,0.8 8.00001,4.53334 3.46667,3.73333 3.73333,8.80001 0.53334,4.8 -4,8.80001 -9.06668,8.26667 -19.46669,13.60001 -10.13335,5.06668 -21.8667,5.06668 z"
+      fill="#fbcf09" aria-label="n" />
+    <path
+      fill="#ffffff"
+      d="m 491.73113,362.45678 h 29.19637 q 4.52157,0 7.49288,2.19618 3.1005,2.067 4.134,5.68425 L 564.3345,482.0844 q 1.16269,4.134 2.067,9.04313 1.0335,4.77993 1.93782,10.20581 1.0335,-5.42588 2.19618,-10.20581 1.29188,-4.90913 2.71294,-9.04313 l 36.68925,-111.74719 q 1.0335,-2.97131 4.00481,-5.42587 3.1005,-2.45456 7.49288,-2.45456 h 10.20581 q 4.52156,0 7.49288,2.19618 2.97131,2.067 4.134,5.68425 l 36.43087,111.74719 q 2.84213,8.268 4.90913,18.34463 0.90431,-5.03832 1.80862,-9.68907 1.0335,-4.65075 2.067,-8.65556 l 31.78013,-111.74719 q 0.90431,-3.22968 4.00481,-5.55506 3.1005,-2.32537 7.49287,-2.32537 h 27.25857 L 701.01488,549.2619 H 669.62232 L 628.79907,421.62465 q -0.77513,-2.45456 -1.67944,-5.29669 -0.77513,-2.84212 -1.55025,-6.07181 -0.77513,3.22969 -1.67944,6.07181 -0.77512,2.84213 -1.55025,5.29669 L 581.12888,549.2619 H 549.73632 Z M 868.7002,549.2619 h -14.33981 q -4.52156,0 -7.10531,-1.29187 -2.58375,-1.42107 -3.87563,-5.55507 l -2.84212,-9.43068 q -5.03832,4.52156 -9.94744,8.00962 -4.77994,3.35888 -9.94744,5.68425 -5.1675,2.32538 -10.98094,3.48806 -5.81343,1.16269 -12.91875,1.16269 -8.39718,0 -15.5025,-2.19619 -7.10531,-2.32537 -12.27281,-6.84693 -5.03831,-4.52157 -7.88044,-11.23932 -2.84212,-6.71775 -2.84212,-15.63168 0,-7.49288 3.87562,-14.72738 4.00482,-7.36369 13.17713,-13.17712 9.17231,-5.94263 24.41644,-9.81825 15.24412,-3.87563 37.85193,-4.39238 v -7.75125 q 0,-13.30631 -5.68425,-19.6365 -5.55506,-6.45937 -16.27762,-6.45937 -7.75125,0 -12.91875,1.80862 -5.1675,1.80863 -9.04313,4.134 -3.74643,2.19619 -6.97612,4.00481 -3.22969,1.80863 -7.10531,1.80863 -3.22969,0 -5.55507,-1.67944 -2.32537,-1.67944 -3.74643,-4.134 l -5.81344,-10.20581 q 22.86619,-20.92838 55.16306,-20.92838 11.62688,0 20.67,3.87563 9.17231,3.74644 15.5025,10.59337 6.33019,6.71775 9.55988,16.14844 3.35887,9.43069 3.35887,20.67 z m -62.01,-19.89487 q 4.90913,0 9.04313,-0.90432 4.134,-0.90431 7.75125,-2.71293 3.74643,-1.80863 7.10531,-4.39238 3.48806,-2.71294 6.97612,-6.33019 v -22.34943 q -13.95225,0.64593 -23.38293,2.45456 -9.3015,1.67944 -14.98575,4.39237 -5.68425,2.71294 -8.13882,6.33019 -2.32537,3.61725 -2.32537,7.88044 0,8.39719 4.90912,12.01444 5.03832,3.61725 13.04794,3.61725 z m 155.15439,19.89487 h -28.938 l -52.7085,-132.54637 h 26.48344 q 3.48806,0 5.81344,1.67943 2.45456,1.67944 3.35887,4.26319 l 25.57913,70.79475 q 2.19618,6.201 3.61725,12.14363 1.55025,5.94262 2.71293,11.88525 1.16269,-5.94263 2.58375,-11.88525 1.55025,-5.94263 3.87563,-12.14363 l 26.22506,-70.79475 q 0.90431,-2.58375 3.22969,-4.26319 2.32537,-1.67943 5.55506,-1.67943 h 25.19156 z M 1083.7976,414.64853 q 12.5312,0 22.9954,4.00481 10.5934,4.00481 18.2155,11.75606 7.622,7.62206 11.8852,18.86138 4.2632,11.11012 4.2632,25.44993 0,3.61725 -0.3876,6.07182 -0.2583,2.32537 -1.1627,3.74643 -0.7751,1.29188 -2.1961,1.93782 -1.4211,0.51675 -3.6173,0.51675 h -81.9049 q 1.4211,20.41162 10.981,29.9715 9.5598,9.55987 25.3207,9.55987 7.7513,0 13.3063,-1.80862 5.6843,-1.80863 9.8183,-4.00482 4.2632,-2.19618 7.3637,-4.00481 3.2297,-1.80862 6.201,-1.80862 1.9378,0 3.3588,0.77512 1.4211,0.77513 2.4546,2.19619 l 9.3015,11.62687 q -5.2967,6.201 -11.8852,10.46419 -6.5886,4.134 -13.8231,6.71775 -7.1053,2.45456 -14.5982,3.48806 -7.3637,1.0335 -14.3398,1.0335 -13.8231,0 -25.7083,-4.52156 -11.8853,-4.65075 -20.67,-13.56469 -8.7848,-9.04312 -13.8231,-22.22025 -5.0383,-13.30631 -5.0383,-30.74662 0,-13.56469 4.3924,-25.44994 4.3924,-12.01444 12.5312,-20.79919 8.268,-8.91393 20.024,-14.08143 11.8853,-5.1675 26.7418,-5.1675 z m 0.646,22.86618 q -13.9523,0 -21.8327,7.88044 -7.8804,7.88044 -10.0766,22.34944 h 59.943 q 0,-6.201 -1.6795,-11.62688 -1.6794,-5.55506 -5.1675,-9.68906 -3.488,-4.134 -8.7847,-6.45937 -5.2967,-2.45457 -12.402,-2.45457 z"
+      aria-label="Wave" />
+  </g>
+</svg>
+
+<h1>Architecture brief: nav-collapse-icon-rail</h1>
+
+<h2>Paradigm</h2>
+
+<p>procedural</p>
+
+<h2>Shared records</h2>
+
+<h3>Decisions</h3>
+
+<h4>D1</h4>
+
+<pre><code>CONFIRMED: every destination the expanded nav shows the operator becomes an icon in the collapsed rail - Home, Board, Settings, Keyboard shortcuts, Integrations when she is a workspace admin, Instance admin when she is an instance admin - and Sign out. The rail renders the same destination set the expanded nav renders, from the same Askama nav view model; this feature adds no second source of destinations.
+</code></pre>
+
+<h4>D2</h4>
+
+<pre><code>CONFIRMED with a precision: the icons are inline SVG in templates/partials/sidebar.html, with path data copied from the Lucide icon set (ISC). They carry stroke=currentColor and no colour literal, so each icon inherits the rail text token in both palettes and the token-seam gate stays silent. PROVENANCE SHAPE: an inline path in a template is not a served blob, so it gets no hashed VENDOR.md row, which would be a sha256 claim about a file that does not exist; it gets a VENDOR.md note naming the Lucide release tag the paths were copied from, the icon names, and the ISC notice. The crafter records the exact release tag it copied from; this design does not invent one.
+</code></pre>
+
+<h4>D3</h4>
+
+<pre><code>CONFIRMED: each rail item keeps the accessible name its text link has today. MECHANISM: the destination word moves into a span.sidebar__label that stays in the document in both geometries; in the collapsed geometry it is clipped to one pixel rather than given display:none, so it stays in the accessibility tree and the accessible name is still computed from the item OWN TEXT. No aria-label is added anywhere: a second name channel beside the text is a drift risk, and the text node is the one owner of the name.
+</code></pre>
+
+<h4>D4</h4>
+
+<pre><code>DECISION: the pointer operator reads the destination name from that same label span, revealed as a flyout on :hover and on :focus-visible in the collapsed geometry only. No title attribute is added to any rail item. A title would fire in the EXPANDED nav too, which the human fixed as unchanged, and an SVG title element would add a second text node to the item and make its text content read Home Home, which the navigation-bar oracle reads. The flyout serves the pointer and the keyboard from one declaration.
+</code></pre>
+
+<h4>D5</h4>
+
+<pre><code>DECISION: at 480 px and below the flyout is placed under the icon inside the bar, not to its right, and is bounded by the bar. The collapsed bar there is a wrapping row that reaches the full width, so a right-hand flyout on the last icon of a row would reach past the right edge; the phone promise forbids the document widening.
+</code></pre>
+
+<h4>D6</h4>
+
+<pre><code>CONFIRMED: Sign out in the rail stays one press, with no confirmation step, exactly as in the expanded nav. The rail renders the SAME post form that is there today; only its button gains an icon and a label span.
+</code></pre>
+
+<h4>D7</h4>
+
+<pre><code>CONFIRMED: the collapsed rail marks the page the operator is on with the same channel the expanded nav uses - the server-rendered aria-current=page attribute and the sidebar__item--active class. The collapsed geometry adds no second marking channel; it only keeps the active tint legible on an icon-sized target.
+</code></pre>
+
+<h4>D8</h4>
+
+<pre><code>CONFIRMED: this feature extends the walking skeleton the delivered nav-collapse-toggle feature established - the collapse control, the stored choice and the pre-paint stamp, end to end - and adds no second skeleton. Neither slice introduces a new end-to-end path; S1 extends an existing gate layer and an existing oracle arm, S2 extends the rail the skeleton already renders.
+</code></pre>
+
+<h4>D9</h4>
+
+<pre><code>CONFIRMED: signing out does not clear the stored collapse choice. This needs no code: the rail Sign out is a post navigation and nothing in it touches the foundry.nav key, so the choice survives as the theme choice does. The accepted per-browser consequence is that another person signing in on the same browser inherits the collapsed rail, exactly as she inherits the theme.
+</code></pre>
+
+<h4>D10</h4>
+
+<pre><code>CONFIRMED: for a head script that does not stamp stored state, DEFERS means it carries the defer attribute. async and type=module in the head are refused for it too and the contributor is told to add defer. This is the only total reading of the confirmed finding; it changes no verdict for any script in the shipped head, where every neighbour already carries defer; and a contributor who later wants an async or module head script changes this decision deliberately instead of meeting a silent gap.
+</code></pre>
+
+<h4>D11</h4>
+
+<pre><code>CONFIRMED and NOT repaired here: the nav shows the rights of the last page load in both geometries, and activating a destination whose right was revoked is refused by the app door that owns it. The condition is pre-existing, it is not caused by collapsing, and this feature neither repairs nor worsens it. Recorded as an admitted state with its risk owner.
+</code></pre>
+
+<h4>D12</h4>
+
+<pre><code>CONFIRMED: scenario exploration was relevant to both values and its two models are adopted as this design models - the guards value because its behaviour turns on execution order around the first paint and on which head scripts count as pre-paint, the icon-rail value because its sad path is a trapping state over the collapsed, scripting and permission combinations. Second-tab sync is out of scope, so no race is modelled.
+</code></pre>
+
+<h4>D13</h4>
+
+<pre><code>DECISION: the collapsed geometry stops hiding the destinations. Today the stylesheet gives display:none to sidebar__nav, sidebar__workspace and every sidebar__user child but the theme control. From this feature only sidebar__workspace and sidebar__identity keep display:none; sidebar__nav, the user-section links and the Sign out form stay in the layout as icons. The workspace name and the display name are the two members the human kept out of the strip, and they are the two that carry no destination.
+</code></pre>
+
+<h4>D14</h4>
+
+<pre><code>DECISION: the acceptance crate gets one owner for the served head. crates/foundry-acceptance/src/support/served_markup.rs reads the head script tags of a served document - each src paired with the subset of defer, async and type=module it carries - and both step modules call it. The xtask copy in check_arch stays a deliberately independent second implementation: the gate must not depend on the oracle crate it is meant to be able to contradict.
+</code></pre>
+
+<h4>D15</h4>
+
+<pre><code>DECISION: no gate is added to forbid a fourth private head-script parse in the acceptance crate. The producer fix is the shared owner itself, which removes the reason to write one; a gate keyed on the scraper selector spelling would be the very narrow-spelling defect this feature repairs in check_arch. A new copy is a review matter, not a gate.
+</code></pre>
+
+<h4>D16</h4>
+
+<pre><code>DECISION: the gate recognises a head script that stamps the document from stored state by what the asset NAMES - localStorage or sessionStorage, and documentElement - in its comment-stripped source, instead of by the three narrow idiom substrings it uses today. The property is what the asset reaches for; the old test decided a spelling, so a bracket access, a local alias or an element reference escaped the set and was accepted with defer. Every shipped deferred neighbour still falls outside the set: none of them names localStorage or sessionStorage at all.
+</code></pre>
+
+<h4>D17</h4>
+
+<pre><code>DECISION: the gate layer becomes TOTAL over the head. It keeps refusing a stamper that carries any of defer, async or type=module, and it now also refuses a head script that is not a stamper and does not carry defer, naming that script. The two directions are one rule with two arms, so no head-script shape is left without a verdict and the direction the weakened oracle arm stopped observing is observed by the gate as well.
+</code></pre>
+
+<h4>D18</h4>
+
+<pre><code>DECISION: the stale counts in prose are REMOVED rather than pinned by a test. base.html says the ONE script that must not defer and the deferred five while the head declares two pre-paint scripts and seven deferred neighbours; the live panic text in feature_canzan_theme.rs says the same. The repair names the pre-paint FAMILY and the deferred NEIGHBOURS and carries no number, so there is no count left to go stale. A test that pinned those sentences would be a wording pin on a prose target; promise P10 is therefore verified by review and by EXAMINE, and it is deliberately absent from the S1 public-oracle promise list.
+</code></pre>
+
+<h4>D19</h4>
+
+<pre><code>DECISION: static/js/nav-collapse.js is not changed. The icons are server-rendered, the label flyout is CSS, and the marker, the storage key, the sentinel and the button are untouched. Server-rendering the icons is required rather than convenient: the marker lands before the first paint, so an icon injected at DOMContentLoaded would paint an empty strip first - the same flash, one element down.
+</code></pre>
+
+<h4>D20</h4>
+
+<pre><code>DECISION on carriers. The collapse decision is a boolean carried by the valueless data-nav-collapsed attribute on the document element, owned by static/js/nav-collapse.js; its stored form is the single sentinel under foundry.nav, read by a total interpret. The rail geometry is carried by the attribute-presence selectors in the one hand-authored stylesheet. A destination is carried by one a.sidebar__item or the Sign out post form in templates/partials/sidebar.html, with its name in span.sidebar__label and its glyph in svg.sidebar__icon. The gate verdict is carried by the violation string list of xtask/src/check_arch.rs, one entry per refused script, with the empty list as accept; there is no third verdict value. Per-process state: none is added - the gate is a pure read of the tree, and the oracle holds its reading in the step world.
+</code></pre>
+
+<h4>D21</h4>
+
+<pre><code>DECISION: the stylesheet bytes change, so its content-hashed name changes with them. foundry.4c73f62c.css becomes foundry.&lt;new sha256 prefix&gt;.css in the same change as base.html, the three cache-control assertions in crates/foundry-app/src/lib.rs, the VENDOR.md row and its note, and the CHANGELOG entry. The old URL is served immutable, so an edit without the rename pins every holding browser stale; cargo xtask check-arch decides it.
+</code></pre>
+
+<h4>D22</h4>
+
+<pre><code>DECISION: paradigm stays procedural, the repository evidenced style for this surface. The three touched languages are an Askama template, a hand-authored stylesheet and straight-line Rust rule functions over a staged tree; none of them is an object model and none of them is a functional core. No class, no new module layer and no FP relabelling is introduced to fit a carrier.
+</code></pre>
+
+<h3>Constraints</h3>
+
+<h4>K1</h4>
+
+<pre><code>The stored collapse choice is read from one browser key, foundry.nav, with NO length or character bound on the value: the reader is total over every string and over the absence of the key, and exactly one spelling, collapsed, means collapsed. This feature keeps that total reader and widens no bound. The finite stored-value domain the delivered oracle already drives - nothing, collapsed, expanded, Collapsed, 1, null - stays the whole domain.
+</code></pre>
+
+<h4>K2</h4>
+
+<pre><code>The phone boundary is 480 px and below, as the human fixed it. The delivered oracle drives 320, 390 and 480; this design adds no width and narrows none. Above 480 px the desk geometry is unchanged.
+</code></pre>
+
+<h4>K3</h4>
+
+<pre><code>The destination set has no upper bound in the authority: it is Home, Board, Settings, Keyboard shortcuts, plus Integrations for a workspace admin and Instance admin for an instance admin, plus Sign out - seven at most today, four at least. The collapsed bar must lay out the largest set at the narrowest supported width, so the bar wraps rather than scrolls sideways. A destination added later is covered by the standing review obligation that every rail item carries an icon.
+</code></pre>
+
+<h4>K4</h4>
+
+<pre><code>The workspace name bound is the app own refusal limit, 24 characters; the longest name an operator can create must still not widen the strip. The name keeps display:none in the collapsed geometry, so this constraint is met the way it is met today and the delivered scenario that drives it keeps its meaning.
+</code></pre>
+
+<h4>K5</h4>
+
+<pre><code>INHERITED, not restated: the laws of the delivered nav-collapse-toggle feature stay in force and are not re-declared here - two geometries only, selected on the presence of the valueless marker; collapse then expand returns the rail to its shipped 240 px and the stored key to absent; a reload or a navigation never rewrites the stored choice; with scripting off there is no control and the nav is open. See ADR-NAV-COLLAPSE-001 and the nav-collapse-toggle architecture record.
+</code></pre>
+
+<h4>K6</h4>
+
+<pre><code>The collapsed geometry exists only where scripting ran: nothing but static/js/nav-collapse.js stamps the marker. So every promise of the collapsed rail is a promise about a scripting-on document, and the scripting-off document is the expanded text nav it is today. This is a bound on the promise, not a deviation from it.
+</code></pre>
+
+<h4>K7</h4>
+
+<pre><code>Test-time: both slices work inside the project default budgets, so no derogation is requested and none is granted. S1 lands in the default suite through cargo xtask smoke, where the gate rule and its staged-tree fixtures are straight-line file reads. S2 scenarios are @needs-browser and therefore excluded from the default fast lane; they run in cargo xtask ci only with FOUNDRY_XTASK_INCLUDE_DOCKER=1, which every verification command for S2 names. A Docker-less gate observes NOTHING of S2.
+</code></pre>
+
+<h4>K8</h4>
+
+<pre><code>Checker environment: Quint 0.32.0 with the Apalache backend in the shared Lima VM local-dev, reached through scripts/test-in-lima.sh and run from a scratch copy outside the repository. Stopping bound 6 steps under Apalache on both models; the two static tables are exhaustive over their twelve and twenty-four combinations at every bound. No run timed out.
+</code></pre>
+
+<h4>K9</h4>
+
+<pre><code>EVIDENCE LIMIT of the models: they are DESIGN evidence and observe no runtime. Not modelled - pixel layout including the 480 px bar and the icon wrapping; screen-reader output beyond what is visible and focusable; a second tab; how the gate finds the names inside an asset whose identifiers are built at runtime; inline scripts and scripts added at runtime. The icon wrapping, the label flyout and the accessible names need the real browser observation, which belongs to the acceptance oracle.
+</code></pre>
+
+<h4>K10</h4>
+
+<pre><code>Sign out stays reachable in the collapsed strip. The user decided this in chat on 2026-11-17.
+</code></pre>
+
+<h4>K11</h4>
+
+<pre><code>The collapsed left nav shows its links as icons instead of hiding them. The user decided this in chat on 2026-11-17.
+</code></pre>
+
+<h4>K12</h4>
+
+<pre><code>All five non-blocking findings of the nav-collapse-toggle whole-candidate review are fixed in this feature. The user decided this in chat on 2026-11-17.
+</code></pre>
+
+<h4>K13</h4>
+
+<pre><code>Carrying the collapse choice to a second tab stays out of scope. The user decided this in chat on 2026-11-17.
+</code></pre>
+
+<h4>K14</h4>
+
+<pre><code>At phone width (480 px and below) the collapsed bar shows the same icons and lets them wrap inside the bar; no destination is dropped below the breakpoint. The human chose this in chat on 2026-11-17, over a sideways-scrolled row and over keeping today&#x27;s behaviour.
+</code></pre>
+
+<h4>K15</h4>
+
+<pre><code>The expanded left nav stays text only; no icon is added beside its labels. The human chose this in chat on 2026-11-17.
+</code></pre>
+
+<h3>Reuse</h3>
+
+<p>None.</p>
+
+<h3>Impact</h3>
+
+<p>None.</p>
+
+<h3>Agreement</h3>
+
+<p>The rail render-class contract: .sidebar, .sidebar__nav .sidebar__item, .sidebar__user, aria-current=page, plus the new members svg.sidebar__icon and span.sidebar__label</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>Each destination gains an icon and moves its word into a label span; no class is renamed or removed and no link or form is added or dropped.
+</code></pre>
+
+<p>The rail render-class contract: .sidebar, .sidebar__nav .sidebar__item, .sidebar__user, aria-current=page, plus the new members svg.sidebar__icon and span.sidebar__label</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_navigation_bar.rs:77</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It reads each item label with el.text() and matches with contains, and its own comment already anticipates an icon plus label item. The icon adds no text node, because it carries no SVG title element, so the collected text stays exactly the destination word.
+</code></pre>
+
+<p>The rail render-class contract: .sidebar, .sidebar__nav .sidebar__item, .sidebar__user, aria-current=page, plus the new members svg.sidebar__icon and span.sidebar__label</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_pwa_mobile.rs:552</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It asserts that the first two items of .sidebar__nav share a row within one item height. The phone bar stays a wrapping row in both geometries, so the assertion holds; the collapsed arm only changes what each item draws.
+</code></pre>
+
+<p>The rail render-class contract: .sidebar, .sidebar__nav .sidebar__item, .sidebar__user, aria-current=page, plus the new members svg.sidebar__icon and span.sidebar__label</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:406</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Its contrast sweep reads the computed colour of .sidebar__item and .sidebar__item--active. Icons inherit that colour through currentColor and add no literal, so the sweep reads the same two surfaces.
+</code></pre>
+
+<p>The rail render-class contract: .sidebar, .sidebar__nav .sidebar__item, .sidebar__user, aria-current=page, plus the new members svg.sidebar__icon and span.sidebar__label</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_collapse.rs:1341</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>This is the consumer the change INVERTS. assert_folded and then_no_hidden_item_takes_focus assert navDisplay == none while the rail is folded, and the inFoldedRegion walk treats every focus stop inside .sidebar__nav or .sidebar__user as a trespass. Under the icon rail the destinations stay in the layout and ARE focusable, so both expectations must be restated by their owner: the folded rail keeps its items in the layout and focusable, the workspace name and the identity stay out, and the trespass set becomes the invisible-focusable set, which must be empty.
+</code></pre>
+
+<p>The head-script shape contract: which head scripts of the document shell must run before paint and which must defer</p>
+
+<p>crates/foundry-app/templates/base.html:48</p>
+
+<p>Producer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>No tag shape changes: the two pre-paint tags stay plain and the seven neighbours keep defer. Only the comment prose above them changes, and it loses its stale counts.
+</code></pre>
+
+<p>The head-script shape contract: which head scripts of the document shell must run before paint and which must defer</p>
+
+<p>xtask/src/check_arch.rs:1844</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The layer gains the non-stamper arm and the widened membership test, so it answers every external head script exactly once.
+</code></pre>
+
+<p>The head-script shape contract: which head scripts of the document shell must run before paint and which must defer</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:1629</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The neighbour arm is restated over the whole non-pre-paint set instead of over one member, and the panic text and the doc comment above it lose the claims that theme.js is the ONE pre-paint script and that there are five neighbours.
+</code></pre>
+
+<p>The head-script shape contract: which head scripts of the document shell must run before paint and which must defer</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_collapse.rs:1847</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>Its private head-script parse is replaced by the call to the shared owner; the assertion it feeds is unchanged.
+</code></pre>
+
+<p>The served-head reader: each head script src paired with the subset of defer, async and type=module it carries</p>
+
+<p>crates/foundry-acceptance/src/support/served_markup.rs</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>New shared owner for the acceptance crate, placed beside the other shared oracle machinery so neither feature oracle depends on the other.
+</code></pre>
+
+<p>The served-head reader: each head script src paired with the subset of defer, async and type=module it carries</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:2757</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>Its own copy is deleted and the shared owner is called instead.
+</code></pre>
+
+<p>The content-hashed stylesheet URL, served immutable</p>
+
+<p>crates/foundry-app/static/css/foundry.4c73f62c.css:1</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>The bytes change, so the name becomes the new sha256 prefix.
+</code></pre>
+
+<p>The content-hashed stylesheet URL, served immutable</p>
+
+<p>crates/foundry-app/templates/base.html:6</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The stylesheet href carries the new name.
+</code></pre>
+
+<p>The content-hashed stylesheet URL, served immutable</p>
+
+<p>crates/foundry-app/src/lib.rs:344</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The three cache-control assertions name the stylesheet by path and must carry the new name.
+</code></pre>
+
+<p>The content-hashed stylesheet URL, served immutable</p>
+
+<p>crates/foundry-app/static/VENDOR.md:33</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The provenance row and its two notes carry the new filename and the recomputed sha256, which the gate re-checks.
+</code></pre>
+
+<p>The stored collapse choice: the foundry.nav key, the single sentinel collapsed, and a reader total over every other string</p>
+
+<p>crates/foundry-app/static/js/nav-collapse.js</p>
+
+<p>Producer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Untouched: this feature writes no storage code, and signing out deliberately leaves the key alone.
+</code></pre>
+
+<p>The stored collapse choice: the foundry.nav key, the single sentinel collapsed, and a reader total over every other string</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature:160</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The finite stored-value outline keeps its six rows and its meaning; a browser holding the sentinel from an earlier version still reads as collapsed.
+</code></pre>
+
+<h3>Not applicable</h3>
+
+<p>contract_tests</p>
+
+<pre><code>No party of any contract this change touches can change apart from the others. The rail class contract, the head-script shape contract, the shared head reader and the content-hashed stylesheet URL all have their producers and every consumer inside the one deployable, changing in the same commit, so the primary oracle and the gate cover them. The one piece of data that outlives a producer version - the foundry.nav sentinel a browser holds from an earlier visit - is not changed by this feature: its key, its single sentinel and its total reader are untouched, and the delivered oracle already drives the whole finite stored-value domain.
+</code></pre>
+
+<h3>Boundaries</h3>
+
+<pre><code>Two public ports, one per value. The contributor port is the project gate CLI, cargo xtask check-arch, whose observable surface is the exit status plus one named entry per refused script and, on acceptance, the PASSED line that names the pre-paint-script layer. The operator port is the running app shell in a real browser: her press of the collapse control, her Tab presses, her activation of a rail icon, her one-press submit of the rail Sign out form, her sign-in through the real form, and the viewport width.
+</code></pre>
+
+<h4>Driven ports</h4>
+
+<pre><code>The filesystem the gate reads: the head region of crates/foundry-app/templates/base.html and the comment-stripped bytes of each asset under crates/foundry-app/static that the head names.
+</code></pre>
+
+<pre><code>The browser store holding the foundry.nav sentinel, written and read only by static/js/nav-collapse.js.
+</code></pre>
+
+<pre><code>ServeDir over crates/foundry-app/static, which serves the content-hashed stylesheet immutable.
+</code></pre>
+
+<pre><code>The gate depends on the templates and the static assets and on nothing else - not on foundry-app, not on the acceptance crate - so it can contradict either. The template and the stylesheet are leaves the browser consumes. The acceptance crate depends only on the served output of the app and on its own shared support; no step module depends on another step module, which is why the shared head reader lives in support rather than in either feature module. The server-rendered icons depend on no script, which is what keeps them on the page before the first paint.
+</code></pre>
+
+<h4>Failures</h4>
+
+<h5>B1</h5>
+
+<pre><code>A head script of the document shell names localStorage or sessionStorage and names documentElement, and its tag carries defer, async or type=module.
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>cargo xtask check-arch exits non-zero with one entry naming that src, saying the asset reads the operator stored choice and stamps the document element and so must run before the browser is permitted to paint, and telling the contributor to remove the attribute.
+</code></pre>
+
+<h5>B2</h5>
+
+<pre><code>A head script of the document shell is not a member of that set and does not carry the defer attribute - it is plain, async or type=module.
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>cargo xtask check-arch exits non-zero with one entry naming that src and telling the contributor to add defer. No shape in this branch is left unanswered.
+</code></pre>
+
+<h5>B3</h5>
+
+<pre><code>The head declares script tags and the derived pre-paint set comes out EMPTY, which is what a parse that stopped seeing the family looks like.
+</code></pre>
+
+<p>Indeterminate</p>
+
+<pre><code>The existing fail-closed entry: the layer reports the head script count and says an empty pre-paint set means the rule is looking at the wrong thing and would hold over nothing, so a PASSED line must not be trusted.
+</code></pre>
+
+<h5>B4</h5>
+
+<pre><code>The document shell declares no head region at all, so its render-blocking tags cannot be found.
+</code></pre>
+
+<p>Indeterminate</p>
+
+<pre><code>The existing no-head entry, naming the shell by path and saying that a head which cannot be read is a head whose tags are unguarded.
+</code></pre>
+
+<h5>B5</h5>
+
+<pre><code>An asset that does stamp the document from stored state builds its identifiers at runtime, so the classifier does not recognise it.
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>The gate treats it as a non-stamper and refuses it unless it carries defer, naming it. The verdict is wrong for that asset and it is LOUD: the contributor must widen the classifier or change this decision deliberately, where the narrow classifier accepted it in silence.
+</code></pre>
+
+<h5>B6</h5>
+
+<pre><code>The browser refuses this site access to stored state, so the collapse choice cannot be read or written.
+</code></pre>
+
+<p>Indeterminate</p>
+
+<pre><code>The rail renders expanded, the control still works for the life of the page, and no script error reaches the operator; the choice simply does not survive a reload. Observed on the sign-in screen, because refusing site data also refuses the session cookie.
+</code></pre>
+
+<h5>B7</h5>
+
+<pre><code>A right the rail rendered has been revoked since the last page load and the operator activates that destination from the collapsed rail.
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>The app door that owns the destination refuses, exactly as it refuses the same activation from the expanded nav. Pre-existing and unchanged by this feature.
+</code></pre>
+
+<h5>B8</h5>
+
+<pre><code>The stylesheet bytes change and its content-hashed name, its provenance row or one of its references does not move with them.
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>cargo xtask check-arch exits non-zero: the content-hashed filename is not its own sha256 prefix, or a /static reference does not resolve, or the VENDOR.md sha256 does not recompute.
+</code></pre>
+
+<h5>B9</h5>
+
+<pre><code>Scripting never ran in the document, so nothing stamped the marker.
+</code></pre>
+
+<p>Indeterminate</p>
+
+<pre><code>The rail is the expanded text nav it is today and no collapse control exists; the collapsed icon rail is simply not reachable, which is a bound on the promise rather than a degraded rail.
+</code></pre>
+
+<h3>Observations</h3>
+
+<pre><code>The set of destinations the operator can activate in the rail right now, read from the live document: each a.sidebar__item and the Sign out submit that is in the layout, visible and focusable.
+</code></pre>
+
+<p>Set of destination names</p>
+
+<pre><code>How wide the strip is, which glyph an icon draws, and in which order the members are laid out.
+</code></pre>
+
+<pre><code>The accessible name computed for each rail item in the live document.
+</code></pre>
+
+<p>Destination name per item</p>
+
+<pre><code>Whether the name comes from the clipped label span, from content elsewhere in the item or from an attribute - only that it equals the destination name.
+</code></pre>
+
+<pre><code>The set of rail links that can take the keyboard focus while they are invisible.
+</code></pre>
+
+<p>Set of destination names, empty when the design holds</p>
+
+<pre><code>Why a member is invisible - clipped, zero-sized or out of the layout.
+</code></pre>
+
+<pre><code>Whether the destination the operator is on is marked in the rail: aria-current=page and the active tint on exactly one item.
+</code></pre>
+
+<p>Marked destination, or none</p>
+
+<pre><code>The colour of the tint, which the theme lane owns.
+</code></pre>
+
+<pre><code>Whether the label of a focused or hovered icon is visible: a box with a non-zero width that shows the destination word.
+</code></pre>
+
+<p>Visible or not, plus the shown text</p>
+
+<pre><code>Where the flyout sits and how it is styled.
+</code></pre>
+
+<pre><code>Whether the document scrolls sideways at a given viewport width with the collapsed bar showing its icons, and whether any box reaches past the right edge.
+</code></pre>
+
+<p>Overflow verdict plus the offending boxes</p>
+
+<pre><code>By how many pixels a non-overflowing layout stays inside the edge.
+</code></pre>
+
+<pre><code>The gate verdict for the document shell head: the exit status of cargo xtask check-arch and, for each refused script, its src and the sentence that names what failed, why and how to fix it.
+</code></pre>
+
+<p>Accept, or one refusal entry per refused script</p>
+
+<pre><code>The order of the refusal entries, and any prose in the head comments - the gate reads comment-stripped markup and source.
+</code></pre>
+
+<pre><code>For one head-script shape - storage named, document element named, loading mode - the verdict the gate gives it.
+</code></pre>
+
+<p>Exactly one of accept or refuse</p>
+
+<pre><code>Which asset carries the shape; the verdict is a property of the shape, not of the file name.
+</code></pre>
+
+<h3>Equality</h3>
+
+<p>the rail observations</p>
+
+<pre><code>Two rail renderings are equal when they offer the same activatable destination set, give each item the same accessible name, mark the same current destination, and leave the same - empty - set of invisible focusable links. The strip width, the glyph shapes, the item order and the flyout styling are not observed, so two strips of different widths are equal under this set. The only geometric facts that are observed are that the collapsed rail is strictly narrower than the expanded one and that the document does not scroll sideways.
+</code></pre>
+
+<p>the gate observations</p>
+
+<pre><code>Two heads are equal when the gate gives the same verdict for each of their scripts and names the same scripts in its refusals. Comment prose, tag order and attribute order are not observed: the gate strips comments and reads each tag as a src plus the subset of defer, async and type=module it carries.
+</code></pre>
+
+<h3>Constructors</h3>
+
+<p>railItem</p>
+
+<p>destination href + name + icon + active flag -&gt; one a.sidebar__item carrying svg.sidebar__icon and span.sidebar__label (templates/partials/sidebar.html)</p>
+
+<p>railSignOut</p>
+
+<p>csrf token + icon -&gt; the existing post form to /sign-out whose button carries svg.sidebar__icon and span.sidebar__label (templates/partials/sidebar.html)</p>
+
+<p>collapsedGeometry</p>
+
+<p>presence of data-nav-collapsed on the document element -&gt; the narrow icon strip, selected on presence alone (the one hand-authored stylesheet)</p>
+
+<p>headScriptShape</p>
+
+<p>one head script tag + its asset source -&gt; (names stored state, names the document element, loading mode) (xtask/src/check_arch.rs)</p>
+
+<p>verdict</p>
+
+<p>headScriptShape -&gt; accept (no entry) | refuse (one violation entry naming what, why and how) (xtask/src/check_arch.rs)</p>
+
+<h3>Laws</h3>
+
+<h4>L1</h4>
+
+<pre><code>With the icon rail, for every combination of stored choice, scripting and admin rights, every destination the rendered rights give the operator, and Sign out, is in the layout, visible and focusable in the rail.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Domain</p>
+
+<p>the collapsed-geometry region of the one hand-authored stylesheet, over the items templates/partials/sidebar.html renders</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>collapsed, scripting on, no admin rights
+</code></pre>
+
+<pre><code>collapsed, scripting on, workspace admin
+</code></pre>
+
+<pre><code>collapsed, scripting on, instance admin
+</code></pre>
+
+<pre><code>expanded, scripting on, each of the three rights
+</code></pre>
+
+<pre><code>scripting off, each of the three rights
+</code></pre>
+
+<pre><code>The state space is the twelve combinations of stored choice, scripting and the three rights; a closed finite domain gets an exhaustive table, not a generated property. The model table matrix enumerates all twelve and is exhaustive at every bound.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/icon_rail.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<h4>L2</h4>
+
+<pre><code>No rail link can take the keyboard focus while it is invisible, in either geometry: the invisible-focusable set is empty.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Domain</p>
+
+<p>the collapsed-geometry region of the one hand-authored stylesheet</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>collapsed with the icon rail, each of the three rights
+</code></pre>
+
+<pre><code>expanded, each of the three rights
+</code></pre>
+
+<pre><code>Same closed twelve-combination domain as the reachability law; the comparison variants that break it (links hidden with display none, links hidden visually) are the recorded mutants.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/icon_rail.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<h4>L3</h4>
+
+<pre><code>Signing out from the rail leaves the stored collapse choice alone, so the next sign-in in the same browser with scripting on starts collapsed.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>static/js/nav-collapse.js, which is the only writer of foundry.nav, and the /sign-out door, which does not touch it</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>collapsed, sign out from the rail, sign in again, scripting on
+</code></pre>
+
+<pre><code>collapsed, sign out from the rail, sign in again, scripting off
+</code></pre>
+
+<pre><code>expanded, sign out, sign in again
+</code></pre>
+
+<pre><code>Three closed cases over one boolean and the scripting switch; the mutant that clears the key on sign out is recorded.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/icon_rail.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<h4>L4</h4>
+
+<pre><code>The gate gives every head-script shape exactly one verdict, accept or refuse; no shape is left without one.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>xtask/src/check_arch.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>each of the twenty-four shapes: storage in localStorage, sessionStorage, neither; document element named or not; loading plain, defer, async, type=module
+</code></pre>
+
+<pre><code>The shape domain is closed and small - three storages by two document-element values by four loading modes - so the obligation is an exhaustive table over all twenty-four members, not a generated property. The as-written reading, which leaves eight shapes with no verdict, is the recorded mutant.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/head_guard.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<h4>L5</h4>
+
+<pre><code>A head the gate ACCEPTS is a head in which every script that stamps the document from stored state has run before the first paint.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>xtask/src/check_arch.rs, over the head of crates/foundry-app/templates/base.html</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>the shipped head: two plain stampers and seven deferred neighbours
+</code></pre>
+
+<pre><code>a head whose stamper carries defer
+</code></pre>
+
+<pre><code>a head whose stamper carries async
+</code></pre>
+
+<pre><code>a head carrying a third, aliased stamper that carries defer
+</code></pre>
+
+<pre><code>The four heads are the closed set the paint-order model admits; each is a distinct arrangement rather than a point in a broad domain.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/head_guard.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<h4>L6</h4>
+
+<pre><code>The classifier recognises every asset that names localStorage or sessionStorage and names documentElement, in whatever idiom its comment-stripped source spells them, and recognises no asset that names neither.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Adapter</p>
+
+<p>xtask/src/check_arch.rs</p>
+
+<h5>Treatment</h5>
+
+<p>Broad</p>
+
+<h6>Generator</h6>
+
+<pre><code>Asset sources composed from a closed grammar of segment kinds: a direct getItem read; a bracket read, window.localStorage of a key; a local alias, var s = window.localStorage then s.getItem; a destructured read; a direct documentElement.setAttribute stamp; an element-reference stamp, var root = document.documentElement then root.setAttribute; a dataset stamp; a mention of either name inside a line comment only; a mention inside a block comment only; and a neutral settled-DOM line that names neither.
+</code></pre>
+
+<p>sequences of one to three segments, enumerated exhaustively over the segment kinds, in the shape of the existing exhaustive property in this module</p>
+
+<p>none: the enumeration is total over the bound and therefore deterministic and replayable without a seed</p>
+
+<h6>Must include</h6>
+
+<pre><code>the local-alias read paired with the element-reference stamp, which is the idiom the shipped narrow classifier misses
+</code></pre>
+
+<pre><code>a comment-only mention of both names, which must NOT be recognised
+</code></pre>
+
+<p>3</p>
+
+<pre><code>not needed and not claimed: the enumeration visits one-segment documents before two and three, so the first failing case is already minimal. xtask carries no property-test library, so there is no shrinker to run; this limitation is stated in the test file.
+</code></pre>
+
+<pre><code>the expected classification is computed from the segment kinds the generator chose, never by calling the classifier
+</code></pre>
+
+<pre><code>an asset built from the local-alias read plus the element-reference stamp is classified as a non-stamper, so defer on its tag is accepted
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/head_guard.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<h4>L7</h4>
+
+<pre><code>Each rail item carries the name of its destination as its accessible name in both geometries, and the name is the item own text.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Domain</p>
+
+<p>templates/partials/sidebar.html for the label span, the stylesheet for clipping it rather than removing it</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>each of the seven destinations: Home, Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out
+</code></pre>
+
+<pre><code>each of those in the expanded geometry
+</code></pre>
+
+<pre><code>The destination set is closed and at most seven; the obligation is an exhaustive sweep over the rendered items rather than a generated property.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<h4>L8</h4>
+
+<pre><code>At 480 px and below the collapsed bar lays every icon out inside the bar and the document does not scroll sideways.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Infrastructure</p>
+
+<p>the 480 px region of the one hand-authored stylesheet</p>
+
+<h5>Treatment</h5>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>320 px collapsed
+</code></pre>
+
+<pre><code>320 px expanded
+</code></pre>
+
+<pre><code>390 px collapsed
+</code></pre>
+
+<pre><code>390 px expanded
+</code></pre>
+
+<pre><code>480 px collapsed
+</code></pre>
+
+<pre><code>480 px expanded
+</code></pre>
+
+<pre><code>The three widths the delivered oracle already drives, times the two geometries. Pixel layout is not modelled by either checker, so this law is observed only in the real browser and carries no model evidence.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<h3>Refuted</h3>
+
+<pre><code>Every head script that is not a pre-paint script defers - taken as written.
+</code></pre>
+
+<pre><code>Law scope, not a carrier defect: the predicate defers is undefined for async and for type=module, so the rule as written answers nothing for those shapes and a gate must never answer no verdict. Repaired by the confirmed defer-attribute reading, which is total.
+</code></pre>
+
+<pre><code>A non-stamping head script loaded type=module, or loaded async: eight of the twenty-four shapes get no verdict at all. quint run head_guard.qnt --init=init_as_written_wide --step=step --invariant=noThirdVerdict returned a violation.
+</code></pre>
+
+<pre><code>A pre-paint script is one whose source contains localStorage.getItem or sessionStorage.getItem AND one of documentElement.setAttribute, documentElement.removeAttribute, documentElement.dataset.
+</code></pre>
+
+<pre><code>Carrier defect in the classifier: the property is what the asset NAMES, and the test decided a SPELLING. Repaired by widening the membership test to the names themselves.
+</code></pre>
+
+<pre><code>An asset spelling var s = window.localStorage; var root = document.documentElement; root.setAttribute(...) names both and stamps the document, yet is not recognised; given defer, the gate ACCEPTS the head while the stamp lands after the first paint. quint run head_guard.qnt --init=init_defer_attr_narrow --step=step --invariant=gateMatchesPaint returned a violation, and the witness w_aliasAcceptedWithLateStamp returned the accepting trace.
+</code></pre>
+
+<pre><code>The collapsed rail may hide its destinations, because the monogram, the collapse control and the theme control are enough to work with.
+</code></pre>
+
+<pre><code>The carrier was the wrong one: hiding members of the rail cannot preserve reachability, whichever way it hides them. Repaired by rendering the destinations as icons instead of removing them.
+</code></pre>
+
+<pre><code>With display none the activatable set after a collapse is empty and Sign out cannot be activated: quint run icon_rail.qnt --init=init_hide_none --step=step --invariant=matrixNoTrap returned a violation. Hiding them visually instead leaves Board, Home, Keyboard shortcuts, Settings and Sign out able to take the focus while invisible: --init=init_hide_clip --invariant=matrixNoInvisibleFocusable returned a violation.
+</code></pre>
+
+<h3>Claims</h3>
+
+<h4>C1</h4>
+
+<pre><code>The gate has no third verdict: a head script shape is accepted or refused, and no shape can be left unanswered.
+</code></pre>
+
+<pre><code>A contributor who reads no verdict concludes the gate has no opinion, ships a deferred stamper, and the flash of the wrong theme or the wrong rail returns on every navigation while every settled-page assertion stays green.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<pre><code>One head script tag of the document shell - a src plus the subset of defer, async and type=module it carries - and the comment-stripped bytes of the asset it names.
+</code></pre>
+
+<p>the verdict arms of check_pre_paint_scripts_are_render_blocking</p>
+
+<p>the violation list source_violations aggregates into the check-arch exit status and PASSED line</p>
+
+<pre><code>the exit status of cargo xtask check-arch and the refusal entry naming the script
+</code></pre>
+
+<pre><code>Rust gives centralised construction, not a proved predicate: the two arms are exhaustive by inspection, not by the type checker. A script the head adds inline, or adds at runtime, is not in the src set at all and gets no verdict - stated as a limit of the layer rather than claimed as coverage. An asset whose identifiers are built at runtime is classified as a non-stamper.
+</code></pre>
+
+<h4>C2</h4>
+
+<pre><code>A rail item cannot lose its accessible name by losing its word on screen, because the name is the item own text and the collapsed geometry clips that text rather than removing it.
+</code></pre>
+
+<pre><code>An unnamed icon is not a destination a screen-reader operator can choose: the rail is her only route while collapsed, so an icon with no name makes every destination unreachable for her.
+</code></pre>
+
+<p>templates/partials/sidebar.html for the label span, the collapsed-geometry stylesheet region for clipping it</p>
+
+<pre><code>The destination name the template renders for that item.
+</code></pre>
+
+<p>railItem and railSignOut</p>
+
+<p>the browser accessible-name computation, read by the acceptance oracle</p>
+
+<pre><code>the computed accessible name of each rail item in the live document
+</code></pre>
+
+<pre><code>A clipped span is in the accessibility tree by the standard visually-hidden contract, not by a checker: an assistive technology that drops a one-pixel clipped node would still lose the word. Nothing stops an outside script from writing aria-label on an item and overriding the text. No gate covers either; both are review and oracle obligations.
+</code></pre>
+
+<h4>C3</h4>
+
+<pre><code>INHERITED claim C1, still in force: a third rail geometry is unrepresentable, because every collapsed selector matches on the PRESENCE of data-nav-collapsed and never on a value.
+</code></pre>
+
+<pre><code>An outside script, an extension or devtools writing a value would otherwise select a width that is neither collapsed nor expanded and that no operator could repair.
+</code></pre>
+
+<p>the collapsed-geometry region of the one hand-authored stylesheet</p>
+
+<pre><code>Any attribute value, including none, that any writer puts on the document element.
+</code></pre>
+
+<p>collapsedGeometry</p>
+
+<p>the rail geometry the browser lays out</p>
+
+<pre><code>the rail width with a marker carrying a value of its own, which the delivered oracle already drives
+</code></pre>
+
+<pre><code>No gate covers it: rewriting a selector to match a value reopens the state, which is a standing review obligation on the stylesheet. This feature adds selectors to that same region and therefore inherits the obligation for each one it adds.
+</code></pre>
+
+<h3>States</h3>
+
+<p>Admitted</p>
+
+<pre><code>The collapsed icon rail exists only in a document where scripting ran; with scripting off the nav is the expanded text nav and there is no control.
+</code></pre>
+
+<p>architect</p>
+
+<p>Admitted</p>
+
+<pre><code>The nav shows the rights of the last page load in both geometries; a right granted or revoked since then is reflected only at the next load, and activating a revoked destination is refused by its own app door.
+</code></pre>
+
+<p>product owner</p>
+
+<p>Admitted</p>
+
+<pre><code>A second tab keeps the geometry it loaded with until it is reloaded; the collapse choice is per browser, so another person signing in on the same browser inherits the collapsed rail as she inherits the theme.
+</code></pre>
+
+<p>product owner</p>
+
+<p>Admitted</p>
+
+<pre><code>With site data refused the rail opens and the choice does not survive a reload; the control still works for the life of the page.
+</code></pre>
+
+<p>architect</p>
+
+<p>Excluded</p>
+
+<pre><code>A rail link that is focusable while invisible.
+</code></pre>
+
+<p>architect</p>
+
+<p>Excluded</p>
+
+<pre><code>A collapsed rail from which a destination the operator has, or Sign out, cannot be reached.
+</code></pre>
+
+<p>architect</p>
+
+<p>Excluded</p>
+
+<pre><code>A head-script shape the gate answers with no verdict.
+</code></pre>
+
+<p>architect</p>
+
+<p>Excluded</p>
+
+<pre><code>A third rail geometry, neither the strip nor the shipped 240 px.
+</code></pre>
+
+<p>architect</p>
+
+<p>Excluded</p>
+
+<pre><code>A head the gate accepts in which a script that stamps the document from stored state runs after the first paint.
+</code></pre>
+
+<p>architect</p>
+
+<p>Unknown</p>
+
+<pre><code>The pixels of the first painted frame: the suite has no paint-capture surface, so whether a collapsed operator ever sees the expanded rail flash stays unobserved and rests on the render-blocking tag shape plus the paint timing.
+</code></pre>
+
+<p>architect</p>
+
+<p>Unknown</p>
+
+<pre><code>Screen-reader output beyond what is visible and focusable: the lane reads the computed accessible name in one browser engine, not what an assistive technology announces.
+</code></pre>
+
+<p>architect</p>
+
+<p>Unknown</p>
+
+<pre><code>Whether the label flyout is legible at every supported width with the longest destination name, and whether it is placed inside the bar at 320 px.
+</code></pre>
+
+<p>acceptance designer</p>
+
+<p>Unknown</p>
+
+<pre><code>Whether an asset whose identifiers are built at runtime, or an inline or runtime-added head script, can reach the document before the first paint without the gate seeing it.
+</code></pre>
+
+<p>architect</p>
+
+<h3>Models</h3>
+
+<p>Quint</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/icon_rail.qnt</p>
+
+<h5>Properties</h5>
+
+<p>noTrap</p>
+
+<p>Invariant</p>
+
+<pre><code>Every destination the rendered rights give the operator, and Sign out, is activatable in the current state.
+</code></pre>
+
+<p>the a.sidebar__item set and the /sign-out submit rendered by the rail</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>matrixNoTrap</p>
+
+<p>Invariant</p>
+
+<pre><code>The same reachability, exhaustively over the twelve combinations of stored choice, scripting and rights.
+</code></pre>
+
+<p>the collapsed-geometry selectors that decide which rail members stay in the layout</p>
+
+<p>crates/foundry-app/static/css/foundry.4c73f62c.css:1030</p>
+
+<p>noInvisibleFocusable</p>
+
+<p>Invariant</p>
+
+<pre><code>No rail link is focusable while it is invisible.
+</code></pre>
+
+<p>the collapsed-geometry display and clip declarations for the label span and the rail members</p>
+
+<p>crates/foundry-app/static/css/foundry.4c73f62c.css:1030</p>
+
+<p>focusNeverInvisible</p>
+
+<p>Invariant</p>
+
+<pre><code>The element holding the focus is never an invisible rail link.
+</code></pre>
+
+<p>the keyboard order of the rendered rail</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>matrixNoInvisibleFocusable</p>
+
+<p>Invariant</p>
+
+<pre><code>The invisible-focusable set is empty in every one of the twelve combinations.
+</code></pre>
+
+<p>the collapsed-geometry selectors</p>
+
+<p>crates/foundry-app/static/css/foundry.4c73f62c.css:1030</p>
+
+<p>nextSignInStartsCollapsed</p>
+
+<p>Invariant</p>
+
+<pre><code>After a sign-out from the collapsed rail, the next sign-in with scripting on starts collapsed.
+</code></pre>
+
+<p>the stored sentinel read by interpret and stamped by applyMarker</p>
+
+<p>crates/foundry-app/static/js/nav-collapse.js</p>
+
+<p>w_collapseThenActivateIcon</p>
+
+<p>Invariant</p>
+
+<pre><code>Witness, stated as a negated goal: a trace exists in which the operator collapses the rail and then activates a destination from the icon rail.
+</code></pre>
+
+<p>the collapse control press followed by an a.sidebar__item activation</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>expandedShowsCurrentRights</p>
+
+<p>Invariant</p>
+
+<pre><code>Deliberately refutable: the nav shows the rights the operator has right now. It does not - it shows the rights of the last load, in both geometries.
+</code></pre>
+
+<p>the Askama nav view model built per request</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<h5>Atoms</h5>
+
+<p>State</p>
+
+<p>stored</p>
+
+<p>the foundry.nav key in the browser store</p>
+
+<p>crates/foundry-app/static/js/nav-collapse.js</p>
+
+<pre><code>One read or one write per press; the key is read once before the first paint and written once per press.
+</code></pre>
+
+<p>State</p>
+
+<p>scripting</p>
+
+<p>whether static/js/nav-collapse.js ran at all</p>
+
+<p>crates/foundry-app/templates/base.html:65</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>loadedRights</p>
+
+<p>the nav view model fields is_workspace_admin and is_instance_admin as rendered</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>focus</p>
+
+<p>document.activeElement inside the rail</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>None.</p>
+
+<p>Action</p>
+
+<p>doCollapse</p>
+
+<p>a press of the nav-collapse button, which stamps the marker and writes the sentinel</p>
+
+<p>crates/foundry-app/static/js/nav-collapse.js</p>
+
+<pre><code>One click handler: marker, storage and repaint happen together; no intermediate state is observable.
+</code></pre>
+
+<p>Action</p>
+
+<p>doActivate</p>
+
+<p>activating one a.sidebar__item - a real navigation</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>None.</p>
+
+<p>Action</p>
+
+<p>doSignOut</p>
+
+<p>submitting the rail post form to /sign-out</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>None.</p>
+
+<p>Constant</p>
+
+<p>ALL_LINKS</p>
+
+<p>the seven destinations the rail can render</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>None.</p>
+
+<h5>Assumptions</h5>
+
+<pre><code>Instance admin does not include workspace admin.
+</code></pre>
+
+<pre><code>Admin rights reach the nav only at a page load.
+</code></pre>
+
+<pre><code>A reload can switch scripting on or off.
+</code></pre>
+
+<pre><code>With scripting off the stored choice is kept and ignored.
+</code></pre>
+
+<pre><code>The monogram, the collapse control and the theme control are always visible in the rail.
+</code></pre>
+
+<pre><code>Activating a destination from the rail is a navigation.
+</code></pre>
+
+<pre><code>Icons wrap without clipping anything; pixel layout is not modelled.
+</code></pre>
+
+<h5>Mutants</h5>
+
+<h6>N1</h6>
+
+<pre><code>init_hide_none: the collapsed rail hides its destinations with display none, which is the delivered design this feature replaces.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>matrixNoTrap</p>
+
+<p>noTrap</p>
+
+<h6>N2</h6>
+
+<pre><code>init_hide_clip: the collapsed rail hides its destinations visually and leaves them focusable.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>matrixNoInvisibleFocusable</p>
+
+<p>focusNeverInvisible</p>
+
+<h6>N3</h6>
+
+<pre><code>init_icons_clear: Sign out clears the stored collapse choice.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>nextSignInStartsCollapsed</p>
+
+<p>Quint</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/head_guard.qnt</p>
+
+<h5>Properties</h5>
+
+<p>totalVerdicts</p>
+
+<p>Invariant</p>
+
+<pre><code>The verdict table holds all twenty-four distinct head-script shapes, once each.
+</code></pre>
+
+<p>the verdict arms of check_pre_paint_scripts_are_render_blocking</p>
+
+<p>xtask/src/check_arch.rs:1844</p>
+
+<p>noThirdVerdict</p>
+
+<p>Invariant</p>
+
+<pre><code>Every shape verdict is accept or refuse; none is unanswered.
+</code></pre>
+
+<p>the verdict arms of check_pre_paint_scripts_are_render_blocking</p>
+
+<p>xtask/src/check_arch.rs:1844</p>
+
+<p>classifierSeesEveryStamper</p>
+
+<p>Invariant</p>
+
+<pre><code>Every script in the head that really names stored state and the document element is recognised by the gate, whatever idiom it uses.
+</code></pre>
+
+<p>paints_stored_state_onto_the_document</p>
+
+<p>xtask/src/check_arch.rs:2014</p>
+
+<p>gateMatchesPaint</p>
+
+<p>Invariant</p>
+
+<pre><code>A head the gate accepts is one in which every stamp has landed by the first paint.
+</code></pre>
+
+<p>check_pre_paint_scripts_are_render_blocking over the head of the document shell</p>
+
+<p>crates/foundry-app/templates/base.html:27</p>
+
+<p>stampsBeforePaint_acceptedHead</p>
+
+<p>Invariant</p>
+
+<pre><code>In the shipped head both stamps have landed at the first paint.
+</code></pre>
+
+<p>the two plain head script tags of the document shell</p>
+
+<p>crates/foundry-app/templates/base.html:48</p>
+
+<p>w_acceptedHeadDone</p>
+
+<p>Invariant</p>
+
+<pre><code>Witness, stated as a negated goal: the accepted head reaches the done phase, so the paint-order model terminates.
+</code></pre>
+
+<p>the document shell head as served</p>
+
+<p>crates/foundry-app/templates/base.html:3</p>
+
+<p>w_aliasAcceptedWithLateStamp</p>
+
+<p>Invariant</p>
+
+<pre><code>Witness, stated as a negated goal: with the narrow classifier the gate ACCEPTS a head whose aliased stamp lands after the first paint.
+</code></pre>
+
+<p>paints_stored_state_onto_the_document as it is shipped today</p>
+
+<p>xtask/src/check_arch.rs:2014</p>
+
+<h5>Atoms</h5>
+
+<p>State</p>
+
+<p>hd</p>
+
+<p>the head region of the document shell as served</p>
+
+<p>crates/foundry-app/templates/base.html:3</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>rec</p>
+
+<p>the asset membership test the gate uses</p>
+
+<p>xtask/src/check_arch.rs:2014</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>verdicts</p>
+
+<p>the violation list the layer returns</p>
+
+<p>xtask/src/check_arch.rs:1844</p>
+
+<p>None.</p>
+
+<p>Action</p>
+
+<p>runEarly</p>
+
+<p>the browser running a plain head script while parsing is blocked</p>
+
+<p>crates/foundry-app/templates/base.html:48</p>
+
+<pre><code>One script runs to completion before the next; a stamp is visible to the next reader the moment it returns.
+</code></pre>
+
+<p>Action</p>
+
+<p>paint</p>
+
+<p>the browser first contentful paint</p>
+
+<p>crates/foundry-app/templates/base.html:3</p>
+
+<pre><code>Not atomic in the browser; modelled as one point after every render-blocking script has run.
+</code></pre>
+
+<p>Constant</p>
+
+<p>SHAPES</p>
+
+<p>the twenty-four head-script shapes the gate can meet</p>
+
+<p>xtask/src/check_arch.rs:1935</p>
+
+<p>None.</p>
+
+<h5>Assumptions</h5>
+
+<pre><code>Every head script is external, carrying a src.
+</code></pre>
+
+<pre><code>An async script can run at any time after the head is parsed, before or after the first paint.
+</code></pre>
+
+<pre><code>A type=module script runs with the deferred scripts.
+</code></pre>
+
+<pre><code>The gate reads what an asset NAMES; how it finds the names in source text is not modelled.
+</code></pre>
+
+<pre><code>Inline scripts and scripts added at runtime are outside the model.
+</code></pre>
+
+<h5>Mutants</h5>
+
+<h6>N4</h6>
+
+<pre><code>init_as_written_wide: every other head script defers, read as written, with no reading for async or type=module.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>noThirdVerdict</p>
+
+<h6>N5</h6>
+
+<pre><code>init_defer_attr_narrow: the classifier recognises only the direct getItem and documentElement idioms, so an aliased stamper escapes the pre-paint set.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>classifierSeesEveryStamper</p>
+
+<p>gateMatchesPaint</p>
+
+<h3>Closure</h3>
+
+<pre><code>The collapsed rail reaches every destination the operator has, and Sign out
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>The excluded states - a rail link focusable while invisible, and a collapsed rail from which a destination or Sign out cannot be reached - were checked exhaustively under Apalache at bound 6 on icon_rail.qnt for noTrap, matrixNoTrap, noInvisibleFocusable, focusNeverInvisible and matrixNoInvisibleFocusable, each NoError, and each is killed by its own recorded mutant. Runtime is DesignedNotBuilt: no command observed the rendered rail, because the icon members do not exist yet.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/icon_rail.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<pre><code>The collapsed rail reaches every destination the operator has, and Sign out
+</code></pre>
+
+<p>Inhabitation</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>An intended valid value is constructible from admitted input: with foundry.nav holding the sentinel, scripting on and instance-admin rights, the rail renders seven activatable destinations including Sign out. The witness w_collapseThenActivateIcon returned the trace in which the operator collapses the rail and then activates a destination from it.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/icon_rail.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<pre><code>The collapsed rail reaches every destination the operator has, and Sign out
+</code></pre>
+
+<p>PublicReachability</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>The chain is acyclic and buildable: the foundry.nav sentinel in the browser store, read by interpret and stamped by applyMarker in crates/foundry-app/static/js/nav-collapse.js, selects the collapsed-geometry rules at crates/foundry-app/static/css/foundry.4c73f62c.css:1020-1046, which lay out the items templates/partials/sidebar.html renders, observed on the served authenticated page in a real browser at .sidebar .sidebar__item and the /sign-out submit. The two members that do not exist yet are svg.sidebar__icon and span.sidebar__label inside each item of crates/foundry-app/templates/partials/sidebar.html; everything else on the chain is shipped.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/icon_rail.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<pre><code>The collapsed rail reaches every destination the operator has, and Sign out
+</code></pre>
+
+<p>Liveness</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Every promised observation is reached in ONE bounded user action - a press, a Tab, an activation, a form submit - so nothing waits on an unbounded schedule and no fairness assumption is needed. Progress is nevertheless evidenced rather than asserted: the witnesses w_collapseThenActivateIcon and w_railSignOutThenSignIn each returned a reaching trace on the clean model.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/icon_rail.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<pre><code>The head-script gate is total and a head it accepts has every stamp landed before the first paint
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Checked exhaustively under Apalache at bound 6 on head_guard.qnt: totalVerdicts, noThirdVerdict, classifierSeesEveryStamper and gateMatchesPaint, each NoError. The as-written reading kills noThirdVerdict and the narrow classifier kills both classifierSeesEveryStamper and gateMatchesPaint, so each law has a matching mutant. Runtime is DesignedNotBuilt: the layer shipped today refuses only the deferring direction and decides membership by three narrow substrings, so neither the totality arm nor the widened classifier is built.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/head_guard.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<pre><code>The head-script gate is total and a head it accepts has every stamp landed before the first paint
+</code></pre>
+
+<p>Inhabitation</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>An accepted head is constructible from admitted input: the shipped head - two plain stampers above seven deferred neighbours - is accepted under the chosen reading and classifier, and stampsBeforePaint_acceptedHead holds on it. Each refusal is likewise inhabited: a stamper carrying any of the three attributes, and a non-stamper carrying none.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/head_guard.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<pre><code>The head-script gate is total and a head it accepts has every stamp landed before the first paint
+</code></pre>
+
+<p>PublicReachability</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>The chain is shipped end to end except its widened arms: the head region of crates/foundry-app/templates/base.html and the asset bytes under crates/foundry-app/static/, read by head_script_tags at xtask/src/check_arch.rs:1935 and classified by paints_stored_state_onto_the_document at xtask/src/check_arch.rs:2014, aggregated by source_violations at xtask/src/check_arch.rs:117 into the exit status and PASSED line of cargo xtask check-arch, which is the contributor public port. The DNB sites are the widened membership test at :2014 and the new non-stamper arm inside check_pre_paint_scripts_are_render_blocking at :1844.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/head_guard.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<pre><code>The head-script gate is total and a head it accepts has every stamp landed before the first paint
+</code></pre>
+
+<p>Liveness</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>The gate is one bounded read of the tree and terminates by construction; the paint-order model likewise terminates, which is evidenced rather than assumed: the witness w_acceptedHeadDone returned a trace reaching the done phase on the accepted head. No fairness assumption is needed, so none is declared.
+</code></pre>
+
+<h5>Evidence</h5>
+
+<p>docs/feature/nav-collapse-icon-rail/design/head_guard.qnt</p>
+
+<p>docs/feature/nav-collapse-icon-rail/design/verification-receipt.md</p>
+
+<h3>Risks</h3>
+
+<h4>Y1</h4>
+
+<p>Stressor</p>
+
+<pre><code>NEGATE the assumption that the collapsed geometry only exists where nav-collapse.js ran: a content blocker, an extension or devtools leaves the marker on the document element while the asset itself never runs.
+</code></pre>
+
+<pre><code>Two geometries only, and every destination the operator has, plus Sign out, still reachable as an icon.
+</code></pre>
+
+<pre><code>No collapse control exists, so she cannot expand the rail from the page.
+</code></pre>
+
+<pre><code>A destination or Sign out unreachable while the marker is stuck.
+</code></pre>
+
+<pre><code>An operator stuck in the strip with no toggle. This is strictly BETTER than the delivered design, where the same stuck marker left her with no destinations at all: the icon rail turns a trapping state into a cosmetic one.
+</code></pre>
+
+<p>architect</p>
+
+<h4>Y2</h4>
+
+<p>Stressor</p>
+
+<pre><code>NEGATE the assumption that a one-pixel clipped span stays in the accessibility tree: an assistive technology drops it.
+</code></pre>
+
+<pre><code>The icon link is in the layout, focusable and activatable, and its destination is still reachable.
+</code></pre>
+
+<pre><code>The operator hears no destination name for that item.
+</code></pre>
+
+<pre><code>A silent loss with no observation: the lane must read the computed accessible name rather than infer it from the markup.
+</code></pre>
+
+<pre><code>The lane reads one browser engine, so agreement across engines and across assistive technologies is unobserved.
+</code></pre>
+
+<p>acceptance designer</p>
+
+<h4>Y3</h4>
+
+<p>Stressor</p>
+
+<pre><code>NEGATE the assumption that the label flyout fits the viewport: at 320 px the last icon of a wrapped row is at the right edge.
+</code></pre>
+
+<pre><code>No sideways document scroll in either geometry at 320, 390 and 480 px.
+</code></pre>
+
+<pre><code>The flyout is placed under the icon and may be clipped by the bar.
+</code></pre>
+
+<pre><code>The flyout widening the document, which is the overflow the phone promise forbids.
+</code></pre>
+
+<pre><code>A flyout partly cut at very narrow widths; the destination is still reachable and still named to a screen reader.
+</code></pre>
+
+<p>crafter</p>
+
+<h4>Y4</h4>
+
+<p>Stressor</p>
+
+<pre><code>NEGATE the assumption that the repository has ONE document shell: a second template grows a head of its own.
+</code></pre>
+
+<pre><code>The head of crates/foundry-app/templates/base.html stays governed, and the fail-closed arm still reports a head whose pre-paint set came out empty.
+</code></pre>
+
+<pre><code>Another template head is ungoverned.
+</code></pre>
+
+<pre><code>A PASSED line that implies coverage the layer does not have.
+</code></pre>
+
+<pre><code>The layer names one shell by path. Nothing detects a second shell; the layer doc comment must say so instead of claiming the repository.
+</code></pre>
+
+<p>architect</p>
+
+<h4>Y5</h4>
+
+<p>Stressor</p>
+
+<pre><code>NEGATE the assumption that an asset names its storage and its document access literally: it builds the name at runtime, or reaches them through an imported helper.
+</code></pre>
+
+<pre><code>Every asset that NAMES either storage and the document element in its comment-stripped source is recognised, in any idiom.
+</code></pre>
+
+<pre><code>An asset whose identifiers are assembled at runtime is classified as a non-stamper and may carry defer.
+</code></pre>
+
+<pre><code>Claiming the layer governs every asset a contributor could write.
+</code></pre>
+
+<pre><code>The layer claimed strength is: it recognises what the source NAMES. That limit belongs in the layer doc comment, replacing the current claim that a third pre-paint script is governed the moment the head references it.
+</code></pre>
+
+<p>architect</p>
+
+<h4>Y6</h4>
+
+<p>Stressor</p>
+
+<pre><code>NEGATE the assumption that every rail item gets an icon: a destination added by a later feature carries a label and no icon.
+</code></pre>
+
+<pre><code>The item is still a link, still focusable, still named.
+</code></pre>
+
+<pre><code>In the collapsed strip it draws nothing visible where the icon would be.
+</code></pre>
+
+<pre><code>An item whose word is clipped AND whose icon is absent, which looks like an empty target.
+</code></pre>
+
+<pre><code>No gate covers this. It is a standing review obligation on templates/partials/sidebar.html, of the same kind as the inherited obligations on the stylesheet and on the control mount: every rail item carries an icon, or the collapsed geometry must keep its word.
+</code></pre>
+
+<p>architect</p>
+
+<h4>Y7</h4>
+
+<p>SinglePointOfFailure</p>
+
+<pre><code>The one hand-authored stylesheet carries both geometries, the icon and label rules and the phone block; a syntax error in the collapsed region silently disables that whole region.
+</code></pre>
+
+<pre><code>The destinations stay text links in the shipped rail look and stay reachable.
+</code></pre>
+
+<pre><code>The collapsed geometry does not apply, so the rail stays full width after a press.
+</code></pre>
+
+<pre><code>An unreachable destination.
+</code></pre>
+
+<pre><code>An operator who collapsed sees a full-width rail - degraded, never trapped. The acceptance lane observes the strip width in the same probe as the state, so the failure is loud.
+</code></pre>
+
+<p>architect</p>
+
+<h4>Y8</h4>
+
+<p>Bypass</p>
+
+<pre><code>An outside writer: a browser extension or an injected script writing aria-label, hidden or inert on a rail item, or writing data-nav-collapsed with a value of its own.
+</code></pre>
+
+<pre><code>Presence-only selectors keep exactly two geometries, which is inherited claim C1 and is observed by the delivered oracle.
+</code></pre>
+
+<pre><code>An outside aria-label overrides the item own text as the accessible name.
+</code></pre>
+
+<pre><code>A selector rewritten to match the marker VALUE, which would reopen a third geometry.
+</code></pre>
+
+<pre><code>No gate covers either direction; both are standing review obligations, and this feature adds selectors to the same region and inherits them.
+</code></pre>
+
+<p>architect</p>
+
+<h4>Y9</h4>
+
+<p>Bypass</p>
+
+<pre><code>The gate reads only head script tags that carry a src. An inline head script, or a script the page appends at runtime, is outside the set entirely and receives no verdict.
+</code></pre>
+
+<pre><code>Every external head script of the shell gets exactly one verdict.
+</code></pre>
+
+<pre><code>An inline or runtime-added script stamps the document without a verdict.
+</code></pre>
+
+<pre><code>Describing the layer as total over the head without naming this set.
+</code></pre>
+
+<pre><code>The totality claim is total over EXTERNAL head scripts. The layer doc comment and the refusal text must say so.
+</code></pre>
+
+<p>architect</p>
+
+<h4>Y10</h4>
+
+<p>Stressor</p>
+
+<pre><code>SECOND STRESSOR SET, walked over the finished design and not used to derive it. The operator rights change between the collapsed render and her press.
+</code></pre>
+
+<pre><code>The rail she sees is the rail the last load rendered, and activating a destination whose right was revoked is refused by its own app door.
+</code></pre>
+
+<pre><code>The rail shows a destination she no longer has until the next load.
+</code></pre>
+
+<pre><code>A silent success on a revoked destination.
+</code></pre>
+
+<pre><code>Pre-existing, found by the model as expandedShowsCurrentRights and carried as an admitted state; neither repaired nor worsened here.
+</code></pre>
+
+<p>product owner</p>
+
+<h4>Y11</h4>
+
+<p>Stressor</p>
+
+<pre><code>SECOND STRESSOR SET. The gate runs on a host with no Docker, so cargo xtask ci silently skips the browser lane and observes none of S2.
+</code></pre>
+
+<pre><code>S1 is fully observed: its rule and fixtures run in the default suite through cargo xtask smoke.
+</code></pre>
+
+<pre><code>A green ci run that observed no scenario of S2.
+</code></pre>
+
+<pre><code>Closing S2 on evidence from a run whose lane never executed.
+</code></pre>
+
+<pre><code>Every S2 verification command names FOUNDRY_XTASK_INCLUDE_DOCKER=1 and the lane tag, and any close evidence for S2 must name the lane that actually ran.
+</code></pre>
+
+<p>host</p>
+
+<h4>Y12</h4>
+
+<p>Stressor</p>
+
+<pre><code>SECOND STRESSOR SET. The stylesheet is edited without being renamed, or renamed in base.html only.
+</code></pre>
+
+<pre><code>Nothing: cargo xtask check-arch refuses, because the content-hashed filename must be its own sha256 prefix, every VENDOR.md sha256 must recompute and every /static reference must resolve.
+</code></pre>
+
+<pre><code>A red gate until the rename lands in base.html, in the three cache-control assertions of crates/foundry-app/src/lib.rs and in the VENDOR.md row together.
+</code></pre>
+
+<pre><code>Shipping a stale immutable URL, which pins every holding browser.
+</code></pre>
+
+<pre><code>None: the gate decides it, and the delivered feature already walked this path once.
+</code></pre>
+
+<p>crafter</p>
+
+<h3>Architectural tests</h3>
+
+<h4>T1</h4>
+
+<pre><code>T1, extended from the delivered T1: the pre-paint script law becomes TOTAL over the external head scripts of the document shell. A head script whose asset names localStorage or sessionStorage AND names documentElement, in any idiom, must carry none of defer, async or type=module; every other head script must carry defer; and every script gets exactly one of those two verdicts, named with what failed, why and how to fix it. The law governs the whole set, including a script added later, at the strength of what the source NAMES. The fail-closed arm stays: a head that declares scripts and yields an empty pre-paint set is reported.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<pre><code>scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo xtask check-arch
+</code></pre>
+
+<h4>T2</h4>
+
+<pre><code>T2, an existing layer this change can violate: no colour literal outside the three stylesheet token regions, and the three regions declare the identical colour-token set. Every rule this feature adds - the icon, the label, the clip and the flyout - names only --cz-* tokens, so the icons and the flyout follow the palette the operator chose.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<pre><code>scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo xtask check-arch
+</code></pre>
+
+<h4>T3</h4>
+
+<pre><code>T3, an existing layer this change can violate: every /static reference resolves, every content-hashed filename is its own sha256 prefix, and every VENDOR.md sha256 recomputes. The stylesheet bytes change in S2, so its name, its VENDOR.md row and every reference to it must move together.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<pre><code>scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo xtask check-arch
+</code></pre>
+
+<h3>Contract tests</h3>
+
+<p>None.</p>
+
+<h2>Slices</h2>
+
+<h3>S1</h3>
+
+<h4>Targets</h4>
+
+<p>xtask/src/check_arch.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The pre-paint layer gains its second arm, its widened membership test and its de-numbered texts. The crafter owns the rule functions; the staged-tree test module pre_paint_script_tests in the same file is the oracle and is owned by the acceptance designer.
+</code></pre>
+
+<p>crates/foundry-app/templates/base.html</p>
+
+<p>Extend</p>
+
+<pre><code>The two pre-paint comment blocks lose their stale counts and name the pre-paint family and the deferred neighbours instead. No tag, attribute or script order changes.
+</code></pre>
+
+<p>CHANGELOG.md</p>
+
+<p>Extend</p>
+
+<pre><code>One entry for the total gate and the corrected head texts.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<h4>Verification</h4>
+
+<pre><code>scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo test -p xtask check_arch::
+scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo xtask check-arch
+scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo xtask smoke
+scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo build --release -p foundry-app
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=canzan-theme-system CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-toggle CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+</code></pre>
+
+<h4>Supports</h4>
+
+<p>crates/foundry-acceptance/src/support/served_markup.rs</p>
+
+<p>crates/foundry-acceptance/src/support/mod.rs</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_canzan_theme.rs</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_collapse.rs</p>
+
+<p>crates/foundry-acceptance/tests/features/canzan-theme-system.feature</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature</p>
+
+<h4>Public oracle</h4>
+
+<pre><code>A contributor runs the project gate, cargo xtask check-arch, over the repository as it stands, and over staged trees that differ only in the head of the document shell and in the bytes of the asset that head names: (a) the shipped head, two plain stampers above seven deferred neighbours; (b) a head whose stamping asset reads the stored choice through a local alias and stamps through an element reference, with defer on its tag; (c) the same asset with async, and again with type=module; (d) a head one of whose deferred neighbours has lost its defer; (e) a head whose non-stamping script carries async, and one whose non-stamping script carries type=module. She also runs the gate over each of the twenty-four head-script shapes - three storage values by document element named or not by the four loading modes.
+</code></pre>
+
+<pre><code>(a) exit 0, with the PASSED line still naming the pre-paint-script layer. (b) and (c) non-zero, each with one entry naming that src, saying the asset reads the operator stored choice and stamps the document element and therefore must run before the browser is permitted to paint, and telling her to remove the attribute - whichever idiom the asset spells localStorage, sessionStorage and documentElement in. (d) non-zero, with one entry naming the neighbour that lost its defer and telling her to add defer - not a pass earned because the other six neighbours still defer. (e) non-zero for each, naming the script and telling her to add defer, rather than answering nothing. Over the twenty-four shapes, each shape receives exactly one verdict, accept or refuse, and every refusal names what failed, why it matters and how to fix it. The operator sees no change in the app: no served byte of the head changes.
+</code></pre>
+
+<pre><code>Any of these fails the slice: the aliased stamper carrying defer, async or type=module is accepted; a deferred neighbour that silently lost its defer is accepted; a non-stamping head script carrying async or type=module receives no entry; a shape appears twice or not at all in the sweep; a refusal names no script, or omits what failed, why, or how to fix it; the shipped head is refused; the fail-closed arm stops reporting a head whose pre-paint set came out empty; or a served byte of the document shell head other than a comment changes.
+</code></pre>
+
+<h5>Promises</h5>
+
+<p>P8</p>
+
+<p>P9</p>
+
+<p>P12</p>
+
+<h4>Prefactoring</h4>
+
+<pre><code>L3, extract to a shared owner, BEFORE any behaviour changes: move the head-script parse that feature_nav_collapse.rs:1847 and feature_canzan_theme.rs:2757 each declare privately into crates/foundry-acceptance/src/support/served_markup.rs, and have both modules call it with no change to either caller verdicts. This makes the follow-up change easier: the neighbour arm is then restated ONCE, over a reading both modules share, instead of in two copies that can disagree, and a fourth deferring attribute is added in one place rather than two.
+</code></pre>
+
+<pre><code>Both head-script observations keep their current verdicts on the shipped head: the theme scenario load-bearing assertion (a), and the nav-collapse no-flash scenario first Then.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/canzan-theme-system.feature</p>
+
+<h5>Verification</h5>
+
+<pre><code>scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo build --release -p foundry-app
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=canzan-theme-system CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-toggle CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+</code></pre>
+
+<h4>Records</h4>
+
+<h5>Decisions</h5>
+
+<p>None.</p>
+
+<h5>Constraints</h5>
+
+<p>None.</p>
+
+<h5>Reuse</h5>
+
+<p>check_pre_paint_scripts_are_render_blocking</p>
+
+<p>xtask/src/check_arch.rs:1844</p>
+
+<p>Extend</p>
+
+<pre><code>The pre-paint layer already owns this law, is already wired into source_violations, the rule-marker count and the PASSED line, and already fails closed on an empty pre-paint set. It gains the non-stamper arm and loses its stale prose; a second layer would split one law across two owners.
+</code></pre>
+
+<p>paints_stored_state_onto_the_document</p>
+
+<p>xtask/src/check_arch.rs:2014</p>
+
+<p>Extend</p>
+
+<pre><code>This is the membership test the review refuted. It keeps its place and its comment-stripping, and its body widens from three idiom substrings to the names themselves. Replacing it with a new predicate would leave two membership tests for one set.
+</code></pre>
+
+<p>head_script_tags</p>
+
+<p>xtask/src/check_arch.rs:1935</p>
+
+<p>Reuse</p>
+
+<pre><code>The gate own head parse already pairs each src with the subset of defer, async and type=module it carries, which is exactly the shape both new arms need. It stays the gate deliberately independent second implementation and is not merged with the acceptance crate reader.
+</code></pre>
+
+<p>head_scripts</p>
+
+<p>crates/foundry-acceptance/src/support/served_markup.rs</p>
+
+<p>CreateNew</p>
+
+<pre><code>Three copies of one parse exist today: feature_nav_collapse.rs:1847, feature_canzan_theme.rs:2757 and the gate own. CANDIDATES CONSIDERED. support/html_assertions.rs is the closest existing owner, and it does NOT safely own this: it is a thin generic wrapper over scraper for the markdown-rendering scenarios, its parse uses parse_fragment where a head selection needs parse_document, and its exported shape is select-and-dump rather than one semantic reading of a served head. Reaching into either step module private helper would couple two feature oracles. support/ is where this crate already keeps shared oracle machinery - browser_harness.rs, harness.rs - so a new file there leaves neither feature depending on the other. The gate copy in xtask stays separate on purpose.
+</code></pre>
+
+<p>html_assertions</p>
+
+<p>crates/foundry-acceptance/src/support/mod.rs:22</p>
+
+<p>Extend</p>
+
+<pre><code>The shared support module list is the one declaration point for this crate helpers; the new served-head reader is declared beside html_assertions, which is the closest existing neighbour and the candidate the reuse analysis rejected as an owner.
+</code></pre>
+
+<p>then_the_theme_is_settled_before_the_browser_is_permitted</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:1629</p>
+
+<p>Extend</p>
+
+<pre><code>The weakened arm lives here and its owner restates it over the whole non-pre-paint set. A new scenario would leave the weakened arm in place.
+</code></pre>
+
+<p>head_scripts</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_collapse.rs:1847</p>
+
+<p>Replace</p>
+
+<pre><code>Its private copy is deleted in favour of the call to the shared owner; the assertion it feeds does not change.
+</code></pre>
+
+<p>nav-collapse.js</p>
+
+<p>crates/foundry-app/templates/base.html:53</p>
+
+<p>Extend</p>
+
+<pre><code>The standing instruction to the next engineer who touches the head lives in the two comment blocks above the two pre-paint tags. They are corrected in place and de-numbered; a separate document would leave the wrong sentences beside the tags.
+</code></pre>
+
+<p>Changelog</p>
+
+<p>CHANGELOG.md:1</p>
+
+<p>Extend</p>
+
+<pre><code>The project keeps one release-notes file and every change adds its entry at the top of it; there is no second place for it.
+</code></pre>
+
+<h5>Impact</h5>
+
+<p>gate rule</p>
+
+<p>xtask/src/check_arch.rs:1844</p>
+
+<p>Changed</p>
+
+<pre><code>Two arms instead of one, a widened membership test, and a de-numbered doc comment and refusal text.
+</code></pre>
+
+<p>gate aggregate</p>
+
+<p>xtask/src/check_arch.rs:117</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The layer is already wired into source_violations and the PASSED line; its sentence there may need the second arm named, which is prose inside the same change.
+</code></pre>
+
+<p>document shell prose</p>
+
+<p>crates/foundry-app/templates/base.html:27</p>
+
+<p>Changed</p>
+
+<pre><code>The counts go: the pre-paint FAMILY and the deferred NEIGHBOURS replace the ONE script and the five.
+</code></pre>
+
+<p>oracle support, new</p>
+
+<p>crates/foundry-acceptance/src/support/served_markup.rs</p>
+
+<p>Migrated</p>
+
+<pre><code>One owner for the served-head reading, called by both step modules.
+</code></pre>
+
+<p>crate support interface</p>
+
+<p>crates/foundry-acceptance/src/support/mod.rs:18</p>
+
+<p>Changed</p>
+
+<pre><code>One module declaration added.
+</code></pre>
+
+<p>oracle step module</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:1586</p>
+
+<p>Migrated</p>
+
+<pre><code>The arm, its panic text and its doc comment are restated by their owner, and the private parse is replaced by the shared call.
+</code></pre>
+
+<p>oracle step module</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_collapse.rs:1847</p>
+
+<p>Migrated</p>
+
+<pre><code>The private parse is replaced by the shared call.
+</code></pre>
+
+<p>provenance document</p>
+
+<p>crates/foundry-app/static/VENDOR.md:100</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Its note already names both pre-paint assets and makes no count claim, so it stays true after the de-numbering.
+</code></pre>
+
+<p>release notes</p>
+
+<p>CHANGELOG.md:1</p>
+
+<p>Changed</p>
+
+<pre><code>One entry for the totality of the gate and the corrected head texts.
+</code></pre>
+
+<p>build and manifest metadata</p>
+
+<p>xtask/Cargo.toml</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>No dependency is added: the widened test is string work over bytes already read, and the exhaustive sweeps are hand-written enumerations in the style this module already uses. xtask carries no property-test library and gains none.
+</code></pre>
+
+<p>runtime</p>
+
+<p>crates/foundry-app/src/lib.rs</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>S1 changes no served byte: the head tags keep their shapes and only comments change, so the operator sees no change in the app.
+</code></pre>
+
+<h5>Agreement</h5>
+
+<p>None.</p>
+
+<h5>Not applicable</h5>
+
+<p>None.</p>
+
+<h5>Boundaries</h5>
+
+<pre><code>The project gate CLI: cargo xtask check-arch, run over a repository tree. Its observable surface is the exit status plus, on refusal, one entry per refused script naming what failed, why it matters and how to fix it; on acceptance, the PASSED line that names the pre-paint-script layer. The staged-tree fixtures in the layer own test module drive the same rule over trees the contributor cannot produce in the live repository.
+</code></pre>
+
+<h6>Driven ports</h6>
+
+<pre><code>The filesystem: the head region of crates/foundry-app/templates/base.html and the comment-stripped bytes of each asset under crates/foundry-app/static/ that the head names.
+</code></pre>
+
+<pre><code>The served document head, read by the acceptance crate through one shared owner, for the second independent observation of the same contract.
+</code></pre>
+
+<pre><code>The gate depends on the templates and the static assets and on NOTHING else - not on foundry-app, not on the acceptance crate, so it can contradict either. The acceptance crate depends on the served output of the app and on its own shared support; no step module depends on another step module. The shared head reader depends on scraper alone and knows no feature.
+</code></pre>
+
+<h6>Failures</h6>
+
+<p>None.</p>
+
+<h5>Observations</h5>
+
+<p>None.</p>
+
+<h5>Equality</h5>
+
+<p>None.</p>
+
+<h5>Constructors</h5>
+
+<p>None.</p>
+
+<h5>Laws</h5>
+
+<p>None.</p>
+
+<h5>Refuted</h5>
+
+<p>None.</p>
+
+<h5>Claims</h5>
+
+<p>None.</p>
+
+<h5>States</h5>
+
+<p>None.</p>
+
+<h5>Models</h5>
+
+<p>None.</p>
+
+<h5>Closure</h5>
+
+<p>None.</p>
+
+<h5>Risks</h5>
+
+<p>None.</p>
+
+<h5>Architectural tests</h5>
+
+<p>None.</p>
+
+<h5>Contract tests</h5>
+
+<p>None.</p>
+
+<h3>S2</h3>
+
+<h4>Targets</h4>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>Extend</p>
+
+<pre><code>Each destination and the Sign out button gain an inline aria-hidden SVG icon with focusable=false and no title element, and their word moves into span.sidebar__label. Classes, hrefs, the form and the active marking stay as they are.
+</code></pre>
+
+<p>crates/foundry-app/static/css/foundry.4c73f62c.css</p>
+
+<p>Extend</p>
+
+<pre><code>The collapsed geometry keeps only the workspace name and the identity out of the layout; the destinations stay and show their icon with the label clipped, revealed as a flyout on hover and focus-visible; the 480 px arm lets the icons wrap inside the bar and places the flyout under its icon. Every added rule names only --cz-* tokens. THE BYTES CHANGE, SO THE NAME CHANGES: this blob becomes foundry.&lt;new sha256 prefix&gt;.css in the same change, and the old name is left nowhere.
+</code></pre>
+
+<p>crates/foundry-app/templates/base.html</p>
+
+<p>Extend</p>
+
+<pre><code>The stylesheet href carries the new content-hashed name. Nothing else in the head changes.
+</code></pre>
+
+<p>crates/foundry-app/src/lib.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The three cache-control assertions that name the stylesheet by path carry the new name.
+</code></pre>
+
+<p>crates/foundry-app/static/VENDOR.md</p>
+
+<p>Extend</p>
+
+<pre><code>The stylesheet provenance row and its notes carry the new filename and the recomputed sha256, and a note records the Lucide release tag the inline icon paths were copied from, the icon names and the ISC notice. No hashed row is added for the icons: an inline path in a template is not a served blob, so a sha256 row would be a claim about a file that does not exist.
+</code></pre>
+
+<p>CHANGELOG.md</p>
+
+<p>Extend</p>
+
+<pre><code>One entry for the collapsed icon rail and the stylesheet re-hash.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature</p>
+
+<h4>Verification</h4>
+
+<pre><code>scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo xtask check-arch
+scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo xtask smoke
+scripts/test-in-lima.sh env CARGO_BUILD_JOBS=4 cargo build --release -p foundry-app
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-icon-rail CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-toggle CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=navigation-bar CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=pwa-mobile-rendering CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=canzan-theme-system CARGO_BUILD_JOBS=4 cargo test -p foundry-acceptance --release
+scripts/test-in-lima.sh env FOUNDRY_XTASK_INCLUDE_DOCKER=1 CARGO_BUILD_JOBS=4 cargo xtask ci
+</code></pre>
+
+<h4>Supports</h4>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs</p>
+
+<p>crates/foundry-acceptance/src/lib.rs</p>
+
+<p>crates/foundry-acceptance/tests/acceptance.rs</p>
+
+<p>crates/foundry-acceptance/src/support/browser_harness.rs</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_collapse.rs</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature</p>
+
+<h4>Public oracle</h4>
+
+<pre><code>In a real browser against the running app, an operator who is both a workspace admin and an instance admin signs in through the real form and opens an authenticated app-shell page at desk width. She presses the collapse control. She walks the whole page with the Tab key, stopping on each rail icon. She activates the Board icon. She submits Sign out from the narrow rail, in one press, and signs in again in the same browser. The same journey is then driven at 480 px and at 390 px viewports.
+</code></pre>
+
+<pre><code>While the rail is collapsed it is a strip strictly narrower than the shipped 240 px, and every destination her rights give her - Home, Board, Settings, Keyboard shortcuts, Integrations, Instance admin - and Sign out are in the layout, visible and focusable in it, each with the accessible name of the destination it opens. The workspace name and her display name are out of the layout. No rail link can take the focus while it is invisible. The icon that holds the focus shows its destination word in a visible box. Activating Board opens the board with the rail still a strip and the Board icon alone carrying aria-current=page and the active tint. The one press of Sign out ends her session with no confirmation step, and her next sign-in in the same browser starts with the rail collapsed and with the icons her current rights give her. At 480 px and at 390 px the bar shows every one of those icons, wrapping inside the bar, and the document does not scroll sideways in either geometry.
+</code></pre>
+
+<pre><code>Any of these fails the slice: a destination her rights give her, or Sign out, is absent, out of the layout, invisible or unfocusable while the rail is collapsed; any rail link can take the focus while invisible; an icon accessible name is empty or is not its destination; the rail does not narrow, or narrows to nothing; the focused icon shows no visible label; the Board icon is not marked, or more than one item is; Sign out needs a second press or a confirmation; the next sign-in starts expanded; the document scrolls sideways at 480 or 390 px with the icons shown; the workspace name or her display name appears in the strip; or the expanded rail gains an icon beside its words.
+</code></pre>
+
+<h5>Promises</h5>
+
+<p>P1</p>
+
+<p>P2</p>
+
+<p>P3</p>
+
+<p>P4</p>
+
+<p>P5</p>
+
+<p>P6</p>
+
+<p>P7</p>
+
+<p>P11</p>
+
+<h4>Prefactoring</h4>
+
+<p>None.</p>
+
+<h4>Records</h4>
+
+<h5>Decisions</h5>
+
+<p>None.</p>
+
+<h5>Constraints</h5>
+
+<p>None.</p>
+
+<h5>Reuse</h5>
+
+<p>sidebar__item</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html:11</p>
+
+<p>Extend</p>
+
+<pre><code>This partial already owns every destination, the active marking, the user section and the Sign out form, and it is the one place the rail is rendered. Each destination gains an icon and a label span in place. CANDIDATE CONSIDERED AND REJECTED: extracting an Askama macro for the item row. Seven literal rows in one file, each with its own glyph, would gain an indirection and a per-icon branch without removing a decision; no follow-up change is made easier by the move.
+</code></pre>
+
+<p>data-nav-collapsed</p>
+
+<p>crates/foundry-app/static/css/foundry.4c73f62c.css:1020</p>
+
+<p>Extend</p>
+
+<pre><code>The one hand-authored stylesheet already owns the whole .sidebar family, the collapsed geometry, the theme and collapse controls and the 480 px block. The icon, label, clip and flyout rules belong beside the geometry they modify; a second stylesheet would split the rail across two cache-immutable blobs.
+</code></pre>
+
+<p>max-width: 480px</p>
+
+<p>crates/foundry-app/static/css/foundry.4c73f62c.css:1332</p>
+
+<p>Extend</p>
+
+<pre><code>The phone block already re-asserts the bar geometry for the collapsed selector, which is exactly where the icons must be told to wrap inside the bar and the flyout to sit under its icon.
+</code></pre>
+
+<p>sidebar__item--active</p>
+
+<p>crates/foundry-app/static/css/foundry.4c73f62c.css:1130</p>
+
+<p>Reuse</p>
+
+<pre><code>The current-page marking already exists as the raised surface tint plus weight, and the server already renders aria-current=page. The collapsed rail reuses both; no second marking channel is added.
+</code></pre>
+
+<p>applyMarker</p>
+
+<p>crates/foundry-app/static/js/nav-collapse.js:98</p>
+
+<p>Reuse</p>
+
+<pre><code>The marker, the storage key, the sentinel, the total reader and the button are reused unchanged. Nothing in the icon rail needs a script: that is why the icons are server-rendered.
+</code></pre>
+
+<p>static_cache_control_value</p>
+
+<p>crates/foundry-app/src/lib.rs:344</p>
+
+<p>Extend</p>
+
+<pre><code>The three assertions that name the stylesheet by path must carry its new content-hashed name; they are the existing owner of that claim.
+</code></pre>
+
+<p>assert_folded</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_collapse.rs:1347</p>
+
+<p>Extend</p>
+
+<pre><code>The delivered folded-state assertion is the consumer this change inverts: it asserts navDisplay == none. Its owner restates it so the folded rail keeps its destinations in the layout and focusable while the workspace name and the identity stay out. Replacing the helper would leave the old expectation in the scenarios that share it.
+</code></pre>
+
+<p>NAV_PROBE</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_collapse.rs:1246</p>
+
+<p>Extend</p>
+
+<pre><code>One probe already reads the geometry and the state together so a geometry claim and a state claim cannot drift into two moments. The new observations - the accessible name of each rail item, the invisible-focusable set, the visible label of the focused icon - belong in that same reading rather than in a second probe.
+</code></pre>
+
+<p>browser_harness</p>
+
+<p>crates/foundry-acceptance/src/support/mod.rs:16</p>
+
+<p>Reuse</p>
+
+<pre><code>The real-browser session, the Selenium node and the session-slot contract are shared machinery; the new lane opens its sessions through them and adds no harness of its own.
+</code></pre>
+
+<p>foundry.4c73f62c.css</p>
+
+<p>crates/foundry-app/templates/base.html:6</p>
+
+<p>Extend</p>
+
+<pre><code>The document shell already owns the one stylesheet reference; it carries the new content-hashed name. There is no second reference to reuse or create.
+</code></pre>
+
+<p>css/foundry.4c73f62c.css</p>
+
+<p>crates/foundry-app/static/VENDOR.md:33</p>
+
+<p>Extend</p>
+
+<pre><code>The provenance table already owns the stylesheet row and the authored-in-tree audit procedure for it; the row carries the new filename and the recomputed sha256. The icon provenance is added as a note in the same file rather than as a hashed row, because an inline path in a template is not a served blob.
+</code></pre>
+
+<p>Changelog</p>
+
+<p>CHANGELOG.md:1</p>
+
+<p>Extend</p>
+
+<pre><code>The project keeps one release-notes file and every change adds its entry at the top of it; there is no second place for it.
+</code></pre>
+
+<h5>Impact</h5>
+
+<p>rail template</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html:1</p>
+
+<p>Changed</p>
+
+<pre><code>Each destination and the Sign out button gain an inline aria-hidden SVG icon and a label span; no class is renamed or removed, no link or form is added or dropped.
+</code></pre>
+
+<p>stylesheet, content-hashed blob</p>
+
+<p>crates/foundry-app/static/css/foundry.4c73f62c.css:1020</p>
+
+<p>Migrated</p>
+
+<pre><code>The collapsed geometry stops hiding the destinations, gains the icon, label, clip and flyout rules and the phone arm; the bytes change, so the filename becomes the new sha256 prefix.
+</code></pre>
+
+<p>document shell stylesheet reference</p>
+
+<p>crates/foundry-app/templates/base.html:6</p>
+
+<p>Changed</p>
+
+<pre><code>The href carries the new content-hashed name.
+</code></pre>
+
+<p>cache-policy assertions</p>
+
+<p>crates/foundry-app/src/lib.rs:344</p>
+
+<p>Changed</p>
+
+<pre><code>Three assertions name the stylesheet path and must move with the rename.
+</code></pre>
+
+<p>provenance document</p>
+
+<p>crates/foundry-app/static/VENDOR.md:33</p>
+
+<p>Changed</p>
+
+<pre><code>The stylesheet row and its two notes carry the new name and the recomputed sha256, and a note records the Lucide release the inline icon paths were copied from with its ISC notice.
+</code></pre>
+
+<p>oracle, new lane</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature</p>
+
+<p>Migrated</p>
+
+<pre><code>The new feature file carries this slice scenarios under its own tag.
+</code></pre>
+
+<p>oracle step module, new</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs</p>
+
+<p>Migrated</p>
+
+<pre><code>The steps of the new lane; it reuses the nav probe reading rather than declaring a second one.
+</code></pre>
+
+<p>crate step interface</p>
+
+<p>crates/foundry-acceptance/src/lib.rs:12</p>
+
+<p>Changed</p>
+
+<pre><code>One module declaration added to the steps list.
+</code></pre>
+
+<p>oracle step module</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_collapse.rs:1347</p>
+
+<p>Migrated</p>
+
+<pre><code>The folded-state expectations invert: the destinations stay in the layout and focusable, and the trespass set becomes the invisible-focusable set, which must be empty.
+</code></pre>
+
+<p>oracle feature file</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature:216</p>
+
+<p>Migrated</p>
+
+<pre><code>The scenario about a folded rail leaving no hidden link in the keyboard order keeps its promise and changes its premise: nothing in the rail is hidden any more, so its Then is restated by its owner.
+</code></pre>
+
+<p>oracle consumer</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_navigation_bar.rs:77</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It reads item labels with el.text() and matches with contains; the icon adds no text node, so the collected text stays the destination word.
+</code></pre>
+
+<p>oracle consumer</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_pwa_mobile.rs:552</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It asserts the first two nav items share a row within one item height; the phone bar stays a wrapping row in both geometries.
+</code></pre>
+
+<p>oracle consumer</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:2384</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Its contrast sweep reads the computed colour of the item and the active item; icons inherit it through currentColor and add no literal.
+</code></pre>
+
+<p>pre-paint asset</p>
+
+<p>crates/foundry-app/static/js/nav-collapse.js:1</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Not touched: the icons are server-rendered and the flyout is CSS, so the marker, the key, the sentinel, the reader and the button all stay as delivered.
+</code></pre>
+
+<p>build and manifest metadata</p>
+
+<p>crates/foundry-acceptance/Cargo.toml</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>No dependency is added: the new lane uses the shared browser harness and scraper, which the crate already carries. No new static asset is served, so no manifest or lock entry changes.
+</code></pre>
+
+<p>release notes</p>
+
+<p>CHANGELOG.md:1</p>
+
+<p>Changed</p>
+
+<pre><code>One entry for the collapsed icon rail and the re-hashed stylesheet.
+</code></pre>
+
+<h5>Agreement</h5>
+
+<p>None.</p>
+
+<h5>Not applicable</h5>
+
+<p>prefactoring</p>
+
+<pre><code>No preserving move makes this change easier. The one candidate was an Askama macro for the rail item row, rejected in the reuse analysis: seven literal rows in one file with a glyph each would gain an indirection and a per-icon branch without removing a decision. The stylesheet change is additive inside the collapsed-geometry region the delivered feature created, and the one rule that must change meaning - the negated-descendant hide - cannot be rewritten preservingly, because any rewrite that keeps its computed effect keeps hiding the destinations. The shared-owner extraction this feature does owe is a move of the HEAD-SCRIPT parse and belongs to S1, where it is declared with its own GREEN oracle and verification recipe.
+</code></pre>
+
+<h5>Boundaries</h5>
+
+<pre><code>The running app shell in a real browser: the operator press of the collapse control, her Tab presses, her activation of a rail icon, her submit of the rail Sign out form, her sign-in through the real form, and the viewport width. Observations are layout and accessibility facts read from the live document - which rail members are in the layout and focusable, the computed accessible name of each, which item carries aria-current=page, whether a focused icon label is visibly shown, the strip and content widths, and the horizontal-overflow verdict - plus the choice the origin holds.
+</code></pre>
+
+<h6>Driven ports</h6>
+
+<pre><code>The browser store, holding the foundry.nav sentinel, written and read only by static/js/nav-collapse.js.
+</code></pre>
+
+<pre><code>ServeDir over crates/foundry-app/static, which serves the content-hashed stylesheet immutable.
+</code></pre>
+
+<pre><code>The template and the stylesheet are leaves: the browser consumes them and they know nothing of the acceptance crate. The oracle depends only on the served output and on the shared browser harness. Nothing in the app depends on the oracle. static/js/nav-collapse.js is not a dependency of the icons: they are server-rendered precisely so the rail does not wait for a script.
+</code></pre>
+
+<h6>Failures</h6>
+
+<p>None.</p>
+
+<h5>Observations</h5>
+
+<p>None.</p>
+
+<h5>Equality</h5>
+
+<p>None.</p>
+
+<h5>Constructors</h5>
+
+<p>None.</p>
+
+<h5>Laws</h5>
+
+<p>None.</p>
+
+<h5>Refuted</h5>
+
+<p>None.</p>
+
+<h5>Claims</h5>
+
+<p>None.</p>
+
+<h5>States</h5>
+
+<p>None.</p>
+
+<h5>Models</h5>
+
+<p>None.</p>
+
+<h5>Closure</h5>
+
+<p>None.</p>
+
+<h5>Risks</h5>
+
+<p>None.</p>
+
+<h5>Architectural tests</h5>
+
+<p>None.</p>
+
+<h5>Contract tests</h5>
+
+<p>None.</p>
+
+<h2>ADRs</h2>
+
+<p>- NAV-ICON-RAIL-001 Collapsed left nav is an icon rail, not a hidden one — Accepted</p>
+<p>- NAV-ICON-RAIL-002 The head-script gate answers every shape, by what the asset names — Accepted</p>
+
+</body></html>
