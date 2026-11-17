@@ -66,6 +66,30 @@
 # through the project's public issue form, as the seeds do, and prints where
 # the browser lands; its deliveries then show in slack-info and mail.
 #
+# `browser <viewer> [options] <step>...` opens the page in a real headless
+# Chromium in the VM, signed in as that viewer, driven over its DevTools port by
+# node (both are in the VM's tools). Each viewer keeps one browser profile, so a
+# choice a page stores in the browser is still there at the next `browser` call,
+# as in the same browser on another day; `--fresh` starts that viewer's browser
+# from nothing, and `stop` removes every profile. Steps run in order:
+#   go <path>, reload           open or reload a page and wait for it to load
+#   watch-go <path>, watch-reload  the same, and report the layout of the
+#                               navigation, main and complementary landmarks
+#                               before each frame
+#                               the browser painted, with the paint timings
+#   look                        what the page shows now: page and viewport width,
+#                               horizontal scroll, boxes that scroll sideways or
+#                               reach past the right edge, landmarks, buttons with
+#                               their names and states, links in navigation, focus
+#   key <Tab|Shift+Tab|Enter|Space|Escape>   a real key press, then the focus
+#   tab-order <N>               N Tab presses, with the focus after each
+#   click <name>                a real pointer click on the one visible button or
+#                               link with that accessible name (exact, else a part)
+#   width <px>                  change the viewport width
+# Options: --width <px> (1280), --height <px> (800), --phone (a touch phone
+# viewport), --js off (JavaScript disabled for the whole run), --slow <N> (CPU
+# slowed N times), --fresh.
+#
 # No subcommand reads the caller's stdin: main runs with stdin from /dev/null.
 set -euo pipefail
 
@@ -112,6 +136,8 @@ usage: examine-foundry start <state> [--before] [--replicas 2]
        examine-foundry mail
        examine-foundry rotate-secrets
        examine-foundry new-issue [--replica 2] <viewer> <team>/<project> <title>
+       examine-foundry browser <viewer> [--width px] [--height px] [--phone] [--js off] [--slow N] [--fresh] <step>...
+           steps: go <path> | reload | watch-go <path> | watch-reload | look | key <Tab|Shift+Tab|Enter|Space|Escape> | tab-order <N> | click <name> | width <px>
        examine-foundry stop
        examine-foundry states | viewers
 Write each path without its leading slash: admin/instance/integrations, not /admin/instance/integrations.
@@ -322,6 +348,40 @@ host_main() {
         case "$field" in *=*) ;; *) die "a field is key=value, not $field" ;; esac
       done
       run_op 120 "$cmd" "$replica" "$viewer" "$path" "$@"
+      ;;
+    browser)
+      local bw=1280 bh=800 bjs=on bslow=1 bfresh=no bphone=no
+      local bviewer=''
+      while [ "$#" -gt 0 ]; do
+        case "$1" in
+          --width | --height | --slow | --js)
+            [ "$#" -ge 2 ] || die "$1 needs a value"
+            case "$1" in
+              --width) bw="$2" ;;
+              --height) bh="$2" ;;
+              --slow) bslow="$2" ;;
+              --js) bjs="$2" ;;
+            esac
+            shift 2
+            ;;
+          --phone) bphone=yes && shift ;;
+          --fresh) bfresh=yes && shift ;;
+          -*) die "no browser option $1" ;;
+          *)
+            [ -z "$bviewer" ] || break
+            bviewer=$(viewer_key "$1") || die "no viewer named $1 (see: examine-foundry viewers)"
+            shift
+            ;;
+        esac
+      done
+      [ -n "$bviewer" ] || die "usage: examine-foundry browser <viewer> [options] <step>..."
+      case "$bw$bh" in *[!0-9]*) die "--width and --height take pixels" ;; esac
+      [ "$bw" -ge 200 ] && [ "$bw" -le 3000 ] && [ "$bh" -ge 200 ] && [ "$bh" -le 3000 ] ||
+        die "--width and --height take 200 to 3000"
+      case "$bjs" in on | off) ;; *) die "--js takes on or off" ;; esac
+      case "$bslow" in [1-9] | 1[0-9] | 20) ;; *) die "--slow takes 1 to 20" ;; esac
+      [ "$#" -ge 1 ] || die "browser needs at least one step, such as: browser Priya go workspace look"
+      run_op 200 browser "$bviewer" "$bw" "$bh" "$bjs" "$bslow" "$bfresh" "$bphone" "$@"
       ;;
     stop) run_op 120 stop ;;
     slack-info) run_op 60 slack-info ;;
@@ -796,6 +856,7 @@ vm_teardown() {
     kill -9 "$(cat "$STATE_DIR/slack-double.pid")" 2>/dev/null || true
   fi
   pkill -9 -f "$STATE_DIR/slack-double.py" 2>/dev/null || true
+  pkill -9 -f "user-data-dir=$STATE_DIR/browser/" 2>/dev/null || true
   docker rm -f "$PG_NAME" >/dev/null 2>&1 || true
   if [ -f "$STATE_DIR/data-dir" ]; then
     rm -rf "$(cat "$STATE_DIR/data-dir")"
@@ -1341,6 +1402,485 @@ for entry in forms:
 PY
 }
 
+# ---- a real browser ------------------------------------------------------------
+
+# browser VIEWER [options] STEP...: one headless Chromium run, signed in as the
+# viewer, with that viewer's own browser profile, so what a page stores in the
+# browser is still there at the next `browser` call (the same browser), until
+# `--fresh` or `stop`.
+vm_browser() {
+  local viewer="$1" width="$2" height="$3" js="$4" slow="$5" fresh="$6" mobile="$7"
+  shift 7
+  vm_require_running
+  if [ "$viewer" != signed-out ] && ! has_session "$JARS/$viewer.txt"; then
+    sign_in "$viewer" "$(email_of "$viewer")"
+  fi
+  local jar="$JARS/$viewer.txt"
+  [ "$viewer" = signed-out ] && jar="$JARS/signed-out.txt"
+  local profile="$STATE_DIR/browser/$viewer"
+  # A browser left by an interrupted run would hold the profile's lock.
+  pkill -9 -f "user-data-dir=$profile" 2>/dev/null || true
+  rm -f "$profile/SingletonLock" "$profile/SingletonSocket" "$profile/SingletonCookie"
+  [ "$fresh" = yes ] && rm -rf "$profile"
+  mkdir -p "$profile"
+  command -v chromium >/dev/null || die "chromium is not on the VM's PATH"
+  command -v node >/dev/null || die "node is not on the VM's PATH"
+  timeout 170 node --input-type=module -e "$(browser_js)" \
+    "$BASE" "$jar" "$profile" "$width" "$height" "$js" "$slow" "$mobile" "$@"
+}
+
+browser_js() {
+  cat <<'JS'
+import { spawn } from "node:child_process";
+import { readFileSync, existsSync } from "node:fs";
+
+const [base, jar, profile, widthArg, heightArg, js, slow, mobile, ...steps] =
+  process.argv.slice(1);
+let width = Number(widthArg);
+const height = Number(heightArg);
+const say = (s) => process.stdout.write(s + "\n");
+// A refusal closes the browser before it exits, so no Chromium keeps the
+// profile locked.
+const fail = (s) => {
+  process.stderr.write("examine-foundry: " + s + "\n");
+  try {
+    chrome.kill("SIGKILL");
+  } catch {}
+  process.exit(1);
+};
+
+const chrome = spawn(
+  "chromium",
+  [
+    "--headless=new",
+    "--remote-debugging-port=0",
+    `--user-data-dir=${profile}`,
+    "--no-first-run",
+    "--no-default-browser-check",
+    "--disable-background-networking",
+    "--disable-sync",
+    `--window-size=${width},${height}`,
+    "about:blank",
+  ],
+  { stdio: ["ignore", "ignore", "pipe"] },
+);
+const wsUrl = await new Promise((resolve, reject) => {
+  let err = "";
+  const timer = setTimeout(() => reject(new Error("Chromium did not start: " + err.slice(-400))), 30000);
+  chrome.stderr.on("data", (d) => {
+    err += d;
+    const m = err.match(/DevTools listening on (ws:\/\/\S+)/);
+    if (m) {
+      clearTimeout(timer);
+      resolve(m[1]);
+    }
+  });
+  chrome.on("exit", (c) => reject(new Error(`Chromium exited (${c}): ` + err.slice(-400))));
+}).catch((e) => fail(e.message));
+
+const ws = new WebSocket(wsUrl);
+await new Promise((r, j) => {
+  ws.onopen = r;
+  ws.onerror = () => j(new Error("no DevTools connection"));
+}).catch((e) => fail(e.message));
+let nextId = 1;
+const pending = new Map();
+const listeners = [];
+ws.onmessage = (ev) => {
+  const msg = JSON.parse(ev.data);
+  if (msg.id && pending.has(msg.id)) {
+    const { resolve, reject } = pending.get(msg.id);
+    pending.delete(msg.id);
+    msg.error ? reject(new Error(msg.error.message)) : resolve(msg.result);
+  } else if (msg.method) {
+    for (const l of [...listeners]) l(msg);
+  }
+};
+let session;
+const send = (method, params = {}, s = session) =>
+  new Promise((resolve, reject) => {
+    const id = nextId++;
+    pending.set(id, { resolve, reject });
+    ws.send(JSON.stringify({ id, method, params, ...(s ? { sessionId: s } : {}) }));
+  });
+const once = (method, ms) =>
+  new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      listeners.splice(listeners.indexOf(l), 1);
+      resolve(null);
+    }, ms);
+    const l = (m) => {
+      if (m.method === method && m.sessionId === session) {
+        clearTimeout(timer);
+        listeners.splice(listeners.indexOf(l), 1);
+        resolve(m);
+      }
+    };
+    listeners.push(l);
+  });
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+let lastStatus = "";
+
+async function finish(code) {
+  try {
+    await send("Browser.close", {}, null);
+  } catch {}
+  await Promise.race([new Promise((r) => chrome.on("exit", r)), sleep(5000)]);
+  chrome.kill("SIGKILL");
+  process.exit(code);
+}
+
+try {
+  const { targetId } = await send("Target.createTarget", { url: "about:blank" }, null);
+  ({ sessionId: session } = await send("Target.attachToTarget", { targetId, flatten: true }, null));
+  for (const d of ["Page", "Network", "Runtime", "DOM", "CSS", "Accessibility", "DOMSnapshot"]) await send(`${d}.enable`);
+  await send("Page.setLifecycleEventsEnabled", { enabled: true });
+  await metrics();
+  if (js === "off") await send("Emulation.setScriptExecutionDisabled", { value: true });
+  if (Number(slow) > 1) await send("Emulation.setCPUThrottlingRate", { rate: Number(slow) });
+
+  if (existsSync(jar)) {
+    for (const line of readFileSync(jar, "utf8").split("\n")) {
+      let l = line;
+      let httpOnly = false;
+      if (l.startsWith("#HttpOnly_")) {
+        httpOnly = true;
+        l = l.slice("#HttpOnly_".length);
+      } else if (l.startsWith("#") || !l.trim()) continue;
+      const f = l.split("\t");
+      if (f.length < 7) continue;
+      const c = { name: f[5], value: f[6], url: base, path: f[2], httpOnly, secure: f[3] === "TRUE" };
+      if (Number(f[4]) > 0) c.expires = Number(f[4]);
+      await send("Network.setCookie", c);
+    }
+  }
+
+  listeners.push((m) => {
+    if (m.method === "Network.responseReceived" && m.params.type === "Document")
+      lastStatus = `${m.params.response.status}`;
+  });
+
+  say(`browser: ${width}x${height}${mobile === "yes" ? " (phone)" : ""}, JavaScript ${js}` +
+    (Number(slow) > 1 ? `, CPU slowed ${slow}x` : "") + ", this viewer's own browser profile");
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const arg = () => {
+      if (i + 1 >= steps.length) fail(`${step} needs a value`);
+      return steps[++i];
+    };
+    switch (step) {
+      case "go":
+      case "watch-go": {
+        let p = arg();
+        if (p.startsWith("/") || p.includes("://")) fail("write the path without its leading slash");
+        say(`\n> ${step} ${p}`);
+        const frames = step === "watch-go" ? await watchStart() : null;
+        lastStatus = "";
+        const loaded = once("Page.loadEventFired", 20000);
+        await send("Page.navigate", { url: `${base}/${p}` });
+        await loaded;
+        await settle(frames);
+        break;
+      }
+      case "reload":
+      case "watch-reload": {
+        say(`\n> ${step}`);
+        const frames = step === "watch-reload" ? await watchStart() : null;
+        lastStatus = "";
+        const loaded = once("Page.loadEventFired", 20000);
+        await send("Page.reload", { ignoreCache: false });
+        await loaded;
+        await settle(frames);
+        break;
+      }
+      case "key": {
+        const k = arg();
+        say(`\n> key ${k}`);
+        const nav = once("Page.frameStartedLoading", 600);
+        await key(k);
+        await afterAction(nav);
+        say("  " + (await focusLine()));
+        break;
+      }
+      case "tab-order": {
+        const n = Number(arg());
+        if (!(n > 0 && n <= 80)) fail("tab-order takes 1 to 80");
+        say(`\n> tab-order ${n}`);
+        for (let t = 1; t <= n; t++) {
+          await key("Tab");
+          await sleep(80);
+          say(`  Tab ${t}: ${await focusLine()}`);
+        }
+        break;
+      }
+      case "click": {
+        const name = arg();
+        say(`\n> click "${name}"`);
+        const nav = once("Page.frameStartedLoading", 600);
+        await click(name);
+        await afterAction(nav);
+        break;
+      }
+      case "width": {
+        width = Number(arg());
+        if (!(width >= 200 && width <= 3000)) fail("width takes 200 to 3000");
+        say(`\n> width ${width}`);
+        await metrics();
+        await sleep(300);
+        break;
+      }
+      case "look":
+        say(`\n> look`);
+        await look();
+        break;
+      default:
+        fail(`no browser step named ${step}`);
+    }
+  }
+  await finish(0);
+} catch (e) {
+  process.stderr.write("examine-foundry: " + e.message + "\n");
+  await finish(1);
+}
+
+async function metrics() {
+  await send("Emulation.setDeviceMetricsOverride", {
+    width, height, deviceScaleFactor: 1, mobile: mobile === "yes",
+  });
+  if (mobile === "yes") await send("Emulation.setTouchEmulationEnabled", { enabled: true, maxTouchPoints: 5 });
+}
+
+async function key(k) {
+  const table = {
+    Tab: ["Tab", "Tab", 9, ""],
+    "Shift+Tab": ["Tab", "Tab", 9, "", 8],
+    Enter: ["Enter", "Enter", 13, "\r"],
+    Space: [" ", "Space", 32, " "],
+    Escape: ["Escape", "Escape", 27, ""],
+  };
+  const e = table[k];
+  if (!e) fail(`key takes Tab, Shift+Tab, Enter, Space or Escape, not ${k}`);
+  const [keyName, code, vk, text, modifiers = 0] = e;
+  const common = { key: keyName, code, windowsVirtualKeyCode: vk, nativeVirtualKeyCode: vk, modifiers };
+  await send("Input.dispatchKeyEvent", { type: text ? "keyDown" : "rawKeyDown", text: text || undefined, ...common });
+  await send("Input.dispatchKeyEvent", { type: "keyUp", ...common });
+}
+
+// nav: a wait for a page load, begun before the action so none is missed.
+async function afterAction(nav) {
+  const started = await nav;
+  if (started) {
+    lastStatus = "";
+    await once("Page.loadEventFired", 20000);
+    await sleep(200);
+    say(`  the page changed: ${await here()} (status ${lastStatus || "unknown"})`);
+  } else await sleep(150);
+}
+
+async function settle(frames) {
+  await sleep(frames ? 1200 : 300);
+  say(`  page: ${await here()} (status ${lastStatus || "unknown"})`);
+  if (frames) await watchReport(frames);
+}
+
+async function here() {
+  const { result } = await send("Runtime.evaluate", { expression: "location.pathname + location.search", returnByValue: true })
+    .catch(() => ({ result: {} }));
+  if (result && result.value) return result.value;
+  const t = await send("Target.getTargetInfo", {}, session).catch(() => null);
+  return t ? new URL(t.targetInfo.url).pathname : "?";
+}
+
+// ---- paint frames: before each frame the browser paints, the probe notes where
+// every navigation landmark and the main landmark are and how wide they are.
+async function watchStart() {
+  if (js === "off") fail("watch-go and watch-reload need JavaScript on (they sample before each painted frame)");
+  const frames = [];
+  const world = "examine-foundry-probe";
+  await send("Runtime.addBinding", { name: "__examineFrame", executionContextName: world });
+  const l = (m) => {
+    if (m.method === "Runtime.bindingCalled" && m.params.name === "__examineFrame") frames.push(JSON.parse(m.params.payload));
+  };
+  listeners.push(l);
+  const { identifier } = await send("Page.addScriptToEvaluateOnNewDocument", {
+    worldName: world,
+    source: `(() => {
+      let n = 0;
+      const box = (e) => { const r = e.getBoundingClientRect(); const s = getComputedStyle(e);
+        return (s.display === "none" || s.visibility === "hidden" || r.width === 0) ? "hidden" : Math.round(r.left) + "+" + Math.round(r.width); };
+      const snap = () => {
+        const navs = [...document.querySelectorAll("nav, [role=navigation]")].map((e) =>
+          (e.getAttribute("aria-label") || e.tagName.toLowerCase()) + " " + box(e));
+        const main = document.querySelector("main, [role=main]");
+        const side = [...document.querySelectorAll("aside, [role=complementary]")].map(box);
+        __examineFrame(JSON.stringify({ t: Math.round(performance.now()), ready: document.readyState,
+          navs: navs.length ? navs.join(" | ") : "no navigation landmark parsed yet",
+          main: (main ? box(main) : "none parsed") + "; complementary: " + (side.length ? side.join(" | ") : "none parsed") }));
+        if (++n < 400) requestAnimationFrame(snap);
+      };
+      requestAnimationFrame(snap);
+    })();`,
+  });
+  frames.cleanup = async () => {
+    listeners.splice(listeners.indexOf(l), 1);
+    await send("Page.removeScriptToEvaluateOnNewDocument", { identifier });
+  };
+  return frames;
+}
+
+async function watchReport(frames) {
+  await frames.cleanup();
+  const { result } = await send("Runtime.evaluate", {
+    expression: "JSON.stringify(performance.getEntriesByType('paint').map(p => p.name + ' at ' + Math.round(p.startTime) + ' ms'))",
+    returnByValue: true,
+  });
+  say(`  paint timing: ${JSON.parse(result.value).join(", ") || "none reported"}`);
+  say(`  frames sampled before paint: ${frames.length} (each row: the frames in a row with the same layout)`);
+  let run = null;
+  const flush = () => run && say(`    frames ${run.from}-${run.to} (${run.t0}-${run.t1} ms, ${run.ready}): navigation: ${run.navs}; main: ${run.main}`);
+  frames.forEach((f, i) => {
+    if (run && run.navs === f.navs && run.main === f.main) {
+      run.to = i + 1;
+      run.t1 = f.t;
+      return;
+    }
+    flush();
+    run = { from: i + 1, to: i + 1, t0: f.t, t1: f.t, ready: f.ready, navs: f.navs, main: f.main };
+  });
+  flush();
+}
+
+// ---- reading the page as it is now (no page JavaScript is used for this)
+async function axTree() {
+  const { nodes } = await send("Accessibility.getFullAXTree");
+  const byId = new Map(nodes.map((n) => [n.nodeId, n]));
+  return { nodes, byId };
+}
+function prop(n, name) {
+  const p = (n.properties || []).find((p) => p.name === name);
+  return p ? p.value.value : undefined;
+}
+async function boxOf(n) {
+  if (!n.backendDOMNodeId) return null;
+  try {
+    const { model } = await send("DOM.getBoxModel", { backendNodeId: n.backendDOMNodeId });
+    const q = model.border;
+    const x = Math.min(q[0], q[6]), y = Math.min(q[1], q[3]);
+    return { x: Math.round(x), y: Math.round(y), w: Math.round(model.width), h: Math.round(model.height) };
+  } catch {
+    return null;
+  }
+}
+function shown(n, b) {
+  if (n.ignored || !b || b.w === 0 || b.h === 0) return "hidden";
+  if (b.x >= width || b.x + b.w <= 0) return "off-screen";
+  return "visible";
+}
+function role(n) {
+  return (n.role && n.role.value) || "?";
+}
+function nameOf(n) {
+  return (n.name && n.name.value) || "";
+}
+function inside(n, byId, roles) {
+  for (let p = byId.get(n.parentId); p; p = byId.get(p.parentId)) if (roles.includes(role(p))) return p;
+  return null;
+}
+
+async function focusLine() {
+  const { nodes } = await axTree();
+  const f = nodes.filter((n) => prop(n, "focused") === true).pop();
+  if (!f || role(f) === "RootWebArea") return "focus: on the page itself (no control has the focus)";
+  const b = await boxOf(f);
+  let ring = "";
+  try {
+    await send("DOM.getDocument", { depth: 0 });
+    const { nodeIds } = await send("DOM.pushNodesByBackendIdsToFrontend", { backendNodeIds: [f.backendDOMNodeId] });
+    const { computedStyle } = await send("CSS.getComputedStyleForNode", { nodeId: nodeIds[0] });
+    const s = Object.fromEntries(computedStyle.map((c) => [c.name, c.value]));
+    ring = ` focus ring: outline ${s["outline-style"]} ${s["outline-width"]} ${s["outline-color"]}, box-shadow ${s["box-shadow"]}`;
+  } catch {}
+  return `focus: ${role(f)} "${nameOf(f)}" ${b ? `at x=${b.x} w=${b.w}` : ""} ${shown(f, b)};${ring}`;
+}
+
+async function look() {
+  const m = await send("Page.getLayoutMetrics");
+  const vw = m.cssLayoutViewport.clientWidth, pw = Math.round(m.cssContentSize.width);
+  say(`  page: ${await here()}`);
+  say(`  viewport ${vw}x${m.cssLayoutViewport.clientHeight}; page ${pw} px wide; horizontal scroll: ${pw > vw ? "yes" : "no"}`);
+
+  const snap = await send("DOMSnapshot.captureSnapshot", {
+    computedStyles: ["overflow-x", "visibility", "display"],
+    includeDOMRects: true,
+  });
+  const strings = snap.strings;
+  const doc = snap.documents[0];
+  const sideways = [], pastEdge = [];
+  const nodeName = (i) => {
+    const nm = strings[doc.nodes.nodeName[i]] || "?";
+    const v = doc.nodes.nodeValue[i];
+    return nm === "#text" && v >= 0 ? `text "${strings[v].trim().slice(0, 40)}"` : nm.toLowerCase();
+  };
+  doc.layout.nodeIndex.forEach((ni, li) => {
+    const [x, , w, h] = doc.layout.bounds[li];
+    const st = doc.layout.styles[li].map((s) => (s >= 0 ? strings[s] : ""));
+    const sr = doc.layout.scrollRects && doc.layout.scrollRects[li];
+    const cr = doc.layout.clientRects && doc.layout.clientRects[li];
+    if (sr && cr && sr.length >= 4 && cr.length >= 4 && sr[2] > cr[2] + 1 && ["auto", "scroll"].includes(st[0]))
+      sideways.push(`${nodeName(ni)} (${Math.round(cr[2])} px box, ${Math.round(sr[2])} px content)`);
+    if (st[1] !== "hidden" && w > 0 && h > 0 && x + w > vw + 1) pastEdge.push(`${nodeName(ni)} (to x=${Math.round(x + w)})`);
+  });
+  say(`  boxes that scroll sideways inside the page: ${sideways.length ? sideways.slice(0, 10).join("; ") : "none"}`);
+  say(`  boxes that reach past the right edge (a clipped box is listed too): ${pastEdge.length ? pastEdge.length + ": " + pastEdge.slice(0, 10).join("; ") : "none"}`);
+
+  const { nodes, byId } = await axTree();
+  const landmarks = ["navigation", "main", "banner", "complementary", "contentinfo"];
+  say("  landmarks:");
+  for (const n of nodes.filter((n) => landmarks.includes(role(n)))) {
+    const b = await boxOf(n);
+    say(`    ${role(n)} "${nameOf(n)}" ${b ? `x=${b.x} w=${b.w} y=${b.y} h=${b.h}` : "no box"} ${shown(n, b)}`);
+  }
+  say("  buttons:");
+  for (const n of nodes.filter((n) => ["button", "switch", "menuitem"].includes(role(n)) || prop(n, "pressed") !== undefined)) {
+    const b = await boxOf(n);
+    const st = ["expanded", "pressed", "focusable"].map((p) => (prop(n, p) !== undefined ? `${p}=${prop(n, p)}` : "")).filter(Boolean);
+    say(`    ${role(n)} "${nameOf(n)}" ${st.join(" ")} ${b ? `x=${b.x} w=${b.w}` : ""} ${shown(n, b)}`);
+  }
+  say("  links inside navigation landmarks:");
+  let others = 0;
+  for (const n of nodes.filter((n) => role(n) === "link")) {
+    const nav = inside(n, byId, ["navigation"]);
+    if (!nav) {
+      others++;
+      continue;
+    }
+    const b = await boxOf(n);
+    say(`    [${nameOf(nav) || "navigation"}] link "${nameOf(n)}" ${b ? `x=${b.x} w=${b.w}` : ""} ${shown(n, b)}`);
+  }
+  say(`  other links on the page: ${others}`);
+  say("  " + (await focusLine()));
+}
+
+async function click(name) {
+  const { nodes } = await axTree();
+  const clickable = nodes.filter((n) => !n.ignored && ["button", "link", "switch", "menuitem", "checkbox", "tab"].includes(role(n)));
+  let hits = clickable.filter((n) => nameOf(n) === name);
+  if (!hits.length) hits = clickable.filter((n) => nameOf(n).toLowerCase().includes(name.toLowerCase()));
+  if (hits.length !== 1)
+    fail(`${hits.length} visible controls are named like "${name}"${hits.length ? ": " + hits.map((n) => `"${nameOf(n)}"`).join(", ") : ""}`);
+  await send("DOM.scrollIntoViewIfNeeded", { backendNodeId: hits[0].backendDOMNodeId }).catch(() => {});
+  const b = await boxOf(hits[0]);
+  if (!b || b.w === 0) fail(`"${nameOf(hits[0])}" has no box to click`);
+  const x = b.x + b.w / 2, y = b.y + b.h / 2;
+  say(`  clicked ${role(hits[0])} "${nameOf(hits[0])}" at ${Math.round(x)},${Math.round(y)}`);
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+JS
+}
+
 # ---- seeding through the public flows ----------------------------------------
 
 expect() {
@@ -1725,6 +2265,7 @@ vm_main() {
     build-before) vm_build_before "$@" ;;
     stop) vm_stop ;;
     slack-info) vm_require_running && slack_info ;;
+    browser) vm_browser "$@" ;;
     slack-event)
       vm_require_running
       use_replica "$1"
