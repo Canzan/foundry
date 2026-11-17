@@ -1591,10 +1591,14 @@ async fn when_she_navigates_to_any_foundry_screen(world: &mut FoundryWorld) {
 /// DETERMINISTIC guard against that regression would be gone: (b) passes by luck
 /// on a fast loopback even with a deferred script. Do not "unify" the two.
 ///
-/// The five neighbours are asserted too, in the opposite direction. Without that
-/// arm this would still pass on a head where NOTHING defers — which is a
-/// different bug, and would leave "the only one of six that must not" as a claim
-/// nothing checks.
+/// The neighbours are asserted too, in the opposite direction: at least one other
+/// head script must carry a deferring attribute. Without that arm this would
+/// still pass on a head where NOTHING defers — a different bug, and one that
+/// would leave "the parse can tell a render-blocking tag from a deferred one" as
+/// a claim nothing checks. It is deliberately NOT a count of the neighbours: the
+/// set of scripts that must run before first paint grows as features need it, and
+/// the law over that whole set belongs to the architecture gate rather than to a
+/// scenario about one tag.
 #[then(regex = r"^the theme is settled before the browser is permitted to paint$")]
 async fn then_the_theme_is_settled_before_the_browser_is_permitted(world: &mut FoundryWorld) {
     let served = served_dashboard_html(world).await;
@@ -1630,14 +1634,11 @@ async fn then_the_theme_is_settled_before_the_browser_is_permitted(world: &mut F
         .iter()
         .filter(|(src, attrs)| !src.ends_with(THEME_SCRIPT_PATH) && !attrs.is_empty())
         .count();
-    assert_eq!(
-        deferred_neighbours,
-        head_scripts.len() - 1,
-        "{} of the {} other head script(s) do not defer. The claim under test is that theme.js is \
-         the ONE exception; on a head where nothing defers, the assertion above would hold for the \
-         wrong reason. Head scripts found: {head_scripts:?}",
-        head_scripts.len() - 1 - deferred_neighbours,
-        head_scripts.len() - 1
+    assert!(
+        deferred_neighbours > 0,
+        "no other head script carries a deferring attribute, so the parse above cannot tell a \
+         render-blocking tag from a deferred one and the assertion held by blindness. Head \
+         scripts found: {head_scripts:?}"
     );
 
     let recorded = document_theme_choice(browser_of(world)).await;

@@ -108,12 +108,12 @@ Extend
 One render-blocking script tag beside theme.js, with no defer, async or type=module, and the stylesheet href moved to the renamed blob.
 ```
 
-crates\/foundry\-app\/static\/css\/foundry\.8d661015\.css
+crates\/foundry\-app\/static\/css\/foundry\.4c73f62c\.css
 
 Extend
 
 ```text
-The collapsed rail rules, the hidden items, the theme-control word span, and the collapsed arm inside the existing 480px block. The file is then renamed to the sha256 prefix of its new bytes.
+The collapsed rail rules, the hidden items, the theme-control word span, and the collapsed arm inside the existing 480px block. The file carries the sha256 prefix of its current bytes, so any further edit renames it again.
 ```
 
 crates\/foundry\-app\/src\/lib\.rs
@@ -176,6 +176,8 @@ crates\/foundry\-acceptance\/src\/lib\.rs
 crates\/foundry\-acceptance\/tests\/acceptance\.rs
 
 crates\/foundry\-acceptance\/src\/support\/browser\_harness\.rs
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_canzan\_theme\.rs
 
 #### Public oracle
 
@@ -309,12 +311,12 @@ No shipped asset owns a navigation state. keyboard.js owns shortcuts, the three 
 
 theme\.js
 
-crates\/foundry\-app\/templates\/base\.html\:47
+crates\/foundry\-app\/templates\/base\.html\:48
 
 Extend
 
 ```text
-The document shell carries exactly one render-blocking script, the theme one cited here at line 47, and the hashed stylesheet link at line 6. The feature adds one tag IMMEDIATELY AFTER line 47, in the same render-blocking shape and with no defer, async or type=module, and moves the line 6 href to the renamed blob. The five deferred tags below line 47 do not move, and copying their shape is the regression the architectural obligation refuses.
+Before this feature the document shell carried exactly ONE render-blocking script, the theme one cited here, plus the hashed stylesheet link at line 6. The feature adds a second render-blocking tag immediately after it, with no defer, async or type=module, and moves the line 6 href to the renamed blob. The SEVEN deferred tags below do not move, and copying their shape is the regression the architectural obligation refuses. Going from one pre-paint script to two is what breaks the shipped flash scenario arm that counts them, which is why that step file is now a declared support.
 ```
 
 check\_static\_asset\_integrity
@@ -369,12 +371,12 @@ Two uses of this file, one of them an edit. The brand row cited here is the moun
 
 app\-shell\_\_content
 
-crates\/foundry\-app\/static\/css\/foundry\.8d661015\.css\:953
+crates\/foundry\-app\/static\/css\/foundry\.4c73f62c\.css\:953
 
 Extend
 
 ```text
-The one hand-authored stylesheet already owns .app-shell, this flexible content column, the whole .sidebar family, the theme control and the 480px phone block. The collapsed geometry belongs beside them and needs no rule of its own for the content, which is already flex 1 1 auto with min-width 0; a second stylesheet would split the rail rules across two cache-immutable blobs.
+The one hand-authored stylesheet already owns .app-shell, this flexible content column, the whole .sidebar family, the theme control and the 480px phone block. The collapsed geometry belongs beside them and needs no rule of its own for the content, which is already flex 1 1 auto with min-width 0; a second stylesheet would split the rail rules across two cache-immutable blobs. The blob is cited by its CURRENT name: the design mandated re-hash has landed, from foundry.8d661015.css to foundry.4c73f62c.css.
 ```
 
 new\_session
@@ -421,22 +423,22 @@ New file: the whole collapse mechanism, served from the app own origin and linke
 
 document shell template
 
-crates\/foundry\-app\/templates\/base\.html\:47
+crates\/foundry\-app\/templates\/base\.html\:48
 
 Changed
 
 ```text
-Two sites in this file change. The new pre-paint script tag is inserted immediately after line 47, the existing theme tag, so both pre-paint scripts sit together above the deferred five; and the stylesheet link at line 6 moves to the renamed blob. Nothing else in the head or the body changes.
+Two sites in this file change. The new pre-paint script tag is inserted immediately after the theme tag cited here, so the two render-blocking scripts sit together above the seven deferred ones; and the stylesheet link at line 6 moves to the renamed blob. Nothing else in the head or the body changes. The head declares ten script tags in total, two of them pre-paint.
 ```
 
 stylesheet blob and its content\-hash filename
 
-crates\/foundry\-app\/static\/css\/foundry\.8d661015\.css\:986
+crates\/foundry\-app\/static\/css\/foundry\.4c73f62c\.css\:984
 
 Migrated
 
 ```text
-Rules added, so the bytes change and the filename must become the new sha256 prefix. The old URL is served immutable, so an edit without the rename pins every holding browser stale; cargo xtask check-arch refuses it.
+Rules added, so the bytes changed and the filename became the new sha256 prefix: foundry.8d661015.css is now foundry.4c73f62c.css. The old URL is served immutable, so an edit without the rename would have pinned every holding browser stale; cargo xtask check-arch decides it. The cited line is the .sidebar rule the collapsed geometry overrides.
 ```
 
 static cache\-control unit tests in the production crate
@@ -541,26 +543,26 @@ Its no-horizontal-overflow and desktop-unchanged assertions still hold: the coll
 
 theme control scenarios
 
-crates\/foundry\-acceptance\/src\/steps\/feature\_canzan\_theme\.rs\:1
+crates\/foundry\-acceptance\/src\/steps\/feature\_canzan\_theme\.rs\:1633
 
-UnchangedCompatible
+Changed
 
 ```text
-The control reachability, focus indicator and 24x24 / 44x44 target scenarios run on a session with no stored nav choice, so the rail is expanded and the theme control geometry is the shipped one.
+REFUTED by a real run, not predicted: the us-cts-04 lane exits 101 because the shipped flash scenario asserts at this line that theme.js is the ONE head script that does not defer, and this design deliberately adds a second render-blocking pre-paint script, so the arm reads 1 of the 8 other head scripts not deferring. The control reachability, focus indicator and 24x24 / 44x44 target scenarios are still unaffected, for the reason they always were: they run with no stored nav choice, so the rail is expanded and the theme control geometry is the shipped one. The arm that breaks asserts a COUNT over the set of pre-paint scripts, which this feature changes from one to two, and its restatement belongs to the oracle owner.
 ```
 
 ##### Agreement
 
 the content\-hashed stylesheet filename under an immutable cache policy
 
-crates\/foundry\-app\/static\/css\/foundry\.8d661015\.css\:1
+crates\/foundry\-app\/static\/css\/foundry\.4c73f62c\.css\:1
 
 Producer
 
 Migrated
 
 ```text
-The blob bytes change, so its name must become the new sha256 prefix.
+The blob bytes changed, so its name became the new sha256 prefix: foundry.8d661015.css is now foundry.4c73f62c.css.
 ```
 
 the content\-hashed stylesheet filename under an immutable cache policy
@@ -613,14 +615,14 @@ Sole writer. It stamps presence or absence from a boolean and never writes a val
 
 the valueless data\-nav\-collapsed marker on the document element
 
-crates\/foundry\-app\/static\/css\/foundry\.8d661015\.css\:984
+crates\/foundry\-app\/static\/css\/foundry\.4c73f62c\.css\:1020
 
 Consumer
 
 Migrated
 
 ```text
-TO BE CREATED: no rule in this file reads the marker today. The cited line is the insertion anchor, the existing .sidebar rule whose 240px geometry the collapsed state overrides; the new rules go immediately after it and select on attribute PRESENCE, so a stray value from any writer still selects one of exactly two geometries. The collapsed arm inside the existing 480px phone block is the second site.
+The consuming rule now EXISTS at the cited line, where it was recorded as the insertion anchor to be created: it selects on attribute PRESENCE, so a stray value from any writer still selects one of exactly two geometries. The collapsed arm inside the existing 480px phone block is the second site.
 ```
 
 the foundry\.nav browser storage key\, which outlives every version that wrote it
@@ -1091,7 +1093,7 @@ Invariant
 
 Adapter
 
-crates\/foundry\-app\/static\/css\/foundry\.8d661015\.css
+crates\/foundry\-app\/static\/css\/foundry\.4c73f62c\.css
 
 ###### Treatment
 
@@ -1806,11 +1808,11 @@ crafter
 SinglePointOfFailure
 
 ```text
-The one render-blocking head script tag. If it ever gains defer, async or type=module, every collapsed operator sees the expanded rail flash on every navigation, and every test that looks at the settled page still passes.
+The render-blocking head script tags, now two rather than one. If either ever gains defer, async or type=module, every operator who chose that state sees the wrong state flash on every navigation, and every test that looks at the settled page still passes.
 ```
 
 ```text
-The rail still reaches the right state eventually, so no functional scenario fails.
+The rail and the theme still reach the right state eventually, so no functional scenario fails.
 ```
 
 ```text
@@ -1818,11 +1820,11 @@ Nothing: the flash is the defect the whole pre-paint arrangement exists to preve
 ```
 
 ```text
-A silent regression, which is what copying the five deferred neighbours produces.
+A silent regression, which is what copying the seven deferred neighbours produces.
 ```
 
 ```text
-Covered by the recorded architectural obligation over the whole set of pre-paint scripts, not by a comment and not by a scenario about one tag.
+Covered by the recorded architectural obligation over the whole set of pre-paint scripts, not by a comment and not by a scenario about one tag. The shipped flash scenario asserts a COUNT that assumes exactly one pre-paint script, so it has to be restated by its owner as this set grows; a count over that set is the brittle form of the law the obligation states properly.
 ```
 
 crafter

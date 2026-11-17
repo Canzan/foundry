@@ -352,7 +352,7 @@
 "B": 5,
 "C": 3,
 "E": 14,
-"F": 387,
+"F": 399,
 "K": 1,
 "L": 8,
 "N": 3,
@@ -399,9 +399,9 @@
 {
 "contract": "the content-hashed stylesheet filename under an immutable cache policy",
 "decision": "Migrated",
-"locator": "crates/foundry-app/static/css/foundry.8d661015.css:1",
+"locator": "crates/foundry-app/static/css/foundry.4c73f62c.css:1",
 "party": "Producer",
-"reason": "F106"
+"reason": "F394"
 },
 {
 "contract": "the content-hashed stylesheet filename under an immutable cache policy",
@@ -434,9 +434,9 @@
 {
 "contract": "the valueless data-nav-collapsed marker on the document element",
 "decision": "Migrated",
-"locator": "crates/foundry-app/static/css/foundry.8d661015.css:984",
+"locator": "crates/foundry-app/static/css/foundry.4c73f62c.css:1020",
 "party": "Consumer",
-"reason": "F293"
+"reason": "F395"
 },
 {
 "contract": "the foundry.nav browser storage key, which outlives every version that wrote it",
@@ -645,14 +645,14 @@
 {
 "decision": "Changed",
 "kind": "document shell template",
-"locator": "crates/foundry-app/templates/base.html:47",
-"reason": "F292"
+"locator": "crates/foundry-app/templates/base.html:48",
+"reason": "F391"
 },
 {
 "decision": "Migrated",
 "kind": "stylesheet blob and its content-hash filename",
-"locator": "crates/foundry-app/static/css/foundry.8d661015.css:986",
-"reason": "F94"
+"locator": "crates/foundry-app/static/css/foundry.4c73f62c.css:984",
+"reason": "F392"
 },
 {
 "decision": "Migrated",
@@ -715,10 +715,10 @@
 "reason": "F104"
 },
 {
-"decision": "UnchangedCompatible",
+"decision": "Changed",
 "kind": "theme control scenarios",
-"locator": "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:1",
-"reason": "F105"
+"locator": "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:1633",
+"reason": "F393"
 }
 ],
 "laws": [
@@ -834,7 +834,7 @@
 "id": "L7",
 "kind": "Invariant",
 "layer": "Adapter",
-"owner": "crates/foundry-app/static/css/foundry.8d661015.css",
+"owner": "crates/foundry-app/static/css/foundry.4c73f62c.css",
 "statement": "F173",
 "treatment": {
 "cases": [
@@ -1057,8 +1057,8 @@
 },
 {
 "decision": "Extend",
-"locator": "crates/foundry-app/templates/base.html:47",
-"reason": "F291",
+"locator": "crates/foundry-app/templates/base.html:48",
+"reason": "F389",
 "symbol": "theme.js"
 },
 {
@@ -1093,8 +1093,8 @@
 },
 {
 "decision": "Extend",
-"locator": "crates/foundry-app/static/css/foundry.8d661015.css:953",
-"reason": "F88",
+"locator": "crates/foundry-app/static/css/foundry.4c73f62c.css:953",
+"reason": "F390",
 "symbol": "app-shell__content"
 },
 {
@@ -1169,13 +1169,13 @@
 },
 {
 "allowed": "F262",
-"forbidden": "F263",
+"forbidden": "F398",
 "id": "Y6",
 "kind": "SinglePointOfFailure",
 "owner": "crafter",
-"preserved": "F261",
-"residue": "F264",
-"source": "F260"
+"preserved": "F397",
+"residue": "F399",
+"source": "F396"
 },
 {
 "allowed": "F267",
@@ -1293,7 +1293,8 @@
 "crates/foundry-acceptance/src/steps/feature_nav_collapse.rs",
 "crates/foundry-acceptance/src/lib.rs",
 "crates/foundry-acceptance/tests/acceptance.rs",
-"crates/foundry-acceptance/src/support/browser_harness.rs"
+"crates/foundry-acceptance/src/support/browser_harness.rs",
+"crates/foundry-acceptance/src/steps/feature_canzan_theme.rs"
 ],
 "targets": [
 {
@@ -1308,8 +1309,8 @@
 },
 {
 "change": "Extend",
-"path": "crates/foundry-app/static/css/foundry.8d661015.css",
-"reason": "F52"
+"path": "crates/foundry-app/static/css/foundry.4c73f62c.css",
+"reason": "F388"
 },
 {
 "change": "Extend",
@@ -1491,8 +1492,6 @@
 "F102": "Not edited. It keeps mounting into .sidebar__user and keeps its accessible name in aria-label, so hiding its word span in the collapsed strip costs it no name. The byte-identical port stays byte-identical.",
 "F103": "Its scraper reads the server HTML, where nothing this feature adds appears. Expanded is the markup default, so the existing rail, item, user-menu and sign-out assertions are unaffected.",
 "F104": "Its no-horizontal-overflow and desktop-unchanged assertions still hold: the collapsed state is never the initial state of a session that has not stored a choice, and the phone block re-asserts the top-bar geometry for the collapsed selector.",
-"F105": "The control reachability, focus indicator and 24x24 / 44x44 target scenarios run on a session with no stored nav choice, so the rail is expanded and the theme control geometry is the shipped one.",
-"F106": "The blob bytes change, so its name must become the new sha256 prefix.",
 "F107": "The only link tag that serves the stylesheet to a browser; a stale href resolves to a deleted file and the gate static-reference layer refuses it.",
 "F108": "Three cache-control assertions name the path literally and fail on the old name.",
 "F109": "The provenance row path and digest are recomputed by the gate from the committed bytes.",
@@ -1662,11 +1661,7 @@
 "F258": "Editing the blob without renaming it, which pins every holding browser stale at an immutable URL.",
 "F259": "Decided by the shipped asset-hash layer of cargo xtask check-arch, which recomputes the digest from the committed bytes.",
 "F26": "Capture of the painted frames or of the first paint during the load, not only the settled page.",
-"F260": "The one render-blocking head script tag. If it ever gains defer, async or type=module, every collapsed operator sees the expanded rail flash on every navigation, and every test that looks at the settled page still passes.",
-"F261": "The rail still reaches the right state eventually, so no functional scenario fails.",
 "F262": "Nothing: the flash is the defect the whole pre-paint arrangement exists to prevent.",
-"F263": "A silent regression, which is what copying the five deferred neighbours produces.",
-"F264": "Covered by the recorded architectural obligation over the whole set of pre-paint scripts, not by a comment and not by a scenario about one tag.",
 "F265": "An outside writer, another tool on the origin, a browser extension, devtools or a later version of this feature, writes the storage key or the document attribute directly.",
 "F266": "One of exactly two geometries: interpret is total over strings and the stylesheet selects on attribute presence, not on a value.",
 "F267": "The operator loses her own choice to whatever the other writer left.",
@@ -1694,9 +1689,6 @@
 "F288": "The brand row widening the strip, which the shipped no-wrap name would do if it were merely clipped instead of hidden.",
 "F29": "With the nav collapsed, the operator activates the toggle and the nav is expanded again: the nav items are legible and the operator can select them.",
 "F290": "Every script tag in the document shell that must run before the browser is permitted to paint is render-blocking: none carries defer, async or type=module. The check governs the whole set of pre-paint scripts, so it must still refuse a third one added later, and it names in its refusal which tag it is and that the flash of the wrong state is what the attribute would reintroduce.",
-"F291": "The document shell carries exactly one render-blocking script, the theme one cited here at line 47, and the hashed stylesheet link at line 6. The feature adds one tag IMMEDIATELY AFTER line 47, in the same render-blocking shape and with no defer, async or type=module, and moves the line 6 href to the renamed blob. The five deferred tags below line 47 do not move, and copying their shape is the regression the architectural obligation refuses.",
-"F292": "Two sites in this file change. The new pre-paint script tag is inserted immediately after line 47, the existing theme tag, so both pre-paint scripts sit together above the deferred five; and the stylesheet link at line 6 moves to the renamed blob. Nothing else in the head or the body changes.",
-"F293": "TO BE CREATED: no rule in this file reads the marker today. The cited line is the insertion anchor, the existing .sidebar rule whose 240px geometry the collapsed state overrides; the new rules go immediately after it and select on attribute PRESENCE, so a stray value from any writer still selects one of exactly two geometries. The collapsed arm inside the existing 480px phone block is the second site.",
 "F294": "An operator signed in at desk width on her dashboard presses the control at the head of the left nav.",
 "F295": "The nav becomes a narrow control strip, the page content grows by exactly the width the nav released, the strip and the content still fill the shell between them, and the browser now holds the one folded-away choice.",
 "F296": "She gets a wider page with no empty band where the nav was, and the app has taken note of her choice.",
@@ -1801,7 +1793,19 @@
 "F385": "The control is a real button element carrying aria-expanded, aria-controls naming the rail primary navigation, and an aria-label that names the SUBJECT as the nav, the current state and what the next press does: \"Left nav: expanded. Collapse the left nav.\" and \"Left nav: collapsed. Expand the left nav.\". The wording is fixed to that shape, not left to the crafter: a label that named only the state would be a valid accessible name that no reader could tie to the nav. The id aria-controls points at is SERVER-RENDERED, exactly one id attribute added to the existing nav.sidebar__nav in partials/sidebar.html: an id is static, is harmless with scripting off, and keeps the asset to its two DOM effects instead of a third that would reach outside its own button. Keyboard activation needs no code: a button answers Enter and Space.",
 "F386": "Two uses of this file, one of them an edit. The brand row cited here is the mount point and is NOT edited: the control is built in JavaScript, so a server-rendered button would be a dead control with scripting off, and this row already survives the collapse so the toggle has somewhere visible to live. The edit is elsewhere in the same file and is exactly one id attribute on the nav.sidebar__nav element, which the toggle aria-controls names.",
 "F387": "Exactly one id attribute added to the nav element cited here, which carries class sidebar__nav and aria-label Primary. No selector is renamed, removed or newly required and no element is added, so every HTTP-lane scraper assertion over this markup keeps its meaning; an id is inert with scripting off.",
+"F388": "The collapsed rail rules, the hidden items, the theme-control word span, and the collapsed arm inside the existing 480px block. The file carries the sha256 prefix of its current bytes, so any further edit renames it again.",
+"F389": "Before this feature the document shell carried exactly ONE render-blocking script, the theme one cited here, plus the hashed stylesheet link at line 6. The feature adds a second render-blocking tag immediately after it, with no defer, async or type=module, and moves the line 6 href to the renamed blob. The SEVEN deferred tags below do not move, and copying their shape is the regression the architectural obligation refuses. Going from one pre-paint script to two is what breaks the shipped flash scenario arm that counts them, which is why that step file is now a declared support.",
 "F39": "A browser session with JavaScript disabled.",
+"F390": "The one hand-authored stylesheet already owns .app-shell, this flexible content column, the whole .sidebar family, the theme control and the 480px phone block. The collapsed geometry belongs beside them and needs no rule of its own for the content, which is already flex 1 1 auto with min-width 0; a second stylesheet would split the rail rules across two cache-immutable blobs. The blob is cited by its CURRENT name: the design mandated re-hash has landed, from foundry.8d661015.css to foundry.4c73f62c.css.",
+"F391": "Two sites in this file change. The new pre-paint script tag is inserted immediately after the theme tag cited here, so the two render-blocking scripts sit together above the seven deferred ones; and the stylesheet link at line 6 moves to the renamed blob. Nothing else in the head or the body changes. The head declares ten script tags in total, two of them pre-paint.",
+"F392": "Rules added, so the bytes changed and the filename became the new sha256 prefix: foundry.8d661015.css is now foundry.4c73f62c.css. The old URL is served immutable, so an edit without the rename would have pinned every holding browser stale; cargo xtask check-arch decides it. The cited line is the .sidebar rule the collapsed geometry overrides.",
+"F393": "REFUTED by a real run, not predicted: the us-cts-04 lane exits 101 because the shipped flash scenario asserts at this line that theme.js is the ONE head script that does not defer, and this design deliberately adds a second render-blocking pre-paint script, so the arm reads 1 of the 8 other head scripts not deferring. The control reachability, focus indicator and 24x24 / 44x44 target scenarios are still unaffected, for the reason they always were: they run with no stored nav choice, so the rail is expanded and the theme control geometry is the shipped one. The arm that breaks asserts a COUNT over the set of pre-paint scripts, which this feature changes from one to two, and its restatement belongs to the oracle owner.",
+"F394": "The blob bytes changed, so its name became the new sha256 prefix: foundry.8d661015.css is now foundry.4c73f62c.css.",
+"F395": "The consuming rule now EXISTS at the cited line, where it was recorded as the insertion anchor to be created: it selects on attribute PRESENCE, so a stray value from any writer still selects one of exactly two geometries. The collapsed arm inside the existing 480px phone block is the second site.",
+"F396": "The render-blocking head script tags, now two rather than one. If either ever gains defer, async or type=module, every operator who chose that state sees the wrong state flash on every navigation, and every test that looks at the settled page still passes.",
+"F397": "The rail and the theme still reach the right state eventually, so no functional scenario fails.",
+"F398": "A silent regression, which is what copying the seven deferred neighbours produces.",
+"F399": "Covered by the recorded architectural obligation over the whole set of pre-paint scripts, not by a comment and not by a scenario about one tag. The shipped flash scenario asserts a COUNT that assumes exactly one pre-paint script, so it has to be restated by its owner as this set grows; a count over that set is the brittle form of the law the obligation states properly.",
 "F4": "Collapsed stays collapsed",
 "F40": "With JavaScript disabled, the page gives no nav toggle: the operator sees no toggle and cannot reach one with the keyboard, and the page looks as it did before this feature.",
 "F41": "A control that is absent from the page source is not the same as a control that is present, hidden and still reachable by keyboard. The words \"as before this feature\" need a record of the earlier page, which a present observation cannot give.",
@@ -1816,7 +1820,6 @@
 "F5": "the operator collapsed the left nav",
 "F50": "The whole mechanism: the guarded read, the boolean carrier, the valueless marker, the button and its accessible name. A straight-line guarded IIFE, like theme.js.",
 "F51": "One render-blocking script tag beside theme.js, with no defer, async or type=module, and the stylesheet href moved to the renamed blob.",
-"F52": "The collapsed rail rules, the hidden items, the theme-control word span, and the collapsed arm inside the existing 480px block. The file is then renamed to the sha256 prefix of its new bytes.",
 "F53": "The three static cache-control tests name the stylesheet hashed path; the path moves, the assertions do not.",
 "F54": "The provenance row path and sha256 move with the renamed blob, and the gate recomputes the digest.",
 "F55": "One layer for the pre-paint script law over the whole set of pre-paint scripts, with its fixtures in the style the file uses, and its sentence added to the gate PASSED line.",
@@ -1851,13 +1854,11 @@
 "F84": "Three shipped cache-control tests name the stylesheet by its hashed path. They are the consumers the rename must carry; the assertions themselves are unchanged.",
 "F85": "The provenance row records the stylesheet path and its sha256, and cargo xtask check-arch recomputes it. Both move with the renamed blob in the same change.",
 "F86": "Consulted as the pattern owner and deliberately NOT edited: the pre-paint head tag, the JS-built control, the guarded storage access, the foundry-dot namespace for the key and the state-naming accessible name all come from here. base.html records that this file is a byte-identical canzan-lift port whose divergence is the thing the port exists to avoid, so the nav state gets its own asset and its own key beside this one.",
-"F88": "The one hand-authored stylesheet already owns .app-shell, this flexible content column, the whole .sidebar family, the theme control and the 480px phone block. The collapsed geometry belongs beside them and needs no rule of its own for the content, which is already flex 1 1 auto with min-width 0; a second stylesheet would split the rail rules across two cache-immutable blobs.",
 "F89": "Every browser state this oracle needs already ships beside this constructor: open_mobile_session for real 390x844 mobile semantics, new_session_without_scripting for the scripting-off promise, new_dark_session_refusing_site_storage for the refused-storage guard, plus unhandled_script_errors, viewport and sign_in_through_browser. No new harness capability is required.",
 "F9": "the left nav is collapsed",
 "F90": "Consulted as the render-contract consumer: its scraper asserts this class contract over the server HTML, including the rail, the two primary items, the user menu and the sign-out form. The feature renames none of those selectors and adds no server-rendered element, so those scenarios stay green untouched.",
 "F91": "The repository records every stylesheet re-hash in this file, which is why the previous one is named at this line. This change adds its own entry for the new hash; nothing else in the file moves.",
 "F92": "New file: the whole collapse mechanism, served from the app own origin and linked from the document shell.",
-"F94": "Rules added, so the bytes change and the filename must become the new sha256 prefix. The old URL is served immutable, so an edit without the rename pins every holding browser stale; cargo xtask check-arch refuses it.",
 "F95": "Three assertions name the stylesheet hashed path. They move to the new name with their assertions unchanged.",
 "F96": "The row path and recorded sha256 move with the renamed blob; the gate recomputes the digest from the committed bytes.",
 "F97": "One layer added for the pre-paint script law, with its two unit fixtures in the style the file already uses, and its sentence joined to the gate PASSED line.",
