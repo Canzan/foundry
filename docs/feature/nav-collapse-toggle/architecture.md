@@ -148,6 +148,14 @@ Extend
 The repository records every stylesheet re-hash here; this change names its new hash.
 ```
 
+crates\/foundry\-app\/templates\/partials\/sidebar\.html
+
+Extend
+
+```text
+Exactly one id attribute on the existing nav.sidebar__nav element, so the toggle aria-controls has something to name. No element, class, link or form is added, renamed or removed.
+```
+
 crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-toggle\.feature
 
 #### Verification
@@ -230,7 +238,7 @@ Phone layout: inside the existing max-width 480px media block the collapsed sele
 ```
 
 ```text
-The control is a real button element carrying aria-expanded, aria-controls pointing at the rail primary navigation, and an aria-label that names the current state and what the next press does, in the shape theme.js describe() already uses. Keyboard activation needs no code: a button answers Enter and Space.
+The control is a real button element carrying aria-expanded, aria-controls naming the rail primary navigation, and an aria-label that names the SUBJECT as the nav, the current state and what the next press does: "Left nav: expanded. Collapse the left nav." and "Left nav: collapsed. Expand the left nav.". The wording is fixed to that shape, not left to the crafter: a label that named only the state would be a valid accessible name that no reader could tie to the nav. The id aria-controls points at is SERVER-RENDERED, exactly one id attribute added to the existing nav.sidebar__nav in partials/sidebar.html: an id is static, is harmless with scripting off, and keeps the asset to its two DOM effects instead of a third that would reach outside its own button. Keyboard activation needs no code: a button answers Enter and Space.
 ```
 
 ```text
@@ -353,10 +361,10 @@ sidebar\_\_brand
 
 crates\/foundry\-app\/templates\/partials\/sidebar\.html\:2
 
-Reuse
+Extend
 
 ```text
-Unchanged on purpose, and the mount point. The control is built in JavaScript, so a server-rendered button would be a dead control with scripting off; this row already exists at the head of the rail and survives the collapse, so the toggle has somewhere visible to live without a new element in the template.
+Two uses of this file, one of them an edit. The brand row cited here is the mount point and is NOT edited: the control is built in JavaScript, so a server-rendered button would be a dead control with scripting off, and this row already survives the collapse so the toggle has somewhere visible to live. The edit is elsewhere in the same file and is exactly one id attribute on the nav.sidebar__nav element, which the toggle aria-controls names.
 ```
 
 app\-shell\_\_content
@@ -493,12 +501,12 @@ New step module, owned by the acceptance designer; it must also be declared in t
 
 sidebar template
 
-crates\/foundry\-app\/templates\/partials\/sidebar\.html\:1
+crates\/foundry\-app\/templates\/partials\/sidebar\.html\:6
 
-UnchangedCompatible
+Changed
 
 ```text
-No selector is renamed, removed or newly required. The control is appended by script at runtime, so every HTTP-lane scraper assertion over this markup keeps its meaning.
+Exactly one id attribute added to the nav element cited here, which carries class sidebar__nav and aria-label Primary. No selector is renamed, removed or newly required and no element is added, so every HTTP-lane scraper assertion over this markup keeps its meaning; an id is inert with scripting off.
 ```
 
 theme control asset

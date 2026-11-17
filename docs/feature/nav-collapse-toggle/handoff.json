@@ -352,7 +352,7 @@
 "B": 5,
 "C": 3,
 "E": 14,
-"F": 383,
+"F": 387,
 "K": 1,
 "L": 8,
 "N": 3,
@@ -622,7 +622,7 @@
 "F63",
 "F64",
 "F65",
-"F66",
+"F385",
 "F67",
 "F68",
 "F69",
@@ -691,10 +691,10 @@
 "reason": "F100"
 },
 {
-"decision": "UnchangedCompatible",
+"decision": "Changed",
 "kind": "sidebar template",
-"locator": "crates/foundry-app/templates/partials/sidebar.html:1",
-"reason": "F101"
+"locator": "crates/foundry-app/templates/partials/sidebar.html:6",
+"reason": "F387"
 },
 {
 "decision": "UnchangedCompatible",
@@ -1086,9 +1086,9 @@
 "symbol": "STORAGE_KEY"
 },
 {
-"decision": "Reuse",
+"decision": "Extend",
 "locator": "crates/foundry-app/templates/partials/sidebar.html:2",
-"reason": "F87",
+"reason": "F386",
 "symbol": "sidebar__brand"
 },
 {
@@ -1330,6 +1330,11 @@
 "change": "Extend",
 "path": "CHANGELOG.md",
 "reason": "F56"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/partials/sidebar.html",
+"reason": "F384"
 }
 ],
 "verification": [
@@ -1483,7 +1488,6 @@
 "F1": "Add a left nav toggle - The left nav should be collapsible and will stay collapsed until expanded again by the user.",
 "F10": "the operator activates the toggle",
 "F100": "New step module, owned by the acceptance designer; it must also be declared in the steps module list and used from tests/acceptance.rs the way every other feature module is, or cucumber never collects it.",
-"F101": "No selector is renamed, removed or newly required. The control is appended by script at runtime, so every HTTP-lane scraper assertion over this markup keeps its meaning.",
 "F102": "Not edited. It keeps mounting into .sidebar__user and keeps its accessible name in aria-label, so hiding its word span in the collapsed strip costs it no name. The byte-identical port stays byte-identical.",
 "F103": "Its scraper reads the server HTML, where nothing this feature adds appears. Expanded is the markup default, so the existing rail, item, user-menu and sign-out assertions are unaffected.",
 "F104": "Its no-horizontal-overflow and desktop-unchanged assertions still hold: the collapsed state is never the initial state of a session that has not stored a choice, and the phone block re-asserts the top-bar geometry for the collapsed selector.",
@@ -1793,6 +1797,10 @@
 "F381": "A pre-paint script were moved out of the head entirely rather than deferred: that is a different law, and the oracle observes the shipped shell's own tag from the served document. The layer at this locator is authored where the design assigns it, in a file this role does not write; the public oracle covers the shipped-shell arm of the same law.",
 "F382": "Second stressor set: the workspace name is at the longest a workspace can carry, 24 characters, which the database caps with workspaces_name_max_24_chars, and the rail is collapsed. The oracle drives \"Northwind Logistics Ltd.\".",
 "F383": "The hidden name must take display none, not only overflow hidden, inside the collapsed rail. The cap means no longer name is creatable, so 24 characters is the whole stressor and not a sample of it.",
+"F384": "Exactly one id attribute on the existing nav.sidebar__nav element, so the toggle aria-controls has something to name. No element, class, link or form is added, renamed or removed.",
+"F385": "The control is a real button element carrying aria-expanded, aria-controls naming the rail primary navigation, and an aria-label that names the SUBJECT as the nav, the current state and what the next press does: \"Left nav: expanded. Collapse the left nav.\" and \"Left nav: collapsed. Expand the left nav.\". The wording is fixed to that shape, not left to the crafter: a label that named only the state would be a valid accessible name that no reader could tie to the nav. The id aria-controls points at is SERVER-RENDERED, exactly one id attribute added to the existing nav.sidebar__nav in partials/sidebar.html: an id is static, is harmless with scripting off, and keeps the asset to its two DOM effects instead of a third that would reach outside its own button. Keyboard activation needs no code: a button answers Enter and Space.",
+"F386": "Two uses of this file, one of them an edit. The brand row cited here is the mount point and is NOT edited: the control is built in JavaScript, so a server-rendered button would be a dead control with scripting off, and this row already survives the collapse so the toggle has somewhere visible to live. The edit is elsewhere in the same file and is exactly one id attribute on the nav.sidebar__nav element, which the toggle aria-controls names.",
+"F387": "Exactly one id attribute added to the nav element cited here, which carries class sidebar__nav and aria-label Primary. No selector is renamed, removed or newly required and no element is added, so every HTTP-lane scraper assertion over this markup keeps its meaning; an id is inert with scripting off.",
 "F39": "A browser session with JavaScript disabled.",
 "F4": "Collapsed stays collapsed",
 "F40": "With JavaScript disabled, the page gives no nav toggle: the operator sees no toggle and cannot reach one with the keyboard, and the page looks as it did before this feature.",
@@ -1823,7 +1831,6 @@
 "F63": "Collapsed geometry: the rail narrows to a control strip. .sidebar__nav, .sidebar__workspace and the .sidebar__user links, identity and sign-out form take display none, so no invisible element stays focusable; .sidebar__monogram, the collapse toggle and .theme-toggle stay. .theme-toggle__mode hides so the theme control fits the strip, which costs it no accessible name because theme.js puts that name in aria-label, not in the word span.",
 "F64": "No rule widens the content: .app-shell__content is already flex 1 1 auto with min-width 0, so it takes exactly the width the rail gives up. The affected layers: domain, where the rail is in one of two states; application, where a press and a document load are the only operations; adapter, where the stored sentinel and the document marker live; infrastructure, where a refused storage origin and a browser that never runs the script live.",
 "F65": "Phone layout: inside the existing max-width 480px media block the collapsed selector re-asserts the top-bar geometry (width auto, flex 0 0 auto), so the collapsed state only removes items from the bar and never applies a desktop rail width inside a row layout. The toggle joins that block existing 44px touch-target list beside .theme-toggle.",
-"F66": "The control is a real button element carrying aria-expanded, aria-controls pointing at the rail primary navigation, and an aria-label that names the current state and what the next press does, in the shape theme.js describe() already uses. Keyboard activation needs no code: a button answers Enter and Space.",
 "F67": "No cross-tab synchronisation: a second already-open tab keeps its geometry until it reloads or navigates. The product scopes out syncing across browsers, devices and accounts, and within one browser promises only the reload and the next page. No storage event listener is added.",
 "F68": "The collapsed rules land in the one hand-authored stylesheet, whose filename is its own sha256 prefix under an immutable cache policy. The blob is renamed to foundry dot new-8-hex dot css, and base.html, the three static cache-control tests in crates/foundry-app/src/lib.rs and the static/VENDOR.md provenance row move with it in the same change. cargo xtask check-arch decides that rename; no new gate is needed for it.",
 "F69": "Checker mapping: Quint with the Apalache backend covers the cross-document state machine (three laws, two reachability witnesses) because two documents of one browser write one storage key, which is shared state with more than one actor. No TLA+: the feature states no fairness or temporal claim. No Agda: there is no proof over types to discharge. Paint ordering is outside every model and is carried as a separate observation.",
@@ -1844,7 +1851,6 @@
 "F84": "Three shipped cache-control tests name the stylesheet by its hashed path. They are the consumers the rename must carry; the assertions themselves are unchanged.",
 "F85": "The provenance row records the stylesheet path and its sha256, and cargo xtask check-arch recomputes it. Both move with the renamed blob in the same change.",
 "F86": "Consulted as the pattern owner and deliberately NOT edited: the pre-paint head tag, the JS-built control, the guarded storage access, the foundry-dot namespace for the key and the state-naming accessible name all come from here. base.html records that this file is a byte-identical canzan-lift port whose divergence is the thing the port exists to avoid, so the nav state gets its own asset and its own key beside this one.",
-"F87": "Unchanged on purpose, and the mount point. The control is built in JavaScript, so a server-rendered button would be a dead control with scripting off; this row already exists at the head of the rail and survives the collapse, so the toggle has somewhere visible to live without a new element in the template.",
 "F88": "The one hand-authored stylesheet already owns .app-shell, this flexible content column, the whole .sidebar family, the theme control and the 480px phone block. The collapsed geometry belongs beside them and needs no rule of its own for the content, which is already flex 1 1 auto with min-width 0; a second stylesheet would split the rail rules across two cache-immutable blobs.",
 "F89": "Every browser state this oracle needs already ships beside this constructor: open_mobile_session for real 390x844 mobile semantics, new_session_without_scripting for the scripting-off promise, new_dark_session_refusing_site_storage for the refused-storage guard, plus unhandled_script_errors, viewport and sign_in_through_browser. No new harness capability is required.",
 "F9": "the left nav is collapsed",

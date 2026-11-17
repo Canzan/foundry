@@ -294,6 +294,13 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 <pre><code>The repository records every stylesheet re-hash here; this change names its new hash.
 </code></pre>
 
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>Extend</p>
+
+<pre><code>Exactly one id attribute on the existing nav.sidebar__nav element, so the toggle aria-controls has something to name. No element, class, link or form is added, renamed or removed.
+</code></pre>
+
 <p>crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature</p>
 
 <h4>Verification</h4>
@@ -365,7 +372,7 @@ scripts/test-in-lima.sh env FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci
 <pre><code>Phone layout: inside the existing max-width 480px media block the collapsed selector re-asserts the top-bar geometry (width auto, flex 0 0 auto), so the collapsed state only removes items from the bar and never applies a desktop rail width inside a row layout. The toggle joins that block existing 44px touch-target list beside .theme-toggle.
 </code></pre>
 
-<pre><code>The control is a real button element carrying aria-expanded, aria-controls pointing at the rail primary navigation, and an aria-label that names the current state and what the next press does, in the shape theme.js describe() already uses. Keyboard activation needs no code: a button answers Enter and Space.
+<pre><code>The control is a real button element carrying aria-expanded, aria-controls naming the rail primary navigation, and an aria-label that names the SUBJECT as the nav, the current state and what the next press does: &quot;Left nav: expanded. Collapse the left nav.&quot; and &quot;Left nav: collapsed. Expand the left nav.&quot;. The wording is fixed to that shape, not left to the crafter: a label that named only the state would be a valid accessible name that no reader could tie to the nav. The id aria-controls points at is SERVER-RENDERED, exactly one id attribute added to the existing nav.sidebar__nav in partials/sidebar.html: an id is static, is harmless with scripting off, and keeps the asset to its two DOM effects instead of a third that would reach outside its own button. Keyboard activation needs no code: a button answers Enter and Space.
 </code></pre>
 
 <pre><code>No cross-tab synchronisation: a second already-open tab keeps its geometry until it reloads or navigates. The product scopes out syncing across browsers, devices and accounts, and within one browser promises only the reload and the next page. No storage event listener is added.
@@ -469,9 +476,9 @@ scripts/test-in-lima.sh env FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci
 
 <p>crates/foundry-app/templates/partials/sidebar.html:2</p>
 
-<p>Reuse</p>
+<p>Extend</p>
 
-<pre><code>Unchanged on purpose, and the mount point. The control is built in JavaScript, so a server-rendered button would be a dead control with scripting off; this row already exists at the head of the rail and survives the collapse, so the toggle has somewhere visible to live without a new element in the template.
+<pre><code>Two uses of this file, one of them an edit. The brand row cited here is the mount point and is NOT edited: the control is built in JavaScript, so a server-rendered button would be a dead control with scripting off, and this row already survives the collapse so the toggle has somewhere visible to live. The edit is elsewhere in the same file and is exactly one id attribute on the nav.sidebar__nav element, which the toggle aria-controls names.
 </code></pre>
 
 <p>app-shell__content</p>
@@ -595,11 +602,11 @@ scripts/test-in-lima.sh env FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci
 
 <p>sidebar template</p>
 
-<p>crates/foundry-app/templates/partials/sidebar.html:1</p>
+<p>crates/foundry-app/templates/partials/sidebar.html:6</p>
 
-<p>UnchangedCompatible</p>
+<p>Changed</p>
 
-<pre><code>No selector is renamed, removed or newly required. The control is appended by script at runtime, so every HTTP-lane scraper assertion over this markup keeps its meaning.
+<pre><code>Exactly one id attribute added to the nav element cited here, which carries class sidebar__nav and aria-label Primary. No selector is renamed, removed or newly required and no element is added, so every HTTP-lane scraper assertion over this markup keeps its meaning; an id is inert with scripting off.
 </code></pre>
 
 <p>theme control asset</p>
