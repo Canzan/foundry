@@ -1,5 +1,5 @@
 # NAV\-ICON\-RAIL\-003 A names test over\-approximates\, and its refusal says so
-Status: Accepted
+Status: Superseded by NAV-ICON-RAIL-004
 
 ## Context
 
