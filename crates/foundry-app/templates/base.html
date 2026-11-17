@@ -3,7 +3,7 @@
 <head>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Foundry{% endblock %}</title>
-<link rel="stylesheet" href="/static/css/foundry.8d661015.css">
+<link rel="stylesheet" href="/static/css/foundry.4c73f62c.css">
 {# pwa-mobile-rendering slice 03 (ADR-002) — installable PWA via a STATIC manifest
    + icons + apple/theme meta; NO service worker.
 
@@ -24,7 +24,8 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
-{# canzan-theme-system 05-01 — THE ONE SCRIPT IN THIS HEAD THAT MUST NOT DEFER.
+{# canzan-theme-system 05-01 — ONE OF THE TWO SCRIPTS IN THIS HEAD THAT MUST NOT
+   DEFER (the other is the nav-collapse tag below it, added 2026-11-16).
    Read this before you touch the line below it.
 
    `theme.js` stamps `data-theme` on <html> from the operator's stored choice.
@@ -45,6 +46,23 @@
    The other five below are correct as they are: they act on the settled DOM and
    have nothing to say before paint. Do not make this one match them. #}
 <script src="/static/js/theme.js"></script>
+{# nav-collapse-toggle — THE SECOND SCRIPT IN THIS HEAD THAT MUST NOT DEFER, and
+   it sits here, beside the theme tag, so both pre-paint scripts are above the
+   deferred five rather than hidden among them.
+
+   `nav-collapse.js` stamps the valueless `data-nav-collapsed` on <html> from the
+   operator's stored choice. That has to happen BEFORE the first paint, or an
+   operator who collapsed the left nav sees it flash open on every navigation —
+   the same defect, for the same reason, as the theme flash above.
+
+   `defer`, `async` and `type="module"` each reintroduce that flash SILENTLY:
+   every test that looks at the settled page still passes. Copying the deferred
+   neighbours below is therefore the single most likely mistake here,
+   which is why it is no longer only a comment: `cargo xtask check-arch` carries
+   a pre-paint-script layer that refuses any of those three attributes on EVERY
+   head script that stamps the document from stored state — this one, the theme
+   one, and any third one added later. #}
+<script src="/static/js/nav-collapse.js"></script>
 <script src="/static/vendor/htmx.min.js" defer></script>
 <script src="/static/js/board-dnd.js" defer></script>
 <script src="/static/js/board-lane-dnd.js" defer></script>

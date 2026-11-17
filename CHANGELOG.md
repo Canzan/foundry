@@ -7,6 +7,20 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Added
+
+- **The left nav folds away, and stays folded.** A control in the rail's brand row
+  collapses the left nav into a narrow strip, and the page content takes the width
+  the nav gave up. The choice is kept per browser, like the theme choice, so the nav
+  is still folded after a reload and on the next app page until the operator opens it
+  again — and it is settled before the browser paints, so there is no flash of the
+  open nav on a navigation. The control answers Enter and Space, names the nav, the
+  state it is in and what the next press does; while the nav is folded its items leave
+  the keyboard order instead of hiding where the operator can still tab into them.
+  With JavaScript off the nav is simply open and no control exists, as before. On a
+  phone the folded state only removes items from the top bar, so no page scrolls
+  sideways at 480 px and below. The stylesheet is re-hashed to `foundry.4c73f62c.css`.
+
 ## [v0.18.2] - 2026-11-04
 
 ### Added

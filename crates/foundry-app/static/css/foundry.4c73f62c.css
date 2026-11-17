@@ -991,6 +991,83 @@ kbd {
   border-right: 1px solid var(--cz-line);
   background: var(--cz-bg-2);
 }
+
+/* ── nav-collapse-toggle: the rail's second geometry (ADR-NAV-COLLAPSE-001) ────
+ *
+ * `static/js/nav-collapse.js` stamps the VALUELESS `data-nav-collapsed` on
+ * <html> before first paint and builds the control these rules draw.
+ *
+ * EVERY SELECTOR HERE MATCHES ON THE ATTRIBUTE'S PRESENCE, NEVER ON A VALUE.
+ * That is what makes a third rail geometry unrepresentable: an outside script,
+ * a browser extension or devtools writing `data-nav-collapsed="maybe"` still
+ * selects one of exactly TWO geometries, so there is no width that is neither
+ * collapsed nor expanded and that no operator could repair. Rewriting any of
+ * these to `[data-nav-collapsed="…"]` reopens that, and NO gate covers it — it
+ * is a standing review obligation on this file (claim C1).
+ *
+ * The members overridden below are declared immediately after this block; an
+ * attribute + class selector outranks the bare class whatever the source order,
+ * so the second geometry sits beside the 240px one it replaces.
+ *
+ * COLLAPSED IS A CONTROL STRIP, NOT A HIDDEN RAIL. The monogram, the collapse
+ * control and the theme control stay; the navigation, the workspace name and the
+ * user's identity, links and sign-out form take `display: none` so they leave
+ * the layout, the focus order and the accessibility tree TOGETHER — hidden by
+ * width or opacity they would stay focusable and announced, and the operator
+ * would tab into a nav she cannot see. Nothing widens the content column: it is
+ * already `flex: 1 1 auto` with `min-width: 0`, so it takes exactly the width
+ * the rail gives up. The 72px strip is a DESIGN value; no promise fixes it. */
+[data-nav-collapsed] .sidebar {
+  flex: 0 0 72px;
+  width: 72px;
+  align-items: center;
+}
+[data-nav-collapsed] .sidebar__brand {
+  flex-direction: column;
+  gap: 8px;
+  padding: 6px 0 12px;
+}
+[data-nav-collapsed] .sidebar__nav,
+[data-nav-collapsed] .sidebar__workspace,
+[data-nav-collapsed] .sidebar__user > *:not(.theme-toggle) {
+  display: none;
+}
+[data-nav-collapsed] .sidebar__user {
+  padding: 8px 0;
+}
+/* The theme control fits the strip by losing its WORD, which costs it no
+   accessible name: `theme.js` puts that name in `aria-label`, never in this
+   span. */
+[data-nav-collapsed] .theme-toggle__mode {
+  display: none;
+}
+/* The control itself — a SECONDARY control, exactly like `.theme-toggle` and
+   for the same reason: its fill is the rail's own `--cz-bg-2`, so the fill
+   cannot identify it and the BORDER carries WCAG 1.4.11 in `--cz-muted`.
+   Without these rules the global `button` fill would paint a black slab in the
+   brand row. NO FOCUS RULE OF ITS OWN: it mounts inside `.sidebar`, which
+   already outlines its focused descendants in `--cz-black` in both palettes.
+   `flex-shrink: 0` because the brand row is a flex row at the shipped width —
+   the workspace name beside it shrinks to an ellipsis, the control never does. */
+.nav-collapse {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 32px;
+  min-width: 32px;
+  padding: 6px 8px;
+  border: 1px solid var(--cz-muted);
+  border-radius: var(--radius);
+  background: var(--cz-bg-2);
+  color: var(--cz-text);
+  font-size: 13px;
+}
+.nav-collapse__glyph {
+  color: var(--cz-black);
+  font-size: 14px;
+  line-height: 1;
+}
 .sidebar__brand {
   display: flex;
   align-items: center;
@@ -1275,6 +1352,26 @@ kbd {
     min-width: 0;
     max-width: 100%;
   }
+  /* nav-collapse-toggle — BELOW THE BREAKPOINT THE COLLAPSED STATE ONLY REMOVES
+     ITEMS FROM THE BAR. The bar geometry is re-asserted for the collapsed
+     selector because the desk-width rule above it is `[attribute] .class` and
+     would otherwise outrank `.sidebar` inside this block as much as outside it:
+     a 72px vertical rail drawn inside a row-direction top bar widens the
+     document at every phone width, which is exactly the overflow the phone
+     promise forbids. */
+  [data-nav-collapsed] .sidebar {
+    flex: 0 0 auto;
+    width: auto;
+    align-items: center;
+  }
+  [data-nav-collapsed] .sidebar__brand {
+    flex-direction: row;
+    gap: 10px;
+    padding: 6px 8px;
+  }
+  [data-nav-collapsed] .sidebar__user {
+    padding: 0;
+  }
   .sidebar__nav {
     flex-direction: row;
     flex-wrap: wrap;
@@ -1298,16 +1395,18 @@ kbd {
     min-width: 220px;
   }
   /* Primary controls grow to a ~44px thumb target on a phone. The theme control
-     JOINS this list rather than taking a rule of its own — and it has to be
-     named here, not left to `button`: `.theme-toggle`'s own `min-height: 32px`
-     outranks a bare element selector at any width, media query or not. */
+     and the nav-collapse control JOIN this list rather than taking a rule of
+     their own — and they have to be named here, not left to `button`: their own
+     `min-height: 32px` outranks a bare element selector at any width, media
+     query or not. */
   button,
   .button,
   input[type="submit"],
   .sidebar__item,
   .actions a,
   .actions button,
-  .theme-toggle {
+  .theme-toggle,
+  .nav-collapse {
     min-height: 44px;
   }
   /* The new-issue modal becomes a full-width sheet that caps at the screen height

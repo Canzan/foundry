@@ -3,7 +3,11 @@
     <span class="sidebar__monogram" aria-hidden="true">{{ nav.monogram() }}</span>
     <span class="sidebar__workspace" title="{{ nav.workspace_name }}">{{ nav.workspace_name }}</span>
   </div>
-  <nav class="sidebar__nav" aria-label="Primary">
+  {# nav-collapse-toggle — the ONE server-rendered part of the collapse control:
+     the id its `aria-controls` names. An id is static and inert with scripting
+     off, and it keeps static/js/nav-collapse.js to its own two DOM effects
+     instead of a third that reaches outside its own button. #}
+  <nav id="sidebar-nav" class="sidebar__nav" aria-label="Primary">
     <a class="sidebar__item{% if nav.is_home() %} sidebar__item--active{% endif %}" href="/"{% if nav.is_home() %} aria-current="page"{% endif %}>Home</a>
     <a class="sidebar__item{% if nav.is_board() %} sidebar__item--active{% endif %}" href="{{ nav.board_href }}"{% if nav.is_board() %} aria-current="page"{% endif %}>Board</a>
   </nav>
