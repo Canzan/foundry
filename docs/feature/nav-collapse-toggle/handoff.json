@@ -1,0 +1,1937 @@
+{
+"acceptance": {
+"S1": [
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F144",
+"L3/F154"
+],
+"still_passes_if": "F297",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: Folding the left nav away gives its width to the page content"
+},
+"expected": "F295",
+"stimulus": "F294",
+"user_result": "F296"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2/F149",
+"L2/F150"
+],
+"still_passes_if": "F301",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: A folded-away left nav is still folded away when the operator comes back"
+},
+"expected": "F299",
+"stimulus": "F298",
+"user_result": "F300"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L8/F179"
+],
+"still_passes_if": "F305",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: The folded-away nav is settled before the browser is allowed to paint"
+},
+"expected": "F303",
+"stimulus": "F302",
+"user_result": "F304"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F145",
+"L3/F155"
+],
+"still_passes_if": "F309",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: Opening the left nav again brings its items back"
+},
+"expected": "F307",
+"stimulus": "F306",
+"user_result": "F308"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2/F151"
+],
+"still_passes_if": "F313",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: A left nav the operator opened again stays open on the next load"
+},
+"expected": "F311",
+"stimulus": "F310",
+"user_result": "F312"
+},
+{
+"covers": [
+"P1",
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F159",
+"L4/F160"
+],
+"still_passes_if": "F317",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: Two presses leave the left nav and the remembered choice as they were"
+},
+"expected": "F315",
+"stimulus": "F314",
+"user_result": "F316"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F146"
+],
+"still_passes_if": "F321",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: A press in a second tab leaves the page the operator is reading alone"
+},
+"expected": "F319",
+"stimulus": "F318",
+"user_result": "F320"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3/F156",
+"L2/F150"
+],
+"still_passes_if": "F325",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: Reading three pages without touching the control never rewrites the choice"
+},
+"expected": "F323",
+"stimulus": "F322",
+"user_result": "F324"
+},
+{
+"covers": [
+"P1",
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F163",
+"L5/F164",
+"L5/F165",
+"L5/F166",
+"L5/F167",
+"L5/F168"
+],
+"still_passes_if": "F329",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: The left nav follows the remembered choice, and only this app's own choice folds it"
+},
+"expected": "F327",
+"stimulus": "F326",
+"user_result": "F328"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1"
+],
+"still_passes_if": "F333",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: A mark another tool left with a value of its own still gives one of the two navs"
+},
+"expected": "F331",
+"stimulus": "F330",
+"user_result": "F332"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F337",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: The operator folds the left nav away from the keyboard alone"
+},
+"expected": "F335",
+"stimulus": "F334",
+"user_result": "F336"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F341",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: The control says which way the left nav is set and what the next press does"
+},
+"expected": "F339",
+"stimulus": "F338",
+"user_result": "F340"
+},
+{
+"covers": [
+"P1",
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F345",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: A folded-away left nav leaves no hidden link in the keyboard order"
+},
+"expected": "F343",
+"stimulus": "F342",
+"user_result": "F344"
+},
+{
+"covers": [
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F349",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: With scripting off the left nav is open and there is no control at all"
+},
+"expected": "F347",
+"stimulus": "F346",
+"user_result": "F348"
+},
+{
+"covers": [
+"P2",
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F171"
+],
+"still_passes_if": "F353",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: With stored state refused the page still renders and nothing is reported"
+},
+"expected": "F351",
+"stimulus": "F350",
+"user_result": "F352"
+},
+{
+"covers": [
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F357",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: A screen with no left nav builds no control and reports nothing"
+},
+"expected": "F355",
+"stimulus": "F354",
+"user_result": "F356"
+},
+{
+"covers": [
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7/F174",
+"L7/F175"
+],
+"still_passes_if": "F361",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: A phone screen never scrolls sideways, whichever way the left nav is set"
+},
+"expected": "F359",
+"stimulus": "F358",
+"user_result": "F360"
+},
+{
+"covers": [
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7/F176"
+],
+"still_passes_if": "F365",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: On a phone the folded-away nav leaves the board columns scrolling inside their own strip"
+},
+"expected": "F363",
+"stimulus": "F362",
+"user_result": "F364"
+},
+{
+"covers": [
+"P1",
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F369",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature: The longest workspace name the app allows never widens the folded-away nav"
+},
+"expected": "F367",
+"stimulus": "F366",
+"user_result": "F368"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "NotTested",
+"owner": "solution architect",
+"reason": "F373"
+},
+"expected": "F371",
+"stimulus": "F370",
+"user_result": "F372"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "NotTested",
+"owner": "solution architect",
+"reason": "F377"
+},
+"expected": "F375",
+"stimulus": "F374",
+"user_result": "F376"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L8/F180",
+"T1"
+],
+"still_passes_if": "F381",
+"test": "xtask/src/check_arch.rs, run by cargo xtask check-arch: the pre-paint script layer and its two fixtures"
+},
+"expected": "F379",
+"stimulus": "F378",
+"user_result": "F380"
+}
+]
+},
+"counters": {
+"B": 5,
+"C": 3,
+"E": 14,
+"F": 383,
+"K": 1,
+"L": 8,
+"N": 3,
+"P": 6,
+"S": 1,
+"T": 1,
+"Y": 11
+},
+"design": {
+"adrs": [
+{
+"key": "NAV-COLLAPSE-001",
+"status": "Accepted",
+"title": "Collapse state as a boolean behind a valueless marker"
+}
+],
+"paradigm": "procedural",
+"shared": {
+"constraints": [
+{
+"id": "K1",
+"text": "F17"
+}
+]
+},
+"slices": {
+"S1": {
+"oracle": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature",
+"public_oracle": {
+"expected": "F58",
+"falsifier": "F59",
+"promises": [
+"P1",
+"P2",
+"P3",
+"P4",
+"P5",
+"P6"
+],
+"stimulus": "F57"
+},
+"records": {
+"agreement": [
+{
+"contract": "the content-hashed stylesheet filename under an immutable cache policy",
+"decision": "Migrated",
+"locator": "crates/foundry-app/static/css/foundry.8d661015.css:1",
+"party": "Producer",
+"reason": "F106"
+},
+{
+"contract": "the content-hashed stylesheet filename under an immutable cache policy",
+"decision": "Migrated",
+"locator": "crates/foundry-app/templates/base.html:6",
+"party": "Consumer",
+"reason": "F107"
+},
+{
+"contract": "the content-hashed stylesheet filename under an immutable cache policy",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/lib.rs:344",
+"party": "Consumer",
+"reason": "F108"
+},
+{
+"contract": "the content-hashed stylesheet filename under an immutable cache policy",
+"decision": "Migrated",
+"locator": "crates/foundry-app/static/VENDOR.md:33",
+"party": "Consumer",
+"reason": "F109"
+},
+{
+"contract": "the valueless data-nav-collapsed marker on the document element",
+"decision": "Migrated",
+"locator": "crates/foundry-app/static/js/nav-collapse.js:1",
+"party": "Producer",
+"reason": "F110"
+},
+{
+"contract": "the valueless data-nav-collapsed marker on the document element",
+"decision": "Migrated",
+"locator": "crates/foundry-app/static/css/foundry.8d661015.css:984",
+"party": "Consumer",
+"reason": "F293"
+},
+{
+"contract": "the foundry.nav browser storage key, which outlives every version that wrote it",
+"decision": "Migrated",
+"locator": "crates/foundry-app/static/js/nav-collapse.js:1",
+"party": "Producer",
+"reason": "F112"
+},
+{
+"contract": "the foundry.nav browser storage key, which outlives every version that wrote it",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/static/js/nav-collapse.js:1",
+"party": "Consumer",
+"reason": "F113"
+},
+{
+"contract": "the rail markup mount points .sidebar__brand and .sidebar__user",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/templates/partials/sidebar.html:2",
+"party": "Producer",
+"reason": "F114"
+},
+{
+"contract": "the rail markup mount points .sidebar__brand and .sidebar__user",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/static/js/theme.js:112",
+"party": "Consumer",
+"reason": "F115"
+}
+],
+"architectural_tests": [
+{
+"command": "cargo xtask check-arch",
+"id": "T1",
+"obligation": "F290",
+"oracle": "xtask/src/check_arch.rs"
+}
+],
+"boundaries": {
+"dependency_direction": "F121",
+"driven_ports": [
+"F119",
+"F120"
+],
+"driving_port": "F118",
+"failures": [
+{
+"condition": "F122",
+"id": "B1",
+"observation": "F123",
+"outcome": "Refusal"
+},
+{
+"condition": "F124",
+"id": "B2",
+"observation": "F125",
+"outcome": "Refusal"
+},
+{
+"condition": "F126",
+"id": "B3",
+"observation": "F127",
+"outcome": "Refusal"
+},
+{
+"condition": "F128",
+"id": "B4",
+"observation": "F129",
+"outcome": "Refusal"
+},
+{
+"condition": "F130",
+"id": "B5",
+"observation": "F131",
+"outcome": "Refusal"
+}
+]
+},
+"claims": [
+{
+"admitted_input": "F187",
+"bypass": "F189",
+"constructor": "applyMarker",
+"consumer": "the stylesheet rules that select on [data-nav-collapsed]",
+"harm": "F186",
+"id": "C1",
+"owner": "crates/foundry-app/static/js/nav-collapse.js",
+"proposition": "F185",
+"public_observation": "F188"
+},
+{
+"admitted_input": "F192",
+"bypass": "F194",
+"constructor": "sentinel",
+"consumer": "interpret",
+"harm": "F191",
+"id": "C2",
+"owner": "crates/foundry-app/static/js/nav-collapse.js",
+"proposition": "F190",
+"public_observation": "F193"
+},
+{
+"admitted_input": "F197",
+"bypass": "F199",
+"constructor": "buildToggle",
+"consumer": "the rendered document the operator reads",
+"harm": "F196",
+"id": "C3",
+"owner": "crates/foundry-app/static/js/nav-collapse.js",
+"proposition": "F195",
+"public_observation": "F198"
+}
+],
+"closure": [
+{
+"axis": "Safety",
+"basis": "F228",
+"design": "Pass",
+"evidence": [
+"docs/feature/nav-collapse-toggle/design/nav_collapse_choice.qnt",
+"docs/feature/nav-collapse-toggle/design/verification-receipt.md"
+],
+"runtime": "DesignedNotBuilt",
+"subject": "F227"
+},
+{
+"axis": "Inhabitation",
+"basis": "F230",
+"design": "Pass",
+"evidence": [
+"docs/feature/nav-collapse-toggle/design/verification-receipt.md"
+],
+"runtime": "DesignedNotBuilt",
+"subject": "F229"
+},
+{
+"axis": "PublicReachability",
+"basis": "F232",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F231"
+},
+{
+"axis": "Liveness",
+"basis": "F234",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F233"
+}
+],
+"constraints": [
+"F73",
+"F74",
+"F75",
+"F76",
+"F77",
+"F78",
+"F79",
+"F80"
+],
+"constructors": [
+{
+"name": "interpret",
+"signature": "interpret(storedValue: string | null) -> boolean"
+},
+{
+"name": "sentinel",
+"signature": "sentinel(collapsed: boolean) -> \"collapsed\" | absent, written to or removed from localStorage key foundry.nav"
+},
+{
+"name": "applyMarker",
+"signature": "applyMarker(collapsed: boolean) -> data-nav-collapsed present or absent on document.documentElement"
+},
+{
+"name": "buildToggle",
+"signature": "buildToggle(brand: Element) -> HTMLButtonElement appended to .sidebar__brand, or nothing when the rail is absent"
+}
+],
+"decisions": [
+"F60",
+"F61",
+"F62",
+"F63",
+"F64",
+"F65",
+"F66",
+"F67",
+"F68",
+"F69",
+"F70",
+"F71"
+],
+"equality": [
+{
+"definition": "F142",
+"under": "the five observations above"
+}
+],
+"impact": [
+{
+"decision": "Changed",
+"kind": "static script asset",
+"locator": "crates/foundry-app/static/js/nav-collapse.js:1",
+"reason": "F92"
+},
+{
+"decision": "Changed",
+"kind": "document shell template",
+"locator": "crates/foundry-app/templates/base.html:47",
+"reason": "F292"
+},
+{
+"decision": "Migrated",
+"kind": "stylesheet blob and its content-hash filename",
+"locator": "crates/foundry-app/static/css/foundry.8d661015.css:986",
+"reason": "F94"
+},
+{
+"decision": "Migrated",
+"kind": "static cache-control unit tests in the production crate",
+"locator": "crates/foundry-app/src/lib.rs:344",
+"reason": "F95"
+},
+{
+"decision": "Migrated",
+"kind": "asset provenance table",
+"locator": "crates/foundry-app/static/VENDOR.md:33",
+"reason": "F96"
+},
+{
+"decision": "Changed",
+"kind": "architecture gate layer",
+"locator": "xtask/src/check_arch.rs:1615",
+"reason": "F97"
+},
+{
+"decision": "Changed",
+"kind": "release notes",
+"locator": "CHANGELOG.md:897",
+"reason": "F98"
+},
+{
+"decision": "Changed",
+"kind": "acceptance feature file",
+"locator": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature:1",
+"reason": "F99"
+},
+{
+"decision": "Changed",
+"kind": "acceptance step module and its registration",
+"locator": "crates/foundry-acceptance/src/steps/feature_nav_collapse.rs:1",
+"reason": "F100"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "sidebar template",
+"locator": "crates/foundry-app/templates/partials/sidebar.html:1",
+"reason": "F101"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "theme control asset",
+"locator": "crates/foundry-app/static/js/theme.js:36",
+"reason": "F102"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "navigation render-contract scenarios",
+"locator": "crates/foundry-acceptance/src/steps/feature_navigation_bar.rs:1",
+"reason": "F103"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "phone-layout scenarios",
+"locator": "crates/foundry-acceptance/src/steps/feature_pwa_mobile.rs:1",
+"reason": "F104"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "theme control scenarios",
+"locator": "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:1",
+"reason": "F105"
+}
+],
+"laws": [
+{
+"evidence": [
+"docs/feature/nav-collapse-toggle/design/nav_collapse_choice.qnt",
+"docs/feature/nav-collapse-toggle/design/verification-receipt.md"
+],
+"id": "L1",
+"kind": "Invariant",
+"layer": "Domain",
+"owner": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F143",
+"treatment": {
+"cases": [
+"F144",
+"F145",
+"F146"
+],
+"kind": "Finite",
+"reason": "F147"
+}
+},
+{
+"evidence": [
+"docs/feature/nav-collapse-toggle/design/nav_collapse_choice.qnt",
+"docs/feature/nav-collapse-toggle/design/verification-receipt.md"
+],
+"id": "L2",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F148",
+"treatment": {
+"cases": [
+"F149",
+"F150",
+"F151"
+],
+"kind": "Finite",
+"reason": "F152"
+}
+},
+{
+"evidence": [
+"docs/feature/nav-collapse-toggle/design/nav_collapse_choice.qnt",
+"docs/feature/nav-collapse-toggle/design/verification-receipt.md"
+],
+"id": "L3",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F153",
+"treatment": {
+"cases": [
+"F154",
+"F155",
+"F156"
+],
+"kind": "Finite",
+"reason": "F157"
+}
+},
+{
+"id": "L4",
+"kind": "Algebraic",
+"layer": "Domain",
+"owner": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F158",
+"treatment": {
+"cases": [
+"F159",
+"F160"
+],
+"kind": "Finite",
+"reason": "F161"
+}
+},
+{
+"id": "L5",
+"kind": "RoundTrip",
+"layer": "Adapter",
+"owner": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F162",
+"treatment": {
+"cases": [
+"F163",
+"F164",
+"F165",
+"F166",
+"F167",
+"F168"
+],
+"kind": "Finite",
+"reason": "F169"
+}
+},
+{
+"id": "L6",
+"kind": "Invariant",
+"layer": "Infrastructure",
+"owner": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F170",
+"treatment": {
+"cases": [
+"F171"
+],
+"kind": "Finite",
+"reason": "F172"
+}
+},
+{
+"id": "L7",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/static/css/foundry.8d661015.css",
+"statement": "F173",
+"treatment": {
+"cases": [
+"F174",
+"F175",
+"F176"
+],
+"kind": "Finite",
+"reason": "F177"
+}
+},
+{
+"id": "L8",
+"kind": "Invariant",
+"layer": "Infrastructure",
+"owner": "xtask/src/check_arch.rs",
+"statement": "F178",
+"treatment": {
+"cases": [
+"F179",
+"F180"
+],
+"kind": "Finite",
+"reason": "F181"
+}
+}
+],
+"models": [
+{
+"assumptions": [
+"F220",
+"F221",
+"F222",
+"F223"
+],
+"atoms": [
+{
+"kind": "Constant",
+"name": "COLLAPSED",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"symbol": "STORAGE_VALUE"
+},
+{
+"kind": "State",
+"name": "stored",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"symbol": "window.localStorage item foundry.nav"
+},
+{
+"kind": "State",
+"name": "collapsedA",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"symbol": "the collapsed boolean of the script closure, mirrored by data-nav-collapsed"
+},
+{
+"kind": "State",
+"name": "collapsedB",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"symbol": "the same boolean in a second document of the same origin"
+},
+{
+"kind": "State",
+"name": "storageUsable",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"symbol": "the guarded try block around every localStorage access"
+},
+{
+"atomicity": "F218",
+"kind": "Action",
+"name": "loadA",
+"site": "crates/foundry-app/templates/base.html",
+"symbol": "the head script top-level run on a new document"
+},
+{
+"atomicity": "F219",
+"kind": "Action",
+"name": "pressA",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"symbol": "the toggle click handler"
+},
+{
+"kind": "Action",
+"name": "refuseStorage",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"symbol": "the catch arm of the guarded localStorage access"
+},
+{
+"kind": "Action",
+"name": "outsideWrite",
+"site": "no runtime symbol in this repository",
+"symbol": "model-only: any writer of the key that is not this feature"
+},
+{
+"kind": "State",
+"name": "syncedA",
+"site": "no runtime symbol in this repository",
+"symbol": "model-only bookkeeping: whether this document read the key more recently than the last press"
+},
+{
+"kind": "State",
+"name": "trusted",
+"site": "no runtime symbol in this repository",
+"symbol": "model-only bookkeeping: whether the stored value is still the one this feature wrote"
+}
+],
+"language": "Quint",
+"mutants": [
+{
+"description": "F224",
+"id": "N1",
+"kills": [
+"aSyncedDocumentShowsTheLastChoice"
+]
+},
+{
+"description": "F225",
+"id": "N2",
+"kills": [
+"railShowsThisDocumentsOwnChoice"
+]
+},
+{
+"description": "F226",
+"id": "N3",
+"kills": [
+"storageHoldsTheLastPress"
+]
+}
+],
+"path": "docs/feature/nav-collapse-toggle/design/nav_collapse_choice.qnt",
+"properties": [
+{
+"kind": "Invariant",
+"name": "railShowsThisDocumentsOwnChoice",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F213",
+"symbol": "applyMarker"
+},
+{
+"kind": "Invariant",
+"name": "aSyncedDocumentShowsTheLastChoice",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F214",
+"symbol": "interpret"
+},
+{
+"kind": "Invariant",
+"name": "storageHoldsTheLastPress",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F215",
+"symbol": "sentinel"
+},
+{
+"kind": "Invariant",
+"name": "neverCollapsed",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F216",
+"symbol": "buildToggle"
+},
+{
+"kind": "Invariant",
+"name": "neverReexpanded",
+"site": "crates/foundry-app/static/js/nav-collapse.js",
+"statement": "F217",
+"symbol": "buildToggle"
+}
+]
+}
+],
+"not_applicable": [
+{
+"analysis": "contract_tests",
+"reason": "F116"
+},
+{
+"analysis": "prefactoring",
+"reason": "F117"
+}
+],
+"observations": [
+{
+"cannot_distinguish": "F133",
+"description": "F132",
+"result_type": "two CSS pixel lengths"
+},
+{
+"cannot_distinguish": "F135",
+"description": "F134",
+"result_type": "presence or absence, plus the attribute set of that script tag"
+},
+{
+"cannot_distinguish": "F137",
+"description": "F136",
+"result_type": "a string and a boolean"
+},
+{
+"cannot_distinguish": "F139",
+"description": "F138",
+"result_type": "document scroll width against window inner width"
+},
+{
+"cannot_distinguish": "F141",
+"description": "F140",
+"result_type": "an element count and a list of unhandled script errors"
+}
+],
+"refuted": [
+{
+"cause": "F183",
+"counterexample": "F184",
+"statement": "F182"
+}
+],
+"reuse": [
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-app/static/js/nav-collapse.js:1",
+"reason": "F81",
+"symbol": "nav-collapse.js"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/base.html:47",
+"reason": "F291",
+"symbol": "theme.js"
+},
+{
+"decision": "Extend",
+"locator": "xtask/src/check_arch.rs:1615",
+"reason": "F83",
+"symbol": "check_static_asset_integrity"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/lib.rs:344",
+"reason": "F84",
+"symbol": "static_cache_control_value"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/static/VENDOR.md:33",
+"reason": "F85",
+"symbol": "VENDOR.md"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/static/js/theme.js:41",
+"reason": "F86",
+"symbol": "STORAGE_KEY"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/templates/partials/sidebar.html:2",
+"reason": "F87",
+"symbol": "sidebar__brand"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/static/css/foundry.8d661015.css:953",
+"reason": "F88",
+"symbol": "app-shell__content"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-acceptance/src/support/browser_harness.rs:408",
+"reason": "F89",
+"symbol": "new_session"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-acceptance/src/steps/feature_navigation_bar.rs:33",
+"reason": "F90",
+"symbol": "sidebar__nav"
+},
+{
+"decision": "Extend",
+"locator": "CHANGELOG.md:897",
+"reason": "F91",
+"symbol": "foundry.8d661015.css"
+}
+],
+"risks": [
+{
+"allowed": "F237",
+"forbidden": "F238",
+"id": "Y1",
+"kind": "Stressor",
+"owner": "solution architect",
+"preserved": "F236",
+"residue": "F239",
+"source": "F235"
+},
+{
+"allowed": "F242",
+"forbidden": "F243",
+"id": "Y2",
+"kind": "Stressor",
+"owner": "solution architect",
+"preserved": "F241",
+"residue": "F244",
+"source": "F240"
+},
+{
+"allowed": "F247",
+"forbidden": "F248",
+"id": "Y3",
+"kind": "Stressor",
+"owner": "solution architect",
+"preserved": "F246",
+"residue": "F249",
+"source": "F245"
+},
+{
+"allowed": "F252",
+"forbidden": "F253",
+"id": "Y4",
+"kind": "Stressor",
+"owner": "product owner",
+"preserved": "F251",
+"residue": "F254",
+"source": "F250"
+},
+{
+"allowed": "F257",
+"forbidden": "F258",
+"id": "Y5",
+"kind": "Stressor",
+"owner": "crafter",
+"preserved": "F256",
+"residue": "F259",
+"source": "F255"
+},
+{
+"allowed": "F262",
+"forbidden": "F263",
+"id": "Y6",
+"kind": "SinglePointOfFailure",
+"owner": "crafter",
+"preserved": "F261",
+"residue": "F264",
+"source": "F260"
+},
+{
+"allowed": "F267",
+"forbidden": "F268",
+"id": "Y7",
+"kind": "Bypass",
+"owner": "solution architect",
+"preserved": "F266",
+"residue": "F269",
+"source": "F265"
+},
+{
+"allowed": "F272",
+"forbidden": "F273",
+"id": "Y8",
+"kind": "Bypass",
+"owner": "host",
+"preserved": "F271",
+"residue": "F274",
+"source": "F270"
+},
+{
+"allowed": "F277",
+"forbidden": "F278",
+"id": "Y9",
+"kind": "Stressor",
+"owner": "product owner",
+"preserved": "F276",
+"residue": "F279",
+"source": "F275"
+},
+{
+"allowed": "F282",
+"forbidden": "F283",
+"id": "Y10",
+"kind": "Stressor",
+"owner": "crafter",
+"preserved": "F281",
+"residue": "F284",
+"source": "F280"
+},
+{
+"allowed": "F287",
+"forbidden": "F288",
+"id": "Y11",
+"kind": "Stressor",
+"owner": "crafter",
+"preserved": "F286",
+"residue": "F383",
+"source": "F382"
+}
+],
+"states": [
+{
+"kind": "Admitted",
+"state": "F200"
+},
+{
+"kind": "Admitted",
+"state": "F201"
+},
+{
+"kind": "Admitted",
+"owner": "solution architect",
+"state": "F202"
+},
+{
+"kind": "Admitted",
+"owner": "solution architect",
+"state": "F203"
+},
+{
+"kind": "Admitted",
+"owner": "product owner",
+"state": "F204"
+},
+{
+"kind": "Excluded",
+"state": "F205"
+},
+{
+"kind": "Excluded",
+"state": "F206"
+},
+{
+"kind": "Excluded",
+"state": "F207"
+},
+{
+"kind": "Excluded",
+"state": "F208"
+},
+{
+"kind": "Excluded",
+"state": "F209"
+},
+{
+"kind": "Unknown",
+"owner": "solution architect",
+"state": "F210"
+},
+{
+"kind": "Unknown",
+"owner": "product owner",
+"state": "F211"
+},
+{
+"kind": "Unknown",
+"owner": "product owner",
+"state": "F212"
+}
+]
+},
+"supports": [
+"crates/foundry-acceptance/src/steps/feature_nav_collapse.rs",
+"crates/foundry-acceptance/src/lib.rs",
+"crates/foundry-acceptance/tests/acceptance.rs",
+"crates/foundry-acceptance/src/support/browser_harness.rs"
+],
+"targets": [
+{
+"change": "Create",
+"path": "crates/foundry-app/static/js/nav-collapse.js",
+"reason": "F50"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/base.html",
+"reason": "F51"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/static/css/foundry.8d661015.css",
+"reason": "F52"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/lib.rs",
+"reason": "F53"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/static/VENDOR.md",
+"reason": "F54"
+},
+{
+"change": "Extend",
+"path": "xtask/src/check_arch.rs",
+"reason": "F55"
+},
+{
+"change": "Extend",
+"path": "CHANGELOG.md",
+"reason": "F56"
+}
+],
+"verification": [
+"scripts/test-in-lima.sh cargo xtask check-arch",
+"scripts/test-in-lima.sh cargo xtask smoke",
+"scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-toggle cargo test -p foundry-acceptance --release",
+"scripts/test-in-lima.sh env FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo xtask ci"
+]
+}
+}
+},
+"expectations": {
+"rows": [
+{
+"blocking": "yes",
+"id": "E1",
+"lacuna": "F19",
+"promises": [
+"P1"
+],
+"text": "F18"
+},
+{
+"blocking": "yes",
+"id": "E2",
+"lacuna": "F21",
+"promises": [
+"P1"
+],
+"text": "F20"
+},
+{
+"blocking": "yes",
+"id": "E3",
+"lacuna": "F23",
+"promises": [
+"P2"
+],
+"text": "F22"
+},
+{
+"blocking": "yes",
+"id": "E4",
+"lacuna": "F25",
+"needs": "F26",
+"promises": [
+"P2"
+],
+"text": "F24"
+},
+{
+"blocking": "yes",
+"id": "E5",
+"lacuna": "F28",
+"promises": [
+"P2"
+],
+"text": "F27"
+},
+{
+"blocking": "yes",
+"id": "E6",
+"lacuna": "F30",
+"promises": [
+"P3"
+],
+"text": "F29"
+},
+{
+"blocking": "yes",
+"id": "E7",
+"lacuna": "F32",
+"promises": [
+"P3"
+],
+"text": "F31"
+},
+{
+"blocking": "yes",
+"id": "E8",
+"lacuna": "F34",
+"promises": [
+"P4"
+],
+"text": "F33"
+},
+{
+"blocking": "yes",
+"id": "E9",
+"lacuna": "F36",
+"promises": [
+"P4"
+],
+"text": "F35"
+},
+{
+"blocking": "yes",
+"id": "E10",
+"isolated": "yes",
+"lacuna": "F38",
+"needs": "F39",
+"promises": [
+"P5"
+],
+"text": "F37"
+},
+{
+"blocking": "yes",
+"id": "E11",
+"isolated": "yes",
+"lacuna": "F41",
+"needs": "F42",
+"promises": [
+"P5"
+],
+"text": "F40"
+},
+{
+"blocking": "yes",
+"id": "E12",
+"lacuna": "F44",
+"needs": "F45",
+"promises": [
+"P6"
+],
+"text": "F43"
+},
+{
+"blocking": "yes",
+"id": "E13",
+"lacuna": "F47",
+"needs": "F45",
+"promises": [
+"P6"
+],
+"text": "F46"
+},
+{
+"blocking": "yes",
+"id": "E14",
+"lacuna": "F49",
+"needs": "F45",
+"promises": [
+"P6"
+],
+"text": "F48"
+}
+]
+},
+"facts": {
+"F1": "Add a left nav toggle - The left nav should be collapsible and will stay collapsed until expanded again by the user.",
+"F10": "the operator activates the toggle",
+"F100": "New step module, owned by the acceptance designer; it must also be declared in the steps module list and used from tests/acceptance.rs the way every other feature module is, or cucumber never collects it.",
+"F101": "No selector is renamed, removed or newly required. The control is appended by script at runtime, so every HTTP-lane scraper assertion over this markup keeps its meaning.",
+"F102": "Not edited. It keeps mounting into .sidebar__user and keeps its accessible name in aria-label, so hiding its word span in the collapsed strip costs it no name. The byte-identical port stays byte-identical.",
+"F103": "Its scraper reads the server HTML, where nothing this feature adds appears. Expanded is the markup default, so the existing rail, item, user-menu and sign-out assertions are unaffected.",
+"F104": "Its no-horizontal-overflow and desktop-unchanged assertions still hold: the collapsed state is never the initial state of a session that has not stored a choice, and the phone block re-asserts the top-bar geometry for the collapsed selector.",
+"F105": "The control reachability, focus indicator and 24x24 / 44x44 target scenarios run on a session with no stored nav choice, so the rail is expanded and the theme control geometry is the shipped one.",
+"F106": "The blob bytes change, so its name must become the new sha256 prefix.",
+"F107": "The only link tag that serves the stylesheet to a browser; a stale href resolves to a deleted file and the gate static-reference layer refuses it.",
+"F108": "Three cache-control assertions name the path literally and fail on the old name.",
+"F109": "The provenance row path and digest are recomputed by the gate from the committed bytes.",
+"F11": "the left nav is expanded again, and it stays expanded across reloads and pages",
+"F110": "Sole writer. It stamps presence or absence from a boolean and never writes a value.",
+"F112": "Writes the single sentinel \"collapsed\" or removes the key; it never writes a word for expanded, so the pre-feature default stays absence.",
+"F113": "Reads it through a total interpretation: any string that is not exactly the sentinel, including a value left by another tool or a later version, reads as expanded. No stored value can be rejected or crash the read.",
+"F114": "Both already exist and neither is renamed or restructured.",
+"F115": "The theme control keeps appending into .sidebar__user and keeps its accessible name in aria-label; the collapsed strip hides its word span only.",
+"F116": "No party in this change can change apart from the others. The one contract whose parties could drift, the content-hashed stylesheet filename against base.html, the three cache-control tests and the VENDOR.md row, is already decided by the shipped asset-hash, VENDOR-digest and static-reference layers of cargo xtask check-arch, which recompute from the committed bytes rather than from a hand-written record. Every other party, the script, the marker, the stylesheet rules and the template tag, ships in one deployable in the same commit and is covered by the primary oracle. No persisted or wire data outlives a producer version except the browser storage key, whose producer and consumer are the same file and whose foreign-value case is an admitted state with its own law case.",
+"F117": "Nothing existing is in the way. The change adds one asset, one head tag and additive stylesheet rules, and touches no structure a preserving move could improve first. The one rename it forces, the stylesheet content hash, cannot be done before the edit: the new name IS the hash of the new bytes, so it is a mechanical consequence of the change and not a move that could be verified green before it.",
+"F118": "HTTP GET on any authenticated app-shell page (/, /team/{team}/project/{project}, .../report, /admin/tokens, /workspace/invites) rendered in a real browser, plus the operator activating the rail collapse control in that document",
+"F119": "the browser origin localStorage key foundry.nav, read and written only by static/js/nav-collapse.js, every access guarded",
+"F12": "The toggle works with the keyboard and states in its accessible name or state whether the nav is expanded or collapsed.",
+"F120": "the valueless data-nav-collapsed attribute on the document element, the only channel from the script to the stylesheet",
+"F121": "the stylesheet depends on the marker, the marker depends on the stored sentinel, and nothing in Rust depends on either; no server-side code reads or writes the collapse choice, so no route, handler, migration or FOUNDRY_ setting enters the feature",
+"F122": "Site storage is refused for the origin, so reading the stored choice throws.",
+"F123": "The page renders the expanded rail, nothing is reported to the operator, and no unhandled script error appears. The choice does not survive the next load.",
+"F124": "Site storage is refused for the origin, so writing the choice throws.",
+"F125": "The press still moves the rail in this document; only persistence is lost. Not observable through a signed-in screen, because refusing site storage also blocks the session cookie.",
+"F126": "The script never runs: scripting is disabled, or the asset fails to load.",
+"F127": "The rail renders expanded, exactly as before this feature, and no control for it exists in the document.",
+"F128": "The document carries no rail, which is every pre-auth and utility screen.",
+"F129": "No control is built and no element is appended; the marker is still stamped on the document element, where no rule consumes it.",
+"F13": "With JavaScript disabled, the left nav shows expanded and no toggle shows, as before this feature.",
+"F130": "The key holds a value this feature never wrote.",
+"F131": "The rail renders expanded. No error, no refusal copy, and no third geometry.",
+"F132": "the rendered width of the rail and of the content box on one authenticated page at a fixed viewport, read from the live browser",
+"F133": "which stylesheet rule produced either width, and whether the state came from a press in this document or from the stored choice",
+"F134": "whether the document element carries the collapse marker at the first moment a script can read it, together with the shape of the tag that put it there",
+"F135": "the pixels of the first painted frame; this suite uses no CDP surface, so first-frame colour is not observable and the no-flash promise rests on the render-blocking tag shape plus paint timing",
+"F136": "the accessible name and the expanded state the toggle exposes, read through the browser",
+"F137": "the glyph a sighted operator sees, and whether a screen reader announces the name the way the operator expects",
+"F138": "whether the page overflows horizontally at a real 390 by 844 mobile viewport, in each rail state",
+"F139": "overflow inside an element that scrolls itself, which the board columns do by design",
+"F14": "At phone width (480 px and below) the page has no horizontal scroll with the nav expanded or collapsed.",
+"F140": "how many controls for the nav exist in the document, and whether anything was reported to the operator, on a session with scripting disabled or site storage refused",
+"F141": "what the rail would have done had scripting been on in that same session",
+"F142": "Two documents are equal when they show the same rail and content widths, the same marker presence, the same accessible name and expanded state, the same overflow verdict and the same control count. The stored string is NOT observable through any of them, so a browser holding no key, a browser holding \"expanded\" and a browser holding \"1\" are the same document; only the exact sentinel \"collapsed\" is a different one.",
+"F143": "The rail shows what the operator of this document last asked for, her own press or the choice the document loaded with, and nothing else moves it; a press in another tab of the same browser never moves this rail.",
+"F144": "expanded rail, one press: the rail is collapsed and the content box is wider by the width the rail gave up",
+"F145": "collapsed rail, one press: the rail is expanded again at its shipped 240 px",
+"F146": "collapsed rail, a press in a second tab of the same browser: this tab geometry does not change until it navigates",
+"F147": "The state domain is two values over two documents, a closed finite domain, so examples cover every transition and a generated property would repeat them.",
+"F148": "A document that has read the storage key more recently than any press shows the last choice made in any document of this browser, which is what staying collapsed across reloads and pages means.",
+"F149": "collapse, then reload the same page: still collapsed",
+"F15": "Syncing the nav choice across browsers, devices or accounts.",
+"F150": "collapse, then open another app-shell page: still collapsed",
+"F151": "collapse, expand again, then reload: expanded",
+"F152": "Closed finite domain: two states crossed with the two ways a document is re-read, reload and navigation.",
+"F153": "After a press the storage key holds exactly that press canonical form, and a document load never rewrites the key.",
+"F154": "press to collapsed: the key holds the sentinel",
+"F155": "press back to expanded: the key is gone, not set to a word",
+"F156": "three page loads with no press: the key is byte-identical to what it was before them",
+"F157": "Closed finite domain over the two states and the one load operation; the load case is the one that matters, because a load that normalised storage would erase a real collapsed choice the first time storage happened to be unreadable.",
+"F158": "Activating the toggle twice returns the rail to the geometry it started from.",
+"F159": "start expanded, two presses: expanded, and the key is absent",
+"F16": "In the app shell, the operator collapses the left nav with a toggle; it stays collapsed across reloads and pages until the operator expands it again.",
+"F160": "start collapsed, two presses: collapsed, and the key holds the sentinel",
+"F161": "The carrier is a boolean and the operation is its negation, so the domain has exactly two members; an exhaustive pair of examples IS the whole domain.",
+"F162": "Reading back what the feature wrote yields the same state, and every other stored string yields the expanded default rather than a state no stylesheet matches.",
+"F163": "no key: expanded",
+"F164": "the sentinel \"collapsed\": collapsed",
+"F165": "the word \"expanded\": expanded",
+"F166": "the case variant \"Collapsed\": expanded",
+"F167": "the value \"1\": expanded",
+"F168": "the value \"null\": expanded",
+"F169": "The round trip over the feature own two forms is finite and exhaustive. The broad half, arbitrary strings from an outside writer, has no runner: the pure core is JavaScript and the repository has no JS test framework, so the six cases above are the observable projection of a law that is total by construction over all strings.",
+"F17": "The collapsed or expanded choice is kept per browser, the same way the theme choice is kept, not per account or across devices.",
+"F170": "With site storage refused for the origin, the page still renders and nothing is reported to the operator.",
+"F171": "storage-refused session on the sign-in screen: the page renders, the document carries no collapse marker, and no unhandled script error is reported",
+"F172": "The other half of the degradation, that a press still moves the rail with storage refused, is unreachable by construction and is NOT claimed as tested: refusing site storage also blocks the session cookie, so no signed-in screen is reachable, and the rail renders only on signed-in screens. The theme control recorded the same exclusion for the same reason.",
+"F173": "No app-shell page overflows horizontally at a real phone viewport, with the rail expanded or collapsed.",
+"F174": "dashboard at 390 by 844, rail expanded: no horizontal overflow",
+"F175": "dashboard at 390 by 844, rail collapsed: no horizontal overflow",
+"F176": "board at 390 by 844, rail collapsed: no page overflow, and the columns strip still scrolls within its own container",
+"F177": "The authority bound is one breakpoint, so the domain is the two states crossed with the surfaces the shipped mobile harness already drives.",
+"F178": "Every script tag in the document shell that must run before the browser is permitted to paint is render-blocking: none of them carries defer, async or type=module.",
+"F179": "the shipped shell passes",
+"F18": "On a page of the app shell, the operator sees a toggle control for the left nav, and activates it to collapse the expanded nav: the nav becomes narrow or goes away.",
+"F180": "a pre-paint tag given defer, async or type=module is refused, naming the tag and the flash it would reintroduce",
+"F181": "The law governs a set, not a pair: it must still refuse a third pre-paint script added later, which is why it lives in the gate rather than in a scenario about one tag.",
+"F182": "A document that has loaded and whose own control has not been pressed shows the last choice made in any document of this browser.",
+"F183": "Law scope, not the carrier: the guard named the wrong fact. Whether a document agrees with the key is an ORDERING fact, whether it read the key more recently than the last press that rewrote it, and nothing in the product promises that a press reaches a document that is already open. The guard was restated over that ordering and the two-tab divergence became an admitted state.",
+"F184": "Document A loads with no key under foundry.nav, then the operator presses the control in document B. The key holds the sentinel and A still shows the expanded rail, while A own control has never been pressed.",
+"F185": "The document can never carry a collapse marker that selects a third rail geometry.",
+"F186": "A stray marker value would match no rule, leaving a rail that is neither collapsed nor expanded and a content box of unpredictable width, which no scenario would name and no operator could repair.",
+"F187": "any string of any length under localStorage key foundry.nav, or no key at all",
+"F188": "the rail and content widths at a fixed viewport",
+"F189": "JavaScript has no static checker, so this is centralised construction rather than a proved predicate: the state is a boolean and the attribute is valueless, and the SELECTOR matches on presence, so even an outside script, an extension or devtools writing a value still selects one of exactly two geometries. The bypass that would reopen it is a later edit that rewrites the selector to match a VALUE; the pre-paint script law does not cover that, so it stays a review obligation on the stylesheet.",
+"F19": "The promise does not say where the control is, what it looks like, or that the operator can find it without help. An oracle can find the control by a known identifier and never show that an operator sees or recognizes it.",
+"F190": "The feature never stores a word for the expanded state.",
+"F191": "Two stored forms for one state would make an operator who expanded indistinguishable from a browser that never touched the control, and the pre-feature default would stop being the absence of a key, which is exactly what the no-JavaScript promise rests on.",
+"F192": "the boolean the control holds",
+"F193": "the rail on the next page load in the same browser",
+"F194": "An outside writer can still leave any value in the key. interpret is total over strings, so such a value reads as expanded; the design admits that state rather than refusing it, and the storage key agreement rows record it.",
+"F195": "No control for the nav exists in a document where scripting never ran.",
+"F196": "A server-rendered toggle would be present but dead with scripting off, and a dead control is worse than no control: the operator presses it and the page does nothing.",
+"F197": "a document of the app shell, with or without scripting",
+"F198": "the count of nav controls in the document on a scripting-disabled session, which must be zero while the rail renders expanded",
+"F199": "The template contains no button, so there is no server-side path to a dead control. A later change that moves the control into partials/sidebar.html would reopen it; no gate covers that, so it stays a review obligation on the template.",
+"F2": "An operator can collapse the left nav to give the page more room, and it stays collapsed across pages and reloads until the operator expands it again.",
+"F20": "After the nav collapses, the page content uses the released width: the text and the controls reflow wider, and no empty band stays where the nav was.",
+"F200": "Expanded with no key: every operator who has never touched the control, and every browser with scripting off.",
+"F201": "Collapsed with the sentinel in the key: the rail is a control strip and the content box holds the width the rail gave up.",
+"F202": "A foreign value in the key, left by another tool, an extension or a later version: read as expanded, not refused.",
+"F203": "Site storage refused for the origin: the control still moves the rail in this document and the choice does not survive the next load.",
+"F204": "Two tabs of one browser disagreeing: the tab that was already open keeps its geometry until it reloads or navigates.",
+"F205": "A third rail geometry: the marker is valueless and the selector matches on presence.",
+"F206": "A stored word for the expanded state: the expanded state removes the key.",
+"F207": "An invisible but focusable nav link in the collapsed rail: the hidden items take display none, so they leave the focus order and the accessibility tree together.",
+"F208": "A control present with scripting off: the button exists only in script.",
+"F209": "A collapsed desktop rail width applied inside the phone top-bar layout: the phone block re-asserts the bar geometry for the collapsed selector.",
+"F21": "The words \"the width the nav gave up\" give no quantity. An oracle can show that the content box became wider while a part of the gutter stays empty, or while the content is overlapped or cut off.",
+"F210": "Whether the first painted frame of a collapsed operator page is ever the expanded rail. No CDP surface is used, so the first frame pixels are not observable; the render-blocking tag shape and the paint-timing measurement are the available evidence.",
+"F211": "Whether an operator with two tabs open expects the second tab to follow the first immediately. Out of the promised scope today; a storage event listener would be the change.",
+"F212": "Whether hiding the rail navigation links while collapsed, rather than showing an icon-only rail, matches what the operator wants. The shipped items are text-only anchors with no icons, so an icon rail is not available without new iconography.",
+"F213": "The rail of each document equals that document last asked-for state, unconditionally, so a press moves this rail whatever storage does and a press in the other document never moves it.",
+"F214": "A document that read the key more recently than the last press shows the last choice made in either document, while the stored value is still the one this feature wrote.",
+"F215": "The key holds the canonical form of the last press, and no document load rewrites it.",
+"F216": "Refutation witness, expected to fail: the collapsed rail is reachable from the admitted initial state through the operator own press.",
+"F217": "Refutation witness, expected to fail: collapsing and then expanding again returns the rail to its starting geometry, which is the expand-again promise.",
+"F218": "One document load. The read, the decision and the attribute stamp all happen inside the render-blocking script, so a browser never observes the document between them.",
+"F219": "One operator event. The flip, the attribute stamp, the storage write and the label repaint run in one task; a refused write does not undo the three others.",
+"F22": "The operator collapses the nav, then reloads the same page in the same browser: the nav is collapsed when the page is ready to use.",
+"F220": "Two documents of one browser origin, which is the smallest shape that has two actors on one storage key.",
+"F221": "One shared storage key, with no cross-document notification between the two documents.",
+"F222": "Paint ordering is outside the model: no step of it says anything about when the browser is permitted to paint.",
+"F223": "A refused storage origin refuses reads and writes together, as measured for the theme control on chromedriver 151.",
+"F224": "A document load shows the expanded rail whatever the key holds, so the read side of persistence is gone.",
+"F225": "A press is remembered but does not stamp the document, so the rail only moves on the next load.",
+"F226": "A press moves the rail but never writes the key, so nothing is remembered.",
+"F227": "the collapse choice as it travels between the storage key and the documents that read it",
+"F228": "Three invariants verified exhaustively by Apalache through quint verify at six steps over two documents and six actions, each with its own mutant counterexample, plus two construction claims that make a third rail geometry and a stored word for expanded unrepresentable rather than checked. No production byte of the feature exists yet, so nothing is observed at runtime.",
+"F229": "both rail states, and the return trip between them",
+"F23": "An observation that is made after the load is complete cannot show what the operator saw during the load. A collapsed marker in the page is not proof that the nav looks collapsed.",
+"F230": "Two witnesses were refuted on the clean model, which is the evidence: neverCollapsed fell to Apalache at four steps, so the collapsed rail is reachable from the admitted initial state; neverReexpanded fell to both the simulator and Apalache, so collapsing and expanding again returns the rail to its start.",
+"F231": "the path from the operator press to an observation at the public driving port",
+"F232": "HTTP GET on an authenticated app-shell page in a real browser reaches crates/foundry-app/templates/base.html, which loads the new crates/foundry-app/static/js/nav-collapse.js; buildToggle appends the button into the existing .sidebar__brand of crates/foundry-app/templates/partials/sidebar.html; the click handler calls applyMarker and sentinel; the collapsed rules in the renamed stylesheet consume the marker; and the rail and content widths are read from the live browser. Every site is a concrete repository path and an existing mount point. Acyclic and buildable; nothing is implemented yet.",
+"F233": "progress of the collapse choice",
+"F234": "No liveness claim: every step is the operator own synchronous DOM event or a document load, the toggle is enabled in both states, and no step waits on another process scheduling, a timer, a queue or a remote party. Bounded synchronous execution carries this axis, for liveness only; the safety, refinement and reachability axes above rest on executed checks, not on it.",
+"F235": "Negates the assumption that site storage is available: the origin refuses localStorage, so both the read and the write throw.",
+"F236": "The page renders, the rail works in this document, nothing is reported to the operator.",
+"F237": "The choice does not survive the next load; every page opens expanded.",
+"F238": "An unguarded first read that kills the script at parse time, which would take the control down on every screen.",
+"F239": "The read guard is observable on the sign-in screen; the write guard is not observable at all, because refusing storage also blocks the session cookie and the rail renders only on signed-in screens.",
+"F24": "During that reload the operator never sees the expanded nav: no moment of the load shows the wide nav before the collapsed nav.",
+"F240": "Negates the assumption that scripting runs: the operator has JavaScript off, or the asset fails to load.",
+"F241": "The rail renders expanded exactly as before this feature, with every link reachable.",
+"F242": "No collapse control exists and no choice can be made.",
+"F243": "A server-rendered control that is present but dead.",
+"F244": "None: the button exists only in script, and no template path can build one.",
+"F245": "Negates the assumption that the rail is on the page: the 15 pre-auth and utility screens have no rail.",
+"F246": "Those screens render unchanged; the marker is stamped where no rule consumes it.",
+"F247": "No control is built on them.",
+"F248": "A script error from reaching into an absent mount point.",
+"F249": "buildToggle must return early on a missing .sidebar__brand, the same way theme.js returns on a missing .sidebar__user.",
+"F25": "The promise gives no time limit for a flash and needs frame-level capture. A fast local machine can hide a flash that a slow or throttled machine shows, and an oracle that reads only the page structure cannot see paint at all.",
+"F250": "Negates the assumption of one document at a time: two tabs of the same browser are open and one of them presses the control.",
+"F251": "Each tab keeps a coherent rail, and the key holds the last press.",
+"F252": "The tab that was already open shows the other geometry until it reloads or navigates.",
+"F253": "A tab whose rail and marker disagree, or a press in one tab that resets the other mid-read.",
+"F254": "The divergence is an admitted product state with an open question against the product owner; a storage event listener is the change that would close it.",
+"F255": "Negates the assumption that the stylesheet and the script ship together: a browser holds the previous stylesheet.",
+"F256": "The previous stylesheet lives at a DIFFERENT immutable URL, so a held copy can never serve the new rules; the renamed blob is fetched with the page.",
+"F257": "Nothing: the rename is what makes the two versions distinct resources.",
+"F258": "Editing the blob without renaming it, which pins every holding browser stale at an immutable URL.",
+"F259": "Decided by the shipped asset-hash layer of cargo xtask check-arch, which recomputes the digest from the committed bytes.",
+"F26": "Capture of the painted frames or of the first paint during the load, not only the settled page.",
+"F260": "The one render-blocking head script tag. If it ever gains defer, async or type=module, every collapsed operator sees the expanded rail flash on every navigation, and every test that looks at the settled page still passes.",
+"F261": "The rail still reaches the right state eventually, so no functional scenario fails.",
+"F262": "Nothing: the flash is the defect the whole pre-paint arrangement exists to prevent.",
+"F263": "A silent regression, which is what copying the five deferred neighbours produces.",
+"F264": "Covered by the recorded architectural obligation over the whole set of pre-paint scripts, not by a comment and not by a scenario about one tag.",
+"F265": "An outside writer, another tool on the origin, a browser extension, devtools or a later version of this feature, writes the storage key or the document attribute directly.",
+"F266": "One of exactly two geometries: interpret is total over strings and the stylesheet selects on attribute presence, not on a value.",
+"F267": "The operator loses her own choice to whatever the other writer left.",
+"F268": "A rail that matches no rule, or a read that throws on an unexpected value.",
+"F269": "A later edit that rewrites the selector to match a VALUE would reopen it; no gate covers that, so it stays a review obligation on the stylesheet.",
+"F27": "The operator opens a different page of the app shell in the same browser and finds the nav collapsed, and the nav stays collapsed until the operator activates the toggle: no reload, page change or other use expands it again.",
+"F270": "The browser lane is skipped: cargo xtask ci without FOUNDRY_XTASK_INCLUDE_DOCKER=1 runs none of the needs-browser scenarios, so this whole slice can be green by absence.",
+"F271": "The architectural gate, the cache-control tests and the asset digests still run in the default lane.",
+"F272": "Nothing about this feature observable behaviour is checked in that configuration.",
+"F273": "Reading a green gate without Docker as evidence that the slice behaves.",
+"F274": "The close evidence must name the lane that actually ran; the repository already carries this hazard for every needs-browser feature.",
+"F275": "Second stressor set, not used to derive the design, walked over the finished design: an operator using a screen reader collapses the rail.",
+"F276": "The toggle keeps naming the state and what the next press does, and stays in reading order inside the brand row.",
+"F277": "The navigation links leave the accessibility tree entirely while collapsed; she expands to reach them.",
+"F278": "Links that are invisible but still focusable and announced, which a width-only or opacity-only collapse would produce.",
+"F279": "The hidden items must take display none rather than a visual trick; whether hiding them beats an icon-only rail is an open product question, since the shipped items are text-only anchors with no icons.",
+"F28": "The promise does not define \"the same browser\" (same tab, a second tab, a new window, a private window, a second device). A finite set of page visits cannot show that no other action expands the nav.",
+"F280": "Second stressor set: the operator collapses the rail on a window just above the phone breakpoint and then narrows or rotates to 390 px.",
+"F281": "No horizontal scroll in either state, which is the phone promise.",
+"F282": "The collapsed state stops changing the bar geometry below the breakpoint; it only removes items from the top bar.",
+"F283": "A narrow fixed rail width applied inside the row-direction top bar, which would widen the document.",
+"F284": "The phone block must re-assert width auto and flex 0 0 auto for the collapsed selector; a bare desktop rule would outrank the bar at that width.",
+"F286": "The collapsed strip keeps its set width; the monogram never shrinks and the name is hidden.",
+"F287": "The name is unreachable while collapsed, like the rest of the brand text.",
+"F288": "The brand row widening the strip, which the shipped no-wrap name would do if it were merely clipped instead of hidden.",
+"F29": "With the nav collapsed, the operator activates the toggle and the nav is expanded again: the nav items are legible and the operator can select them.",
+"F290": "Every script tag in the document shell that must run before the browser is permitted to paint is render-blocking: none carries defer, async or type=module. The check governs the whole set of pre-paint scripts, so it must still refuse a third one added later, and it names in its refusal which tag it is and that the flash of the wrong state is what the attribute would reintroduce.",
+"F291": "The document shell carries exactly one render-blocking script, the theme one cited here at line 47, and the hashed stylesheet link at line 6. The feature adds one tag IMMEDIATELY AFTER line 47, in the same render-blocking shape and with no defer, async or type=module, and moves the line 6 href to the renamed blob. The five deferred tags below line 47 do not move, and copying their shape is the regression the architectural obligation refuses.",
+"F292": "Two sites in this file change. The new pre-paint script tag is inserted immediately after line 47, the existing theme tag, so both pre-paint scripts sit together above the deferred five; and the stylesheet link at line 6 moves to the renamed blob. Nothing else in the head or the body changes.",
+"F293": "TO BE CREATED: no rule in this file reads the marker today. The cited line is the insertion anchor, the existing .sidebar rule whose 240px geometry the collapsed state overrides; the new rules go immediately after it and select on attribute PRESENCE, so a stray value from any writer still selects one of exactly two geometries. The collapsed arm inside the existing 480px phone block is the second site.",
+"F294": "An operator signed in at desk width on her dashboard presses the control at the head of the left nav.",
+"F295": "The nav becomes a narrow control strip, the page content grows by exactly the width the nav released, the strip and the content still fill the shell between them, and the browser now holds the one folded-away choice.",
+"F296": "She gets a wider page with no empty band where the nav was, and the app has taken note of her choice.",
+"F297": "The strip were a different width than the designers chose: no promise fixes the strip width, so the row fails only for a nav that does not narrow, or a page that does not take the released room.",
+"F298": "Having folded the nav away, the operator reloads that page, and separately opens the project board in the same browser.",
+"F299": "The narrow strip is there on the reloaded page and on the other page of the app shell.",
+"F3": "An operator can collapse the left nav with a toggle control in the app shell, and the page content then uses the width the nav gave up.",
+"F30": "An oracle can read a state marker or a width and never show that the nav items are legible and selectable again.",
+"F300": "Her choice survives a reload and a move to another page; she does not have to fold the nav again on every screen.",
+"F301": "The choice were kept under another name or in another shape: this row reads the nav she sees, not the spelling of what was stored, which its own row covers.",
+"F302": "Having folded the nav away, the operator opens another page of the app shell and the served document is read as the app sends it.",
+"F303": "The page already carries the folded-away mark, the script that stamps it is declared in the document head with nothing that lets the browser defer it past the first paint, and it finished loading before the browser's own first paint.",
+"F304": "Moving between pages she never sees the wide nav blink open before it folds away again.",
+"F305": "A very slow machine still painted one frame of the open nav: the pixels of the first frame are not observable here, so this row rests on the tag the app sends and on the paint timing the browser reports.",
+"F306": "With the nav folded away, the operator presses the control again.",
+"F307": "The nav is back at the full width it has always had, every item is in the layout, in sight and selectable, and the browser holds no nav choice at all.",
+"F308": "She gets her nav back exactly as it was, and the app is back to its untouched state rather than remembering a second choice.",
+"F309": "The items were restyled or reordered: the row observes that each one is laid out, visible and selectable, not how it looks.",
+"F31": "After that expansion, the nav is still expanded when the operator reloads the page and when the operator opens a different page of the app shell.",
+"F310": "Having folded the nav away and opened it again, the operator reloads the page.",
+"F311": "The nav is still at its full width after the load.",
+"F312": "Once she has her nav back it stays back, and no later load folds it away under her.",
+"F313": "The nav were open because nothing was ever stored rather than because the stored choice was removed: the removal is pinned by the row above.",
+"F314": "From the open nav, and again from the folded-away nav, the operator presses the control twice.",
+"F315": "The nav is back in the state it started from, and the browser holds the choice that state calls for: nothing at all for the open nav, the single folded-away choice for the folded one.",
+"F316": "Two presses leave her exactly where she was, on screen and in what the app remembers.",
+"F317": "Each press took an unobservably long time: the row observes the state after the pair, not how quickly either press lands.",
+"F318": "With her dashboard open in two tabs of one browser, the operator folds the nav away in the second tab, then reloads the first.",
+"F319": "The tab she was reading still shows the open nav, and shows the narrow strip only after she reloads it.",
+"F32": "Expanded is also the start condition. An observation of an expanded nav cannot tell a kept choice from a stored choice that was lost, cleared or never written.",
+"F320": "A press in another tab never moves the page she is reading; the page she reloads picks up her latest choice.",
+"F321": "The two tabs agreed immediately by some other route: this row would then fail, which is the point; it fixes today's promise, and following the other tab at once is a change the product owner owns.",
+"F322": "A browser that already holds the folded-away choice opens the dashboard, the project board and the project change report, with no press anywhere.",
+"F323": "Every one of those pages shows the narrow strip, and the choice at the origin is byte-for-byte the one the operator left.",
+"F324": "Reading around the app keeps her nav folded away and never quietly rewrites or loses the choice she made.",
+"F325": "A page rewrote the choice to the identical bytes: a rewrite that changes nothing is indistinguishable here, and it costs the operator nothing.",
+"F326": "The browser holds, in turn, nothing at all, this app's own folded-away choice, and four strings it never wrote: expanded, Collapsed, 1 and null. The operator opens her dashboard.",
+"F327": "Only this app's own choice folds the nav away; every other string, and no string at all, leaves the nav open with its control present and reporting the open state. No string produces a third nav.",
+"F328": "A value left by another tool, an extension or an older version costs her nothing worse than an open nav; she never meets a nav that matches no rule.",
+"F329": "Another unlisted string also read as open: that is the behaviour this row asks for, and the table walks the whole domain the design admits.",
+"F33": "With the keyboard only, the operator moves the focus to the toggle, sees which control has the focus, and operates it to collapse and to expand the nav.",
+"F330": "On the open dashboard, something other than this app stamps the page with a folded-away mark that carries a value of its own.",
+"F331": "The nav is exactly as narrow as the strip the app's own valueless mark gives, and the strip and the content still fill the shell.",
+"F332": "Whatever writes that mark, she gets one of the two navs she knows, never a half-folded page she cannot repair.",
+"F333": "The outside writer's mark were refused outright rather than read as folded: the row compares the two marks' geometry, and either way there are only two navs.",
+"F334": "The operator walks the keyboard focus to the nav control from a cleared focus, then presses Enter; and in the second case Space.",
+"F335": "The control is reached in the page's own reading order, each key folds the nav away, and the control keeps the focus with a visible indicator.",
+"F336": "She can fold the nav away without a mouse and can see where she is while she does it.",
+"F337": "The control sat late in the reading order: the row observes that the keyboard reaches it within the page, not where in the order it sits.",
+"F338": "The operator reads what the control reports about the open nav, then folds the nav away and reads it again.",
+"F339": "The control is a real button whose published state names the open nav and then the folded one, whose target is the rail's own primary navigation, and whose name is never empty, names what it works, and is different after the press.",
+"F34": "A scripted pointer click, or a key event that is sent directly to the control, can pass without proof that the control is in the keyboard order and that the focus is visible.",
+"F340": "An operator who cannot see the page is told which way the nav is set and what her next press will do, every time.",
+"F341": "The wording were phrased differently: the exact words are the implementation's to choose, so the row fixes the published state, a non-empty name that names the nav, and that the name changes with the press.",
+"F342": "With the nav folded away, the operator walks the whole page with the Tab key.",
+"F343": "No item of the folded-away part of the rail ever takes the focus and those items are out of the layout, while the monogram, the nav control and the theme control are all still there and the theme control still carries its name.",
+"F344": "She never tabs into a nav she cannot see, and folding the nav away does not cost her the controls that stay in the strip.",
+"F345": "A screen reader announced the strip awkwardly: the row observes the focus order and the layout, not how any one assistive technology reads it aloud.",
+"F346": "A browser with scripting switched off at the browser opens the dashboard.",
+"F347": "The nav renders at its full width with every item usable, and no control over the nav exists in the document or can be reached from the keyboard.",
+"F348": "With scripting off she gets the app exactly as it was before this feature: a usable nav and no control that looks live and does nothing.",
+"F349": "The page differed from the pre-feature page in some way this row does not read: no record of the earlier page is kept, so the row fixes the open nav, usable items and the absence of a control.",
+"F35": "The toggle tells the operator who uses assistive technology if the nav is now expanded or collapsed, in its accessible name or in its state, and that wording or state changes when the operator operates the toggle.",
+"F350": "A browser that refuses this site access to stored state opens the sign-in screen, where the refusal is first probed against the real origin.",
+"F351": "The screen renders its form, the document carries no folded-away mark, the fold asset was fetched on that load, and the browser's own record of unhandled script errors is empty while a deliberate error proves that record works.",
+"F352": "A browser that blocks stored state costs her only the memory of her choice: the page still works and nothing is reported at her.",
+"F353": "Some other browser refused stored state in a different way: the row drives the one refusal this suite can produce against a real origin.",
+"F354": "A browser that holds the folded-away choice opens the sign-in screen, which has no nav.",
+"F355": "No control is built there, the document still carries the mark that no rule on that screen consumes, and no script error is reported.",
+"F356": "The fifteen screens with no nav are untouched by this feature and report nothing at her.",
+"F357": "A screen with no nav rendered differently in some way this row does not read: it observes the absent control, the stamped mark and the quiet error record.",
+"F358": "A real phone viewport 390, then 480, then 320 CSS pixels wide opens the dashboard, once holding no nav choice and once holding the folded-away choice.",
+"F359": "At every width and in both states the page does not scroll sideways, the nav still lays out as the top bar across the screen, and the state under test is really reached: the control is present and the mark agrees with what the origin holds.",
+"F36": "The promise accepts a name or a state, thus an oracle can read one attribute in one condition only. An attribute in the page is not proof that a screen reader announces the change.",
+"F360": "On a phone, in either nav state and at the widths the promise covers, nothing slides sideways under her thumb.",
+"F361": "A width between the three driven ones overflowed: the promise covers an open range and three widths are driven, including the breakpoint itself and a width well under it.",
+"F362": "A real 390-pixel phone viewport holding the folded-away choice opens the project board.",
+"F363": "The page does not scroll sideways while the board's own columns strip still carries the sideways scroll inside itself.",
+"F364": "The board stays usable on her phone with the nav folded away: the columns move, the page does not.",
+"F365": "The strip scrolled further or less far than before: the row observes that the strip, and not the page, is what scrolls.",
+"F366": "The workspace is renamed to the longest name the app admits, 24 characters, and the operator folds the nav away on her dashboard.",
+"F367": "The strip is still narrower than the open nav, the workspace name is out of the layout rather than merely clipped, and the page does not scroll sideways.",
+"F368": "The longest workspace name she can create cannot stretch her folded-away nav or push the page sideways.",
+"F369": "A name longer than the app admits behaved differently: the app refuses such a name in the store, so no operator can create one, and a name out of the layout cannot contribute width at any length.",
+"F37": "The operator disables JavaScript in the browser, opens a page of the app shell, and the left nav shows expanded and usable.",
+"F370": "A page loads in a browser whose first painted frame could show the open nav before the folded one.",
+"F371": "No frame shows the wrong nav.",
+"F372": "The operator never sees the nav blink open during a load.",
+"F373": "The pixels of the first painted frame are not observable in this suite: no paint-capture surface is used, which the design records as an open question. The available evidence is the render-blocking shape of the tag and the paint timing, both observed by the oracle.",
+"F374": "A browser refuses this site access to stored state and the operator presses the nav control on a signed-in page.",
+"F375": "The press still folds the nav in that document and only the memory of the choice is lost.",
+"F376": "Even where her choice cannot be remembered, the control still works for the page she is on.",
+"F377": "Unreachable by construction, as the design records: refusing site storage also refuses the session cookie, so no signed-in screen exists under that condition, and the nav renders only on signed-in screens. The read half of the same guard is observed on the sign-in screen.",
+"F378": "A script in the document shell that must run before the browser paints is given defer, async or type=module, and a third such script is added later; the shipped shell is checked as it stands.",
+"F379": "The architecture gate passes on the shipped shell and refuses the altered one, naming which tag it is and that the flash of the wrong nav is what the attribute would bring back.",
+"F38": "JavaScript that is disabled in one test engine does not stand for the settings of the operator browser. The observation cannot show that a stored collapsed choice never changes the page without JavaScript.",
+"F380": "The operator keeps the promise of no flash as the shell grows, instead of losing it silently to an attribute copied from a neighbouring tag.",
+"F381": "A pre-paint script were moved out of the head entirely rather than deferred: that is a different law, and the oracle observes the shipped shell's own tag from the served document. The layer at this locator is authored where the design assigns it, in a file this role does not write; the public oracle covers the shipped-shell arm of the same law.",
+"F382": "Second stressor set: the workspace name is at the longest a workspace can carry, 24 characters, which the database caps with workspaces_name_max_24_chars, and the rail is collapsed. The oracle drives \"Northwind Logistics Ltd.\".",
+"F383": "The hidden name must take display none, not only overflow hidden, inside the collapsed rail. The cap means no longer name is creatable, so 24 characters is the whole stressor and not a sample of it.",
+"F39": "A browser session with JavaScript disabled.",
+"F4": "Collapsed stays collapsed",
+"F40": "With JavaScript disabled, the page gives no nav toggle: the operator sees no toggle and cannot reach one with the keyboard, and the page looks as it did before this feature.",
+"F41": "A control that is absent from the page source is not the same as a control that is present, hidden and still reachable by keyboard. The words \"as before this feature\" need a record of the earlier page, which a present observation cannot give.",
+"F42": "A browser session with JavaScript disabled; a record of the no-JavaScript page before this feature for the comparison.",
+"F43": "At a viewport width of 480 px with the nav expanded, the whole page fits the width: no horizontal scroll bar, no sideways scroll, and no content cut off at the right edge.",
+"F44": "A check of the page width or of the scroll bar does not see a part of the page that scrolls sideways inside it, and one width says nothing about the smaller widths that the promise also covers.",
+"F45": "Control of the viewport width.",
+"F46": "At a viewport width of 480 px with the nav collapsed, the page also fits the width, with no horizontal scroll.",
+"F47": "The collapsed condition can be observed on one page and at one width only. A wider page body on a different page of the app shell stays unseen.",
+"F48": "At a phone width below 480 px, for example 320 px, the page has no horizontal scroll with the nav expanded and with the nav collapsed.",
+"F49": "The range \"480 px and below\" is open. Any count of selected widths leaves other widths unseen, and a no-scroll observation does not show that the nav and the content stay usable at that width.",
+"F5": "the operator collapsed the left nav",
+"F50": "The whole mechanism: the guarded read, the boolean carrier, the valueless marker, the button and its accessible name. A straight-line guarded IIFE, like theme.js.",
+"F51": "One render-blocking script tag beside theme.js, with no defer, async or type=module, and the stylesheet href moved to the renamed blob.",
+"F52": "The collapsed rail rules, the hidden items, the theme-control word span, and the collapsed arm inside the existing 480px block. The file is then renamed to the sha256 prefix of its new bytes.",
+"F53": "The three static cache-control tests name the stylesheet hashed path; the path moves, the assertions do not.",
+"F54": "The provenance row path and sha256 move with the renamed blob, and the gate recomputes the digest.",
+"F55": "One layer for the pre-paint script law over the whole set of pre-paint scripts, with its fixtures in the style the file uses, and its sentence added to the gate PASSED line.",
+"F56": "The repository records every stylesheet re-hash here; this change names its new hash.",
+"F57": "An operator signed in to the app shell opens an authenticated page in a real browser at desktop width, activates the rail collapse control with the keyboard, then reloads that page and opens another app-shell page in the same browser; she then activates the control again and reloads once more. The same journey is driven at a real 390 by 844 phone viewport, and once in a session with scripting disabled.",
+"F58": "After the first activation the rail is a narrow control strip and the content box is wider by the width the rail gave up, with the rail and content widths still summing to the shell width. After the reload and after the other page, the rail is still the strip and the document already carries the collapse marker at the first moment a script can read it, from a head script tag that carries no defer, async or type=module. After the second activation the rail is back at its shipped 240 px and stays expanded across the next reload. Throughout, the control is reachable by keyboard and its accessible name and expanded state say which state the rail is in and what the next press does. At 390 by 844 the page has no horizontal overflow in either state. With scripting disabled the rail renders expanded and no control for it exists in the document.",
+"F59": "Any of these fails the slice: the content box width does not change when the rail does, or the two widths stop summing to the shell width; the rail is expanded again after a reload or on another page; the marker is absent at first script time, or its script tag carries defer, async or type=module; the control cannot be reached or activated from the keyboard, or its accessible name does not name the state; the page overflows horizontally at 390 by 844 in either state; a control for the nav is present in a document where scripting never ran; or a nav link stays focusable while the rail is collapsed.",
+"F6": "the operator reloads the page or opens another page in the app shell in the same browser",
+"F60": "Follow the theme control pattern but not the theme asset: a NEW render-blocking head script crates/foundry-app/static/js/nav-collapse.js stamps the collapse marker before first paint and builds its own button, so no control exists when scripting is off. theme.js stays a byte-identical canzan-lift port and is not taught a second job, which base.html states as a standing constraint.",
+"F61": "The per-document collapse state is a JavaScript boolean held in the nav-collapse.js closure; the document marker is the VALUELESS attribute data-nav-collapsed on the document element; the stored form is the single sentinel \"collapsed\" under localStorage key foundry.nav, and the expanded state is the ABSENCE of that key. Carrier owner: static/js/nav-collapse.js, which also owns the effects (attribute write, storage write) and the one error (a refused storage origin). No per-process state exists outside the document.",
+"F62": "The toggle mounts into .sidebar__brand at the head of the rail, so it stays visible and focusable in the collapsed strip. It adds no focus rule: .sidebar :focus-visible already outlines focused descendants of the rail in both palettes.",
+"F63": "Collapsed geometry: the rail narrows to a control strip. .sidebar__nav, .sidebar__workspace and the .sidebar__user links, identity and sign-out form take display none, so no invisible element stays focusable; .sidebar__monogram, the collapse toggle and .theme-toggle stay. .theme-toggle__mode hides so the theme control fits the strip, which costs it no accessible name because theme.js puts that name in aria-label, not in the word span.",
+"F64": "No rule widens the content: .app-shell__content is already flex 1 1 auto with min-width 0, so it takes exactly the width the rail gives up. The affected layers: domain, where the rail is in one of two states; application, where a press and a document load are the only operations; adapter, where the stored sentinel and the document marker live; infrastructure, where a refused storage origin and a browser that never runs the script live.",
+"F65": "Phone layout: inside the existing max-width 480px media block the collapsed selector re-asserts the top-bar geometry (width auto, flex 0 0 auto), so the collapsed state only removes items from the bar and never applies a desktop rail width inside a row layout. The toggle joins that block existing 44px touch-target list beside .theme-toggle.",
+"F66": "The control is a real button element carrying aria-expanded, aria-controls pointing at the rail primary navigation, and an aria-label that names the current state and what the next press does, in the shape theme.js describe() already uses. Keyboard activation needs no code: a button answers Enter and Space.",
+"F67": "No cross-tab synchronisation: a second already-open tab keeps its geometry until it reloads or navigates. The product scopes out syncing across browsers, devices and accounts, and within one browser promises only the reload and the next page. No storage event listener is added.",
+"F68": "The collapsed rules land in the one hand-authored stylesheet, whose filename is its own sha256 prefix under an immutable cache policy. The blob is renamed to foundry dot new-8-hex dot css, and base.html, the three static cache-control tests in crates/foundry-app/src/lib.rs and the static/VENDOR.md provenance row move with it in the same change. cargo xtask check-arch decides that rename; no new gate is needed for it.",
+"F69": "Checker mapping: Quint with the Apalache backend covers the cross-document state machine (three laws, two reachability witnesses) because two documents of one browser write one storage key, which is shared state with more than one actor. No TLA+: the feature states no fairness or temporal claim. No Agda: there is no proof over types to discharge. Paint ordering is outside every model and is carried as a separate observation.",
+"F7": "the left nav is still collapsed, with no flash of the expanded nav, until the operator expands it with the toggle",
+"F70": "Every localStorage read and write is wrapped, as theme.js does. A refused origin costs the operator persistence and never the control: the press still moves the rail in the current document.",
+"F71": "Procedural paradigm, preserved from the surfaces this change touches: nav-collapse.js is a straight-line guarded IIFE like theme.js, and the new gate layer is a free function beside the other check_arch layers. Procedural has no smell catalogue, so the general classes applied are duplicated knowledge (one owner for the storage key and the sentinel), long function (separate read, decide, apply and build steps), and primitive obsession (the boolean carrier replaces a state string). No class or object is introduced to fit a label.",
+"F73": "The stored value has NO bound: localStorage admits any string of any length under key foundry.nav, and the authority states no bound either. The design admits that whole domain and interprets every string that is not exactly \"collapsed\" as expanded, so no narrower validation is introduced and no input is refused.",
+"F74": "Phone bound from the promise: at 480 px and below the page has no horizontal scroll with the rail expanded or collapsed. The shipped mobile harness drives 390 by 844 with real mobile viewport semantics, which is inside that bound; 480 px itself is the boundary the media query switches at and is exercised as its own case.",
+"F75": "The expanded rail stays at its shipped 240 px. The collapsed strip width is a design value set once in the stylesheet and named in the ADR; it is not a product bound, and no promise fixes it.",
+"F76": "DEVIATION from the standing rule that every formal law gets a fast executable projection on the pure core in the default suite: the pure core is JavaScript, and the repository has no JS test runner, no package.json and no node step in cargo xtask ci. Each law projection is therefore a browser-lane acceptance observation through the real document, and no toolchain is added for an S-sized change. The gap is the risk owner item recorded against the host, not a silent omission.",
+"F77": "The browser lane is tagged needs-browser, excluded from the default lane, and runs only with FOUNDRY_XTASK_INCLUDE_DOCKER=1 in cargo xtask ci. A green gate on a host with no Docker observes none of this feature scenarios, so the close evidence for this slice must name the lane that actually ran.",
+"F78": "Deployment independence holds by construction: the feature adds no route, handler, migration, secret, service, URL, DNS name or FOUNDRY_ setting, so a standalone docker compose, plain Kubernetes or single-binary deploy needs nothing new.",
+"F79": "Tests and both gates run in the shared Lima VM local-dev through scripts/test-in-lima.sh, never on Docker on the Mac. The acceptance lane for this feature is selected with FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-toggle.",
+"F8": "Expand again",
+"F80": "Default test budgets apply unchanged: no infrastructure suite, no derogation request and no new default-suite time. The browser scenarios already live outside the default lane under the shipped needs-browser arrangement.",
+"F81": "No shipped asset owns a navigation state. keyboard.js owns shortcuts, the three board scripts own the board, and theme.js is a frozen port. Extending any of them would put a second responsibility in a file whose own header forbids it, so the collapse state gets the one file that owns it.",
+"F83": "The static-asset gate family already decides hashed-filename honesty, VENDOR.md digests and static reference resolution, so the rename needs no new gate. One layer is added beside them for the pre-paint script law, which now governs two scripts and no longer fits a template comment.",
+"F84": "Three shipped cache-control tests name the stylesheet by its hashed path. They are the consumers the rename must carry; the assertions themselves are unchanged.",
+"F85": "The provenance row records the stylesheet path and its sha256, and cargo xtask check-arch recomputes it. Both move with the renamed blob in the same change.",
+"F86": "Consulted as the pattern owner and deliberately NOT edited: the pre-paint head tag, the JS-built control, the guarded storage access, the foundry-dot namespace for the key and the state-naming accessible name all come from here. base.html records that this file is a byte-identical canzan-lift port whose divergence is the thing the port exists to avoid, so the nav state gets its own asset and its own key beside this one.",
+"F87": "Unchanged on purpose, and the mount point. The control is built in JavaScript, so a server-rendered button would be a dead control with scripting off; this row already exists at the head of the rail and survives the collapse, so the toggle has somewhere visible to live without a new element in the template.",
+"F88": "The one hand-authored stylesheet already owns .app-shell, this flexible content column, the whole .sidebar family, the theme control and the 480px phone block. The collapsed geometry belongs beside them and needs no rule of its own for the content, which is already flex 1 1 auto with min-width 0; a second stylesheet would split the rail rules across two cache-immutable blobs.",
+"F89": "Every browser state this oracle needs already ships beside this constructor: open_mobile_session for real 390x844 mobile semantics, new_session_without_scripting for the scripting-off promise, new_dark_session_refusing_site_storage for the refused-storage guard, plus unhandled_script_errors, viewport and sign_in_through_browser. No new harness capability is required.",
+"F9": "the left nav is collapsed",
+"F90": "Consulted as the render-contract consumer: its scraper asserts this class contract over the server HTML, including the rail, the two primary items, the user menu and the sign-out form. The feature renames none of those selectors and adds no server-rendered element, so those scenarios stay green untouched.",
+"F91": "The repository records every stylesheet re-hash in this file, which is why the previous one is named at this line. This change adds its own entry for the new hash; nothing else in the file moves.",
+"F92": "New file: the whole collapse mechanism, served from the app own origin and linked from the document shell.",
+"F94": "Rules added, so the bytes change and the filename must become the new sha256 prefix. The old URL is served immutable, so an edit without the rename pins every holding browser stale; cargo xtask check-arch refuses it.",
+"F95": "Three assertions name the stylesheet hashed path. They move to the new name with their assertions unchanged.",
+"F96": "The row path and recorded sha256 move with the renamed blob; the gate recomputes the digest from the committed bytes.",
+"F97": "One layer added for the pre-paint script law, with its two unit fixtures in the style the file already uses, and its sentence joined to the gate PASSED line.",
+"F98": "The repository records every stylesheet re-hash here; this change adds its own entry naming the new hash.",
+"F99": "New oracle, owned by the acceptance designer: the slice scenarios and the lane tags."
+},
+"product": {
+"decisions": [
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F17"
+}
+],
+"promises": [
+{
+"id": "P1",
+"kind": "Outcome",
+"text": "F3"
+},
+{
+"given": "F5",
+"id": "P2",
+"kind": "Scenario",
+"then": "F7",
+"title": "F4",
+"when": "F6"
+},
+{
+"given": "F9",
+"id": "P3",
+"kind": "Scenario",
+"then": "F11",
+"title": "F8",
+"when": "F10"
+},
+{
+"id": "P4",
+"kind": "Outcome",
+"text": "F12"
+},
+{
+"id": "P5",
+"kind": "Outcome",
+"text": "F13"
+},
+{
+"id": "P6",
+"kind": "Outcome",
+"text": "F14"
+}
+],
+"scope_out": [
+"F15"
+],
+"slices": [
+{
+"id": "S1",
+"observation": "F16",
+"promises": [
+"P1",
+"P2",
+"P3",
+"P4",
+"P5",
+"P6"
+]
+}
+]
+},
+"request": "F1",
+"schema": "nwdes.handoff",
+"scope": {
+"id": "nav-collapse-toggle",
+"kind": "Feature"
+},
+"version": 4,
+"work": {
+"size": "S",
+"value": "F2"
+}
+}

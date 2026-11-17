@@ -620,6 +620,27 @@ const MOBILE_PIXEL_RATIO: u32 = 3;
 /// would neither change it nor be honoured. This is what separates the honest
 /// mobile-viewport probe from a desktop resize that proves nothing.
 pub async fn open_mobile_session() -> fantoccini::Client {
+    open_mobile_session_sized(MOBILE_WIDTH, MOBILE_HEIGHT).await
+}
+
+/// The same REAL mobile-emulation session at a STATED logical width — the shape
+/// [`open_mobile_session`] is now a wrapper around, so every shipped caller keeps
+/// the 390×844 phone it was written against.
+///
+/// It exists because a promise can be bounded by a RANGE of phone widths ("480px
+/// and below") rather than by one device. A range is only observed by driving
+/// more than one width, and the two interesting ones are not 390: the breakpoint
+/// itself (480, where the media query switches) and a width well under it (320,
+/// the narrowest phone still in use). Resizing a desktop session would not do:
+/// `--headless=new` lays out at the OS window width regardless of the viewport
+/// meta, so a narrow window measures the desktop rules (ADR-003). The emulated
+/// `deviceMetrics` govern the layout viewport, which is why the width travels
+/// here, at session creation, and why this still does NOT call
+/// `set_window_size`.
+///
+/// `pixelRatio` stays the shipped 3: it scales device pixels, not the CSS
+/// lengths every assertion in this suite reads, so one value serves every width.
+pub async fn open_mobile_session_sized(width: u32, height: u32) -> fantoccini::Client {
     let port = ensure_chromedriver();
     let chrome_options = serde_json::json!({
         "args": [
@@ -633,8 +654,8 @@ pub async fn open_mobile_session() -> fantoccini::Client {
         ],
         "mobileEmulation": {
             "deviceMetrics": {
-                "width": MOBILE_WIDTH,
-                "height": MOBILE_HEIGHT,
+                "width": width,
+                "height": height,
                 "pixelRatio": MOBILE_PIXEL_RATIO,
                 "mobile": true,
             }
