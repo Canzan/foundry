@@ -87,7 +87,7 @@
 #                               link with that accessible name (exact, else a part)
 #   width <px>                  change the viewport width
 # Options: --width <px> (1280), --height <px> (800), --phone (a touch phone
-# viewport), --js off (JavaScript disabled for the whole run), --slow <N> (CPU
+# viewport, 390x844 unless --width or --height is given), --js off (JavaScript disabled for the whole run), --slow <N> (CPU
 # slowed N times), --fresh.
 #
 # No subcommand reads the caller's stdin: main runs with stdin from /dev/null.
@@ -350,7 +350,7 @@ host_main() {
       run_op 120 "$cmd" "$replica" "$viewer" "$path" "$@"
       ;;
     browser)
-      local bw=1280 bh=800 bjs=on bslow=1 bfresh=no bphone=no
+      local bw='' bh='' bjs=on bslow=1 bfresh=no bphone=no
       local bviewer=''
       while [ "$#" -gt 0 ]; do
         case "$1" in
@@ -375,6 +375,12 @@ host_main() {
         esac
       done
       [ -n "$bviewer" ] || die "usage: examine-foundry browser <viewer> [options] <step>..."
+      # A phone is 390x844 unless --width or --height says otherwise.
+      if [ "$bphone" = yes ]; then
+        bw="${bw:-390}" bh="${bh:-844}"
+      else
+        bw="${bw:-1280}" bh="${bh:-800}"
+      fi
       case "$bw$bh" in *[!0-9]*) die "--width and --height take pixels" ;; esac
       [ "$bw" -ge 200 ] && [ "$bw" -le 3000 ] && [ "$bh" -ge 200 ] && [ "$bh" -le 3000 ] ||
         die "--width and --height take 200 to 3000"
