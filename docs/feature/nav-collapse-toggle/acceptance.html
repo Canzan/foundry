@@ -998,6 +998,188 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h2>Examination</h2>
 
-<p>None.</p>
+<h3>E1</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Desktop expanded baseline, fresh browser profile (1280x900, JS on, --fresh, integrations page). `look`: page 1280 px wide, horizontal scroll: no; boxes that scroll sideways inside the page: none; boxes reaching past the right edge: none. Landmarks: complementary x=0 w=240 h=900; navigation &quot;Primary&quot; x=12 w=215 h=72 visible, holding visible links &quot;Home&quot; and &quot;Board&quot; (each w=215). A button is present in the rail: accessible name &quot;Left nav: expanded. Collapse the left nav.&quot;, expanded=true, focusable=true, x=149 w=32, visible. `tab-order 15` from the document start: Tab 1 is that button, with focus ring &quot;outline solid 2px rgb(36, 38, 37)&quot;; Tabs 2..15 are Home, Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, Theme, then content links.
+
+</code></pre>
+
+<pre><code>Keyboard collapse at desktop (1280x900, JS on, --fresh, integrations page). Step `key Tab` from the loaded page: &quot;focus: button &#x27;Left nav: expanded. Collapse the left nav.&#x27; at x=149 w=32 visible; focus ring: outline solid 2px rgb(36, 38, 37)&quot;. Step `key Enter`: &quot;focus: button &#x27;Left nav: collapsed. Expand the left nav.&#x27; at x=20 w=32 visible&quot; with a focus ring. The following `look`: complementary x=0 w=72 h=900 (was w=240); the navigation &quot;Primary&quot; landmark is gone; the button now reports expanded=false and the name &quot;Left nav: collapsed. Expand the left nav.&quot;. Page still 1280 px wide, horizontal scroll: no, no sideways-scrolling box, nothing past the right edge. So one keyboard press on the first tab stop narrowed the rail from 240 px to 72 px, and both the accessible name and aria-expanded flipped.
+
+</code></pre>
+
+<h3>E2</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Content takes exactly the released width, with no leftover band. Admin page /admin/instance/integrations, same viewport 1280x900, same build. Nav expanded: main landmark x=272 w=961, complementary w=240, contentinfo w=1265. Nav collapsed: main landmark x=104 w=1129, complementary w=72, contentinfo w=1265. The rail released 240-72 = 168 px and main grew by exactly 1129-961 = 168 px; main&#x27;s right edge is 1233 in both states, and rail+gutter+content still spans the shell (72+32 gutter = 104 collapsed, 240+32 = 272 expanded, so the gutter is unchanged and no empty band remains where the rail was). On the integrations page the same 168 px shift appears in the content controls: link &quot;Manage workspace integrations&quot; x=738 -&gt; x=570, link &quot;New route&quot; x=272 -&gt; x=104, link &quot;History&quot; x=609 -&gt; x=441, button &quot;Pause&quot; x=312 -&gt; x=144. In both states `look` reports horizontal scroll: no, no box scrolling sideways, and no content clipped at the right edge of the integrations page.
+
+</code></pre>
+
+<pre><code>Keyboard collapse at desktop (1280x900, JS on, --fresh, integrations page). Step `key Tab` from the loaded page: &quot;focus: button &#x27;Left nav: expanded. Collapse the left nav.&#x27; at x=149 w=32 visible; focus ring: outline solid 2px rgb(36, 38, 37)&quot;. Step `key Enter`: &quot;focus: button &#x27;Left nav: collapsed. Expand the left nav.&#x27; at x=20 w=32 visible&quot; with a focus ring. The following `look`: complementary x=0 w=72 h=900 (was w=240); the navigation &quot;Primary&quot; landmark is gone; the button now reports expanded=false and the name &quot;Left nav: collapsed. Expand the left nav.&quot;. Page still 1280 px wide, horizontal scroll: no, no sideways-scrolling box, nothing past the right edge. So one keyboard press on the first tab stop narrowed the rail from 240 px to 72 px, and both the accessible name and aria-expanded flipped.
+
+</code></pre>
+
+<h3>E3</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>No flash of the expanded nav during a reload, captured under CPU throttling. Same browser run as the desktop collapse, started with `--slow 5` (the harness reported &quot;CPU slowed 5x&quot;), nav already collapsed. Step `watch-reload` on the integrations page: &quot;paint timing: first-paint at 64 ms, first-contentful-paint at 64 ms. frames sampled before paint: 75 (each row: the frames in a row with the same layout): frames 1-75 (53-1269 ms, loading): navigation: Primary hidden; main: none parsed; complementary: 0+72&quot;. All 75 sampled frames collapse into a single layout row: the rail is 72 px wide (collapsed) and the Primary nav is hidden in every one, and the rail already had its collapsed geometry while main was still unparsed. No sampled frame shows the 240 px rail or a visible Primary nav. A second watched capture at phone width (390x844, nav collapsed, step `watch-go admin/instance/integrations`) reports &quot;first-paint at 28 ms ... frames 1-74 (16-1224 ms, interactive): navigation: Primary hidden; main: 16+343; complementary: 0+375&quot; - again one layout row, Primary hidden throughout, matching the collapsed phone layout (rail height 73) rather than the expanded one (rail height 227).
+
+</code></pre>
+
+<pre><code>Collapsed survives a reload and a different page in the same session. Continuing the desktop run after the watched reload, `look` reports complementary x=0 w=72 h=900, button &quot;Left nav: collapsed. Expand the left nav.&quot; expanded=false focusable=true, no navigation landmark, page 1280 px, horizontal scroll: no; the page is usable (its controls report focusable=true). Then `go admin/instance/integrations`: complementary x=0 w=72, main x=104 w=1129, button &quot;Left nav: collapsed. Expand the left nav.&quot; expanded=false. So after a reload and on a second app-shell page the rail is still the 72 px strip, with no further operator action.
+
+</code></pre>
+
+<h3>E4</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>No flash of the expanded nav during a reload, captured under CPU throttling. Same browser run as the desktop collapse, started with `--slow 5` (the harness reported &quot;CPU slowed 5x&quot;), nav already collapsed. Step `watch-reload` on the integrations page: &quot;paint timing: first-paint at 64 ms, first-contentful-paint at 64 ms. frames sampled before paint: 75 (each row: the frames in a row with the same layout): frames 1-75 (53-1269 ms, loading): navigation: Primary hidden; main: none parsed; complementary: 0+72&quot;. All 75 sampled frames collapse into a single layout row: the rail is 72 px wide (collapsed) and the Primary nav is hidden in every one, and the rail already had its collapsed geometry while main was still unparsed. No sampled frame shows the 240 px rail or a visible Primary nav. A second watched capture at phone width (390x844, nav collapsed, step `watch-go admin/instance/integrations`) reports &quot;first-paint at 28 ms ... frames 1-74 (16-1224 ms, interactive): navigation: Primary hidden; main: 16+343; complementary: 0+375&quot; - again one layout row, Primary hidden throughout, matching the collapsed phone layout (rail height 73) rather than the expanded one (rail height 227).
+
+</code></pre>
+
+<h3>E5</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Collapsed survives a reload and a different page in the same session. Continuing the desktop run after the watched reload, `look` reports complementary x=0 w=72 h=900, button &quot;Left nav: collapsed. Expand the left nav.&quot; expanded=false focusable=true, no navigation landmark, page 1280 px, horizontal scroll: no; the page is usable (its controls report focusable=true). Then `go admin/instance/integrations`: complementary x=0 w=72, main x=104 w=1129, button &quot;Left nav: collapsed. Expand the left nav.&quot; expanded=false. So after a reload and on a second app-shell page the rail is still the 72 px strip, with no further operator action.
+
+</code></pre>
+
+<pre><code>The choice carries across separate browser launches, in both directions. Launch 1 (--fresh) started expanded (240 px, the default for an empty profile) and ended collapsed after one keyboard activation. Launch 2 (a new `browser` invocation, same viewer profile, no --fresh): its very first `look` on the integrations page reports complementary w=72 and button &quot;Left nav: collapsed. Expand the left nav.&quot; expanded=false - so the collapse was stored and read back by a new browser process. Inside launch 2 the operator expanded it again; launch 3 (another new invocation, same profile) found it expanded on its first load (&quot;focus: button &#x27;Left nav: expanded. Collapse the left nav.&#x27;&quot; on the first Tab). Because the stored value immediately before the expansion was &quot;collapsed&quot;, the reload inside launch 2 showing an expanded rail cannot be explained by a lost or never-written store: the earlier collapsed value was not restored. Both values therefore round-trip.
+
+</code></pre>
+
+<pre><code>While the rail is collapsed, no nav link stays focusable, and the strip keeps only two controls. Desktop collapsed, `tab-order 6` from the document start: Tab 1 button &quot;Theme: following your device. Switch to light.&quot; x=20 w=30, Tab 2 link &quot;Manage workspace integrations&quot; x=570, Tab 3 &quot;New route&quot;, Tab 4 &quot;History&quot;, Tab 5 &quot;Edit&quot;, Tab 6 button &quot;Pause&quot; - no nav link appears, and the nav links are absent from the document (&quot;links inside navigation landmarks:&quot; is empty, other links 5 versus 9 expanded). The collapsed strip&#x27;s `look` lists only the toggle and the Theme button; the &quot;Sign out&quot; button present while expanded is also gone from the collapsed document. Expanding restores all of them (O8). This matches the slice&#x27;s &quot;narrow control strip&quot; and its falsifier &quot;a nav link stays focusable while the rail is collapsed&quot;, but it does mean an operator working with the rail collapsed has no Sign out or nav link until she expands it again - a usability point for candidate review, not a breach of any published promise.
+
+</code></pre>
+
+<h3>E6</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Expanding again restores legible, selectable nav items. Launch 2, starting collapsed: `key Tab` focuses &quot;Left nav: collapsed. Expand the left nav.&quot; (focus ring present), `key Enter` yields &quot;focus: button &#x27;Left nav: expanded. Collapse the left nav.&#x27; at x=149 w=32 visible&quot;. The following `look`: complementary x=0 w=240 h=900; navigation &quot;Primary&quot; x=12 w=215 h=72 visible; links inside navigation landmarks: &quot;Home&quot; x=12 w=215 visible and &quot;Board&quot; x=12 w=215 visible; other links on the page 9 (5 while collapsed). Selectability was exercised directly in a separate run (320 px viewport, nav just expanded by keyboard): `key Tab` moved focus to link &quot;Home&quot; at x=12 w=59 visible with a focus ring, and `key Enter` reported &quot;the page changed: / (status 200)&quot;. So after expansion a nav item is both rendered at full width and operable from the keyboard.
+
+</code></pre>
+
+<h3>E7</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Expanded persists across a reload and a different page. Launch 2, after the keyboard expansion: step `reload`, then `look`: complementary x=0 w=240 h=900, navigation &quot;Primary&quot; x=12 w=215 visible with Home and Board, button &quot;Left nav: expanded. Collapse the left nav.&quot; expanded=true. Then `go admin/instance/integrations`, `look`: complementary x=0 w=240, main x=272 w=961, navigation &quot;Primary&quot; visible, button expanded=true. Page 1280/1265 px, horizontal scroll: no in both.
+
+</code></pre>
+
+<pre><code>The choice carries across separate browser launches, in both directions. Launch 1 (--fresh) started expanded (240 px, the default for an empty profile) and ended collapsed after one keyboard activation. Launch 2 (a new `browser` invocation, same viewer profile, no --fresh): its very first `look` on the integrations page reports complementary w=72 and button &quot;Left nav: collapsed. Expand the left nav.&quot; expanded=false - so the collapse was stored and read back by a new browser process. Inside launch 2 the operator expanded it again; launch 3 (another new invocation, same profile) found it expanded on its first load (&quot;focus: button &#x27;Left nav: expanded. Collapse the left nav.&#x27;&quot; on the first Tab). Because the stored value immediately before the expansion was &quot;collapsed&quot;, the reload inside launch 2 showing an expanded rail cannot be explained by a lost or never-written store: the earlier collapsed value was not restored. Both values therefore round-trip.
+
+</code></pre>
+
+<h3>E8</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Desktop expanded baseline, fresh browser profile (1280x900, JS on, --fresh, integrations page). `look`: page 1280 px wide, horizontal scroll: no; boxes that scroll sideways inside the page: none; boxes reaching past the right edge: none. Landmarks: complementary x=0 w=240 h=900; navigation &quot;Primary&quot; x=12 w=215 h=72 visible, holding visible links &quot;Home&quot; and &quot;Board&quot; (each w=215). A button is present in the rail: accessible name &quot;Left nav: expanded. Collapse the left nav.&quot;, expanded=true, focusable=true, x=149 w=32, visible. `tab-order 15` from the document start: Tab 1 is that button, with focus ring &quot;outline solid 2px rgb(36, 38, 37)&quot;; Tabs 2..15 are Home, Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, Theme, then content links.
+
+</code></pre>
+
+<pre><code>Keyboard collapse at desktop (1280x900, JS on, --fresh, integrations page). Step `key Tab` from the loaded page: &quot;focus: button &#x27;Left nav: expanded. Collapse the left nav.&#x27; at x=149 w=32 visible; focus ring: outline solid 2px rgb(36, 38, 37)&quot;. Step `key Enter`: &quot;focus: button &#x27;Left nav: collapsed. Expand the left nav.&#x27; at x=20 w=32 visible&quot; with a focus ring. The following `look`: complementary x=0 w=72 h=900 (was w=240); the navigation &quot;Primary&quot; landmark is gone; the button now reports expanded=false and the name &quot;Left nav: collapsed. Expand the left nav.&quot;. Page still 1280 px wide, horizontal scroll: no, no sideways-scrolling box, nothing past the right edge. So one keyboard press on the first tab stop narrowed the rail from 240 px to 72 px, and both the accessible name and aria-expanded flipped.
+
+</code></pre>
+
+<pre><code>Space also operates the toggle, both ways, and the accessible name and state track it. Desktop 1280x900, same profile (starting collapsed). `key Tab` -&gt; &quot;focus: button &#x27;Left nav: collapsed. Expand the left nav.&#x27; at x=20 w=32 visible; focus ring: outline solid 2px rgb(36, 38, 37)&quot;. `key Space` -&gt; &quot;focus: button &#x27;Left nav: expanded. Collapse the left nav.&#x27; at x=149 w=32&quot;; `look` confirms complementary w=240, navigation &quot;Primary&quot; visible, expanded=true. A second `key Space` -&gt; &quot;focus: button &#x27;Left nav: collapsed. Expand the left nav.&#x27; at x=20 w=32&quot;; `look` confirms complementary w=72, no navigation landmark, expanded=false. Focus stayed on the toggle across both activations and its focus ring was reported each time. Each of the two wordings states the present state (&quot;Left nav: expanded.&quot; / &quot;Left nav: collapsed.&quot;) and the next action (&quot;Collapse the left nav.&quot; / &quot;Expand the left nav.&quot;), and aria-expanded reads true/false to match.
+
+</code></pre>
+
+<h3>E9</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Keyboard collapse at desktop (1280x900, JS on, --fresh, integrations page). Step `key Tab` from the loaded page: &quot;focus: button &#x27;Left nav: expanded. Collapse the left nav.&#x27; at x=149 w=32 visible; focus ring: outline solid 2px rgb(36, 38, 37)&quot;. Step `key Enter`: &quot;focus: button &#x27;Left nav: collapsed. Expand the left nav.&#x27; at x=20 w=32 visible&quot; with a focus ring. The following `look`: complementary x=0 w=72 h=900 (was w=240); the navigation &quot;Primary&quot; landmark is gone; the button now reports expanded=false and the name &quot;Left nav: collapsed. Expand the left nav.&quot;. Page still 1280 px wide, horizontal scroll: no, no sideways-scrolling box, nothing past the right edge. So one keyboard press on the first tab stop narrowed the rail from 240 px to 72 px, and both the accessible name and aria-expanded flipped.
+
+</code></pre>
+
+<pre><code>Space also operates the toggle, both ways, and the accessible name and state track it. Desktop 1280x900, same profile (starting collapsed). `key Tab` -&gt; &quot;focus: button &#x27;Left nav: collapsed. Expand the left nav.&#x27; at x=20 w=32 visible; focus ring: outline solid 2px rgb(36, 38, 37)&quot;. `key Space` -&gt; &quot;focus: button &#x27;Left nav: expanded. Collapse the left nav.&#x27; at x=149 w=32&quot;; `look` confirms complementary w=240, navigation &quot;Primary&quot; visible, expanded=true. A second `key Space` -&gt; &quot;focus: button &#x27;Left nav: collapsed. Expand the left nav.&#x27; at x=20 w=32&quot;; `look` confirms complementary w=72, no navigation landmark, expanded=false. Focus stayed on the toggle across both activations and its focus ring was reported each time. Each of the two wordings states the present state (&quot;Left nav: expanded.&quot; / &quot;Left nav: collapsed.&quot;) and the next action (&quot;Collapse the left nav.&quot; / &quot;Expand the left nav.&quot;), and aria-expanded reads true/false to match.
+
+</code></pre>
+
+<h3>E10</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>With JavaScript off, the current build shows the nav expanded and offers no toggle, even when a collapsed choice is already stored. Two captures, 1280x900, integrations page, &quot;browser: 1280x900, JavaScript off, this viewer&#x27;s own browser profile&quot;. (a) Fresh profile: `look` reports complementary x=0 w=240 h=900, navigation &quot;Primary&quot; x=12 w=215 y=72 h=72 visible with links Home and Board (w=215, visible), buttons only &quot;Sign out&quot; and &quot;Pause&quot;; no nav toggle is listed. `tab-order 15` holds no nav toggle: Tab 1 Home, Tab 2 Board, Tab 3 Settings, Tab 4 Keyboard shortcuts, Tab 5 Integrations, Tab 6 Instance admin, Tab 7 Sign out, Tabs 8-13 content links and Pause, Tab 14 back to the page, Tab 15 Home - 13 stops in all, none of them a nav control. (b) The decisive case: the same profile immediately after a keyboard collapse under JS on (so a collapsed choice is stored and was proven readable in O7). With JS off the page is identical to (a): complementary w=240, Primary nav visible, no toggle in the buttons list, and the first four tab stops are Home, Board, Settings, Keyboard shortcuts. The stored collapsed choice changed nothing without JavaScript.
+
+</code></pre>
+
+<pre><code>The no-JavaScript page is unchanged from the pre-feature build. The harness can run the build from before this feature (`start slack-connected --before`). Pre-feature, JS on, 1280x900, integrations page: complementary x=0 w=240 h=900; navigation &quot;Primary&quot; x=12 w=215 y=72 h=72; buttons Theme, Sign out, Pause; 9 other links; and no nav toggle anywhere - confirming the flag really selects the earlier build. Pre-feature, JS off, same page: complementary x=0 w=240 y=0 h=900; navigation &quot;Primary&quot; x=12 w=215 y=72 h=72; buttons &quot;Sign out&quot; x=20 w=76 and &quot;Pause&quot; x=312 w=69; links Home and Board at x=12 w=215; 9 other links; page 1280 px, horizontal scroll: no; `tab-order 15` gives exactly the same 13 stops in the same order, at the same coordinates, as the current build with JS off (O12). Every reported geometry, control and tab stop of the no-JavaScript page matches between the two builds, including the nav&#x27;s y=72 (with JS on the current build moves Primary to y=78 to seat the toggle row, so the 6 px difference belongs to the JS-on page only).
+
+</code></pre>
+
+<h3>E11</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>With JavaScript off, the current build shows the nav expanded and offers no toggle, even when a collapsed choice is already stored. Two captures, 1280x900, integrations page, &quot;browser: 1280x900, JavaScript off, this viewer&#x27;s own browser profile&quot;. (a) Fresh profile: `look` reports complementary x=0 w=240 h=900, navigation &quot;Primary&quot; x=12 w=215 y=72 h=72 visible with links Home and Board (w=215, visible), buttons only &quot;Sign out&quot; and &quot;Pause&quot;; no nav toggle is listed. `tab-order 15` holds no nav toggle: Tab 1 Home, Tab 2 Board, Tab 3 Settings, Tab 4 Keyboard shortcuts, Tab 5 Integrations, Tab 6 Instance admin, Tab 7 Sign out, Tabs 8-13 content links and Pause, Tab 14 back to the page, Tab 15 Home - 13 stops in all, none of them a nav control. (b) The decisive case: the same profile immediately after a keyboard collapse under JS on (so a collapsed choice is stored and was proven readable in O7). With JS off the page is identical to (a): complementary w=240, Primary nav visible, no toggle in the buttons list, and the first four tab stops are Home, Board, Settings, Keyboard shortcuts. The stored collapsed choice changed nothing without JavaScript.
+
+</code></pre>
+
+<pre><code>The no-JavaScript page is unchanged from the pre-feature build. The harness can run the build from before this feature (`start slack-connected --before`). Pre-feature, JS on, 1280x900, integrations page: complementary x=0 w=240 h=900; navigation &quot;Primary&quot; x=12 w=215 y=72 h=72; buttons Theme, Sign out, Pause; 9 other links; and no nav toggle anywhere - confirming the flag really selects the earlier build. Pre-feature, JS off, same page: complementary x=0 w=240 y=0 h=900; navigation &quot;Primary&quot; x=12 w=215 y=72 h=72; buttons &quot;Sign out&quot; x=20 w=76 and &quot;Pause&quot; x=312 w=69; links Home and Board at x=12 w=215; 9 other links; page 1280 px, horizontal scroll: no; `tab-order 15` gives exactly the same 13 stops in the same order, at the same coordinates, as the current build with JS off (O12). Every reported geometry, control and tab stop of the no-JavaScript page matches between the two builds, including the nav&#x27;s y=72 (with JS on the current build moves Primary to y=78 to seat the toggle row, so the 6 px difference belongs to the JS-on page only).
+
+</code></pre>
+
+<h3>E12</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Narrow viewports, both states, two pages: no horizontal scroll anywhere. All with JS on, keyboard activation, `look` after each change. 480x844 integrations, collapsed: viewport 480x844, page 480 px wide, horizontal scroll: no, boxes that scroll sideways inside the page: none, boxes past the right edge: none; complementary x=0 w=480 h=73 (the rail stacks full-width at this width). 480x844 integrations, expanded by keyboard: page 480 px, horizontal scroll: no, none sideways, none past the right edge; complementary w=480 h=179, navigation &quot;Primary&quot; x=197 w=120 visible with Home x=197 w=59 and Board x=258 w=59, Sign out x=127 w=76, Theme x=207 w=84 - no control crosses 480. Then the `width 320` step, still expanded: viewport 320x844, page 320 px, horizontal scroll: no, none sideways, none past the right edge; Home x=12 w=59, Board x=73 w=59, Theme x=12 w=84, Sign out x=221 w=76 (right edge 297). 320x844 fresh, expanded then collapsed by keyboard: both `look`s report page 320 px, horizontal scroll: no, no sideways box, nothing past the right edge (complementary h=279 expanded, h=73 collapsed). 390x844 fresh, expanded then collapsed: both report page 390 px, horizontal scroll: no, none sideways, none past the right edge. Second page at 480x844 collapsed (/admin/instance/integrations): viewport 465x844, page 465 px, horizontal scroll: no, no sideways box; one entry appears under boxes past the right edge: &quot;1: #document (to x=480)&quot;. That entry is the html box spanning the 480 px layout width while a vertical scroll bar narrows the visual viewport to 465; it also appears with the nav expanded (at 1280 the admin page reports &quot;#document (to x=1280)&quot; in both the expanded and the collapsed state), so it is not caused by collapsing, and horizontal scroll stays &quot;no&quot; in every capture.
+
+</code></pre>
+
+<h3>E13</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Narrow viewports, both states, two pages: no horizontal scroll anywhere. All with JS on, keyboard activation, `look` after each change. 480x844 integrations, collapsed: viewport 480x844, page 480 px wide, horizontal scroll: no, boxes that scroll sideways inside the page: none, boxes past the right edge: none; complementary x=0 w=480 h=73 (the rail stacks full-width at this width). 480x844 integrations, expanded by keyboard: page 480 px, horizontal scroll: no, none sideways, none past the right edge; complementary w=480 h=179, navigation &quot;Primary&quot; x=197 w=120 visible with Home x=197 w=59 and Board x=258 w=59, Sign out x=127 w=76, Theme x=207 w=84 - no control crosses 480. Then the `width 320` step, still expanded: viewport 320x844, page 320 px, horizontal scroll: no, none sideways, none past the right edge; Home x=12 w=59, Board x=73 w=59, Theme x=12 w=84, Sign out x=221 w=76 (right edge 297). 320x844 fresh, expanded then collapsed by keyboard: both `look`s report page 320 px, horizontal scroll: no, no sideways box, nothing past the right edge (complementary h=279 expanded, h=73 collapsed). 390x844 fresh, expanded then collapsed: both report page 390 px, horizontal scroll: no, none sideways, none past the right edge. Second page at 480x844 collapsed (/admin/instance/integrations): viewport 465x844, page 465 px, horizontal scroll: no, no sideways box; one entry appears under boxes past the right edge: &quot;1: #document (to x=480)&quot;. That entry is the html box spanning the 480 px layout width while a vertical scroll bar narrows the visual viewport to 465; it also appears with the nav expanded (at 1280 the admin page reports &quot;#document (to x=1280)&quot; in both the expanded and the collapsed state), so it is not caused by collapsing, and horizontal scroll stays &quot;no&quot; in every capture.
+
+</code></pre>
+
+<h3>E14</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Narrow viewports, both states, two pages: no horizontal scroll anywhere. All with JS on, keyboard activation, `look` after each change. 480x844 integrations, collapsed: viewport 480x844, page 480 px wide, horizontal scroll: no, boxes that scroll sideways inside the page: none, boxes past the right edge: none; complementary x=0 w=480 h=73 (the rail stacks full-width at this width). 480x844 integrations, expanded by keyboard: page 480 px, horizontal scroll: no, none sideways, none past the right edge; complementary w=480 h=179, navigation &quot;Primary&quot; x=197 w=120 visible with Home x=197 w=59 and Board x=258 w=59, Sign out x=127 w=76, Theme x=207 w=84 - no control crosses 480. Then the `width 320` step, still expanded: viewport 320x844, page 320 px, horizontal scroll: no, none sideways, none past the right edge; Home x=12 w=59, Board x=73 w=59, Theme x=12 w=84, Sign out x=221 w=76 (right edge 297). 320x844 fresh, expanded then collapsed by keyboard: both `look`s report page 320 px, horizontal scroll: no, no sideways box, nothing past the right edge (complementary h=279 expanded, h=73 collapsed). 390x844 fresh, expanded then collapsed: both report page 390 px, horizontal scroll: no, none sideways, none past the right edge. Second page at 480x844 collapsed (/admin/instance/integrations): viewport 465x844, page 465 px, horizontal scroll: no, no sideways box; one entry appears under boxes past the right edge: &quot;1: #document (to x=480)&quot;. That entry is the html box spanning the 480 px layout width while a vertical scroll bar narrows the visual viewport to 465; it also appears with the nav expanded (at 1280 the admin page reports &quot;#document (to x=1280)&quot; in both the expanded and the collapsed state), so it is not caused by collapsing, and horizontal scroll stays &quot;no&quot; in every capture.
+
+</code></pre>
 
 </body></html>
