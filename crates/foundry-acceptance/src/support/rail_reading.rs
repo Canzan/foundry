@@ -40,14 +40,19 @@
 //! visible when nothing in its ancestry carries `display: none`,
 //! `visibility: hidden`, `inert` or `hidden`, nothing in its ancestry is
 //! transparent, its own box has a real size, AND the point at the centre of that
-//! box hit-tests back to the member itself (or to a node inside or around it).
-//! The hit test is there because the first five facts are all read from the
-//! LAYOUT box, which `clip`, `clip-path` and an ancestor's `overflow` leave
-//! untouched: without it, a destination clipped away while it keeps its box
-//! would read as visible, and clipping is the very mechanism the design's own
-//! model records as a violating state. When the centre falls outside the
-//! viewport the hit test cannot be taken and is not held against the member —
-//! that is recorded per member rather than guessed at.
+//! box hit-tests back to the member itself or to a node INSIDE it — its glyph,
+//! its word. An ancestor answering that point does NOT count: a member clipped
+//! away is exactly the case where the paint at its centre belongs to whatever
+//! encloses it, so accepting an ancestor would pass the one case the test is
+//! here to catch. The test is needed because every other fact above is read
+//! from the LAYOUT box, which `clip`, `clip-path` and an ancestor's `overflow`
+//! leave untouched: without it a destination clipped away while it keeps its box
+//! reads as visible, and clipping is the mechanism the design's own model
+//! records as a violating state. When the centre falls outside the viewport the
+//! hit test cannot be taken and is not held against the member — that is
+//! recorded per member rather than guessed at. The same test decides the
+//! `visible` of a keyboard stop, so a walk and a sweep cannot disagree about
+//! what the operator can see.
 
 use crate::support::browser_harness;
 
@@ -130,13 +135,14 @@ function centreInViewport(el) {
 // `clip-path` and an ancestor's `overflow` do not change: a member clipped away
 // keeps its box and would read as visible. The point at the centre of the box
 // is asked what is actually painted there, which also catches a member another
-// box covers. A node inside the member (its glyph, its word) and the node the
-// member sits in both count as the member being there.
+// box covers. Only the element itself or something INSIDE it counts: an
+// ancestor answering that point is what a clipped-away member looks like, so
+// accepting one would pass the very case this test exists to catch.
 function hitsItsOwnCentre(el) {
   var r = el.getBoundingClientRect();
   var hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
   if (!hit) { return false; }
-  return hit === el || el.contains(hit) || hit.contains(el);
+  return hit === el || el.contains(hit);
 }
 function visibleNow(el) {
   if (!inTheFocusOrder(el) || faded(el)) { return false; }
@@ -361,6 +367,32 @@ function faded(node) {
   }
   return false;
 }
+// The same clip-aware reading the sweep uses, for the same reason and with the
+// same rule: only the stop itself or something inside it counts, because an
+// ancestor answering the centre point is what a clipped-away stop looks like.
+// A stop whose centre lies outside the viewport cannot be hit-tested, and that
+// is not held against it.
+function centreInViewport(node) {
+  var b = node.getBoundingClientRect();
+  if (b.width < 1 || b.height < 1) { return false; }
+  var x = b.left + b.width / 2;
+  var y = b.top + b.height / 2;
+  return x >= 0 && y >= 0 && x <= document.documentElement.clientWidth &&
+         y <= document.documentElement.clientHeight;
+}
+function hitsItsOwnCentre(node) {
+  var b = node.getBoundingClientRect();
+  var hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+  if (!hit) { return false; }
+  return hit === node || node.contains(hit);
+}
+function visibleNow(node) {
+  if (!inTheFocusOrder(node) || faded(node)) { return false; }
+  var b = node.getBoundingClientRect();
+  if (b.width < 1 || b.height < 1) { return false; }
+  if (centreInViewport(node) && !hitsItsOwnCentre(node)) { return false; }
+  return true;
+}
 var rect = el.getBoundingClientRect();
 var description = el.tagName.toLowerCase();
 if (el.className && typeof el.className === 'string' && el.className.trim()) {
@@ -390,7 +422,7 @@ return {
   text: (el.textContent || '').trim(),
   isNavControl: !!(el.closest && el.closest('.sidebar__brand') && el.hasAttribute('aria-expanded')),
   isRailMember: !!(el.matches && el.matches(memberSelector)),
-  visible: inTheFocusOrder(el) && !faded(el) && rect.width >= 1 && rect.height >= 1,
+  visible: visibleNow(el),
   labelPresent: !!label,
   labelText: label ? (label.textContent || '').trim() : null,
   labelBox: labelRect ? {
