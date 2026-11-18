@@ -3,7 +3,8 @@
 "B": 10,
 "C": 3,
 "D": 24,
-"F": 475,
+"E": 12,
+"F": 506,
 "K": 15,
 "L": 8,
 "N": 7,
@@ -1800,6 +1801,125 @@
 }
 }
 },
+"expectations": {
+"rows": [
+{
+"blocking": "yes",
+"id": "E1",
+"lacuna": "F477",
+"needs": "F478",
+"promises": [
+"P1"
+],
+"text": "F476"
+},
+{
+"blocking": "yes",
+"id": "E2",
+"lacuna": "F480",
+"promises": [
+"P5"
+],
+"text": "F479"
+},
+{
+"blocking": "yes",
+"id": "E3",
+"lacuna": "F482",
+"promises": [
+"P2"
+],
+"text": "F481"
+},
+{
+"blocking": "yes",
+"id": "E4",
+"lacuna": "F484",
+"needs": "F485",
+"promises": [
+"P3"
+],
+"text": "F483"
+},
+{
+"blocking": "yes",
+"id": "E5",
+"lacuna": "F487",
+"promises": [
+"P4"
+],
+"text": "F486"
+},
+{
+"blocking": "yes",
+"id": "E6",
+"lacuna": "F489",
+"needs": "F490",
+"promises": [
+"P6"
+],
+"text": "F488"
+},
+{
+"blocking": "yes",
+"id": "E7",
+"lacuna": "F492",
+"promises": [
+"P7"
+],
+"text": "F491"
+},
+{
+"blocking": "yes",
+"id": "E8",
+"lacuna": "F494",
+"needs": "F495",
+"promises": [
+"P8"
+],
+"text": "F493"
+},
+{
+"blocking": "yes",
+"id": "E9",
+"lacuna": "F497",
+"needs": "F498",
+"promises": [
+"P9"
+],
+"text": "F496"
+},
+{
+"blocking": "yes",
+"id": "E10",
+"lacuna": "F500",
+"promises": [
+"P10"
+],
+"text": "F499"
+},
+{
+"blocking": "yes",
+"id": "E11",
+"lacuna": "F502",
+"needs": "F503",
+"promises": [
+"P11"
+],
+"text": "F501"
+},
+{
+"blocking": "yes",
+"id": "E12",
+"lacuna": "F505",
+"needs": "F506",
+"promises": [
+"P12"
+],
+"text": "F504"
+}
+]
+},
 "facts": {
 "F1": "Follow-up to nav-collapse-toggle (EXAMINE accepted at 60a4e36). The user decided: (1) Sign out stays in the collapsed strip; (2) fix all five non-blocking findings of the nav-collapse-toggle whole-candidate review; (3) the collapsed left nav shows icons instead of hiding its links. The five findings: [oracle] feature_canzan_theme.rs neighbour arm weakened to deferred_neighbours > 0 — assert every non-pre-paint head script defers; [oracle] its panic text says theme.js is the ONE pre-paint script and its doc says five neighbouring tags (there are two pre-paint and seven deferred); [oracle] fn head_scripts duplicated in feature_nav_collapse.rs, feature_canzan_theme.rs and xtask — one shared owner under crates/foundry-acceptance/src/support/; [implementation] xtask check_arch pre-paint set decided by narrow substrings — widen to names localStorage/sessionStorage AND names documentElement; [implementation] base.html comments say the deferred five, the head declares seven. Second-tab sync stays out of scope.",
 "F10": "the board opens, the left nav is still collapsed, and the Board icon is marked as the page she is on",
@@ -2192,10 +2312,41 @@
 "F473": "A contributor runs the project gate, cargo xtask check-arch, over the repository as it stands, and over staged trees that differ only in the head of the document shell and in the bytes of the asset that head names: (a) the shipped head, two plain stampers above seven deferred neighbours; (b) a head whose asset reads the stored choice through a local alias and stamps through an element reference - a TRUE stamper spelled in idioms the shipped narrow test misses - with defer on its tag; (c) the same asset with async, and again with type=module; (d) a head one of whose deferred neighbours has lost its defer; (e) a head whose non-stamping script carries async, and one whose non-stamping script carries type=module; (f) a head whose DEFERRED neighbour names localStorage and documentElement but touches both only inside a DOMContentLoaded handler - a settled-DOM asset, which from source is the SAME shape as (b); (g) that same settled-DOM asset made PLAIN, which is the remedy the refusal warns against. She also runs the gate over each of the twenty-four head-script shapes - three storage values by document element named or not by the four loading modes. Independently, the gate reader and the shared acceptance reader are each asserted against the same expected table of the shipped head nine (src, deferring) pairs.",
 "F474": "(a) exit 0, with the PASSED line still naming the pre-paint-script layer. (b), (c) AND (f) are one input class and get ONE AND THE SAME refusal text, which is the point: exit non-zero with one entry for that script carrying all five clauses - C1 the src and the attributes the tag carries; C2 that the gate decided BY NAME, the asset naming stored state and the document element, and that source cannot show when it touches them; C3 case one, remove the attributes, a plain external script in the head being render-blocking by specification; C4 case two, split the stored-state read into its own deferred asset or record a deliberate exception; C5 do not drop the attributes to satisfy this refusal, because a plain tag puts a non-pre-paint script on the render-blocking path and this gate would then accept it. The entry never claims the asset was observed to read and stamp. (d) non-zero, with one entry naming the neighbour that lost its defer and telling her to add defer - not a pass earned because the other six neighbours still defer. (e) non-zero for each, naming the script and telling her to add defer, rather than answering nothing. (g) exit 0: the gate accepts the plain tag, which is the accepted-but-unobserved state the design records, so the oracle asserts that acceptance rather than pretending the gate catches it. Over the twenty-four shapes, each shape receives exactly one verdict, accept or refuse, and exactly one message. The two readers yield the identical nine pairs for the shipped head. The operator sees no change in the app: no served byte of the head changes.",
 "F475": "Any of these fails the slice: the entry for (b), (c) or (f) omits any of the five clauses; the entries for (b), (c) and (f) are not the same text, so the gate guessed at an intent its source cannot see; any of those entries claims the asset was observed to READ and STAMP rather than to NAME; any of them offers removing the attribute as the ONLY remedy, or offers splitting the read as the only remedy; a shape carries two messages; the aliased stamper carrying defer, async or type=module is accepted; a deferred neighbour that silently lost its defer is accepted; a non-stamping head script carrying async or type=module receives no entry; (g) is refused, which would mean the gate claims a judgement about intent it cannot make; a shape appears twice or not at all in the sweep; the shipped head is refused; the fail-closed arm stops reporting a head whose pre-paint set came out empty; either reader yields a different set of pairs from the expected table for the shipped head; or a served byte of the document shell head other than a comment changes.",
+"F476": "With the left nav collapsed, the operator opens Home, Board, Settings, keyboard shortcuts and every admin entry her rights grant by activating an icon in the narrow rail; no destination the expanded nav offers her is absent from the rail.",
+"F477": "A capture that each icon exists and opens its page does not show the operator can tell the icons apart, nor that the rail keeps the order and grouping of the expanded nav; it cannot see destinations that appear only for a rights combination the capture never signs in with.",
+"F478": "Public probe of the collapsed rail for at least one plain operator and one operator with workspace or instance admin rights, listing the reachable destinations in both nav states.",
+"F479": "From the collapsed rail on the home page, activating the Board icon opens the board, the left nav is still collapsed afterwards, and the Board icon is the one marked as the page the operator is on.",
 "F48": "Each icon link keeps the accessible name its text link has today, so the collapsed rail loses the word on screen and never the name. Reason: the rail is the operator's only route while collapsed, and an unnamed icon is not a destination she can choose.",
+"F480": "One Home-to-Board step does not show the other icons behave the same way, that the collapsed state survives a full page reload rather than only an in-page navigation, or that the Home icon loses its current mark.",
+"F481": "With the nav collapsed, one press on the rail sign-out icon signs the operator out and leaves her where sign-out from the expanded nav leaves her; she needs no second press, menu, confirmation or expand step.",
+"F482": "Observing that the press ends the session does not show the operator recognises that icon as sign-out rather than a destination, and it does not cover a rail rendered for other rights where sign-out may sit elsewhere.",
+"F483": "Every icon in the collapsed rail carries the name of its destination: a screen-reader operator hears that name, and a pointer operator sees the same name when she hovers or focuses the icon.",
+"F484": "An attribute-level capture cannot show the visible name appears inside the viewport and within reading time, that the heard name matches the wording of the expanded nav, or that the name is announced once instead of twice.",
+"F485": "Captured accessible names for every rail icon plus an observation of the visible name on hover or keyboard focus.",
+"F486": "In the collapsed rail the icon for the page the operator is on is marked as current in the same way the expanded nav marks it, and no other icon is marked.",
+"F487": "A current-marker capture does not show the mark is perceivable without colour alone, and it does not cover sub-pages or unknown routes where no top-level destination is the current one.",
+"F488": "Collapsing the left nav takes nothing away: Home, Board, Settings, keyboard shortcuts, the admin destinations and Sign out are all still reachable as rail icons, and no link the collapse hides can still be reached with Tab or announced by a screen reader.",
+"F489": "A before-and-after capture for one operator at one width cannot establish that absence for every rights set and width, nor that nothing stays reachable while the collapse is still animating; markup-level checks do not show how a real assistive technology behaves.",
 "F49": "Sign out in the rail stays one press, with no new confirmation step. Reason: the request asks for Sign out to stay reachable, not for its behaviour to change; adding a confirmation would change the expanded nav too.",
+"F490": "Focus-order and accessible-tree captures of the collapsed nav, not only element visibility.",
+"F491": "At 480 px wide and narrower, the page with the collapsed icon bar shows no horizontal scrollbar and the operator needs no sideways scrolling to reach anything on it.",
+"F492": "A no-overflow capture at one phone width does not show the icons stay legible and large enough to tap, and it does not cover other narrow widths, a long workspace name, or an enlarged browser font.",
+"F493": "A contributor who adds or changes a head script that stamps the document from stored state and lets it defer is refused by the project gate, and the refusal names the script; the refusal comes whichever stored-state spelling the script uses, localStorage or sessionStorage.",
+"F494": "Refusals for the spellings the gate enumerates cannot show it refuses a stored-state access it was never shown, such as an aliased or computed accessor; and a gate refusal is no evidence that the flash itself is gone in a real browser.",
+"F495": "Observed gate runs over head scripts the examiner supplies, one per stored-state spelling, each showing the refusal text.",
+"F496": "When any head script that is not one of the declared pre-paint scripts loses its defer, the acceptance suite fails and names that script; the suite does not pass because another neighbour still defers.",
+"F497": "Mutating one neighbour shows a failure for that neighbour only; it does not show the suite names each of the other neighbours, nor that it also fails when a pre-paint script wrongly gains defer.",
+"F498": "A negative control: the same suite run against a head where one non-pre-paint script has lost its defer, with the failure text captured.",
+"F499": "The head comments, the refusal text of the gate and the project documentation tell the contributor the same, correct answer about which head scripts must run before paint and which must defer; none of the three states a count or a name that the head the suite asserts contradicts.",
 "F5": "Each icon in the collapsed rail carries the name of the destination it opens, so a screen-reader operator hears the destination and a pointer operator sees it.",
 "F50": "The collapsed rail marks the page the operator is on the same way the expanded nav marks it. Reason: the shell already renders the current-page marking, and an icon strip with no mark leaves her guessing where she is.",
+"F500": "Agreement captured at one moment does not show the three texts stay in step after the next head change, and matching counts do not show the prose names the right scripts for the right reason or that a contributor reads it correctly.",
+"F501": "An operator who collapses the left nav, signs out from the rail and signs in again in the same browser finds the nav still collapsed, with rail icons for the destinations her current rights give her.",
+"F502": "One sign-out and sign-in cycle in one browser cannot show the choice survives a rights change between sessions, another browser or profile, cleared storage, or a second account in the same browser; it also does not show the collapsed state is in place before first paint instead of after a visible jump.",
+"F503": "A probe that signs out from the collapsed rail and signs in again in the same browser session, capturing the nav state and the icon list after sign-in.",
+"F504": "A head script that does not stamp stored state and is loaded async or as type=module gets one definite answer from the gate: it is refused and told to add defer, never left without a verdict.",
+"F505": "A verdict for the async and type=module shapes does not show every other loading shape gets one, and the advice to add defer is not shown to be right for a script for which defer is wrong.",
+"F506": "Observed gate runs over an async head script and a type=module head script that the examiner supplies, each with the printed verdict.",
 "F51": "This feature extends the walking skeleton the delivered nav-collapse-toggle feature established - the collapse control, the stored choice and the pre-paint stamp, end to end - and adds no second skeleton of its own.",
 "F52": "Scenario exploration, guards value: relevant. Reason: its sad path is the gate's refusal, and the behaviour turns on execution order around the first paint and on which head scripts count as pre-paint - the boundary the review finding says let cases through silently.",
 "F53": "Scenario exploration, icon-rail value: relevant. Reason: its sad path is a trapping state - a collapsed rail from which a destination the operator has, or Sign out, cannot be reached - over the collapsed-or-expanded, scripting-on-or-off and permission combinations. Second-tab sync is excluded, so no race belongs in the exploration.",

@@ -160,7 +160,230 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h2>Expectations</h2>
 
+<h3>Rows</h3>
+
+<h4>E1</h4>
+
+<h5>Promises</h5>
+
+<p>P1</p>
+
+<pre><code>With the left nav collapsed, the operator opens Home, Board, Settings, keyboard shortcuts and every admin entry her rights grant by activating an icon in the narrow rail; no destination the expanded nav offers her is absent from the rail.
+</code></pre>
+
+<pre><code>A capture that each icon exists and opens its page does not show the operator can tell the icons apart, nor that the rail keeps the order and grouping of the expanded nav; it cannot see destinations that appear only for a rights combination the capture never signs in with.
+</code></pre>
+
+<p>yes</p>
+
 <p>None.</p>
+
+<pre><code>Public probe of the collapsed rail for at least one plain operator and one operator with workspace or instance admin rights, listing the reachable destinations in both nav states.
+</code></pre>
+
+<h4>E2</h4>
+
+<h5>Promises</h5>
+
+<p>P5</p>
+
+<pre><code>From the collapsed rail on the home page, activating the Board icon opens the board, the left nav is still collapsed afterwards, and the Board icon is the one marked as the page the operator is on.
+</code></pre>
+
+<pre><code>One Home-to-Board step does not show the other icons behave the same way, that the collapsed state survives a full page reload rather than only an in-page navigation, or that the Home icon loses its current mark.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<h4>E3</h4>
+
+<h5>Promises</h5>
+
+<p>P2</p>
+
+<pre><code>With the nav collapsed, one press on the rail sign-out icon signs the operator out and leaves her where sign-out from the expanded nav leaves her; she needs no second press, menu, confirmation or expand step.
+</code></pre>
+
+<pre><code>Observing that the press ends the session does not show the operator recognises that icon as sign-out rather than a destination, and it does not cover a rail rendered for other rights where sign-out may sit elsewhere.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<h4>E4</h4>
+
+<h5>Promises</h5>
+
+<p>P3</p>
+
+<pre><code>Every icon in the collapsed rail carries the name of its destination: a screen-reader operator hears that name, and a pointer operator sees the same name when she hovers or focuses the icon.
+</code></pre>
+
+<pre><code>An attribute-level capture cannot show the visible name appears inside the viewport and within reading time, that the heard name matches the wording of the expanded nav, or that the name is announced once instead of twice.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<pre><code>Captured accessible names for every rail icon plus an observation of the visible name on hover or keyboard focus.
+</code></pre>
+
+<h4>E5</h4>
+
+<h5>Promises</h5>
+
+<p>P4</p>
+
+<pre><code>In the collapsed rail the icon for the page the operator is on is marked as current in the same way the expanded nav marks it, and no other icon is marked.
+</code></pre>
+
+<pre><code>A current-marker capture does not show the mark is perceivable without colour alone, and it does not cover sub-pages or unknown routes where no top-level destination is the current one.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<h4>E6</h4>
+
+<h5>Promises</h5>
+
+<p>P6</p>
+
+<pre><code>Collapsing the left nav takes nothing away: Home, Board, Settings, keyboard shortcuts, the admin destinations and Sign out are all still reachable as rail icons, and no link the collapse hides can still be reached with Tab or announced by a screen reader.
+</code></pre>
+
+<pre><code>A before-and-after capture for one operator at one width cannot establish that absence for every rights set and width, nor that nothing stays reachable while the collapse is still animating; markup-level checks do not show how a real assistive technology behaves.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<pre><code>Focus-order and accessible-tree captures of the collapsed nav, not only element visibility.
+</code></pre>
+
+<h4>E7</h4>
+
+<h5>Promises</h5>
+
+<p>P7</p>
+
+<pre><code>At 480 px wide and narrower, the page with the collapsed icon bar shows no horizontal scrollbar and the operator needs no sideways scrolling to reach anything on it.
+</code></pre>
+
+<pre><code>A no-overflow capture at one phone width does not show the icons stay legible and large enough to tap, and it does not cover other narrow widths, a long workspace name, or an enlarged browser font.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<h4>E8</h4>
+
+<h5>Promises</h5>
+
+<p>P8</p>
+
+<pre><code>A contributor who adds or changes a head script that stamps the document from stored state and lets it defer is refused by the project gate, and the refusal names the script; the refusal comes whichever stored-state spelling the script uses, localStorage or sessionStorage.
+</code></pre>
+
+<pre><code>Refusals for the spellings the gate enumerates cannot show it refuses a stored-state access it was never shown, such as an aliased or computed accessor; and a gate refusal is no evidence that the flash itself is gone in a real browser.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<pre><code>Observed gate runs over head scripts the examiner supplies, one per stored-state spelling, each showing the refusal text.
+</code></pre>
+
+<h4>E9</h4>
+
+<h5>Promises</h5>
+
+<p>P9</p>
+
+<pre><code>When any head script that is not one of the declared pre-paint scripts loses its defer, the acceptance suite fails and names that script; the suite does not pass because another neighbour still defers.
+</code></pre>
+
+<pre><code>Mutating one neighbour shows a failure for that neighbour only; it does not show the suite names each of the other neighbours, nor that it also fails when a pre-paint script wrongly gains defer.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<pre><code>A negative control: the same suite run against a head where one non-pre-paint script has lost its defer, with the failure text captured.
+</code></pre>
+
+<h4>E10</h4>
+
+<h5>Promises</h5>
+
+<p>P10</p>
+
+<pre><code>The head comments, the refusal text of the gate and the project documentation tell the contributor the same, correct answer about which head scripts must run before paint and which must defer; none of the three states a count or a name that the head the suite asserts contradicts.
+</code></pre>
+
+<pre><code>Agreement captured at one moment does not show the three texts stay in step after the next head change, and matching counts do not show the prose names the right scripts for the right reason or that a contributor reads it correctly.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<h4>E11</h4>
+
+<h5>Promises</h5>
+
+<p>P11</p>
+
+<pre><code>An operator who collapses the left nav, signs out from the rail and signs in again in the same browser finds the nav still collapsed, with rail icons for the destinations her current rights give her.
+</code></pre>
+
+<pre><code>One sign-out and sign-in cycle in one browser cannot show the choice survives a rights change between sessions, another browser or profile, cleared storage, or a second account in the same browser; it also does not show the collapsed state is in place before first paint instead of after a visible jump.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<pre><code>A probe that signs out from the collapsed rail and signs in again in the same browser session, capturing the nav state and the icon list after sign-in.
+</code></pre>
+
+<h4>E12</h4>
+
+<h5>Promises</h5>
+
+<p>P12</p>
+
+<pre><code>A head script that does not stamp stored state and is loaded async or as type=module gets one definite answer from the gate: it is refused and told to add defer, never left without a verdict.
+</code></pre>
+
+<pre><code>A verdict for the async and type=module shapes does not show every other loading shape gets one, and the advice to add defer is not shown to be right for a script for which defer is wrong.
+</code></pre>
+
+<p>yes</p>
+
+<p>None.</p>
+
+<pre><code>Observed gate runs over an async head script and a type=module head script that the examiner supplies, each with the printed verdict.
+</code></pre>
 
 <h2>Charter</h2>
 
