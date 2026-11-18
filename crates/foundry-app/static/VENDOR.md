@@ -30,7 +30,7 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
 | File | Version | Upstream canonical URL | Retrieved (UTC) | sha256 |
 |------|---------|------------------------|-----------------|--------|
 | `vendor/htmx.min.js` | htmx **2.0.4** (pinned latest-stable 2.0.x; step 04-01 migration) | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | 2026-06-04 | `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447` |
-| `css/foundry.4c73f62c.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-11-16 | `4c73f62c4a7e30672ef5ca17c479b9bf0a8715de19389ba22779eebc5970a702` |
+| `css/foundry.fb3aa227.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-11-18 | `fb3aa227590ded78ff5581cf1f1b562ea1f6107a572bd6fc709444fa7b31ced3` |
 | `js/theme.js` | hand-authored (this repo) — a two-value PORT of canzan-lift `src/ui/assets/theme.js`, NOT vendored from a release | — (not vendored; authored in-tree) | 2026-08-29 | `95a7ffdd0f97d75332fc988dc3a87d53ea758131eff31de48bde6000043e8813` |
 | `vendor/swagger-ui-5.33.3/swagger-ui-bundle.js` | swagger-ui-dist **5.33.3** (Apache-2.0), `package/swagger-ui-bundle.js` | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `3861ec4cc8e7b9fa9f250280da9350436e418137788282c753b9a2ac5fb7bd2f` |
 | `vendor/swagger-ui-5.33.3/swagger-ui.css` | swagger-ui-dist **5.33.3** (Apache-2.0), `package/swagger-ui.css` | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `1ac324f7dcd27e4b9386b4bd6421271ec147e922a22c05ba24b11515e9aa6321` |
@@ -65,9 +65,9 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   intent is `static/js/keyboard.js` — one app-owned vanilla IIFE, no framework.
   htmx remains the only vendored runtime dependency of the app's pages;
   swagger-ui (below) is loaded by the API page `/docs/api` alone (D12).
-- `foundry.4c73f62c.css` is hand-authored and served as-authored (gzip via the
+- `foundry.fb3aa227.css` is hand-authored and served as-authored (gzip via the
   `compression-gzip` tower-http feature handles the wire size); no CSS minifier
-  is introduced (DB6). **The `.4c73f62c.` segment is the content hash** (first 8
+  is introduced (DB6). **The `.fb3aa227.` segment is the content hash** (first 8
   hex of the file's sha256) per ADR-B03 / assets.md Decision #4 option 4a: the
   hash IS the cache key, so the blanket `Cache-Control: ...immutable` on `/static`
   is safe even though the file is hand-edited — an edit changes the hash, changes
@@ -78,6 +78,39 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   above, and the hashed-name literals in the `foundry-app` cache-policy tests
   (`src/lib.rs`) — a split commit is red on those tests. The acceptance suite
   discovers the hashed name on disk, so it does not pin the literal.
+- **The left-nav icons are Lucide path data, INLINE IN A TEMPLATE, and therefore
+  get NO HASHED ROW ABOVE** (nav-collapse-icon-rail D2). The row shapes of this
+  file all record the sha256 of a file served under `/static/`; an inline
+  `<path>` in `templates/partials/sidebar.html` is not a served blob, so a row
+  for it would be an integrity claim about a file that does not exist, and R3
+  would fail looking for it. The provenance is recorded here instead.
+  - **Upstream:** `lucide-static` **1.75.0** (ISC), npm tarball
+    https://registry.npmjs.org/lucide-static/-/lucide-static-1.75.0.tgz,
+    retrieved 2026-11-18; the tarball's own sha256 is
+    `5411093d26066ed3eda35f2349ec73c65c9427d64ef3b7bf3282169027899039`.
+  - **Icons used,** one per rail member, as `package/icons/<name>.svg`: `house`
+    (Home), `columns-3` (Board), `settings` (Settings), `keyboard` (Keyboard
+    shortcuts), `plug` (Integrations), `shield-check` (Instance admin),
+    `log-out` (Sign out).
+  - **What was copied, and what was not.** The `<path>`, `<rect>` and `<circle>`
+    children of each upstream file are copied verbatim, in upstream order. The
+    `<svg>` wrapper is NOT: it carries `class="sidebar__icon"`,
+    `aria-hidden="true"` and `focusable="false"` instead of the upstream
+    `class="lucide lucide-<name>"`, and it drops `xmlns`, `width` and `height`
+    (the stylesheet sizes it) while keeping `viewBox`, `fill="none"`,
+    `stroke="currentColor"`, `stroke-width`, `stroke-linecap` and
+    `stroke-linejoin`. No `<title>` is added — it would put a second text node
+    in the item and make its text read "Home Home".
+  - **Verify it, do not assume it:** extract the tarball above and compare the
+    shape children of `package/icons/<name>.svg` with the matching `<svg>` in
+    `templates/partials/sidebar.html`. The expected result is identical shape
+    elements in identical order for all seven.
+  - **ISC notice** (upstream `package/LICENSE`): Copyright (c) 2026 Lucide Icons
+    and Contributors. Permission to use, copy, modify and/or distribute this
+    software for any purpose with or without fee is hereby granted, provided
+    that the above copyright notice and this permission notice appear in all
+    copies. THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL
+    WARRANTIES WITH REGARD TO THIS SOFTWARE.
 - **`js/theme.js` is AUTHORED-IN-TREE, not vendored and not derived** — do not
   run the upstream-verbatim procedure on it, there is no release to re-download.
   It is a PORT of canzan-lift's `src/ui/assets/theme.js` in which **exactly two
@@ -100,8 +133,18 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   other is `js/nav-collapse.js`, which stamps the left-nav collapse marker from
   the same kind of stored choice (nav-collapse-toggle). See the comment above
   each tag, the acceptance scenario that asserts the served shape, and
-  `cargo xtask check-arch`'s pre-paint-script layer, which refuses those three
-  attributes on every head script that paints stored state onto the document.
+  `cargo xtask check-arch`'s pre-paint-script layer. **That layer decides by what
+  the asset NAMES, not by what it does**: it reads the comment-stripped source of
+  each head script's asset and asks whether it names a browser store
+  (`localStorage` or `sessionStorage`) **and** names `documentElement`; when it
+  does, the tag must carry none of `defer`, `async` or `type="module"`. Source
+  cannot show WHEN an asset touches those names, so the test deliberately
+  OVER-APPROXIMATES — an asset that names the pair and touches it only on the
+  settled DOM is refused loudly rather than accepted in silence — and its refusal
+  says so and names both ways out. Its SECOND ARM is the other direction: a head
+  script of this shell whose asset does NOT name that pair must carry `defer`, so
+  no script sits on the render-blocking path for nothing (nav-collapse-icon-rail
+  S1, ADR-NAV-ICON-RAIL-004). Neither arm makes a count claim about this head.
 - Re-verify a hash with: `shasum -a 256 crates/foundry-app/static/vendor/<file>`.
 
 ## swagger-ui 5.33.3 — the API page only (api-openapi-document DDD-17/18)

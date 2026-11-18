@@ -15,11 +15,21 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   is still folded after a reload and on the next app page until the operator opens it
   again — and it is settled before the browser paints, so there is no flash of the
   open nav on a navigation. The control answers Enter and Space, names the nav, the
-  state it is in and what the next press does; while the nav is folded its items leave
-  the keyboard order instead of hiding where the operator can still tab into them.
-  With JavaScript off the nav is simply open and no control exists, as before. On a
-  phone the folded state only removes items from the top bar, so no page scrolls
-  sideways at 480 px and below. The stylesheet is re-hashed to `foundry.4c73f62c.css`.
+  state it is in and what the next press does. With JavaScript off the nav is simply
+  open and no control exists, as before. On a phone no page scrolls sideways at
+  480 px and below, whichever way the nav is set.
+
+- **The narrow left nav is an icon rail, not a dead end.** Every destination the
+  operator had — Home, Board, Settings, Keyboard shortcuts, and Integrations or
+  Instance admin where her rights give them — and Sign out stays one press away while
+  the nav is narrow, each drawn as an icon she can see and aim at. Each icon keeps the
+  name of the place it opens for a screen reader, and shows that name in a box beside
+  it when she hovers it or reaches it with the Tab key, so she never has to press a
+  glyph to find out where it goes. The page she is on is marked in the strip, Sign out
+  there is the one press it is in the open nav, and the nav she left is the nav she
+  comes back to at her next sign-in. On a phone the icons wrap inside the top bar at
+  480 px and below and the page still never slides sideways. The open nav is unchanged
+  and stays text only. The stylesheet is re-hashed to `foundry.fb3aa227.css`.
 
 ### Fixed
 
