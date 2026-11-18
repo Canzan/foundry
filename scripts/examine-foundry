@@ -85,7 +85,18 @@
 #   tab-order <N>               N Tab presses, with the focus after each
 #   click <name>                a real pointer click on the one visible button or
 #                               link with that accessible name (exact, else a part)
+#   hover <name>                move the real pointer onto the one visible button
+#                               or link with that name, then the words it paints
+#   sign-in                     sign this viewer in through the sign-in form, by
+#                               typing, in this same profile (so what the browser
+#                               stored before is kept)
 #   width <px>                  change the viewport width
+# A link in navigation and the focus show `current=<value>` when the page marks
+# them with aria-current. The focus line also lists the words the control
+# paints: each with its box, and `seen` when the point at its centre shows it
+# (a word clipped away or covered is `not seen`). A signed-in cookie from the
+# probe goes into the profile only when the profile holds none of that name,
+# so a session the browser ended or made itself is kept.
 # Options: --width <px> (1280), --height <px> (800), --phone (a touch phone
 # viewport, 390x844 unless --width or --height is given), --js off (JavaScript disabled for the whole run), --slow <N> (CPU
 # slowed N times), --fresh.
@@ -137,7 +148,7 @@ usage: examine-foundry start <state> [--before] [--replicas 2]
        examine-foundry rotate-secrets
        examine-foundry new-issue [--replica 2] <viewer> <team>/<project> <title>
        examine-foundry browser <viewer> [--width px] [--height px] [--phone] [--js off] [--slow N] [--fresh] <step>...
-           steps: go <path> | reload | watch-go <path> | watch-reload | look | key <Tab|Shift+Tab|Enter|Space|Escape> | tab-order <N> | click <name> | width <px>
+           steps: go <path> | reload | watch-go <path> | watch-reload | look | key <Tab|Shift+Tab|Enter|Space|Escape> | tab-order <N> | click <name> | hover <name> | sign-in | width <px>
        examine-foundry stop
        examine-foundry states | viewers
 Write each path without its leading slash: admin/instance/integrations, not /admin/instance/integrations.
@@ -1431,7 +1442,8 @@ vm_browser() {
   mkdir -p "$profile"
   command -v chromium >/dev/null || die "chromium is not on the VM's PATH"
   command -v node >/dev/null || die "node is not on the VM's PATH"
-  timeout 170 node --input-type=module -e "$(browser_js)" \
+  EXAMINE_EMAIL="$(email_of "$viewer")" EXAMINE_PASSWORD="$PASSWORD" \
+    timeout 170 node --input-type=module -e "$(browser_js)" \
     "$BASE" "$jar" "$profile" "$width" "$height" "$js" "$slow" "$mobile" "$@"
 }
 
@@ -1545,6 +1557,10 @@ try {
   if (js === "off") await send("Emulation.setScriptExecutionDisabled", { value: true });
   if (Number(slow) > 1) await send("Emulation.setCPUThrottlingRate", { rate: Number(slow) });
 
+  // The viewer's signed-in cookie goes into the profile only when the profile
+  // holds no cookie of that name yet, so a session the browser itself made
+  // (the sign-in step) or ended (Sign out) stays as the browser left it.
+  const held = new Set((await send("Network.getCookies", { urls: [base] })).cookies.map((c) => c.name));
   if (existsSync(jar)) {
     for (const line of readFileSync(jar, "utf8").split("\n")) {
       let l = line;
@@ -1554,8 +1570,8 @@ try {
         l = l.slice("#HttpOnly_".length);
       } else if (l.startsWith("#") || !l.trim()) continue;
       const f = l.split("\t");
-      if (f.length < 7) continue;
-      const c = { name: f[5], value: f[6], url: base, path: f[2], httpOnly, secure: f[3] === "TRUE" };
+      if (f.length < 7 || held.has(f[5])) continue;
+      const c ={ name: f[5], value: f[6], url: base, path: f[2], httpOnly, secure: f[3] === "TRUE" };
       if (Number(f[4]) > 0) c.expires = Number(f[4]);
       await send("Network.setCookie", c);
     }
@@ -1625,6 +1641,32 @@ try {
         say(`\n> click "${name}"`);
         const nav = once("Page.frameStartedLoading", 600);
         await click(name);
+        await afterAction(nav);
+        break;
+      }
+      case "hover": {
+        const name = arg();
+        say(`\n> hover "${name}"`);
+        const n = await pick(name);
+        const b = await boxOf(n);
+        await send("Input.dispatchMouseEvent", { type: "mouseMoved", x: b.x + b.w / 2, y: b.y + b.h / 2 });
+        await sleep(250);
+        say(`  pointer on ${role(n)} "${nameOf(n)}" at ${Math.round(b.x + b.w / 2)},${Math.round(b.y + b.h / 2)}`);
+        say("  " + (await textLine(n)));
+        break;
+      }
+      case "sign-in": {
+        say(`\n> sign-in`);
+        lastStatus = "";
+        let loaded = once("Page.loadEventFired", 20000);
+        await send("Page.navigate", { url: `${base}/sign-in` });
+        await loaded;
+        await sleep(200);
+        await type("Email", process.env.EXAMINE_EMAIL || "");
+        await type("Password", process.env.EXAMINE_PASSWORD || "");
+        say("  typed this viewer's email and password into the sign-in form");
+        const nav = once("Page.frameStartedLoading", 3000);
+        await key("Enter");
         await afterAction(nav);
         break;
       }
@@ -1807,7 +1849,80 @@ async function focusLine() {
     const s = Object.fromEntries(computedStyle.map((c) => [c.name, c.value]));
     ring = ` focus ring: outline ${s["outline-style"]} ${s["outline-width"]} ${s["outline-color"]}, box-shadow ${s["box-shadow"]}`;
   } catch {}
-  return `focus: ${role(f)} "${nameOf(f)}" ${b ? `at x=${b.x} w=${b.w}` : ""} ${shown(f, b)};${ring}`;
+  return `focus: ${role(f)} "${nameOf(f)}"${await currentOf(f)} ${b ? `at x=${b.x} w=${b.w}` : ""} ${shown(f, b)};${ring}\n    ${await textLine(f)}`;
+}
+
+// The page's own aria-current mark on a control, read from the DOM.
+async function currentOf(n) {
+  if (!n.backendDOMNodeId) return "";
+  try {
+    const { node } = await send("DOM.describeNode", { backendNodeId: n.backendDOMNodeId });
+    const a = node.attributes || [];
+    const i = a.indexOf("aria-current");
+    return i >= 0 ? ` current=${a[i + 1]}` : "";
+  } catch {
+    return "";
+  }
+}
+
+// The words a control paints, as a person sees them: each element inside it
+// that holds its own text, with its box, and whether the point at the centre
+// of that box shows that element (a word clipped away or covered shows
+// something else there). It runs in a world of its own, apart from the page's
+// scripts, and changes nothing.
+async function textLine(n) {
+  if (!n.backendDOMNodeId) return "words painted: unknown (no DOM node)";
+  try {
+    const { frameTree } = await send("Page.getFrameTree");
+    const { executionContextId } = await send("Page.createIsolatedWorld", {
+      frameId: frameTree.frame.id, worldName: "examine-foundry-reader",
+    });
+    const { object } = await send("DOM.resolveNode", { backendNodeId: n.backendDOMNodeId, executionContextId });
+    const { result } = await send("Runtime.callFunctionOn", {
+      objectId: object.objectId,
+      returnByValue: true,
+      functionDeclaration: `function () {
+        const out = [];
+        for (const e of [this, ...this.querySelectorAll("*")]) {
+          const own = [...e.childNodes].filter((c) => c.nodeType === 3).map((c) => c.textContent).join("").trim();
+          if (!own) continue;
+          const r = e.getBoundingClientRect();
+          const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+          const inView = cx >= 0 && cy >= 0 && cx < innerWidth && cy < innerHeight;
+          const hit = inView ? document.elementFromPoint(cx, cy) : null;
+          const seen = !inView ? "centre off-screen" : hit && (hit === e || e.contains(hit)) ? "seen" : "not seen at its centre (clipped or covered)";
+          out.push('"' + own.slice(0, 40) + '" x=' + Math.round(r.left) + " w=" + Math.round(r.width) + " h=" + Math.round(r.height) + " " + seen);
+        }
+        return out.join("; ");
+      }`,
+    });
+    return `words painted: ${result.value || "none"}`;
+  } catch (e) {
+    return `words painted: unknown (${e.message})`;
+  }
+}
+
+// The one visible control with that accessible name (exact, else a part).
+async function pick(name) {
+  const { nodes } = await axTree();
+  const clickable = nodes.filter((n) => !n.ignored && ["button", "link", "switch", "menuitem", "checkbox", "tab"].includes(role(n)));
+  let hits = clickable.filter((n) => nameOf(n) === name);
+  if (!hits.length) hits = clickable.filter((n) => nameOf(n).toLowerCase().includes(name.toLowerCase()));
+  if (hits.length !== 1)
+    fail(`${hits.length} visible controls are named like "${name}"${hits.length ? ": " + hits.map((n) => `"${nameOf(n)}"`).join(", ") : ""}`);
+  await send("DOM.scrollIntoViewIfNeeded", { backendNodeId: hits[0].backendDOMNodeId }).catch(() => {});
+  const b = await boxOf(hits[0]);
+  if (!b || b.w === 0) fail(`"${nameOf(hits[0])}" has no box to point at`);
+  return hits[0];
+}
+
+// Real typing into the one text field with that accessible name.
+async function type(name, text) {
+  const { nodes } = await axTree();
+  const hits = nodes.filter((n) => !n.ignored && ["textbox", "searchbox"].includes(role(n)) && nameOf(n) === name);
+  if (hits.length !== 1) fail(`${hits.length} text fields are named "${name}"`);
+  await send("DOM.focus", { backendNodeId: hits[0].backendDOMNodeId });
+  await send("Input.insertText", { text });
 }
 
 async function look() {
@@ -1862,7 +1977,7 @@ async function look() {
       continue;
     }
     const b = await boxOf(n);
-    say(`    [${nameOf(nav) || "navigation"}] link "${nameOf(n)}" ${b ? `x=${b.x} w=${b.w}` : ""} ${shown(n, b)}`);
+    say(`    [${nameOf(nav) || "navigation"}] link "${nameOf(n)}"${await currentOf(n)} ${b ? `x=${b.x} w=${b.w}` : ""} ${shown(n, b)}; ${await textLine(n)}`);
   }
   say(`  other links on the page: ${others}`);
   say("  " + (await focusLine()));
