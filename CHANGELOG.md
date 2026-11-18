@@ -21,6 +21,22 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   phone the folded state only removes items from the top bar, so no page scrolls
   sideways at 480 px and below. The stylesheet is re-hashed to `foundry.4c73f62c.css`.
 
+### Fixed
+
+- **The head-script guard now answers every shape, by what an asset names.**
+  `cargo xtask check-arch` decided which head scripts must run before the browser
+  paints from three narrow spellings, so the same stored-state read written through a
+  local alias or an element reference slipped past it with `defer` and brought back
+  the flash of the wrong theme, or the wrong nav, on every navigation. The guard now
+  reads what the asset NAMES — a browser store and `documentElement` — in whatever
+  idiom it spells them, and it refuses every other head script that does not carry
+  `defer` instead of answering nothing at all for `async` and `type="module"`. A
+  refusal says which attributes the tag carries, that the verdict came from the names
+  and not from watching the asset run, and both repairs that keep the first paint
+  correct. The comments above the two render-blocking tags now name the pre-paint
+  family and the deferred neighbours instead of a count that went stale. Nothing the
+  operator sees changes: no tag, attribute or script order moved.
+
 ## [v0.18.2] - 2026-11-04
 
 ### Added

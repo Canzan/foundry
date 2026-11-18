@@ -176,7 +176,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, every head script of the document shell that paints stored state onto the document element is render-blocking — none carries defer, async or type=module (pre-paint-script), no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened and the secrets key unwrapped only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no production src outside foundry-store's integrations instance module names an instance integration table in SQL (integrations-instance-tables), no production src writes a sealed column outside the fenced store functions (integrations-seal-fence), every naming of the worker's claimant seam, the outbound seam or the generated-key seam is gated on test-support, the claimant and generated-key seams carry their unique markers and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying either marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, every head script of the document shell whose asset names a browser store and names documentElement is render-blocking — none carries defer, async or type=module — and every other head script of that shell carries defer, so none of them sits on the render-blocking path for nothing (pre-paint-script), no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened and the secrets key unwrapped only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no production src outside foundry-store's integrations instance module names an instance integration table in SQL (integrations-instance-tables), no production src writes a sealed column outside the fenced store functions (integrations-seal-fence), every naming of the worker's claimant seam, the outbound seam or the generated-key seam is gated on test-support, the claimant and generated-key seams carry their unique markers and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying either marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -1814,11 +1814,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
 }
 
 /// LAYER 1j — the pre-paint script law (nav-collapse-toggle T1 / L8,
-/// ADR-NAV-COLLAPSE-001).
+/// ADR-NAV-COLLAPSE-001, ADR-NAV-ICON-RAIL-004).
 ///
-/// Two scripts in `templates/base.html`'s head stamp the document element from
-/// the operator's STORED choice before the browser is permitted to paint:
-/// `theme.js` writes `data-theme`, `nav-collapse.js` writes
+/// The pre-paint family in `templates/base.html`'s head stamps the document
+/// element from the operator's STORED choice before the browser is permitted to
+/// paint: `theme.js` writes `data-theme`, `nav-collapse.js` writes
 /// `data-nav-collapsed`. A plain external `<script>` in `<head>` is
 /// render-blocking by specification, and that is the whole mechanism — the
 /// browser blocks rather than paints, so the attribute is on `<html>` before the
@@ -1827,15 +1827,30 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// settled page still passes while the operator sees the wrong theme, or the
 /// wrong rail, flash on every single navigation.
 ///
-/// THE SET IS DERIVED, NOT ENUMERATED. A pre-paint script is one whose asset
-/// both READS SITE STORAGE and STAMPS THE DOCUMENT ELEMENT — that pair is what
-/// "paint the initial state from a remembered choice" looks like, and it is a
-/// property of the ASSET, not of the tag. So a third pre-paint script added
-/// later is governed the moment the head references it, and the rule cannot be
-/// escaped by editing `base.html` alone, because adding `defer` there is exactly
-/// what it refuses. The deferred neighbours act on the settled DOM (htmx, the
-/// board modules, the keyboard layer, csrf-upload, form-errors): they read no
-/// stored state, so they are correctly left alone.
+/// ONE RULE, TWO ARMS, TOTAL OVER THE HEAD'S EXTERNAL SCRIPTS. A member of the
+/// pre-paint family must carry NONE of the three; every other head script must
+/// carry `defer`. So no head script shape is answered with silence, which a
+/// contributor reads as permission: the deferred neighbours act on the settled
+/// DOM (htmx, the board modules, the keyboard layer, csrf-upload, form-errors)
+/// and a neighbour that quietly loses its `defer` sits on the render-blocking
+/// path for nothing, delaying the paint the operator waits for.
+///
+/// MEMBERSHIP IS A NAMES TEST AND IT IS DERIVED, NOT ENUMERATED. The gate reads
+/// what the asset NAMES in its comment-stripped source — a browser store and
+/// `documentElement` — never when it touches them, which no source test can
+/// decide. The strength this gives is one-sided and that is the side the promise
+/// needs: no asset that names the pair is missed, in whatever idiom it spells
+/// them, so a third pre-paint script added later is governed the moment the head
+/// references it and the rule cannot be escaped by editing `base.html` alone.
+/// The costs are stated rather than claimed away. It OVER-APPROXIMATES: an asset
+/// that names the pair and touches it only on the settled DOM is refused, and
+/// the refusal says so and leaves the choice of remedy to the contributor
+/// (ADR-NAV-ICON-RAIL-004). It UNDER-APPROXIMATES where identifiers are built at
+/// run time: such an asset reads as a non-member and is then required to defer,
+/// which is wrong for it and LOUD. An inline script, a script added at run time,
+/// and a head script whose asset this gate cannot read — a src outside
+/// `/static/`, the driven port this layer is declared over — are not in its
+/// input at all and get no verdict.
 ///
 /// IT FAILS CLOSED ON BLINDNESS. A head that declares scripts and holds no
 /// pre-paint script among them is reported, because that is what a parse which
@@ -1865,17 +1880,20 @@ fn check_pre_paint_scripts_are_render_blocking(root: &Path) -> Vec<String> {
         let Ok(source) = std::fs::read_to_string(app.join("static").join(asset)) else {
             continue;
         };
-        if !paints_stored_state_onto_the_document(&source) {
+        if paints_stored_state_onto_the_document(&source) {
+            pre_paint += 1;
+            if !deferring.is_empty() {
+                violations.push(refusal_for_a_script_that_names_the_pair(
+                    &label, src, deferring,
+                ));
+            }
             continue;
         }
-        pre_paint += 1;
-        if deferring.is_empty() {
-            continue;
+        if !deferring.iter().any(|attribute| attribute == "defer") {
+            violations.push(refusal_for_a_neighbour_that_does_not_defer(
+                &label, src, deferring,
+            ));
         }
-        violations.push(format!(
-            "pre-paint-script: {label} loads `{src}` with {} — that asset reads the operator's stored choice and stamps it onto the document element, so it MUST run before the browser is permitted to paint. Each of `defer`, `async` and `type=\"module\"` moves the stamp past the first paint and reintroduces the flash of the WRONG STATE on every navigation, silently: every assertion that looks at the settled page still passes. Remove the attribute; a plain external <script> in <head> is render-blocking by specification, which is the property this tag exists for (nav-collapse-toggle T1 / L8, ADR-NAV-COLLAPSE-001)",
-            deferring.join(", ")
-        ));
     }
     if pre_paint == 0 && !tags.is_empty() {
         violations.push(format!(
@@ -1884,6 +1902,70 @@ fn check_pre_paint_scripts_are_render_blocking(root: &Path) -> Vec<String> {
         ));
     }
     violations
+}
+
+/// THE ONE REFUSAL TEXT for the single input class NAMES-THE-PAIR-AND-CARRIES-A-
+/// DEFERRING-ATTRIBUTE (ADR-NAV-ICON-RAIL-004). The gate decides by names, so an
+/// aliased true stamper and a settled-DOM neighbour that merely names the same
+/// pair are INDISTINGUISHABLE in its input: one text, five clauses, and the
+/// contributor — who knows which asset she wrote — picks the case. C1 names the
+/// src and the attributes carried; C2 says the verdict came from the NAMES and
+/// that source cannot show WHEN they are touched; C3 is the remedy for a true
+/// stamper; C4 the two remedies for a settled-DOM neighbour; C5 the warning that
+/// dropping the attributes instead would be accepted by this very gate with
+/// nothing left to observe it. It never claims the asset was watched reading or
+/// stamping — naming is all the gate establishes.
+fn refusal_for_a_script_that_names_the_pair(label: &str, src: &str, carried: &[String]) -> String {
+    let carried = carried.join(", ");
+    format!(
+        "pre-paint-script: {label} loads `{src}` with {carried}, and the gate decided that BY NAME: \
+         the comment-stripped source of that asset NAMES a browser store (`localStorage` or \
+         `sessionStorage`) and NAMES `documentElement`. Source cannot show WHEN it touches them, so \
+         the gate cannot tell the two legitimate cases apart and you must pick the one that is true \
+         of this asset. CASE ONE — it paints stored state onto the document element before the \
+         first paint: remove {carried}, because a plain external <script> in <head> is \
+         render-blocking by specification and that is the property this tag exists for; each of \
+         `defer`, `async` and `type=\"module\"` moves the stamp past the first paint and brings back \
+         the flash of the WRONG STATE on every navigation, silently, because every assertion that \
+         looks at the settled page still passes. CASE TWO — it touches those names only on the \
+         settled DOM: split the stored-state read into its own deferred asset so this one no longer \
+         names both, or record a deliberate exception as a design decision with its reason. In CASE \
+         TWO, do not drop {carried} to satisfy this refusal: a plain tag puts a script with nothing \
+         to do before paint on the render-blocking path, and this gate would then accept it with \
+         nothing left in the repository observing it (nav-collapse-toggle T1 / L8, \
+         ADR-NAV-COLLAPSE-001, ADR-NAV-ICON-RAIL-004)"
+    )
+}
+
+/// The refusal for the OTHER arm: a head script outside the pre-paint family
+/// that does not carry `defer`. `defer` is the one loading mode that keeps a
+/// settled-DOM script off the render-blocking path AND in document order, so
+/// plain, `async` and `type="module"` are each refused for it and each is
+/// answered with the same one remedy (ADR-NAV-ICON-RAIL-002 D10).
+fn refusal_for_a_neighbour_that_does_not_defer(
+    label: &str,
+    src: &str,
+    carried: &[String],
+) -> String {
+    let loading = if carried.is_empty() {
+        "plain".to_string()
+    } else {
+        format!("with {}", carried.join(", "))
+    };
+    format!(
+        "pre-paint-script: {label} loads `{src}` {loading}, and the comment-stripped source of that \
+         asset does not name BOTH a browser store (`localStorage` or `sessionStorage`) and \
+         `documentElement` — so the gate does not read it as a member of the pre-paint family, and \
+         a script with nothing to do before the first paint must not sit on the render-blocking \
+         path. Add `defer` to this tag: a plain external <script> in <head> is render-blocking by \
+         specification and delays the paint the operator waits for, `async` may run before that \
+         paint and in any order, and `type=\"module\"` is deferred but needs the module machinery \
+         to say so. If this asset really does paint stored state onto the document element, it is \
+         not a neighbour at all: it belongs in the pre-paint family, which this gate joins by the \
+         NAMES in the asset's source — identifiers built at run time are invisible to it — and its \
+         tag must then carry none of the three (nav-collapse-toggle T1 / L8, \
+         ADR-NAV-ICON-RAIL-002)"
+    )
 }
 
 /// `{# askama #}` and `<!-- HTML -->` comment bodies blanked, so a tag NAMED in
@@ -2007,18 +2089,30 @@ fn has_bare_attribute(tag: &str, name: &str) -> bool {
     false
 }
 
-/// True when an asset BOTH reads site storage AND stamps the document element —
-/// the pair that makes a script pre-paint. Comments are stripped first, so the
-/// prose that explains the mechanism cannot classify a file that does not
-/// implement it.
+/// True when an asset NAMES a browser store AND NAMES the document element —
+/// the pair that makes a script pre-paint. The property is what the asset
+/// REACHES FOR, so the test is over the NAMES and not over a spelling: a bracket
+/// access, a local alias of the store or a stamp through an element reference
+/// names the same two things as `localStorage.getItem` and
+/// `documentElement.setAttribute`, and a classifier that decided the spelling
+/// let each of those through with `defer` and the flash back with the gate green
+/// (ADR-NAV-ICON-RAIL-003).
+///
+/// WHAT IT CANNOT DECIDE, kept out of the name of the thing: source cannot show
+/// WHEN the asset touches what it names, so this is a one-sided test. It misses
+/// no asset that names the pair, which is the direction the pre-paint promise
+/// needs; it also recognises a settled-DOM neighbour that merely names the pair,
+/// which the single refusal text answers by stating what it decided from; and an
+/// asset that builds its identifiers at run time names nothing it can see.
+///
+/// Comments are stripped first, so the prose that explains the mechanism — in
+/// this gate, in `base.html`, in the two assets themselves — cannot classify a
+/// file that implements none of it.
 fn paints_stored_state_onto_the_document(source: &str) -> bool {
     let code = strip_js_comments(source);
-    let reads_stored_state =
-        code.contains("localStorage.getItem") || code.contains("sessionStorage.getItem");
-    let stamps_the_document = code.contains("documentElement.setAttribute")
-        || code.contains("documentElement.removeAttribute")
-        || code.contains("documentElement.dataset");
-    reads_stored_state && stamps_the_document
+    let names_a_store = code.contains("localStorage") || code.contains("sessionStorage");
+    let names_the_document_element = code.contains("documentElement");
+    names_a_store && names_the_document_element
 }
 
 #[cfg(test)]

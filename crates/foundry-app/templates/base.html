@@ -24,9 +24,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon.png">
-{# canzan-theme-system 05-01 — ONE OF THE TWO SCRIPTS IN THIS HEAD THAT MUST NOT
-   DEFER (the other is the nav-collapse tag below it, added 2026-11-16).
-   Read this before you touch the line below it.
+{# canzan-theme-system 05-01 — A MEMBER OF THE PRE-PAINT FAMILY OF THIS HEAD: IT
+   MUST NOT DEFER (the other member today is the nav-collapse tag below it, added
+   2026-11-16). Read this before you touch the line below it.
 
    `theme.js` stamps `data-theme` on <html> from the operator's stored choice.
    That has to happen BEFORE the first paint, or an operator who chose dark sees
@@ -37,18 +37,18 @@
 
    `defer`, `async` and `type="module"` all defer execution past parsing — each
    one reintroduces the flash, and each one does so SILENTLY: every test that
-   looks at the settled page still passes. Copying the five neighbouring tags is
-   therefore the single most likely mistake in this file, which is why the
+   looks at the settled page still passes. Copying the deferred neighbours below
+   is therefore the single most likely mistake in this file, which is why the
    acceptance suite asserts this tag's SHAPE in the served HTML (scenario
    "A chosen dark screen never flashes light", assertion (a)) rather than trying
    to infer it from timing.
 
-   The other five below are correct as they are: they act on the settled DOM and
-   have nothing to say before paint. Do not make this one match them. #}
+   The deferred neighbours below are correct as they are: they act on the settled
+   DOM and have nothing to say before paint. Do not make this one match them. #}
 <script src="/static/js/theme.js"></script>
-{# nav-collapse-toggle — THE SECOND SCRIPT IN THIS HEAD THAT MUST NOT DEFER, and
-   it sits here, beside the theme tag, so both pre-paint scripts are above the
-   deferred five rather than hidden among them.
+{# nav-collapse-toggle — ANOTHER MEMBER OF THE PRE-PAINT FAMILY: IT MUST NOT
+   DEFER, and it sits here, beside the theme tag, so the pre-paint family stays
+   above the deferred neighbours rather than hidden among them.
 
    `nav-collapse.js` stamps the valueless `data-nav-collapsed` on <html> from the
    operator's stored choice. That has to happen BEFORE the first paint, or an
@@ -60,8 +60,10 @@
    neighbours below is therefore the single most likely mistake here,
    which is why it is no longer only a comment: `cargo xtask check-arch` carries
    a pre-paint-script layer that refuses any of those three attributes on EVERY
-   head script that stamps the document from stored state — this one, the theme
-   one, and any third one added later. #}
+   head script whose asset NAMES a browser store and NAMES `documentElement` —
+   this one, the theme one, and any added later — and that refuses any OTHER head
+   script here which does not carry `defer`, so a neighbour cannot quietly lose
+   it and sit on the render-blocking path for nothing. #}
 <script src="/static/js/nav-collapse.js"></script>
 <script src="/static/vendor/htmx.min.js" defer></script>
 <script src="/static/js/board-dnd.js" defer></script>
