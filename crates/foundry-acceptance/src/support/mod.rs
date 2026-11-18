@@ -30,6 +30,7 @@ pub mod oidc_issuer;
 pub mod pg_backup;
 pub mod pg_time;
 pub mod project_lifecycle;
+pub mod rail_reading;
 pub mod readme_inspect;
 pub mod round_robin_proxy;
 pub mod served_markup;

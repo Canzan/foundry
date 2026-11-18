@@ -357,6 +357,352 @@ The texts are prose. The correction removes the measurable claim - the counts - 
 
 the design owner\, through oracle review and the final examination
 
+### S2
+
+##### Covers
+
+P1
+
+P3
+
+P6
+
+```text
+An operator signs in at desk width with the left nav open and presses the control that narrows it, once - with no admin rights, with workspace-admin rights, with instance-admin rights, and with both.
+```
+
+```text
+Every destination her rights give her - Home, Board, Settings, Keyboard shortcuts, and Integrations or Instance admin where she has them - and Sign out is in the narrow rail: in the layout, visible, able to take the keyboard focus, and announced with the name of the place it opens. Nothing in the rail can take the keyboard focus while it is invisible. The strip is strictly narrower than the width the open nav ships with. The open nav she started from still draws no icon beside its words.
+```
+
+```text
+She narrows the left nav to give the page the width and keeps every place she could go, each one still named.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: Every destination the operator had stays one press away in the narrow rail
+
+```text
+An icon draws the wrong picture for its destination. The name, the layout and the reachability of each member are observed; which glyph is drawn is not, so a rail of correct names over wrong pictures still passes - and the promise is about the name, not the drawing.
+```
+
+###### Obligations
+
+
+
+
+
+
+
+
+
+##### Covers
+
+P1
+
+```text
+The same operator opens the dashboard in a browser that runs no page scripts at all - with no admin rights, with workspace-admin rights, and with instance-admin rights.
+```
+
+```text
+There is no narrow rail and nothing stamped the page: the left nav is the full-width nav it has always been, and every destination her rights give her, with Sign out, is in it - visible, able to take the keyboard focus, and announced with the name of the place it opens.
+```
+
+```text
+In a browser that runs no scripts she gets the whole nav, and nothing she could reach before is missing.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: With no scripting the operator gets every destination in the open nav
+
+```text
+The destinations are laid out in a different order in the open nav. The order the members are laid out in is not observed, because no promise fixes it.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P4
+
+P5
+
+```text
+With the left nav narrowed on her home page, the operator presses the Board icon in the narrow rail.
+```
+
+```text
+Her project board opens, the rail is still a strip, and the rail says where she now is: exactly one member carries the current-page marking and it is Board, painted in a fill that sets it apart from every icon she is not on.
+```
+
+```text
+She goes to her board from the strip and can see, in the strip, that the board is where she is.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: The operator opens her board from the narrow rail and sees it marked there
+
+```text
+The marked icon is tinted in a colour the palette never intended. That the marked member is set apart from the others is observed; the colour it is set apart with belongs to the theme and is observed there.
+```
+
+###### Obligations
+
+None.
+
+##### Covers
+
+P3
+
+```text
+With the left nav narrowed, the operator walks the whole page with the Tab key, stopping on each icon in the rail.
+```
+
+```text
+The walk stops on every destination her rights give her, Sign out included, and each icon she stops on shows the name of the place it opens in a box with a real size on the screen.
+```
+
+```text
+She can read where an icon goes before she presses it, without a pointer and without guessing at a glyph.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: Walking the narrow rail from the keyboard shows the operator each destination\'s name
+
+```text
+The label box is shown but placed outside the bar at the narrowest phone width. Where the revealed label sits is not observed here; it stays an open question for this slice.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P2
+
+```text
+With the left nav narrowed, the operator presses Sign out in the strip once.
+```
+
+```text
+Her session is over on that one press: the sign-in screen renders, nothing was put in front of her to confirm, and the app renders no page of hers afterwards until she signs in again.
+```
+
+```text
+She leaves from the strip in one press, exactly as she leaves from the open nav.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: One press of Sign out in the narrow rail ends the operator\'s session
+
+```text
+Sign out in the strip can be pressed with a pointer but cannot be reached with the keyboard. This row presses it; that it can also take the keyboard focus is observed by the reachability row.
+```
+
+###### Obligations
+
+None.
+
+##### Covers
+
+P11
+
+```text
+The operator leaves the left nav narrow, or leaves it open, signs out from it in the same browser, and signs in again - once with the rights she had, and once with her instance-wide rights taken away in between.
+```
+
+```text
+Signing out leaves the remembered choice exactly as she left it, so the nav she comes back to is the nav she left; and the destinations in it are the ones the rights she holds NOW give her, with the one she lost absent.
+```
+
+```text
+She finds the nav as she left it at her next sign-in, showing the places she can go today.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: The nav the operator left is the nav she comes back to
+
+```text
+The choice is remembered for the browser rather than for the operator, so another person signing in on the same browser inherits her narrow rail. That is the admitted per-browser consequence, and these rows cannot tell the two apart.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P7
+
+```text
+The operator opens the dashboard with the left nav narrowed on a real emulated phone 320, 390 and 480 pixels wide.
+```
+
+```text
+The bar holds every destination her rights give her, with Sign out, each one named, visible and reachable, and every one of their boxes lies inside the bar; the bar is no wider than her screen and the page does not slide sideways at any of the three widths.
+```
+
+```text
+On a phone she sees all of her destinations in the bar and never has to push the page sideways to reach one.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: On a phone the narrow bar shows every destination inside itself
+
+```text
+Every icon happens to fit on a single row at all three widths, so the wrapping the bar is told to do is never exercised - what is observed is that no icon leaves the bar and the page never slides, which is the promise.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P11
+
+```text
+An earlier visit left the narrow nav remembered in her browser; now her browser runs no page scripts, she signs out of the left nav she gets there, and signs in again.
+```
+
+```text
+There is no narrow rail and nothing stamped the page, because no script ran to stamp it; the open nav carries every destination her rights give her with Sign out; and what the browser remembers is byte-for-byte the choice she left.
+```
+
+```text
+A visit in a browser that runs no scripts gives her the open nav and throws away nothing she chose earlier.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: Signing out with no scripting leaves the choice she made earlier untouched
+
+```text
+Signing out clears the choice only in a browser that does run scripts. This row observes the no-script visit; the scripting-on arm of the same law is observed by the row above it.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P8
+
+```text
+A contributor writes a head script that reaches for stored state and for the document element in any idiom - a direct read, a bracket read, a local alias, a destructured read, an element reference, a dataset stamp - or that only mentions those names inside a comment, and runs the project gate.
+```
+
+```text
+The gate recognises what the asset NAMES in every one of those idioms and refuses it when it defers; it does not recognise an asset that merely mentions the names in a comment; and it recognises an asset that names both and touches them only once the page has settled, refusing that one loudly rather than accepting it in silence.
+```
+
+```text
+No way of writing a script that stamps the page from stored state slips past the gate, so the flash of the wrong rail does not come back.
+```
+
+##### Disposition
+
+Tested
+
+xtask\/src\/check\_arch\.rs\:\:membership\_follows\_what\_the\_asset\_names\_in\_every\_idiom\_and\_ignores\_its\_comments
+
+```text
+An asset that builds its identifiers while the page runs is classed as a non-stamper. The enumeration covers written idioms; a name assembled at runtime is outside what any test of the source can see, and the layer records that limit rather than claiming it.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+P3
+
+P7
+
+```text
+A contributor changes the rail's styling - the icon, the clipped word, the revealed label, the phone arm - and runs the project gate over the repository.
+```
+
+```text
+Every added rule names only the palette's own tokens and no colour of its own, and the stylesheet the shell asks for still resolves: its content-hashed name is its own fingerprint, its provenance row recomputes, and every reference to it moves with its bytes.
+```
+
+```text
+Her icons and the label that names them follow the palette she chose, and her page keeps its styling after the rail is restyled instead of arriving unstyled.
+```
+
+##### Disposition
+
+Tested
+
+xtask\/src\/check\_arch\.rs \:\: the colour\-token seam and the static\-asset layers\, run by cargo xtask check\-arch
+
+```text
+A rule names a token that exists in every palette but is the wrong one for the rail, so the icon is legible and looks out of place. The layers observe that no colour is hard-coded and that the asset resolves; which token suits the rail is a review matter.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P7
+
+```text
+The operator opens the dashboard with the left nav OPEN on a phone 320, 390 and 480 pixels wide.
+```
+
+```text
+The nav lays out as the top bar at every one of those widths and the page does not slide sideways, exactly as it did before the rail learned to draw icons.
+```
+
+```text
+On a phone her page never slides sideways, whichever way she has the nav set.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-toggle\.feature \:\: A phone screen never scrolls sideways\, whichever way the left nav is set
+
+```text
+The bar is taller than it needs to be at the narrowest width. The promise is about the page not sliding sideways; how much height the bar spends is not observed.
+```
+
+###### Obligations
+
+
+
+
 ## Expectations
 
 ### Rows

@@ -50,6 +50,7 @@ pub mod steps {
     pub mod feature_mwt_slice_06_provision_and_prove;
     pub mod feature_name_db_checks;
     pub mod feature_nav_collapse;
+    pub mod feature_nav_icon_rail;
     pub mod feature_navigation_bar;
     pub mod feature_new_issue_dialog_description;
     pub mod feature_notification_delivery_providers;

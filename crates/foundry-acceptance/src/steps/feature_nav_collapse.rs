@@ -32,14 +32,21 @@
 //! session against THAT SAME in-process origin, so both lanes exercise one app —
 //! the choice `feature_pwa_mobile.rs` and `feature_canzan_theme.rs` both made.
 //!
-//! THE SERVED-MARKUP PARSE IS LOCAL ON PURPOSE. The no-flash scenario reads the
-//! served `<head>` with `scraper`, a few lines that mirror what the theme lane
-//! does for its own tag. Reaching into that module's private helper would couple
-//! two features' oracles together; the shared thing here is the crate's `scraper`
-//! dependency, not a helper.
+//! WHAT THIS MODULE DOES NOT OWN. Two readings it used to carry are shared with
+//! the lane that walks the rail's icons, and both live in `support`: the served
+//! `<head>` (`served_markup::head_scripts`) and the live rail
+//! (`rail_reading::read_nav`, its focus probe and its Tab walks). A second lane
+//! could reach a private copy here only by importing across step modules, which
+//! no step module may do, and two copies of either reading would let one lane
+//! learn something the other silently did not. This module calls those owners
+//! and keeps every assertion it feeds.
 
 use crate::support::browser_harness;
 use crate::support::harness::signed_in_get;
+use crate::support::rail_reading::{
+    members, px, read_focus, read_nav, tab_until_the_control_holds_focus, walk_the_tab_order,
+    FOLD_MARK, NAV_CONTROL, OPEN_RAIL_PX,
+};
 use crate::support::served_markup::head_scripts;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
@@ -55,24 +62,14 @@ use std::time::{Duration, Instant};
 const NAV_CHOICE_KEY: &str = "foundry.nav";
 const FOLDED_CHOICE: &str = "collapsed";
 
-/// The one channel from the script to the stylesheet: a VALUELESS attribute on
-/// the document element.
-const FOLD_MARK: &str = "data-nav-collapsed";
-
 /// The served path of the asset that stamps the mark. The tag carrying it must
 /// stay render-blocking.
 const NAV_SCRIPT_PATH: &str = "/static/js/nav-collapse.js";
-
-/// The shipped width of the open rail. Named because the promise is that opening
-/// the nav again returns it to what shipped — never to bound the folded strip,
-/// which no promise fixes.
-const OPEN_RAIL_PX: f64 = 240.0;
 
 /// The breakpoint the phone rules are guarded by, so every phone assertion can
 /// prove it was measured on the side of it that it claims to be about.
 const PHONE_BREAKPOINT_PX: f64 = 480.0;
 
-const NAV_CONTROL: &str = ".sidebar__brand button[aria-expanded]";
 const DASHBOARD_WITNESS: &str = ".dash .card-grid .card a";
 const REPORT_WITNESS: &str = "section.change-report[data-change-report]";
 const SIGN_IN_WITNESS: &str = "form[action='/sign-in'] input[type='password']";
@@ -90,7 +87,6 @@ const TEAM_SLUG: &str = "backend";
 const PROJECT_SLUG: &str = "sandbox";
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(10);
-const MAX_TAB_STOPS: usize = 40;
 
 /// Where a step leaves a reading for the step after it. `sessionStorage`, so it
 /// cannot collide with the `localStorage` key the production script owns, and so
@@ -928,41 +924,50 @@ async fn then_control_wording_changed(world: &mut FoundryWorld) {
     );
 }
 
-/// The screen-reader stressor, observed as a keyboard fact: the hidden items must
-/// leave the focus order and the accessibility tree TOGETHER. A width-only or
-/// opacity-only fold leaves links that are invisible and still focusable, so the
-/// operator tabs into a nav she cannot see.
-#[then(regex = r"^no hidden nav item ever takes the keyboard focus$")]
-async fn then_no_hidden_item_takes_focus(world: &mut FoundryWorld) {
+/// The screen-reader stressor, observed as a keyboard fact. Nothing in the narrow
+/// rail is hidden any more — the destinations are there as icons — so the law is
+/// no longer "the hidden items left the focus order" but "nothing the keyboard can
+/// reach in the rail is invisible". A fold done by width, by opacity or by
+/// clipping the icon away puts a link back in the focus order with nothing to see,
+/// and the operator tabs into a nav she cannot see.
+#[then(regex = r"^no nav item ever takes the keyboard focus while it is invisible$")]
+async fn then_no_invisible_item_takes_focus(world: &mut FoundryWorld) {
     let browser = browser_of(world);
     let walk = unstash(browser, BEFORE_KEY).await;
     let stops = walk.as_array().expect("the Tab walk recorded its stops");
     assert!(
         stops.len() >= 2,
-        "the Tab walk made {} stop(s), so `no hidden nav item took the focus` would hold over a \
+        "the Tab walk made {} stop(s), so `nothing invisible took the focus` would hold over a \
          page nothing walked",
         stops.len()
     );
     let trespass: Vec<String> = stops
         .iter()
-        .filter(|stop| stop["inFoldedRegion"].as_bool().unwrap_or(false))
+        .filter(|stop| {
+            stop["isRailMember"].as_bool().unwrap_or(false)
+                && !stop["visible"].as_bool().unwrap_or(false)
+        })
         .map(|stop| stop["description"].as_str().unwrap_or("?").to_string())
         .collect();
     assert!(
         trespass.is_empty(),
-        "the Tab walk stopped on {} element(s) inside the folded-away part of the rail: {:?}. \
-         They are hidden from the eye and still reachable from the keyboard, which is what a fold \
-         done with width or opacity produces instead of taking them out of the layout.",
+        "the Tab walk stopped on {} rail link(s) that cannot be seen: {:?}. They are invisible and \
+         still reachable from the keyboard, which is what hiding a destination by width, by \
+         opacity or by clipping produces instead of drawing it as an icon.",
         trespass.len(),
         trespass
     );
-    let reading = read_nav(browser).await;
-    assert_eq!(
-        reading["navDisplay"].as_str(),
-        Some("none"),
-        "the nav items are still laid out while the rail is folded away ({:?}) — they must leave \
-         the layout, not merely be clipped",
-        reading["navDisplay"]
+    // ANTI-VACUITY: a rail that took its destinations out of the layout would
+    // also leave no invisible stop behind. The walk must have STOPPED on them.
+    let reached = stops
+        .iter()
+        .filter(|stop| stop["isRailMember"].as_bool().unwrap_or(false))
+        .count();
+    assert!(
+        reached >= 2,
+        "the Tab walk reached {reached} of the narrow rail's destinations, so `nothing invisible \
+         took the focus` held over a strip the keyboard cannot enter at all. The icon rail keeps \
+         every destination in the focus order. Walk: {stops:?}"
     );
 }
 
@@ -1240,79 +1245,10 @@ async fn then_long_name_does_not_widen_the_strip(world: &mut FoundryWorld) {
 }
 
 // ==========================================================================
-// THE READING — one probe, so a geometry claim and a state claim can never
-// drift into two different moments
+// THE READING — one owner, so a geometry claim and a state claim can never
+// drift into two different moments, and so the lane that walks the rail's icons
+// reads the SAME rail this one folds (`support::rail_reading`)
 // ==========================================================================
-
-const NAV_PROBE: &str = r#"
-var rail = document.querySelector('.sidebar');
-var content = document.querySelector('.app-shell__content');
-var shell = document.querySelector('.app-shell');
-var nav = document.querySelector('.sidebar__nav');
-var control = document.querySelector('.sidebar__brand button[aria-expanded]');
-var theme = document.querySelector('.theme-toggle');
-var items = Array.prototype.slice.call(document.querySelectorAll('.sidebar__nav .sidebar__item'));
-function width(el) { return el ? el.getBoundingClientRect().width : null; }
-function display(el) { return el ? getComputedStyle(el).display : null; }
-function shown(el) {
-  return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
-}
-var controlled = null;
-if (control && control.getAttribute('aria-controls')) {
-  controlled = document.getElementById(control.getAttribute('aria-controls'));
-}
-return {
-  marked: document.documentElement.hasAttribute(arguments[0]),
-  markValue: document.documentElement.getAttribute(arguments[0]),
-  railWidth: width(rail),
-  contentWidth: width(content),
-  shellWidth: width(shell),
-  viewport: document.documentElement.clientWidth,
-  docWidth: document.documentElement.scrollWidth,
-  shellDirection: shell ? getComputedStyle(shell).flexDirection : null,
-  navDisplay: display(nav),
-  workspaceDisplay: display(document.querySelector('.sidebar__workspace')),
-  monogramDisplay: display(document.querySelector('.sidebar__monogram')),
-  itemCount: items.length,
-  itemsShown: items.filter(shown).length,
-  itemsFocusable: items.filter(function (el) {
-    return el.tabIndex >= 0 && el.hasAttribute('href') && el.textContent.trim().length > 0;
-  }).length,
-  control: control ? {
-    tag: control.tagName.toLowerCase(),
-    expanded: control.getAttribute('aria-expanded'),
-    controls: control.getAttribute('aria-controls'),
-    controlsTheNav: controlled !== null && controlled === nav,
-    name: (control.getAttribute('aria-label') || control.textContent || '').trim(),
-    shown: shown(control),
-    tabindex: control.getAttribute('tabindex')
-  } : null,
-  themeControl: theme ? {
-    shown: shown(theme),
-    name: (theme.getAttribute('aria-label') || '').trim()
-  } : null,
-  kbReady: document.querySelectorAll('[data-kb-ready]').length
-};
-"#;
-
-async fn read_nav(client: &fantoccini::Client) -> serde_json::Value {
-    client
-        .execute(
-            NAV_PROBE,
-            vec![serde_json::Value::String(FOLD_MARK.to_string())],
-        )
-        .await
-        .expect("read the rail, the content column and the control from the live page")
-}
-
-fn px(reading: &serde_json::Value, key: &str) -> f64 {
-    reading[key].as_f64().unwrap_or_else(|| {
-        panic!(
-            "the page has no {key} to measure — the rail, the content column or the shell is \
-             missing, so this is not the application shell at all. Reading: {reading}"
-        )
-    })
-}
 
 fn control_name(reading: &serde_json::Value) -> String {
     reading["control"]["name"]
@@ -1346,7 +1282,19 @@ fn assert_open_at_desk_width(reading: &serde_json::Value, when: &str) {
 }
 
 /// The FOLDED rail: the mark present, the rail strictly narrower than it was,
-/// still drawn, and the items out of the layout rather than merely out of sight.
+/// still drawn, and — since the rail became an ICON STRIP — its destinations
+/// still IN the layout and still reachable from the keyboard, with the workspace
+/// name and the operator's identity the only members taken out of it.
+///
+/// This inverts what the folded rail used to promise. It used to take the whole
+/// navigation out of the layout, and the reason was that items hidden by width or
+/// by opacity stay focusable and announced while invisible. The repair kept the
+/// reason and changed the carrier: the destinations stay, each drawn as an icon,
+/// so the law is no longer "the items are gone" but "nothing in the rail is
+/// invisible AND focusable" — the invisible-focusable set is empty. A rail that
+/// goes back to hiding its destinations fails here, because a strip the operator
+/// cannot navigate from is the dead end this feature exists to remove.
+///
 /// No pixel width is named: the strip's width is a design value, not a promise.
 fn assert_folded(reading: &serde_json::Value, before: &serde_json::Value, when: &str) {
     let control_absent = reading["control"].is_null();
@@ -1375,13 +1323,52 @@ fn assert_folded(reading: &serde_json::Value, before: &serde_json::Value, when: 
         "{when} the rail is {rail:.1}px wide where it was {was:.1}px — it did not narrow into a \
          control strip, so nothing was released for the page content"
     );
-    assert_eq!(
+    assert_ne!(
         reading["navDisplay"].as_str(),
         Some("none"),
-        "{when} the nav items are still in the layout ({:?}) — they must leave the layout and the \
-         accessibility tree together, or the operator can tab into a nav she cannot see",
-        reading["navDisplay"]
+        "{when} the rail's navigation is out of the layout. The narrow strip is an ICON RAIL: its \
+         destinations stay, drawn as icons, because a strip the operator cannot navigate from \
+         leaves her with no way to anywhere until she opens the nav again."
     );
+    let lost: Vec<String> = members(reading)
+        .iter()
+        .filter(|member| {
+            !member["inLayout"].as_bool().unwrap_or(false)
+                || !member["focusable"].as_bool().unwrap_or(false)
+        })
+        .map(|member| member["text"].as_str().unwrap_or("?").to_string())
+        .collect();
+    assert!(
+        lost.is_empty(),
+        "{when} {} of the rail's destinations are out of the layout or out of reach of the \
+         keyboard: {lost:?}. Every one of them, Sign out included, stays one press away while the \
+         rail is narrow.",
+        lost.len()
+    );
+    let invisible_focusable = reading["invisibleFocusable"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        invisible_focusable.is_empty(),
+        "{when} {} rail link(s) can take the keyboard focus while they are invisible: {:?}. That \
+         is what hiding them by width, by opacity or by clipping produces: the operator tabs into \
+         a nav she cannot see.",
+        invisible_focusable.len(),
+        invisible_focusable
+    );
+    for (member, what) in [
+        (&reading["workspaceDisplay"], "the workspace name"),
+        (&reading["identityDisplay"], "the operator's own name"),
+    ] {
+        assert_eq!(
+            member.as_str(),
+            Some("none"),
+            "{when} {what} is still laid out in the narrow strip ({member:?}). The strip carries \
+             destinations and controls only: a name in it is width spent on something the \
+             operator cannot press."
+        );
+    }
 }
 
 /// The control's own contract: a real button, `aria-expanded` telling the state
@@ -1549,92 +1536,6 @@ async fn assert_no_script_error_reported(client: &fantoccini::Client, when: &str
          assertion above passed over an instrument that records NOTHING — `nothing was reported` \
          would hold on a page that reported everything. Recorded instead: {seen:?}"
     );
-}
-
-// ==========================================================================
-// THE KEYBOARD ORDER
-// ==========================================================================
-
-const FOCUS_PROBE: &str = r#"
-var el = document.activeElement;
-if (!el) { return { description: 'nothing', isNavControl: false, inFoldedRegion: false }; }
-var description = el.tagName.toLowerCase();
-if (el.className && typeof el.className === 'string' && el.className.trim()) {
-  description += '.' + el.className.trim().split(/\s+/).join('.');
-}
-var text = (el.getAttribute('aria-label') || el.textContent || '').trim().slice(0, 40);
-var style = getComputedStyle(el);
-return {
-  description: description + (text ? ' [' + text + ']' : ''),
-  isNavControl: !!(el.closest && el.closest('.sidebar__brand') && el.hasAttribute('aria-expanded')),
-  inFoldedRegion: !!(el.closest && (el.closest('.sidebar__nav') || el.closest('.sidebar__user')) &&
-                     !el.closest('.theme-toggle')),
-  outlineStyle: style.outlineStyle,
-  outlineWidth: parseFloat(style.outlineWidth) || 0,
-  isBody: el === document.body
-};
-"#;
-
-async fn read_focus(client: &fantoccini::Client) -> serde_json::Value {
-    client
-        .execute(FOCUS_PROBE, Vec::new())
-        .await
-        .expect("read what holds the keyboard focus")
-}
-
-async fn clear_focus(client: &fantoccini::Client) {
-    client
-        .execute(
-            "if (document.activeElement && document.activeElement.blur) {
-               document.activeElement.blur();
-             }
-             return true;",
-            Vec::new(),
-        )
-        .await
-        .expect("clear the focus before walking the reading order");
-}
-
-/// Tab from a cleared focus until the nav control holds it, returning the stops
-/// made on the way so a failure names the order that DID happen.
-async fn tab_until_the_control_holds_focus(client: &fantoccini::Client) -> Vec<String> {
-    clear_focus(client).await;
-    let mut walked = Vec::new();
-    for _ in 0..MAX_TAB_STOPS {
-        browser_harness::press_key(client, "Tab").await;
-        let focus = read_focus(client).await;
-        walked.push(
-            focus["description"]
-                .as_str()
-                .unwrap_or_default()
-                .to_string(),
-        );
-        if focus["isNavControl"].as_bool().unwrap_or(false) {
-            return walked;
-        }
-    }
-    panic!(
-        "the nav control was never reached in {MAX_TAB_STOPS} Tab presses, so it is not in the \
-         reading order and an operator working from the keyboard cannot fold the nav at all. The \
-         walk stopped at: {walked:?}"
-    );
-}
-
-/// Walk the WHOLE reading order once and record every stop, so an assertion can
-/// ask what the keyboard could reach rather than only where it ended up.
-async fn walk_the_tab_order(client: &fantoccini::Client) -> serde_json::Value {
-    clear_focus(client).await;
-    let mut stops = Vec::new();
-    for _ in 0..MAX_TAB_STOPS {
-        browser_harness::press_key(client, "Tab").await;
-        let focus = read_focus(client).await;
-        let back_at_the_start = focus["isBody"].as_bool().unwrap_or(false) && !stops.is_empty();
-        stops.push(focus);
-        if back_at_the_start {
-            break;
-        }
-    }
-    serde_json::Value::Array(stops)
 }
 
 // ==========================================================================

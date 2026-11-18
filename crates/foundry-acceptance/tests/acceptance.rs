@@ -108,6 +108,8 @@ use foundry_acceptance::steps::feature_name_db_checks as _feature_ndc;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_nav_collapse as _feature_nav_collapse;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_nav_icon_rail as _feature_nav_icon_rail;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_navigation_bar as _feature_navigation_bar;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_new_issue_dialog_description as _feature_new_issue_desc;

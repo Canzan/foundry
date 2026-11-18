@@ -211,13 +211,16 @@ Feature: The operator folds the left nav away and the app remembers
     And its wording is not the wording it carried before the press
 
   @needs-browser @real-io @nav-collapse-keyboard
-  Scenario: A folded-away left nav leaves no hidden link in the keyboard order
-    # RED-trigger: the items are hidden by width or by opacity, so they are
-    # invisible and still focusable and still announced — the operator tabs into a
-    # nav she cannot see.
+  Scenario: A folded-away left nav leaves nothing invisible in the keyboard order
+    # The premise changed, the promise did not. The narrow rail no longer hides its
+    # destinations — they are there as icons — so the thing that must never happen
+    # is a rail link the keyboard can reach and the eye cannot see.
+    # RED-trigger: a destination is hidden by width, by opacity or by clipping its
+    # icon away, so it is invisible and still focusable and still announced — the
+    # operator tabs into a nav she cannot see.
     Given the operator has folded the left nav away on the dashboard
     When she walks the whole page with the Tab key
-    Then no hidden nav item ever takes the keyboard focus
+    Then no nav item ever takes the keyboard focus while it is invisible
     And the monogram, the nav control and the theme control are still there, and the theme control still carries its name
 
   # ==========================================================================

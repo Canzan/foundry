@@ -198,6 +198,196 @@
 "stimulus": "F551",
 "user_result": "F553"
 }
+],
+"S2": [
+{
+"covers": [
+"P1",
+"P3",
+"P6"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F164",
+"L1/F165",
+"L1/F166",
+"L1/F167",
+"L2/F171",
+"L2/F172",
+"L7/F196",
+"L7/F197"
+],
+"still_passes_if": "F558",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: Every destination the operator had stays one press away in the narrow rail"
+},
+"expected": "F556",
+"stimulus": "F555",
+"user_result": "F557"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F168"
+],
+"still_passes_if": "F562",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: With no scripting the operator gets every destination in the open nav"
+},
+"expected": "F560",
+"stimulus": "F559",
+"user_result": "F561"
+},
+{
+"covers": [
+"P4",
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F566",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: The operator opens her board from the narrow rail and sees it marked there"
+},
+"expected": "F564",
+"stimulus": "F563",
+"user_result": "F565"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7/F196"
+],
+"still_passes_if": "F570",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: Walking the narrow rail from the keyboard shows the operator each destination's name"
+},
+"expected": "F568",
+"stimulus": "F567",
+"user_result": "F569"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"still_passes_if": "F574",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: One press of Sign out in the narrow rail ends the operator's session"
+},
+"expected": "F572",
+"stimulus": "F571",
+"user_result": "F573"
+},
+{
+"covers": [
+"P11"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3/F175",
+"L3/F177"
+],
+"still_passes_if": "F578",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: The nav the operator left is the nav she comes back to"
+},
+"expected": "F576",
+"stimulus": "F575",
+"user_result": "F577"
+},
+{
+"covers": [
+"P7"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L8/F200",
+"L8/F202",
+"L8/F204"
+],
+"still_passes_if": "F582",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: On a phone the narrow bar shows every destination inside itself"
+},
+"expected": "F580",
+"stimulus": "F579",
+"user_result": "F581"
+},
+{
+"covers": [
+"P11"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3/F176"
+],
+"still_passes_if": "F586",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: Signing out with no scripting leaves the choice she made earlier untouched"
+},
+"expected": "F584",
+"stimulus": "F583",
+"user_result": "F585"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6"
+],
+"still_passes_if": "F590",
+"test": "xtask/src/check_arch.rs::membership_follows_what_the_asset_names_in_every_idiom_and_ignores_its_comments"
+},
+"expected": "F588",
+"stimulus": "F587",
+"user_result": "F589"
+},
+{
+"covers": [
+"P1",
+"P3",
+"P7"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T2",
+"T3"
+],
+"still_passes_if": "F594",
+"test": "xtask/src/check_arch.rs :: the colour-token seam and the static-asset layers, run by cargo xtask check-arch"
+},
+"expected": "F592",
+"stimulus": "F591",
+"user_result": "F593"
+},
+{
+"covers": [
+"P7"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L8/F201",
+"L8/F203",
+"L8/F205"
+],
+"still_passes_if": "F598",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-toggle.feature :: A phone screen never scrolls sideways, whichever way the left nav is set"
+},
+"expected": "F596",
+"stimulus": "F595",
+"user_result": "F597"
+}
 ]
 },
 "counters": {
@@ -205,7 +395,7 @@
 "C": 3,
 "D": 24,
 "E": 12,
-"F": 554,
+"F": 598,
 "K": 15,
 "L": 8,
 "N": 7,
@@ -2601,10 +2791,54 @@
 "F552": "All three agree with the head the suite asserts: they name the family that must run before paint and the neighbours that must defer, and state no count that a later script can make wrong.",
 "F553": "A contributor who reads before she edits is told the truth about this head, so she does not reintroduce the flash by trusting a stale sentence.",
 "F554": "The texts are prose. The correction removes the measurable claim - the counts - rather than replacing it with a new one, so there is nothing a test can pin that would not freeze wording a contributor should be free to improve; pinning prose is also refused by the design. Their agreement with the head is judged by the oracle review and by the final user-view examination, against the nine scripts both readers assert.",
+"F555": "An operator signs in at desk width with the left nav open and presses the control that narrows it, once - with no admin rights, with workspace-admin rights, with instance-admin rights, and with both.",
+"F556": "Every destination her rights give her - Home, Board, Settings, Keyboard shortcuts, and Integrations or Instance admin where she has them - and Sign out is in the narrow rail: in the layout, visible, able to take the keyboard focus, and announced with the name of the place it opens. Nothing in the rail can take the keyboard focus while it is invisible. The strip is strictly narrower than the width the open nav ships with. The open nav she started from still draws no icon beside its words.",
+"F557": "She narrows the left nav to give the page the width and keeps every place she could go, each one still named.",
+"F558": "An icon draws the wrong picture for its destination. The name, the layout and the reachability of each member are observed; which glyph is drawn is not, so a rail of correct names over wrong pictures still passes - and the promise is about the name, not the drawing.",
+"F559": "The same operator opens the dashboard in a browser that runs no page scripts at all - with no admin rights, with workspace-admin rights, and with instance-admin rights.",
 "F56": "Signing out does not clear the stored collapsed choice: the operator who collapsed the rail finds it collapsed at her next sign-in in the same browser. Reason: this follows from the delivered nav-collapse-toggle product - the choice is kept per browser the way the theme choice is kept, and it stays until the operator expands it with the toggle, which Sign out is not. The exploration shows both variants: keeping it starts the next sign-in collapsed (witness a_icons_keep_w_q3), clearing it starts it expanded (a_icons_clear_q3). The per-browser consequence is the accepted one: another person on the same browser inherits the choice, exactly as she inherits the theme.",
+"F560": "There is no narrow rail and nothing stamped the page: the left nav is the full-width nav it has always been, and every destination her rights give her, with Sign out, is in it - visible, able to take the keyboard focus, and announced with the name of the place it opens.",
+"F561": "In a browser that runs no scripts she gets the whole nav, and nothing she could reach before is missing.",
+"F562": "The destinations are laid out in a different order in the open nav. The order the members are laid out in is not observed, because no promise fixes it.",
+"F563": "With the left nav narrowed on her home page, the operator presses the Board icon in the narrow rail.",
+"F564": "Her project board opens, the rail is still a strip, and the rail says where she now is: exactly one member carries the current-page marking and it is Board, painted in a fill that sets it apart from every icon she is not on.",
+"F565": "She goes to her board from the strip and can see, in the strip, that the board is where she is.",
+"F566": "The marked icon is tinted in a colour the palette never intended. That the marked member is set apart from the others is observed; the colour it is set apart with belongs to the theme and is observed there.",
+"F567": "With the left nav narrowed, the operator walks the whole page with the Tab key, stopping on each icon in the rail.",
+"F568": "The walk stops on every destination her rights give her, Sign out included, and each icon she stops on shows the name of the place it opens in a box with a real size on the screen.",
+"F569": "She can read where an icon goes before she presses it, without a pointer and without guessing at a glyph.",
 "F57": "For a head script that does not stamp stored state, defers means it carries the defer attribute: async and type=module in the head are refused for it too, and the contributor is told to add defer. Reason: the exploration shows the rule as written leaves eight shapes with no verdict at all (a_written reading: 6 accept, 10 refuse, 8 none - the contributor reads 'no verdict'), which a gate must never answer; this reading is the literal one of the confirmed finding 'assert every non-pre-paint head script defers', it is total (6 accept, 18 refuse), and it changes no verdict for any script in the shipped head, where every neighbour already carries defer. A contributor who later wants an async or module head script changes this decision deliberately instead of slipping past a silent gap.",
+"F570": "The label box is shown but placed outside the bar at the narrowest phone width. Where the revealed label sits is not observed here; it stays an open question for this slice.",
+"F571": "With the left nav narrowed, the operator presses Sign out in the strip once.",
+"F572": "Her session is over on that one press: the sign-in screen renders, nothing was put in front of her to confirm, and the app renders no page of hers afterwards until she signs in again.",
+"F573": "She leaves from the strip in one press, exactly as she leaves from the open nav.",
+"F574": "Sign out in the strip can be pressed with a pointer but cannot be reached with the keyboard. This row presses it; that it can also take the keyboard focus is observed by the reachability row.",
+"F575": "The operator leaves the left nav narrow, or leaves it open, signs out from it in the same browser, and signs in again - once with the rights she had, and once with her instance-wide rights taken away in between.",
+"F576": "Signing out leaves the remembered choice exactly as she left it, so the nav she comes back to is the nav she left; and the destinations in it are the ones the rights she holds NOW give her, with the one she lost absent.",
+"F577": "She finds the nav as she left it at her next sign-in, showing the places she can go today.",
+"F578": "The choice is remembered for the browser rather than for the operator, so another person signing in on the same browser inherits her narrow rail. That is the admitted per-browser consequence, and these rows cannot tell the two apart.",
+"F579": "The operator opens the dashboard with the left nav narrowed on a real emulated phone 320, 390 and 480 pixels wide.",
 "F58": "The nav shows the rights of the last page load, in both the expanded and the collapsed state, and activating a destination whose right was revoked is refused. The exploration found this (a_icons_keep_rights); it is pre-existing, it is not caused by collapsing, and this feature neither repairs nor worsens it.",
+"F580": "The bar holds every destination her rights give her, with Sign out, each one named, visible and reachable, and every one of their boxes lies inside the bar; the bar is no wider than her screen and the page does not slide sideways at any of the three widths.",
+"F581": "On a phone she sees all of her destinations in the bar and never has to push the page sideways to reach one.",
+"F582": "Every icon happens to fit on a single row at all three widths, so the wrapping the bar is told to do is never exercised - what is observed is that no icon leaves the bar and the page never slides, which is the promise.",
+"F583": "An earlier visit left the narrow nav remembered in her browser; now her browser runs no page scripts, she signs out of the left nav she gets there, and signs in again.",
+"F584": "There is no narrow rail and nothing stamped the page, because no script ran to stamp it; the open nav carries every destination her rights give her with Sign out; and what the browser remembers is byte-for-byte the choice she left.",
+"F585": "A visit in a browser that runs no scripts gives her the open nav and throws away nothing she chose earlier.",
+"F586": "Signing out clears the choice only in a browser that does run scripts. This row observes the no-script visit; the scripting-on arm of the same law is observed by the row above it.",
+"F587": "A contributor writes a head script that reaches for stored state and for the document element in any idiom - a direct read, a bracket read, a local alias, a destructured read, an element reference, a dataset stamp - or that only mentions those names inside a comment, and runs the project gate.",
+"F588": "The gate recognises what the asset NAMES in every one of those idioms and refuses it when it defers; it does not recognise an asset that merely mentions the names in a comment; and it recognises an asset that names both and touches them only once the page has settled, refusing that one loudly rather than accepting it in silence.",
+"F589": "No way of writing a script that stamps the page from stored state slips past the gate, so the flash of the wrong rail does not come back.",
 "F59": "Exploration evidence, icon rail: model iconRail.qnt, sha256 0a61ac1540f4f0fdf453c76aea6e322f0b35e6906ab1b571bca8a63e942f81e3, Quint 0.32.0 in the local-dev VM, typecheck exit 0. Command form: quint run iconRail.qnt <flags> --seed=7 --max-steps=8 --max-samples=20000 --out-itf=a_<name>.itf.json. With the icon rail, noTrap, matrixNoTrap, noInvisibleFocusable, focusNeverInvisible, matrixNoInvisibleFocusable and nextSignInStartsCollapsed hold together (icons_keep_all, exit 0): over all twelve state combinations the activatable set is the operator's destinations plus Sign out, and the invisible-focusable set is empty. The old design fails both: hiding the links leaves 'activatable links: {}' and 'Sign out can be activated: false' after collapse (hide_none_q1, exit 1), and hiding them visually leaves {Board, Home, Keyboard shortcuts, Settings, Sign out} able to take the focus while invisible (hide_clip_q2, exit 1).",
+"F590": "An asset that builds its identifiers while the page runs is classed as a non-stamper. The enumeration covers written idioms; a name assembled at runtime is outside what any test of the source can see, and the layer records that limit rather than claiming it.",
+"F591": "A contributor changes the rail's styling - the icon, the clipped word, the revealed label, the phone arm - and runs the project gate over the repository.",
+"F592": "Every added rule names only the palette's own tokens and no colour of its own, and the stylesheet the shell asks for still resolves: its content-hashed name is its own fingerprint, its provenance row recomputes, and every reference to it moves with its bytes.",
+"F593": "Her icons and the label that names them follow the palette she chose, and her page keeps its styling after the rail is restyled instead of arriving unstyled.",
+"F594": "A rule names a token that exists in every palette but is the wrong one for the rail, so the icon is legible and looks out of place. The layers observe that no colour is hard-coded and that the asset resolves; which token suits the rail is a review matter.",
+"F595": "The operator opens the dashboard with the left nav OPEN on a phone 320, 390 and 480 pixels wide.",
+"F596": "The nav lays out as the top bar at every one of those widths and the page does not slide sideways, exactly as it did before the rail learned to draw icons.",
+"F597": "On a phone her page never slides sideways, whichever way she has the nav set.",
+"F598": "The bar is taller than it needs to be at the narrowest width. The promise is about the page not sliding sideways; how much height the bar spends is not observed.",
 "F6": "The collapsed rail marks the page the operator is on, as the expanded nav does.",
 "F60": "Exploration evidence, guards: model headGuard.qnt, sha256 099b5168dfba5919b8ba253ff0466816b1c4b2dca3c932bac56c8c378faac0f3, Quint 0.32.0 in the local-dev VM, typecheck exit 0. Command form: quint run headGuard.qnt <flags> --seed=11 --max-steps=12 --max-samples=5000 --out-itf=b_<name>.itf.json. In every reading a stamper is accepted plain and refused with defer, async or type=module, and a script that names documentElement but no stored state must defer. The chosen defer-attribute reading gives every one of the twenty-four shapes exactly one verdict and keeps gateMatchesPaint and stampsBeforePaint_acceptedHead (defer_attr_all, exit 0). Its paint-order trace runs the nav-state stamp and the theme stamp, then first paint with both stamps landed, then the app bundle and the stored-state reader (defer_attr_w_accepted); with the theme stamp loaded defer or async only the nav-state stamp has landed at first paint.",
 "F61": "Evidence limits of the exploration: quint run with a seed samples, it does not prove; quint verify did not run because Apalache is not cached in the VM. The static tables (matrix for the rail, verdicts for the gate) are exhaustive over their combinations. Not modelled, so not evidenced here: pixel layout, including the 480 px bar and the icon wrapping the human chose; screen-reader output beyond what is visible and focusable; a second tab; how the gate finds the names in script text, including aliases and strings built at runtime; inline scripts and scripts added at runtime. The icon wrapping and the accessible names need the real browser observation, not this model.",
