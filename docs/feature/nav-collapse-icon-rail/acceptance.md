@@ -372,11 +372,11 @@ An operator signs in at desk width with the left nav open and presses the contro
 ```
 
 ```text
-Every destination her rights give her - Home, Board, Settings, Keyboard shortcuts, and Integrations or Instance admin where she has them - and Sign out is in the narrow rail: in the layout, visible, able to take the keyboard focus, and announced with the name of the place it opens. Nothing in the rail can take the keyboard focus while it is invisible. The strip is strictly narrower than the width the open nav ships with. The open nav she started from still draws no icon beside its words.
+Every destination her rights give her - Home, Board, Settings, Keyboard shortcuts, and Integrations or Instance admin where she has them - and Sign out is in the narrow rail: drawing a glyph she can see and aim at, in the layout, visible, able to take the keyboard focus, and announced with the name of the place it opens. Nothing in the rail can take the keyboard focus while it is invisible. The strip is strictly narrower than the width the open nav ships with. The open nav she started from still shows its words with no glyph laid out beside them.
 ```
 
 ```text
-She narrows the left nav to give the page the width and keeps every place she could go, each one still named.
+She narrows the left nav to give the page the width and keeps every place she could go, each one drawn as an icon and still named.
 ```
 
 ##### Disposition
@@ -386,7 +386,7 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: Every destination the operator had stays one press away in the narrow rail
 
 ```text
-An icon draws the wrong picture for its destination. The name, the layout and the reachability of each member are observed; which glyph is drawn is not, so a rail of correct names over wrong pictures still passes - and the promise is about the name, not the drawing.
+An icon draws the wrong picture for its destination. That each member draws a glyph of a size she can aim at is observed, and so is its name; WHICH picture is drawn is not, so a rail of correct names over wrong pictures still passes - the promise is the name, not the drawing.
 ```
 
 ###### Obligations
@@ -469,21 +469,21 @@ With the left nav narrowed, the operator walks the whole page with the Tab key, 
 ```
 
 ```text
-The walk stops on every destination her rights give her, Sign out included, and each icon she stops on shows the name of the place it opens in a box with a real size on the screen.
+The walk stops on every destination her rights give her, Sign out included, and the word each icon she stops on carries is REVEALED while it holds the focus: that word's box is materially wider than the sliver the same word is while the icon does not hold the focus, and it is the name of the place that icon opens.
 ```
 
 ```text
-She can read where an icon goes before she presses it, without a pointer and without guessing at a glyph.
+She can read where an icon goes before she presses it, instead of pressing a glyph to find out.
 ```
 
 ##### Disposition
 
 Tested
 
-crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: Walking the narrow rail from the keyboard shows the operator each destination\'s name
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature \:\: Walking the narrow rail from the keyboard reveals each destination\'s name
 
 ```text
-The label box is shown but placed outside the bar at the narrowest phone width. Where the revealed label sits is not observed here; it stays an open question for this slice.
+The revealed word is placed where it overlaps a neighbour, or sits outside the bar at the narrowest phone width. That the word grows from a sliver into something readable is observed; where the revealed box sits and how it is styled is not, and stays an open question of this slice.
 ```
 
 ###### Obligations

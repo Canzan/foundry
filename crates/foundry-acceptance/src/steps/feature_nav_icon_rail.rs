@@ -65,6 +65,18 @@ const RAIL_SIGN_OUT: &str = ".sidebar form[action='/sign-out'] button[type='subm
 const NAV_CHOICE_KEY: &str = "foundry.nav";
 const NARROWED_CHOICE: &str = "collapsed";
 
+/// The smallest box this lane will call a drawn icon, and the smallest step up
+/// this lane will call a label REVEALED.
+///
+/// Neither is a design value and neither bounds the product: the icons ship far
+/// larger than this and the revealed word far wider. They are the floor between
+/// "the operator has something to look at and press" and "a sub-pixel sliver that
+/// satisfies a greater-than-zero test" — the sliver being exactly what the
+/// collapsed geometry leaves behind when the glyph is absent or the word is never
+/// revealed.
+const PRESSABLE_PX: f64 = 8.0;
+const MATERIALLY_WIDER_PX: f64 = 8.0;
+
 /// The phone boundary the promise names, so every phone assertion can prove it
 /// was measured on the side of it that it claims to be about.
 const PHONE_BREAKPOINT_PX: f64 = 480.0;
@@ -118,17 +130,11 @@ async fn given_rights_with_the_nav_open(world: &mut FoundryWorld, rights: String
          `narrower than the open rail` would be measured against some other geometry"
     );
     let owed = owed_destinations(world).await;
-    assert_rail_offers(&reading, &owed, "with the left nav open at desk width");
-    let with_icons: Vec<String> = members(&reading)
-        .iter()
-        .filter(|member| member["iconLaidOut"].as_bool().unwrap_or(false))
-        .map(destination_of)
-        .collect();
-    assert!(
-        with_icons.is_empty(),
-        "the OPEN left nav draws an icon beside the words of {:?}. The open nav keeps the look it \
-         has today: the glyph belongs to the narrow rail, where the word cannot fit.",
-        with_icons
+    assert_rail_offers(
+        &reading,
+        &owed,
+        RailShape::Open,
+        "with the left nav open at desk width",
     );
     world.browser = Some(browser);
 }
@@ -293,14 +299,26 @@ async fn when_she_presses_the_board_icon(world: &mut FoundryWorld) {
     world.browser = Some(browser);
 }
 
-/// The whole reading order, walked once, with every stop recorded — so the Then
-/// can ask what the keyboard reached and what each stop showed her, rather than
-/// only where the walk ended up.
+/// The whole reading order, walked once, with every stop recorded — and, taken
+/// first, the rail as it sits with NOTHING focused.
+///
+/// That first reading is the other half of the observation. The collapsed
+/// geometry leaves each word in the document as a clipped sliver, so a label box
+/// of its own says nothing about whether the operator can read it; what says it
+/// is the step up from the sliver to the revealed word. Both readings are of the
+/// same page, the unfocused one taken while the focus is cleared, so the pair is
+/// a differential and not two unrelated measurements.
 #[when(regex = r"^she walks the whole page with the Tab key, stopping on each icon in the rail$")]
 async fn when_she_walks_the_rail_with_tab(world: &mut FoundryWorld) {
     let browser = world.browser.take().expect("a browser session");
+    let unfocused = read_nav(&browser).await;
     let walk = walk_the_tab_order(&browser).await;
-    remember(&browser, WALK_KEY, &walk).await;
+    remember(
+        &browser,
+        WALK_KEY,
+        &serde_json::json!({ "unfocused": unfocused, "walk": walk }),
+    )
+    .await;
     world.browser = Some(browser);
 }
 
@@ -368,14 +386,19 @@ async fn when_she_opens_the_dashboard_on_a_phone(world: &mut FoundryWorld, width
 /// narrower than the width the open rail ships with — so it can never be taken on
 /// the open nav twice.
 #[then(
-    regex = r"^every destination she had, and Sign out, is still in the rail, named and ready to press$"
+    regex = r"^every destination she had, and Sign out, is still in the rail as an icon she can see, named and ready to press$"
 )]
 async fn then_every_destination_is_still_in_the_rail(world: &mut FoundryWorld) {
     let browser = browser_of(world);
     let reading = read_rail_with_names(browser).await;
     assert_narrowed(&reading, "while the left nav is narrow");
     let owed = owed_destinations(world).await;
-    assert_rail_offers(&reading, &owed, "while the left nav is narrow");
+    assert_rail_offers(
+        &reading,
+        &owed,
+        RailShape::Narrow,
+        "while the left nav is narrow",
+    );
 }
 
 #[then(regex = r"^the workspace name and her own name are out of the narrow rail$")]
@@ -423,7 +446,12 @@ async fn then_every_destination_is_in_the_open_nav(world: &mut FoundryWorld) {
          it has always been"
     );
     let owed = owed_destinations(world).await;
-    assert_rail_offers(&reading, &owed, "with no page scripts running");
+    assert_rail_offers(
+        &reading,
+        &owed,
+        RailShape::Open,
+        "with no page scripts running",
+    );
 }
 
 /// The no-script arm's observation: the open nav with everything in it, and the
@@ -457,6 +485,7 @@ async fn then_the_no_script_nav_is_open_and_the_choice_is_kept(world: &mut Found
     assert_rail_offers(
         &reading,
         &owed,
+        RailShape::Open,
         "at her next sign-in in a browser that runs no page scripts",
     );
     assert_eq!(
@@ -530,17 +559,30 @@ async fn then_the_board_opens_with_board_marked(world: &mut FoundryWorld) {
     );
 }
 
-/// The name she can SEE, not only the one she is told: the label of the icon
-/// holding the focus is shown in a box with a real size, and it says where that
-/// icon goes. The walk must have STOPPED on every destination she has, or the
-/// claim would hold over a strip the keyboard cannot enter at all.
+/// The name she can SEE, not only the one she is told — and the one assertion in
+/// this lane that has to be a DIFFERENTIAL to mean anything.
+///
+/// The collapsed geometry keeps each word in the document and clips it to a
+/// sliver, which is how the name survives the loss of the word on screen. So
+/// "the label has a box" is true of a rail whose flyout rule was never written:
+/// a layout box is unmoved by `clip`, by `clip-path` and by an ancestor's
+/// `overflow`, and a one-pixel box passes any greater-than-zero test. What
+/// separates revealed from clipped is the STEP UP: the label's box while its icon
+/// holds the focus against the box the same label has while it does not. A hit
+/// test at the centre of the revealed box travels with the failure message as
+/// corroboration and is never the whole reading, because the painted sliver of a
+/// clipped label answers a hit test too.
+///
+/// The walk must also have STOPPED on every destination she has, or the claim
+/// would hold over a strip the keyboard cannot enter at all.
 #[then(
-    regex = r"^each icon she stops on shows the name of the place it opens, in a box she can see$"
+    regex = r"^each icon she stops on reveals the name of the place it opens, in a box materially larger than the sliver that name is while the icon does not hold the focus$"
 )]
-async fn then_each_focused_icon_shows_its_name(world: &mut FoundryWorld) {
+async fn then_each_focused_icon_reveals_its_name(world: &mut FoundryWorld) {
     let browser = browser_of(world);
-    let walk = recall(browser, WALK_KEY).await;
-    let stops = walk
+    let recorded = recall(browser, WALK_KEY).await;
+    let unfocused = recorded["unfocused"].clone();
+    let stops = recorded["walk"]
         .as_array()
         .expect("the Tab walk recorded its stops")
         .clone();
@@ -561,39 +603,58 @@ async fn then_each_focused_icon_shows_its_name(world: &mut FoundryWorld) {
     assert!(
         missed.is_empty(),
         "walking the page with the Tab key never stopped on {missed:?} in the narrow rail. The \
-         walk reached {reached:?} of her {} destinations, so `each icon shows its name` would hold \
-         over a strip her keyboard cannot enter. Every destination stays in the reading order \
+         walk reached {reached:?} of her {} destinations, so `each icon reveals its name` would \
+         hold over a strip her keyboard cannot enter. Every destination stays in the reading order \
          while the rail is narrow.",
         owed.len()
     );
-    let silent: Vec<String> = rail_stops
-        .iter()
-        .filter(|stop| !stop["labelShown"].as_bool().unwrap_or(false))
-        .map(|stop| stop["description"].as_str().unwrap_or("?").to_string())
-        .collect();
-    assert!(
-        silent.is_empty(),
-        "the focused icons {silent:?} show no label box at all. The word is clipped out of the \
-         strip and revealed when the icon takes the focus or the pointer: an operator who cannot \
-         name a glyph has to press it to find out where it goes."
-    );
-    let wrong: Vec<String> = rail_stops
-        .iter()
-        .filter(|stop| {
-            stop["labelText"].as_str().unwrap_or_default().trim()
-                != stop["text"].as_str().unwrap_or_default().trim()
-        })
-        .map(|stop| {
-            format!(
-                "{:?} shows {:?}",
-                stop["text"].as_str().unwrap_or("?"),
+
+    let mut still_clipped: Vec<String> = Vec::new();
+    let mut wrong_word: Vec<String> = Vec::new();
+    for stop in &rail_stops {
+        let destination = stop["text"].as_str().unwrap_or_default().trim().to_string();
+        let focused = &stop["labelBox"];
+        let clipped = members(&unfocused)
+            .iter()
+            .find(|member| member["text"].as_str().unwrap_or_default().trim() == destination)
+            .map(|member| member["labelBox"].clone())
+            .unwrap_or(serde_json::Value::Null);
+        let focused_width = focused["width"].as_f64().unwrap_or_default();
+        let focused_height = focused["height"].as_f64().unwrap_or_default();
+        let clipped_width = clipped["width"].as_f64().unwrap_or_default();
+        let revealed = stop["labelPresent"].as_bool().unwrap_or(false)
+            && stop["labelInTheLayout"].as_bool().unwrap_or(false)
+            && focused_height >= 1.0
+            && focused_width >= clipped_width + MATERIALLY_WIDER_PX;
+        if !revealed {
+            still_clipped.push(format!(
+                "{destination:?} shows a label {focused_width:.1}px wide while it holds the focus \
+                 and {clipped_width:.1}px wide while it does not (in the layout: {}, its centre \
+                 hit-tests to the label: {})",
+                stop["labelInTheLayout"], stop["labelCentreHitsTheLabel"]
+            ));
+        }
+        if stop["labelText"].as_str().unwrap_or_default().trim() != destination {
+            wrong_word.push(format!(
+                "{destination:?} shows {:?}",
                 stop["labelText"].as_str().unwrap_or("nothing")
-            )
-        })
-        .collect();
+            ));
+        }
+    }
     assert!(
-        wrong.is_empty(),
-        "the label a focused icon shows is not the name of the place it opens: {wrong:?}"
+        still_clipped.is_empty(),
+        "the word stays clipped where the operator cannot read it on {} of the icons she stopped \
+         on: {still_clipped:?}. The narrow rail clips each word out of the strip and REVEALS it \
+         when the icon takes the focus or the pointer, so the box has to grow by at least \
+         {MATERIALLY_WIDER_PX}px over the sliver it is while unfocused. A flyout rule that was \
+         never written, or that the focus never triggers, leaves every name in the document and \
+         none of them legible - and an operator who cannot read a glyph has to press it to find \
+         out where it goes.",
+        still_clipped.len()
+    );
+    assert!(
+        wrong_word.is_empty(),
+        "the word a focused icon reveals is not the name of the place it opens: {wrong_word:?}"
     );
 }
 
@@ -669,6 +730,11 @@ async fn then_the_nav_is_as_she_left_it(world: &mut FoundryWorld, geometry: Stri
     assert_rail_offers(
         &reading,
         &owed,
+        if geometry == "narrow" {
+            RailShape::Narrow
+        } else {
+            RailShape::Open
+        },
         "at her next sign-in in the same browser, where the rail must show the rights she holds \
          now",
     );
@@ -691,7 +757,12 @@ async fn then_the_phone_bar_holds_every_icon(world: &mut FoundryWorld) {
     );
     assert_narrowed_mark_only(&reading, "on the phone");
     let owed = owed_destinations(world).await;
-    assert_rail_offers(&reading, &owed, "in the narrow bar on a phone");
+    assert_rail_offers(
+        &reading,
+        &owed,
+        RailShape::Narrow,
+        "in the narrow bar on a phone",
+    );
 
     let bar = reading["railBox"].clone();
     let bar_left = bar["left"].as_f64().unwrap_or_default();
@@ -781,7 +852,17 @@ async fn owed_destinations(world: &FoundryWorld) -> Vec<String> {
 ///
 /// The names are compared as a SET: the order the members are laid out in is a
 /// design value and no promise fixes it.
-fn assert_rail_offers(reading: &serde_json::Value, owed: &[String], when: &str) {
+/// Which geometry the rail is in, because what each member must DRAW is the one
+/// thing the two geometries disagree about: narrow, every member draws its glyph
+/// and the word is clipped out of the way; open, every member shows its word and
+/// no glyph is laid out beside it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum RailShape {
+    Narrow,
+    Open,
+}
+
+fn assert_rail_offers(reading: &serde_json::Value, owed: &[String], shape: RailShape, when: &str) {
     let mut offered: Vec<String> = members(reading)
         .iter()
         .map(|member| {
@@ -841,6 +922,61 @@ fn assert_rail_offers(reading: &serde_json::Value, owed: &[String], when: &str) 
         invisible_focusable.len(),
         invisible_focusable
     );
+    match shape {
+        // THE NARROW RAIL IS A RAIL OF ICONS, and this is the only place that
+        // says so. Without it a strip of blank slivers passes everything above:
+        // the name still computes from the clipped word, the member still has a
+        // box and still takes the focus, and the operator is left pressing
+        // nothing she can see. WHICH glyph is drawn stays unobserved — that
+        // limit is recorded — but THAT one is drawn, at a size she can aim at,
+        // is the promise.
+        RailShape::Narrow => {
+            let blank: Vec<String> = members(reading)
+                .iter()
+                .filter(|member| {
+                    let icon = &member["iconBox"];
+                    !member["iconPresent"].as_bool().unwrap_or(false)
+                        || !member["iconLaidOut"].as_bool().unwrap_or(false)
+                        || icon["width"].as_f64().unwrap_or_default() < PRESSABLE_PX
+                        || icon["height"].as_f64().unwrap_or_default() < PRESSABLE_PX
+                })
+                .map(|member| {
+                    format!(
+                        "{} (draws a glyph: {}, laid out: {}, its box: {})",
+                        destination_of(member),
+                        member["iconPresent"],
+                        member["iconLaidOut"],
+                        member["iconBox"]
+                    )
+                })
+                .collect();
+            assert!(
+                blank.is_empty(),
+                "{when} {} of her destinations draw nothing she can see or aim at: {blank:?}. The \
+                 narrow rail replaces each word with an ICON at least {PRESSABLE_PX}px across: a \
+                 member whose glyph is absent, or clipped to a sliver, is a blank target the \
+                 operator has to press to find out where it goes - which is the dead end this \
+                 rail exists to remove, and it hides behind every other assertion here, because \
+                 the clipped word still computes the name and the empty box still takes the focus.",
+                blank.len()
+            );
+        }
+        // The open nav keeps the look it has today. Asserted wherever the open
+        // geometry is read, not only on the way into the narrow one.
+        RailShape::Open => {
+            let with_icons: Vec<String> = members(reading)
+                .iter()
+                .filter(|member| member["iconLaidOut"].as_bool().unwrap_or(false))
+                .map(destination_of)
+                .collect();
+            assert!(
+                with_icons.is_empty(),
+                "{when} the OPEN left nav draws an icon beside the words of {with_icons:?}. The \
+                 open nav keeps the look it has today: the glyph belongs to the narrow rail, \
+                 where the word cannot fit."
+            );
+        }
+    }
 }
 
 /// The rail is NARROW: the mark the rules select on is there and the strip is

@@ -62,12 +62,13 @@ Feature: The operator works from the narrow left nav without losing a destinatio
   Scenario Outline: Every destination the operator had stays one press away in the narrow rail
     # The whole value of the slice. RED-trigger: the narrow rail takes its
     # destinations out of the layout, so the operator is left in a strip with a
-    # monogram and two controls and no way to anywhere — or it keeps them in the
+    # monogram and two controls and no way to anywhere; or it keeps them in the
     # layout and loses their names, which leaves a screen-reader operator with a
-    # row of silent glyphs.
+    # row of silent glyphs; or it keeps them and draws no glyph, which leaves a
+    # sighted operator a row of blank slivers to press blind.
     Given the operator is <rights>, with the dashboard open at desk width and the left nav open
     When she narrows the left nav to its icon rail
-    Then every destination she had, and Sign out, is still in the rail, named and ready to press
+    Then every destination she had, and Sign out, is still in the rail as an icon she can see, named and ready to press
     And the workspace name and her own name are out of the narrow rail
 
     Examples:
@@ -108,14 +109,18 @@ Feature: The operator works from the narrow left nav without losing a destinatio
     Then the board opens with the rail still narrow, and Board alone is marked as the page she is on
 
   @needs-browser @real-io @icon-rail-journey
-  Scenario: Walking the narrow rail from the keyboard shows the operator each destination's name
+  Scenario: Walking the narrow rail from the keyboard reveals each destination's name
     # The pointer operator reads the same box on hover; the keyboard is the surface
-    # that can be driven. RED-trigger: the word is taken out of the layout instead
-    # of being clipped and revealed, so an operator who cannot name the glyphs has
-    # to press one to find out where it goes.
+    # that can be driven. The reading is a DIFFERENCE, because the narrow strip
+    # keeps every word in the document as a clipped sliver: what the operator gains
+    # is the step up from that sliver to a word she can read.
+    # RED-trigger: the word is left clipped and never revealed, or revealed by a
+    # rule the focus never triggers, so an operator who cannot name the glyphs has
+    # to press one to find out where it goes - and a test that only asked whether
+    # the label has a box would call that green.
     Given the operator is both a workspace and an instance admin, with the left nav narrowed to its icon rail on the dashboard
     When she walks the whole page with the Tab key, stopping on each icon in the rail
-    Then each icon she stops on shows the name of the place it opens, in a box she can see
+    Then each icon she stops on reveals the name of the place it opens, in a box materially larger than the sliver that name is while the icon does not hold the focus
 
   # ==========================================================================
   # Leaving, and coming back

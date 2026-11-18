@@ -218,12 +218,12 @@
 "L7/F196",
 "L7/F197"
 ],
-"still_passes_if": "F558",
+"still_passes_if": "F612",
 "test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: Every destination the operator had stays one press away in the narrow rail"
 },
-"expected": "F556",
+"expected": "F610",
 "stimulus": "F555",
-"user_result": "F557"
+"user_result": "F611"
 },
 {
 "covers": [
@@ -264,12 +264,12 @@
 "obligations": [
 "L7/F196"
 ],
-"still_passes_if": "F570",
-"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: Walking the narrow rail from the keyboard shows the operator each destination's name"
+"still_passes_if": "F615",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature :: Walking the narrow rail from the keyboard reveals each destination's name"
 },
-"expected": "F568",
+"expected": "F613",
 "stimulus": "F567",
-"user_result": "F569"
+"user_result": "F614"
 },
 {
 "covers": [
@@ -395,7 +395,7 @@
 "C": 3,
 "D": 24,
 "E": 12,
-"F": 609,
+"F": 615,
 "K": 15,
 "L": 8,
 "N": 7,
@@ -2795,9 +2795,6 @@
 "F553": "A contributor who reads before she edits is told the truth about this head, so she does not reintroduce the flash by trusting a stale sentence.",
 "F554": "The texts are prose. The correction removes the measurable claim - the counts - rather than replacing it with a new one, so there is nothing a test can pin that would not freeze wording a contributor should be free to improve; pinning prose is also refused by the design. Their agreement with the head is judged by the oracle review and by the final user-view examination, against the nine scripts both readers assert.",
 "F555": "An operator signs in at desk width with the left nav open and presses the control that narrows it, once - with no admin rights, with workspace-admin rights, with instance-admin rights, and with both.",
-"F556": "Every destination her rights give her - Home, Board, Settings, Keyboard shortcuts, and Integrations or Instance admin where she has them - and Sign out is in the narrow rail: in the layout, visible, able to take the keyboard focus, and announced with the name of the place it opens. Nothing in the rail can take the keyboard focus while it is invisible. The strip is strictly narrower than the width the open nav ships with. The open nav she started from still draws no icon beside its words.",
-"F557": "She narrows the left nav to give the page the width and keeps every place she could go, each one still named.",
-"F558": "An icon draws the wrong picture for its destination. The name, the layout and the reachability of each member are observed; which glyph is drawn is not, so a rail of correct names over wrong pictures still passes - and the promise is about the name, not the drawing.",
 "F559": "The same operator opens the dashboard in a browser that runs no page scripts at all - with no admin rights, with workspace-admin rights, and with instance-admin rights.",
 "F56": "Signing out does not clear the stored collapsed choice: the operator who collapsed the rail finds it collapsed at her next sign-in in the same browser. Reason: this follows from the delivered nav-collapse-toggle product - the choice is kept per browser the way the theme choice is kept, and it stays until the operator expands it with the toggle, which Sign out is not. The exploration shows both variants: keeping it starts the next sign-in collapsed (witness a_icons_keep_w_q3), clearing it starts it expanded (a_icons_clear_q3). The per-browser consequence is the accepted one: another person on the same browser inherits the choice, exactly as she inherits the theme.",
 "F560": "There is no narrow rail and nothing stamped the page: the left nav is the full-width nav it has always been, and every destination her rights give her, with Sign out, is in it - visible, able to take the keyboard focus, and announced with the name of the place it opens.",
@@ -2808,10 +2805,7 @@
 "F565": "She goes to her board from the strip and can see, in the strip, that the board is where she is.",
 "F566": "The marked icon is tinted in a colour the palette never intended. That the marked member is set apart from the others is observed; the colour it is set apart with belongs to the theme and is observed there.",
 "F567": "With the left nav narrowed, the operator walks the whole page with the Tab key, stopping on each icon in the rail.",
-"F568": "The walk stops on every destination her rights give her, Sign out included, and each icon she stops on shows the name of the place it opens in a box with a real size on the screen.",
-"F569": "She can read where an icon goes before she presses it, without a pointer and without guessing at a glyph.",
 "F57": "For a head script that does not stamp stored state, defers means it carries the defer attribute: async and type=module in the head are refused for it too, and the contributor is told to add defer. Reason: the exploration shows the rule as written leaves eight shapes with no verdict at all (a_written reading: 6 accept, 10 refuse, 8 none - the contributor reads 'no verdict'), which a gate must never answer; this reading is the literal one of the confirmed finding 'assert every non-pre-paint head script defers', it is total (6 accept, 18 refuse), and it changes no verdict for any script in the shipped head, where every neighbour already carries defer. A contributor who later wants an async or module head script changes this decision deliberately instead of slipping past a silent gap.",
-"F570": "The label box is shown but placed outside the bar at the narrowest phone width. Where the revealed label sits is not observed here; it stays an open question for this slice.",
 "F571": "With the left nav narrowed, the operator presses Sign out in the strip once.",
 "F572": "Her session is over on that one press: the sign-in screen renders, nothing was put in front of her to confirm, and the app renders no page of hers afterwards until she signs in again.",
 "F573": "She leaves from the strip in one press, exactly as she leaves from the open nav.",
@@ -2856,6 +2850,12 @@
 "F608": "That note is the existing owner of this file's prose about the pre-paint gate layer, and it is corrected in place. CANDIDATE CONSIDERED AND REJECTED: a new paragraph or a second document describing the layer, which would leave the false sentence beside the theme.js provenance the contributor actually reads.\n",
 "F609": "The theme.js note's sentence about the pre-paint layer is corrected to the criterion S1 shipped: the layer decides by what the asset NAMES - a browser store and documentElement - and its second arm refuses a non-naming head script that does not carry defer. The note keeps naming both pre-paint assets and still makes no count claim.\n",
 "F61": "Evidence limits of the exploration: quint run with a seed samples, it does not prove; quint verify did not run because Apalache is not cached in the VM. The static tables (matrix for the rail, verdicts for the gate) are exhaustive over their combinations. Not modelled, so not evidenced here: pixel layout, including the 480 px bar and the icon wrapping the human chose; screen-reader output beyond what is visible and focusable; a second tab; how the gate finds the names in script text, including aliases and strings built at runtime; inline scripts and scripts added at runtime. The icon wrapping and the accessible names need the real browser observation, not this model.",
+"F610": "Every destination her rights give her - Home, Board, Settings, Keyboard shortcuts, and Integrations or Instance admin where she has them - and Sign out is in the narrow rail: drawing a glyph she can see and aim at, in the layout, visible, able to take the keyboard focus, and announced with the name of the place it opens. Nothing in the rail can take the keyboard focus while it is invisible. The strip is strictly narrower than the width the open nav ships with. The open nav she started from still shows its words with no glyph laid out beside them.",
+"F611": "She narrows the left nav to give the page the width and keeps every place she could go, each one drawn as an icon and still named.",
+"F612": "An icon draws the wrong picture for its destination. That each member draws a glyph of a size she can aim at is observed, and so is its name; WHICH picture is drawn is not, so a rail of correct names over wrong pictures still passes - the promise is the name, not the drawing.",
+"F613": "The walk stops on every destination her rights give her, Sign out included, and the word each icon she stops on carries is REVEALED while it holds the focus: that word's box is materially wider than the sliver the same word is while the icon does not hold the focus, and it is the name of the place that icon opens.",
+"F614": "She can read where an icon goes before she presses it, instead of pressing a glyph to find out.",
+"F615": "The revealed word is placed where it overlaps a neighbour, or sits outside the bar at the narrowest phone width. That the word grows from a sliver into something readable is observed; where the revealed box sits and how it is styled is not, and stays an open question of this slice.",
 "F62": "The operator collapses the left nav to give the board the width.",
 "F63": "Not supplied.",
 "F64": "The rail narrows to an icon strip; she still sees an icon for every destination she had, and one for Sign out.",

@@ -35,6 +35,19 @@
 //! the promise turns on — a rail that hides its links by width or by opacity
 //! leaves them reachable from the keyboard while invisible — so the chain is
 //! walked instead of the focus being stolen.
+//!
+//! EXACTLY WHAT "VISIBLE" MEANS HERE, mechanism by mechanism. A member counts as
+//! visible when nothing in its ancestry carries `display: none`,
+//! `visibility: hidden`, `inert` or `hidden`, nothing in its ancestry is
+//! transparent, its own box has a real size, AND the point at the centre of that
+//! box hit-tests back to the member itself (or to a node inside or around it).
+//! The hit test is there because the first five facts are all read from the
+//! LAYOUT box, which `clip`, `clip-path` and an ancestor's `overflow` leave
+//! untouched: without it, a destination clipped away while it keeps its box
+//! would read as visible, and clipping is the very mechanism the design's own
+//! model records as a violating state. When the centre falls outside the
+//! viewport the hit test cannot be taken and is not held against the member —
+//! that is recorded per member rather than guessed at.
 
 use crate::support::browser_harness;
 
@@ -105,10 +118,32 @@ function faded(el) {
   }
   return false;
 }
+function centreInViewport(el) {
+  var r = el.getBoundingClientRect();
+  if (r.width < 1 || r.height < 1) { return false; }
+  var x = r.left + r.width / 2;
+  var y = r.top + r.height / 2;
+  return x >= 0 && y >= 0 && x <= document.documentElement.clientWidth &&
+         y <= document.documentElement.clientHeight;
+}
+// THE CLIP-AWARE HALF. Everything above reads the LAYOUT box, which `clip`,
+// `clip-path` and an ancestor's `overflow` do not change: a member clipped away
+// keeps its box and would read as visible. The point at the centre of the box
+// is asked what is actually painted there, which also catches a member another
+// box covers. A node inside the member (its glyph, its word) and the node the
+// member sits in both count as the member being there.
+function hitsItsOwnCentre(el) {
+  var r = el.getBoundingClientRect();
+  var hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+  if (!hit) { return false; }
+  return hit === el || el.contains(hit) || hit.contains(el);
+}
 function visibleNow(el) {
   if (!inTheFocusOrder(el) || faded(el)) { return false; }
   var r = el.getBoundingClientRect();
-  return r.width >= 1 && r.height >= 1;
+  if (r.width < 1 || r.height < 1) { return false; }
+  if (centreInViewport(el) && !hitsItsOwnCentre(el)) { return false; }
+  return true;
 }
 function focusableNow(el) {
   if (el.disabled) { return false; }
@@ -136,6 +171,9 @@ function readMember(el) {
     labelBox: box(label),
     iconPresent: !!icon,
     iconLaidOut: !!icon && laidOut(icon),
+    iconBox: box(icon),
+    centreHitTestable: centreInViewport(el),
+    centreHitsItself: centreInViewport(el) && hitsItsOwnCentre(el),
     box: box(el)
   };
 }
@@ -332,6 +370,21 @@ var text = (el.getAttribute('aria-label') || el.textContent || '').trim().slice(
 var style = getComputedStyle(el);
 var label = el.querySelector ? el.querySelector('.sidebar__label') : null;
 var labelRect = label ? label.getBoundingClientRect() : null;
+// THE LABEL'S BOX WHILE THIS MEMBER HOLDS THE FOCUS — a reading, not a verdict.
+// Whether that box means the word was REVEALED can only be told by comparing it
+// with the box the same label has while the member does not hold the focus: the
+// collapsed geometry leaves the word clipped to a sliver that is still in the
+// document, so a box of its own proves nothing. The centre hit test travels with
+// it as corroboration and is never the whole reading, because the painted sliver
+// of a clipped label can answer a hit test too.
+var labelHit = null;
+if (labelRect && labelRect.width >= 1 && labelRect.height >= 1) {
+  var hit = document.elementFromPoint(
+    labelRect.left + labelRect.width / 2,
+    labelRect.top + labelRect.height / 2
+  );
+  labelHit = !!hit && (hit === label || label.contains(hit));
+}
 return {
   description: description + (text ? ' [' + text + ']' : ''),
   text: (el.textContent || '').trim(),
@@ -340,8 +393,12 @@ return {
   visible: inTheFocusOrder(el) && !faded(el) && rect.width >= 1 && rect.height >= 1,
   labelPresent: !!label,
   labelText: label ? (label.textContent || '').trim() : null,
-  labelShown: !!labelRect && labelRect.width >= 1 && labelRect.height >= 1 &&
-              inTheFocusOrder(label) && !faded(label),
+  labelBox: labelRect ? {
+    left: labelRect.left, right: labelRect.right, top: labelRect.top,
+    bottom: labelRect.bottom, width: labelRect.width, height: labelRect.height
+  } : null,
+  labelInTheLayout: !!label && inTheFocusOrder(label) && !faded(label),
+  labelCentreHitsTheLabel: labelHit,
   outlineStyle: style.outlineStyle,
   outlineWidth: parseFloat(style.outlineWidth) || 0,
   isBody: el === document.body
