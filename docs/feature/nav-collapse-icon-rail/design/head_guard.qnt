@@ -39,22 +39,30 @@ module headGuard {
   pure def recognised(rec: str, sc: Script): bool =
     namesBoth(sc) and (rec == "wide" or sc.idiom == "direct")
 
+  // `message` is a PROJECTION of the gate's emitted text, kept here so that
+  // "one verdict per shape" also reads "one text per shape" (ADR-NAV-ICON-
+  // RAIL-004). NO CHECKED PROPERTY READS `message`: the invariants read
+  // `verdict`, the shape triple and the paint order only, so this wording is
+  // corrected without changing any checked property. The wording is NAMES-
+  // based throughout, because naming is all a source test establishes, and the
+  // names-both refusal carries the five clauses C1 to C5 of the ONE refusal
+  // text, in that order.
   pure def judge(reading: str, sh: Shape): Verdict = {
     val r =
       if (mustPrePaint(sh.storage, sh.docEl)) {
         if (sh.loading == "plain")
-          ("accept", "accepted: reads stored state and stamps documentElement; runs before first paint")
+          ("accept", "accepted: names a browser store and names documentElement, and the tag is plain, so it is render-blocking and whatever it stamps lands before the first paint")
         else
-          ("refuse", "refused: reads stored state and stamps documentElement, so it must run before first paint; drop defer, async and type=module")
+          ("refuse", "refused, ONE entry with five clauses: C1 the src and the attributes this tag carries; C2 the gate decided BY NAME - the asset names localStorage or sessionStorage and names documentElement - and source cannot show WHEN it touches them, so pick the case that is true of this asset; C3 case one, it paints stored state onto the document element before the first paint: remove those attributes, because a plain external script in the head is render-blocking by specification and that is the property this tag exists for; C4 case two, it touches those names only on the settled DOM: split the stored-state read into its own deferred asset so this one no longer names both, or record a deliberate exception as a design decision with its reason; C5 in case two do NOT drop the attributes to satisfy this refusal, because a plain tag puts a script with nothing to do before paint on the render-blocking path and this gate would then accept it with nothing left observing it")
       } else {
         if (sh.loading == "defer")
-          ("accept", "accepted: does not stamp stored state on documentElement, and it defers")
+          ("accept", "accepted: does not name both a browser store and documentElement, and it carries defer")
         else if (sh.loading == "plain")
-          ("refuse", "refused: does not stamp stored state on documentElement, so it must defer; add defer")
+          ("refuse", "refused: does not name both a browser store and documentElement, so it must defer; add defer")
         else if (reading == "as-written")
           ("none", "no verdict: the rule says 'defers' and does not say whether this loading mode defers")
         else if (reading == "defer-attr")
-          ("refuse", "refused: does not stamp stored state on documentElement, so it must carry defer")
+          ("refuse", "refused: does not name both a browser store and documentElement, so it must carry defer; add defer")
         else if (reading == "deferred-sem")
           (if (sh.loading == "type=module") "accept" else "refuse",
            if (sh.loading == "type=module") "accepted: module scripts are deferred"

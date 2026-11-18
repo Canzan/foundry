@@ -149,7 +149,7 @@ DECISION, closing the dependency-direction gap: the rail READING moves to a shar
 #### D24
 
 ```text
-DECISION, closing a contradiction the review found in my own records: the shape NAMES-BOTH-AND-CARRIES-A-DEFERRING-ATTRIBUTE gets exactly ONE refusal text, and that text carries both cases. The gate decides by names alone, so an aliased true stamper and a settled-DOM neighbour that merely names both are the SAME input class and receive the same entry; I had written one remedy for the first and the opposite remedy for the second, which no single text can satisfy. The one text has five required clauses. C1: it names the src and the attributes the tag carries. C2: it says the gate decided BY NAME - the asset names localStorage or sessionStorage and names documentElement - and that source cannot show WHEN the asset touches them, so the contributor must pick the case that is true of this asset. C3, case one, the asset does stamp from stored state before paint: remove the attributes, because a plain external script in the head is render-blocking by specification and that is the property the tag exists for. C4, case two, the asset only touches those names on the settled DOM: split the stored-state read into its own deferred asset so this one no longer names both, or record a deliberate exception as a design decision with its reason. C5, the warning that belongs to case two: do NOT drop the attributes to satisfy this refusal, because a plain tag puts a non-pre-paint script on the render-blocking path and this gate would then ACCEPT it with nothing left to observe it. The text is not two texts chosen by a guess about intent: the gate emits one entry and the five clauses are present every time. head_guard.qnt needed no change for this - totalVerdicts already holds one verdict record, and therefore one message, per shape, and it was my prose that carried the split.
+DECISION, closing a contradiction the review found in my own records: the shape NAMES-BOTH-AND-CARRIES-A-DEFERRING-ATTRIBUTE gets exactly ONE refusal text, and that text carries both cases. The gate decides by names alone, so an aliased true stamper and a settled-DOM neighbour that merely names both are the SAME input class and receive the same entry; I had written one remedy for the first and the opposite remedy for the second, which no single text can satisfy. The one text has five required clauses. C1: it names the src and the attributes the tag carries. C2: it says the gate decided BY NAME - the asset names localStorage or sessionStorage and names documentElement - and that source cannot show WHEN the asset touches them, so the contributor must pick the case that is true of this asset. C3, case one, the asset does stamp from stored state before paint: remove the attributes, because a plain external script in the head is render-blocking by specification and that is the property the tag exists for. C4, case two, the asset only touches those names on the settled DOM: split the stored-state read into its own deferred asset so this one no longer names both, or record a deliberate exception as a design decision with its reason. C5, the warning that belongs to case two: do NOT drop the attributes to satisfy this refusal, because a plain tag puts a non-pre-paint script on the render-blocking path and this gate would then ACCEPT it with nothing left to observe it. The text is not two texts chosen by a guess about intent: the gate emits one entry and the five clauses are present every time. head_guard.qnt holds one verdict record, and therefore ONE message, per shape; its judge() message literals carry this single text in NAMES-based wording, and no checked property of that model reads a message, so the wording is corrected without touching a verdict.
 ```
 
 ### Constraints
@@ -687,13 +687,13 @@ The colour of the tint, which the theme lane owns.
 ```
 
 ```text
-Whether the label of a focused or hovered icon is visible: a box with a non-zero width that shows the destination word.
+Whether the label of a focused or hovered icon is REVEALED where the operator can read it before she presses the icon, told apart from the clipped label the collapsed geometry leaves in the document: the label's box while its item holds the focus or the pointer is MATERIALLY LARGER than the box the same label has while it does not. That differential is the required reading, because the clipped label keeps a one-pixel box in both states and a one-pixel box has a non-zero width. A hit test at the centre of the revealed box, resolving to the label or a descendant of it, may be observed in addition; it does not stand alone, because the one-pixel sliver a clipped label leaves is painted and can answer a hit test.
 ```
 
-Visible or not\, plus the shown text
+Revealed or still clipped\, plus the shown text
 
 ```text
-Where the flyout sits and how it is styled.
+Where the flyout sits and how it is styled, and by how many pixels the revealed box exceeds the clipped one beyond being materially larger. Whether the comparison is taken against the same label unfocused or against its unfocused siblings, both being readings of the same differential.
 ```
 
 ```text
@@ -2553,12 +2553,12 @@ The weakened arm lives here and its owner restates it over the whole non-pre-pai
 
 head\_scripts
 
-crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_collapse\.rs\:1847
+crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_collapse\.rs\:50
 
 Replace
 
 ```text
-Its private copy is deleted in favour of the call to the shared owner; the assertion it feeds does not change.
+Its private copy of the served-head parse is replaced by the call to the shared owner, declared here; the assertion it feeds does not change. This module keeps no second reading of the head.
 ```
 
 nav\-collapse\.js
@@ -2655,12 +2655,12 @@ The private parse is replaced by the shared call.
 
 provenance document
 
-crates\/foundry\-app\/static\/VENDOR\.md\:100
+crates\/foundry\-app\/static\/VENDOR\.md\:104
 
-UnchangedCompatible
+Changed
 
 ```text
-Its note already names both pre-paint assets and makes no count claim, so it stays true after the de-numbering.
+Its theme.js note describes the pre-paint layer as refusing the three attributes on every head script that paints stored state onto the document. After S1 the criterion is what the asset NAMES - a browser store and documentElement - and the layer has a second arm that refuses a non-naming head script which does not carry defer, so that sentence is false. S1 changes no byte of this file; the correction is assigned to the S2 crafter, where VENDOR.md is already a target for the stylesheet rename, so the file keeps one writer in one change.
 ```
 
 release notes
@@ -2834,7 +2834,7 @@ crates\/foundry\-app\/static\/VENDOR\.md
 Extend
 
 ```text
-The stylesheet provenance row and its notes carry the new filename and the recomputed sha256, and a note records the Lucide release tag the inline icon paths were copied from, the icon names and the ISC notice. No hashed row is added for the icons: an inline path in a template is not a served blob, so a sha256 row would be a claim about a file that does not exist.
+The stylesheet provenance row and its notes carry the new filename and the recomputed sha256, and a note records the Lucide release tag the inline icon paths were copied from, the icon names and the ISC notice. In the same edit, the theme.js note's sentence about the pre-paint gate layer is corrected to the criterion S1 shipped: the layer decides by what the asset NAMES, and its second arm tells a non-naming head script to carry defer. No hashed row is added for the icons: an inline path in a template is not a served blob, so a sha256 row would be a claim about a file that does not exist.
 ```
 
 CHANGELOG\.md
@@ -2886,11 +2886,11 @@ In a real browser against the running app, an operator who is both a workspace a
 ```
 
 ```text
-While the rail is collapsed it is a strip strictly narrower than the shipped 240 px, and every destination her rights give her - Home, Board, Settings, Keyboard shortcuts, Integrations, Instance admin - and Sign out are in the layout, visible and focusable in it, each with the accessible name of the destination it opens. The workspace name and her display name are out of the layout. No rail link can take the focus while it is invisible. The icon that holds the focus shows its destination word in a visible box. Activating Board opens the board with the rail still a strip and the Board icon alone carrying aria-current=page and the active tint. The one press of Sign out ends her session with no confirmation step, and her next sign-in in the same browser starts with the rail collapsed and with the icons her current rights give her. At 480 px and at 390 px the bar shows every one of those icons, wrapping inside the bar, and the document does not scroll sideways in either geometry.
+While the rail is collapsed it is a strip strictly narrower than the shipped 240 px, and every destination her rights give her - Home, Board, Settings, Keyboard shortcuts, Integrations, Instance admin - and Sign out are in the layout, visible and focusable in it, each with the accessible name of the destination it opens. The workspace name and her display name are out of the layout. No rail link can take the focus while it is invisible. The icon that holds the focus reveals its destination word: that label's box is materially larger than the box the same label has while its icon does not hold the focus. Activating Board opens the board with the rail still a strip and the Board icon alone carrying aria-current=page and the active tint. The one press of Sign out ends her session with no confirmation step, and her next sign-in in the same browser starts with the rail collapsed and with the icons her current rights give her. At 480 px and at 390 px the bar shows every one of those icons, wrapping inside the bar, and the document does not scroll sideways in either geometry.
 ```
 
 ```text
-Any of these fails the slice: a destination her rights give her, or Sign out, is absent, out of the layout, invisible or unfocusable while the rail is collapsed; any rail link can take the focus while invisible; an icon accessible name is empty or is not its destination; the rail does not narrow, or narrows to nothing; the focused icon shows no visible label; the Board icon is not marked, or more than one item is; Sign out needs a second press or a confirmation; the next sign-in starts expanded; the document scrolls sideways at 480 or 390 px with the icons shown; the workspace name or her display name appears in the strip; or the expanded rail gains an icon beside its words.
+Any of these fails the slice: a destination her rights give her, or Sign out, is absent, out of the layout, invisible or unfocusable while the rail is collapsed; any rail link can take the focus while invisible; an icon accessible name is empty or is not its destination; the rail does not narrow, or narrows to nothing; the focused icon's label is never revealed, its box being no larger than the box the same label has while unfocused, which a label clipped to one pixel satisfies; the Board icon is not marked, or more than one item is; Sign out needs a second press or a confirmation; the next sign-in starts expanded; the document scrolls sideways at 480 or 390 px with the icons shown; the workspace name or her display name appears in the strip; or the expanded rail gains an icon beside its words.
 ```
 
 ##### Promises
@@ -3014,12 +3014,12 @@ The delivered folded-state assertion is the consumer this change inverts: it ass
 
 NAV\_PROBE
 
-crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_collapse\.rs\:1246
+crates\/foundry\-acceptance\/src\/support\/rail\_reading\.rs\:67
 
 Replace
 
 ```text
-The one probe that reads the geometry and the state together is the right reading to extend, and it is PRIVATE to this step module, so the new lane cannot call it without a step-to-step import. It is replaced by a move: the const and its read_nav wrapper go to support/rail_reading.rs and this module calls that owner instead. Extending it in place and widening its visibility was rejected: it would make one step module a dependency of another, which the boundaries forbid and which D14 already refused for the head reader.
+The one probe that reads the geometry and the state together is the right reading to extend, and it was PRIVATE to feature_nav_collapse.rs, so the new lane could not call it without a step-to-step import. It is replaced by a move: the const and its read_nav wrapper live in this shared owner and both step modules call it. Extending it in place and widening its visibility was rejected: it would make one step module a dependency of another, which the boundaries forbid and which the head reader already refused.
 ```
 
 browser\_harness
@@ -3070,6 +3070,16 @@ CreateNew
 
 ```text
 CANDIDATES CONSIDERED. support/browser_harness.rs owns the session and the Selenium node contract, not what a page shows, so a rail reading there would mix two responsibilities. support/html_assertions.rs is a scraper wrapper over served markup and cannot execute script in a live browser. Leaving the probe in feature_nav_collapse.rs is what the boundary forbids. A new support module beside served_markup.rs leaves neither feature oracle depending on the other, which is the same shape D14 chose for the head reader.
+```
+
+theme\.js
+
+crates\/foundry\-app\/static\/VENDOR\.md\:104
+
+Extend
+
+```text
+That note is the existing owner of this file's prose about the pre-paint gate layer, and it is corrected in place. CANDIDATE CONSIDERED AND REJECTED: a new paragraph or a second document describing the layer, which would leave the false sentence beside the theme.js provenance the contributor actually reads.
 ```
 
 ##### Impact
@@ -3262,6 +3272,16 @@ Migrated
 
 ```text
 The private probe const and its reader move out to the shared owner; this module calls it and keeps every assertion it feeds.
+```
+
+provenance document
+
+crates\/foundry\-app\/static\/VENDOR\.md\:104
+
+Changed
+
+```text
+The theme.js note's sentence about the pre-paint layer is corrected to the criterion S1 shipped: the layer decides by what the asset NAMES - a browser store and documentElement - and its second arm refuses a non-naming head script that does not carry defer. The note keeps naming both pre-paint assets and still makes no count claim.
 ```
 
 ##### Agreement

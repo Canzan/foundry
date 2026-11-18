@@ -19,7 +19,7 @@ Model bytes checked, `sha256sum`, at the replay:
 | file | sha256 |
 |---|---|
 | `icon_rail.qnt` | `0a61ac1540f4f0fdf453c76aea6e322f0b35e6906ab1b571bca8a63e942f81e3` |
-| `head_guard.qnt` | `94646414d26425398de4da4dac4bf0a14defd01ffda57eaffb8da239f62ea4ac` |
+| `head_guard.qnt` | `cbdde3f1a64c14053e6687640b048069557d038f535e2e1f7ddb3a7af0715a87` |
 
 `icon_rail.qnt` is the product exploration's model, adopted unchanged.
 `head_guard.qnt` extends the exploration's model twice: with the `recognition`
@@ -28,6 +28,29 @@ narrow-classifier finding is falsifiable; and with `settledOnly`, which
 separates what an asset NAMES from what it really DOES before the paint, so the
 names test's over-approximation is expressible. Its earlier sha256 was
 `ae46926dc9ef6d3d339eb3a01be31a64b196b3e2991b21ebfb987c5f84a4460b`.
+
+MESSAGE-TEXT CORRECTION, after the round-3 design review observation R10. The
+`judge()` arms carried the pre-ADR-NAV-ICON-RAIL-004 refusal wording (`drop
+defer, async and type=module`) and spoke of what an asset DOES. Every message
+is now NAMES-based and the names-both refusal carries the five clauses C1 to C5
+of the one refusal text. NO CHECKED PROPERTY READS `message`: the invariants
+read `verdict`, the shape triple and the paint order, so no checked property
+changed and the Apalache verdicts below stand. The earlier sha256, under which
+the Apalache table below was produced, was
+`94646414d26425398de4da4dac4bf0a14defd01ffda57eaffb8da239f62ea4ac`; before
+that, `ae46926dc9ef6d3d339eb3a01be31a64b196b3e2991b21ebfb987c5f84a4460b`.
+
+Re-checked on the corrected bytes (`cbdde3f1…`), in `local-dev`, from
+`~/nav-icon-rail-fix3`:
+
+| command | result |
+|---|---|
+| `quint typecheck head_guard.qnt` | exit 0 |
+| `quint run head_guard.qnt --init=init_defer_attr_wide --step=step --invariants totalVerdicts noThirdVerdict gateMatchesPaint classifierSeesEveryStamper overApproximationNeverSilent stampsBeforePaint_acceptedHead --seed=11 --max-steps=12 --max-samples=5000` | exit 0, `[ok] No violation found (1835ms at 2725 traces/second)` |
+
+`quint verify` was NOT re-run on these bytes: the change is a string literal no
+checked property reads. The Apalache table below therefore reports the bytes
+`94646414…`, which differ from the shipped model only in those literals.
 
 | command | result |
 |---|---|
