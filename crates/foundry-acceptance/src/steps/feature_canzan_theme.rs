@@ -169,6 +169,7 @@
 
 use crate::support::browser_harness;
 use crate::support::harness::signed_in_get;
+use crate::support::served_markup::head_scripts;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use fantoccini::Locator;
@@ -1583,22 +1584,23 @@ async fn when_she_navigates_to_any_foundry_screen(world: &mut FoundryWorld) {
 /// `type="module"`. Every one of those three defers execution past parsing;
 /// every one of them reintroduces the flash; and every one of them does so
 /// while leaving the settled page — and therefore every other assertion in this
-/// suite — completely green. DISCUSS named copying the five neighbouring tags
-/// as the single most likely regression in this feature.
+/// suite — completely green. Copying the deferred neighbours in the same head is
+/// how that regression arrives.
 ///
 /// It is deliberately NOT written as a timing measurement. Implemented that way
 /// it would be indistinguishable from assertion (b) below, and the only
 /// DETERMINISTIC guard against that regression would be gone: (b) passes by luck
 /// on a fast loopback even with a deferred script. Do not "unify" the two.
 ///
-/// The neighbours are asserted too, in the opposite direction: at least one other
-/// head script must carry a deferring attribute. Without that arm this would
-/// still pass on a head where NOTHING defers — a different bug, and one that
-/// would leave "the parse can tell a render-blocking tag from a deferred one" as
-/// a claim nothing checks. It is deliberately NOT a count of the neighbours: the
-/// set of scripts that must run before first paint grows as features need it, and
-/// the law over that whole set belongs to the architecture gate rather than to a
-/// scenario about one tag.
+/// THE NEIGHBOURS ARE ASSERTED IN THE OPPOSITE DIRECTION, OVER THE WHOLE SET.
+/// Every head script that is NOT one of the pre-paint family must carry a
+/// deferring attribute, and the assertion NAMES the ones that do not. It used to
+/// read "at least one other head script defers", and that arm passed on a head
+/// in which all but one of the neighbours had silently lost their defer — a head
+/// script on the render-blocking path that nothing in this repository observed.
+/// The pre-paint family is the small set this head declares plain ON PURPOSE,
+/// listed here rather than counted, so a third one added later is a change to
+/// this list and not a number that goes stale.
 #[then(regex = r"^the theme is settled before the browser is permitted to paint$")]
 async fn then_the_theme_is_settled_before_the_browser_is_permitted(world: &mut FoundryWorld) {
     let served = served_dashboard_html(world).await;
@@ -1626,19 +1628,37 @@ async fn then_the_theme_is_settled_before_the_browser_is_permitted(world: &mut F
         deferring_attributes.is_empty(),
         "the `{src}` tag carries {deferring_attributes:?} — each of those defers execution past \
          parsing, so the attribute lands AFTER the browser has painted and the flash this \
-         scenario exists to forbid is back. It is the ONE script in this head that must not have \
-         them; the comment above the tag in base.html says why. Do not copy its neighbours."
+         scenario exists to forbid is back. It is one of the few scripts in this head that must \
+         not have them ({PRE_PAINT_SCRIPT_PATHS:?}); the comment above the tag in base.html says \
+         why. Do not copy its deferred neighbours."
     );
 
-    let deferred_neighbours = head_scripts
+    let neighbours: Vec<&(String, Vec<String>)> = head_scripts
         .iter()
-        .filter(|(src, attrs)| !src.ends_with(THEME_SCRIPT_PATH) && !attrs.is_empty())
-        .count();
+        .filter(|(src, _)| !PRE_PAINT_SCRIPT_PATHS.iter().any(|pre| src.ends_with(pre)))
+        .collect();
     assert!(
-        deferred_neighbours > 0,
-        "no other head script carries a deferring attribute, so the parse above cannot tell a \
-         render-blocking tag from a deferred one and the assertion held by blindness. Head \
-         scripts found: {head_scripts:?}"
+        !neighbours.is_empty(),
+        "the served head declares {} script(s) and every one of them is in the pre-paint family, \
+         so the reading above cannot tell a render-blocking tag from a deferred one and this \
+         assertion held by blindness. Head scripts found: {head_scripts:?}",
+        head_scripts.len()
+    );
+    let undeferred: Vec<&String> = neighbours
+        .iter()
+        .filter(|(_, attrs)| attrs.is_empty())
+        .map(|(src, _)| src)
+        .collect();
+    assert!(
+        undeferred.is_empty(),
+        "of the {} head script(s) outside the pre-paint family, these carry no deferring \
+         attribute: {undeferred:?}. A head script that is not a pre-paint script sits on the \
+         render-blocking path for nothing: it delays the first paint the operator waits for, and \
+         it does so silently, because every settled-page assertion in this suite still passes. \
+         Give each named script `defer`, or — if it really does stamp the document from stored \
+         state before paint — add it to the pre-paint family here and say so in the head. The \
+         pre-paint family is {PRE_PAINT_SCRIPT_PATHS:?}; head scripts found: {head_scripts:?}",
+        neighbours.len()
     );
 
     let recorded = document_theme_choice(browser_of(world)).await;
@@ -1647,6 +1667,41 @@ async fn then_the_theme_is_settled_before_the_browser_is_permitted(world: &mut F
         Some("dark"),
         "the served tag is right but the document does not carry the operator's dark choice, so \
          the script is in the head and doing nothing"
+    );
+}
+
+/// THE PAIRED READING — this suite's half of it.
+///
+/// Two readings of one head exist on purpose: this crate's, over the markup
+/// foundry SENDS, and the project gate's, over the template it sends it from.
+/// The gate must be able to CONTRADICT this suite, so it keeps its own parse —
+/// and until something compared the two, "they are independent" was a claim
+/// with nothing behind it. Each side is now compared with the SAME
+/// independently written table, so a reader that drifts fails on exactly the
+/// side that drifted, and whichever side is wrong says so instead of quietly
+/// agreeing.
+#[then(regex = r"^the served head declares exactly the scripts the pre-paint promise names$")]
+async fn then_the_served_head_declares_exactly_the_promised_scripts(world: &mut FoundryWorld) {
+    let served = served_dashboard_html(world).await;
+    let read: Vec<(String, Vec<String>)> = head_scripts(&served);
+    let expected: Vec<(String, Vec<String>)> = SHIPPED_HEAD_SCRIPTS
+        .iter()
+        .map(|(src, deferring)| {
+            (
+                (*src).to_string(),
+                deferring.iter().map(|a| (*a).to_string()).collect(),
+            )
+        })
+        .collect();
+    assert_eq!(
+        read, expected,
+        "the head foundry serves is not the head this suite and the project gate were both \
+         written against. Either the document shell changed — a script added, removed, reordered, \
+         or a loading attribute altered — or this reading of the served markup has drifted from \
+         the gate's reading of the template. Both matter: the pre-paint promise is kept by WHICH \
+         scripts are plain and which defer, and a reader that mis-reads an attribute makes every \
+         other assertion about this head vacuous. If the shell genuinely changed, change the \
+         table on BOTH sides and say in the head why the new script belongs where it is."
     );
 }
 
@@ -2603,8 +2658,40 @@ async fn store_theme_choice(world: &mut FoundryWorld, choice: &str) {
 }
 
 /// The served path of the theme control, as `base.html` references it. The tag
-/// carrying it is the one head script that must stay render-blocking.
+/// carrying it is one of the head scripts that must stay render-blocking.
 const THEME_SCRIPT_PATH: &str = "/static/js/theme.js";
+
+/// THE PRE-PAINT FAMILY: the head scripts that stamp the document from the
+/// operator's stored choice and must therefore run before the browser is
+/// permitted to paint. Each is served PLAIN — none of `defer`, `async`,
+/// `type="module"` — and every other head script is a neighbour that must
+/// defer. Listed rather than counted: a count goes stale the moment the family
+/// grows, which is exactly how the stale sentences in this repository arrived.
+const PRE_PAINT_SCRIPT_PATHS: [&str; 2] = ["/static/js/theme.js", "/static/js/nav-collapse.js"];
+
+/// THE HEAD FOUNDRY SENDS, written out here INDEPENDENTLY of any reader: every
+/// head script, in document order, with the attributes that would defer it.
+///
+/// The gate in `xtask` reads the same head out of the template with its own
+/// parse and is compared with the same table on its own side. That is what
+/// turns "the two readers are independent implementations" from a claim into an
+/// observation: a reader that drifts — a fourth deferring attribute it does not
+/// know, a quoting form it mis-reads, a tag it skips — fails on exactly the
+/// side that drifted. HONEST LIMIT: a drift that changes BOTH readers
+/// identically is not caught. The two inputs differ by construction (template
+/// source on one side, served markup on the other), which is what makes the
+/// pairing worth having rather than a tautology.
+const SHIPPED_HEAD_SCRIPTS: [(&str, &[&str]); 9] = [
+    ("/static/js/theme.js", &[]),
+    ("/static/js/nav-collapse.js", &[]),
+    ("/static/vendor/htmx.min.js", &["defer"]),
+    ("/static/js/board-dnd.js", &["defer"]),
+    ("/static/js/board-lane-dnd.js", &["defer"]),
+    ("/static/js/board-live.js", &["defer"]),
+    ("/static/js/csrf-upload.js", &["defer"]),
+    ("/static/js/keyboard.js", &["defer"]),
+    ("/static/js/form-errors.js", &["defer"]),
+];
 
 /// A stored value outside `theme.js`'s three-word vocabulary
 /// (`system` / `light` / `dark`), which `ORDER.indexOf(value) === -1`
@@ -2749,34 +2836,6 @@ async fn served_dashboard_html(world: &FoundryWorld) -> String {
         outcome.status
     );
     outcome.body
-}
-
-/// Every `<script src>` in the served `<head>`, paired with the attributes that
-/// would DEFER its execution past parsing. All three defeat the render-blocking
-/// property the theme tag depends on, so all three are collected together.
-fn head_scripts(body: &str) -> Vec<(String, Vec<String>)> {
-    let doc = scraper::Html::parse_document(body);
-    let selector = scraper::Selector::parse("head script[src]").expect("valid selector");
-    doc.select(&selector)
-        .map(|el| {
-            let src = el.value().attr("src").unwrap_or_default().to_string();
-            let mut deferring = Vec::new();
-            if el.value().attr("defer").is_some() {
-                deferring.push("defer".to_string());
-            }
-            if el.value().attr("async").is_some() {
-                deferring.push("async".to_string());
-            }
-            if el
-                .value()
-                .attr("type")
-                .is_some_and(|value| value.eq_ignore_ascii_case("module"))
-            {
-                deferring.push("type=\"module\"".to_string());
-            }
-            (src, deferring)
-        })
-        .collect()
 }
 
 /// Sign in and land on the Sandbox board in `browser`, with any stored choice

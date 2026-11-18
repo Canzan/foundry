@@ -1,10 +1,211 @@
 {
+"acceptance": {
+"S1": [
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F184",
+"L5/F185",
+"L5/F186",
+"T1"
+],
+"still_passes_if": "F510",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::a_script_that_names_stored_state_and_the_document_element_is_refused_with_one_text"
+},
+"expected": "F508",
+"stimulus": "F507",
+"user_result": "F509"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F436",
+"L6/F437"
+],
+"still_passes_if": "F514",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::the_same_refusal_text_serves_a_true_stamper_and_a_settled_dom_neighbour"
+},
+"expected": "F512",
+"stimulus": "F511",
+"user_result": "F513"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F436",
+"L6/F437",
+"L6/F191"
+],
+"still_passes_if": "F518",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::membership_follows_what_the_asset_names_in_every_idiom_and_ignores_its_comments"
+},
+"expected": "F516",
+"stimulus": "F515",
+"user_result": "F517"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F437"
+],
+"still_passes_if": "F522",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::the_settled_dom_neighbour_made_plain_is_accepted"
+},
+"expected": "F520",
+"stimulus": "F519",
+"user_result": "F521"
+},
+{
+"covers": [
+"P9"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T1"
+],
+"still_passes_if": "F526",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::a_neighbour_that_quietly_lost_its_defer_is_refused_by_name"
+},
+"expected": "F524",
+"stimulus": "F523",
+"user_result": "F525"
+},
+{
+"covers": [
+"P12"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F180"
+],
+"still_passes_if": "F530",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::every_head_script_shape_gets_exactly_one_verdict_and_one_message"
+},
+"expected": "F528",
+"stimulus": "F527",
+"user_result": "F529"
+},
+{
+"covers": [
+"P12"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F180",
+"T1"
+],
+"still_passes_if": "F534",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::a_non_stamping_head_script_loaded_async_or_as_a_module_is_told_to_add_defer"
+},
+"expected": "F532",
+"stimulus": "F531",
+"user_result": "F533"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F183",
+"T1"
+],
+"still_passes_if": "F538",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::the_head_this_repository_ships_is_accepted, with the project gate command over the repository"
+},
+"expected": "F536",
+"stimulus": "F535",
+"user_result": "F537"
+},
+{
+"covers": [
+"P8"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T1"
+],
+"still_passes_if": "F542",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::a_head_that_yields_no_pre_paint_script_at_all_is_reported"
+},
+"expected": "F540",
+"stimulus": "F539",
+"user_result": "F541"
+},
+{
+"covers": [
+"P9"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T4"
+],
+"still_passes_if": "F546",
+"test": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature, scenario A chosen dark screen never flashes light: steps the theme is settled before the browser is permitted to paint and the served head declares exactly the scripts the pre-paint promise names"
+},
+"expected": "F544",
+"stimulus": "F543",
+"user_result": "F545"
+},
+{
+"covers": [
+"P9"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T4"
+],
+"still_passes_if": "F550",
+"test": "xtask/src/check_arch.rs pre_paint_script_tests::the_gate_reads_the_shipped_head_as_the_pre_paint_family_above_its_deferred_neighbours"
+},
+"expected": "F548",
+"stimulus": "F547",
+"user_result": "F549"
+},
+{
+"covers": [
+"P10"
+],
+"disposition": {
+"kind": "NotTested",
+"owner": "the design owner, through oracle review and the final examination",
+"reason": "F554"
+},
+"expected": "F552",
+"stimulus": "F551",
+"user_result": "F553"
+}
+]
+},
 "counters": {
 "B": 10,
 "C": 3,
 "D": 24,
 "E": 12,
-"F": 506,
+"F": 554,
 "K": 15,
 "L": 8,
 "N": 7,
@@ -2347,11 +2548,59 @@
 "F504": "A head script that does not stamp stored state and is loaded async or as type=module gets one definite answer from the gate: it is refused and told to add defer, never left without a verdict.",
 "F505": "A verdict for the async and type=module shapes does not show every other loading shape gets one, and the advice to add defer is not shown to be right for a script for which defer is wrong.",
 "F506": "Observed gate runs over an async head script and a type=module head script that the examiner supplies, each with the printed verdict.",
+"F507": "A contributor adds a head script to the document shell whose asset reads the stored choice through a local alias and stamps the document through an element reference, lets that tag carry defer, then async, then type=module, and runs the project gate over the tree.",
+"F508": "The gate refuses each time with exactly one entry for that script: it names the script and the attributes the tag carries, says the verdict came from the names the asset uses - a stored state name and the document element name - and that the source cannot show when it touches them, gives both remedies, remove the attributes or split the stored-state read into its own deferred asset or record a deliberate exception, and warns against dropping the attributes to satisfy the refusal. It never claims the asset was watched reading and stamping.",
+"F509": "The operator keeps a first paint that already carries her remembered choice: no newly added script that paints stored state can reach the head deferred, whatever idiom it is written in.",
 "F51": "This feature extends the walking skeleton the delivered nav-collapse-toggle feature established - the collapse control, the stored choice and the pre-paint stamp, end to end - and adds no second skeleton of its own.",
+"F510": "An asset that names the pair only inside a comment could still be refused; that direction is observed by the names enumeration row, not here.",
+"F511": "A contributor runs the gate over two trees that differ only in the body of one head asset: in the first the asset really stamps the document from the stored choice, in the second it touches the same two names only after the document is settled. The tag, its attribute and the script name are the same in both.",
+"F512": "Both trees are refused with the same entry, word for word. The gate cannot read which of the two the contributor wrote, so it states what it decided from and leaves the choice of remedy to her.",
+"F513": "A contributor is never sent down the wrong repair by a gate guessing at an intent it cannot see, so the repair she makes is the one that keeps the first paint correct.",
+"F514": "Both entries could be the same text and still omit a required clause; the clause content is asserted by the refusal row above.",
+"F515": "A contributor runs the gate over a head that declares, each with defer, every asset that can be built from one, two or three lines drawn from eleven kinds: four ways of naming a store, four ways of naming the document element including one that touches it only once the document is settled, two mentions that appear in a comment alone, and a line that names neither.",
+"F516": "Every asset whose code names a store and names the document element is refused, in whichever idiom it spells them, the alias and element-reference pair and the settled-document pair included; every asset that names only one of them, or names them only in a comment, is accepted with defer.",
+"F517": "The promise of a correct first paint does not depend on how a contributor happens to spell a stored-state read: a real stamp cannot be hidden from the gate by a rename or an alias.",
+"F518": "An asset that builds its identifier names at run time still reads as naming neither and is asked to defer; that limit is a recorded consequence, not closed here.",
+"F519": "A contributor takes the asset that touches the stored state only after the document is settled, removes the deferring attribute instead of splitting the read, and runs the gate.",
 "F52": "Scenario exploration, guards value: relevant. Reason: its sad path is the gate's refusal, and the behaviour turns on execution order around the first paint and on which head scripts count as pre-paint - the boundary the review finding says let cases through silently.",
+"F520": "The gate accepts the plain tag. From source that asset has the same shape as the two legitimate scripts that must run before paint, so refusing it would refuse them too.",
+"F521": "Nothing the operator sees changes; the delay a needless render-blocking script adds stays guarded by the warning in the refusal and by review, and this row records that the gate does not catch it.",
+"F522": "It would also pass if the gate accepted every plain head script whatever it names; the shape sweep asserts that a plain script naming no stored state is refused.",
+"F523": "A contributor edits the head so that one of the deferred neighbours quietly loses its defer while the rest keep theirs, and runs the gate.",
+"F524": "The gate refuses with one entry that names that one script and tells her to add defer, and it names none of the neighbours that still defer. The others still deferring earn it no pass.",
+"F525": "The operator keeps the paint she waits for: a script with nothing to do before paint cannot slip onto the render-blocking path behind compliant neighbours.",
+"F526": "The entry could name the script and the remedy while saying nothing about the slower paint it costs the operator; how well it reads is judged by review.",
+"F527": "A contributor runs the gate over a head declaring every one of the twenty-four head-script shapes: a store named in one of two ways or not at all, the document element named or not, each loaded plain, with defer, with async and as a module.",
+"F528": "Every shape comes back with exactly one verdict and exactly one message. A script naming both must be plain; every other script must carry defer, so plain, async and module are each refused for it and told to add defer. No shape is answered with silence.",
+"F529": "Whatever shape of head script a contributor writes, she is told that it is accepted or what to change, instead of reading no answer and taking it for permission.",
 "F53": "Scenario exploration, icon-rail value: relevant. Reason: its sad path is a trapping state - a collapsed rail from which a destination the operator has, or Sign out, cannot be reached - over the collapsed-or-expanded, scripting-on-or-off and permission combinations. Second-tab sync is excluded, so no race belongs in the exploration.",
+"F530": "Both refusal texts could be right in content and poor in order or phrasing; readability is judged by review.",
+"F531": "A contributor adds a head script that paints nothing from stored state and loads it async, and again as a module, then runs the gate.",
+"F532": "Each is refused with one entry that names the script and tells her to add defer, rather than being answered nothing at all.",
+"F533": "A contributor who reaches for async or a module in the head learns it is a deliberate change to make, not a silent gap to walk through.",
+"F534": "It would still pass if the gate also wrongly refused a correctly deferred neighbour; the shipped-head row asserts the deferred neighbours stay accepted.",
+"F535": "A contributor runs the gate over the repository as it stands.",
+"F536": "The gate passes, and its passing line still names the pre-paint-script layer. The head it ships declares two scripts that paint stored state, both plain, above seven neighbours that all defer, and several of those neighbours already name the document element without naming any store.",
+"F537": "The operator sees no change in the app, and a contributor can run the gate at all: it does not refuse the head that ships today.",
+"F538": "It would still pass if the rule had stopped recognising the two scripts that paint stored state; the blind-head row asserts that case is reported.",
+"F539": "A contributor runs the gate over a head that declares scripts, every one of them correctly deferred, and holds no script that paints stored state at all.",
 "F54": "At phone width (480 px and below) the collapsed bar shows the same icons and lets them wrap inside the bar; no destination is dropped below the breakpoint. The human chose this in chat on 2026-11-17, over a sideways-scrolled row and over keeping today's behaviour.",
+"F540": "The gate reports that head once, attributing the report to the pre-paint-script layer, because a rule that has stopped seeing the family it governs would otherwise hold over nothing with the gate green.",
+"F541": "The promise of a correct first paint cannot quietly stop being checked: a gate that has gone blind says so instead of passing.",
+"F542": "The report could name no remedy at all and still satisfy this row; its wording is judged by review.",
+"F543": "The operator who chose dark navigates to a foundry screen, and the suite reads the head of the page foundry served her.",
+"F544": "The script that settles the theme carries none of the deferring attributes; every head script outside the small family that must run before paint carries defer, and the suite names any that does not instead of passing because one neighbour still defers; and the served head is exactly the nine scripts the promise names, in order, each with the loading it is promised, compared with a table written out independently of the reader.",
+"F545": "The operator never sees a light frame before her dark screen, and a second pair of eyes on the same head stops a drifted reading from agreeing with a wrong head.",
+"F546": "It would still pass if the project gate had gone blind, since this side reads only the served page; the gate-side reading of the same head is the next row.",
+"F547": "The gate reads the head of the document shell with its own parse, independently of the suite.",
+"F548": "It yields exactly the same nine scripts with the same loading attributes, in order, each compared with the same independently written table, so a reader that drifts fails on the side that drifted.",
+"F549": "The claim that two independent readings watch this head is observed rather than asserted; a drift that changes both readings identically is the stated limit.",
 "F55": "The expanded left nav stays text only; no icon is added beside its labels. The human chose this in chat on 2026-11-17.",
+"F550": "It would still pass if both readings drifted identically; that limit is stated and not closed.",
+"F551": "A contributor opens the head of the document shell, the refusal she is shown by the gate, and the documentation of the layer that produced it, to learn which head scripts must run before paint and which must defer.",
+"F552": "All three agree with the head the suite asserts: they name the family that must run before paint and the neighbours that must defer, and state no count that a later script can make wrong.",
+"F553": "A contributor who reads before she edits is told the truth about this head, so she does not reintroduce the flash by trusting a stale sentence.",
+"F554": "The texts are prose. The correction removes the measurable claim - the counts - rather than replacing it with a new one, so there is nothing a test can pin that would not freeze wording a contributor should be free to improve; pinning prose is also refused by the design. Their agreement with the head is judged by the oracle review and by the final user-view examination, against the nine scripts both readers assert.",
 "F56": "Signing out does not clear the stored collapsed choice: the operator who collapsed the rail finds it collapsed at her next sign-in in the same browser. Reason: this follows from the delivered nav-collapse-toggle product - the choice is kept per browser the way the theme choice is kept, and it stays until the operator expands it with the toggle, which Sign out is not. The exploration shows both variants: keeping it starts the next sign-in collapsed (witness a_icons_keep_w_q3), clearing it starts it expanded (a_icons_clear_q3). The per-browser consequence is the accepted one: another person on the same browser inherits the choice, exactly as she inherits the theme.",
 "F57": "For a head script that does not stamp stored state, defers means it carries the defer attribute: async and type=module in the head are refused for it too, and the contributor is told to add defer. Reason: the exploration shows the rule as written leaves eight shapes with no verdict at all (a_written reading: 6 accept, 10 refuse, 8 none - the contributor reads 'no verdict'), which a gate must never answer; this reading is the literal one of the confirmed finding 'assert every non-pre-paint head script defers', it is total (6 accept, 18 refuse), and it changes no verdict for any script in the shipped head, where every neighbour already carries defer. A contributor who later wants an async or module head script changes this decision deliberately instead of slipping past a silent gap.",
 "F58": "The nav shows the rights of the last page load, in both the expanded and the collapsed state, and activating a destination whose right was revoked is refused. The exploration found this (a_icons_keep_rights); it is pre-existing, it is not caused by collapsing, and this feature neither repairs nor worsens it.",

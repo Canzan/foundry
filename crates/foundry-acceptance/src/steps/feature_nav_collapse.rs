@@ -40,6 +40,7 @@
 
 use crate::support::browser_harness;
 use crate::support::harness::signed_in_get;
+use crate::support::served_markup::head_scripts;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
 use fantoccini::Locator;
@@ -1839,34 +1840,6 @@ async fn served_dashboard_html(world: &FoundryWorld) -> String {
         outcome.status
     );
     outcome.body
-}
-
-/// Every `<script src>` in the served `<head>`, paired with the attributes that
-/// would DEFER its execution past parsing. All three defeat the render-blocking
-/// property the fold mark depends on, so all three are collected together.
-fn head_scripts(body: &str) -> Vec<(String, Vec<String>)> {
-    let doc = scraper::Html::parse_document(body);
-    let selector = scraper::Selector::parse("head script[src]").expect("valid selector");
-    doc.select(&selector)
-        .map(|el| {
-            let src = el.value().attr("src").unwrap_or_default().to_string();
-            let mut deferring = Vec::new();
-            if el.value().attr("defer").is_some() {
-                deferring.push("defer".to_string());
-            }
-            if el.value().attr("async").is_some() {
-                deferring.push("async".to_string());
-            }
-            if el
-                .value()
-                .attr("type")
-                .is_some_and(|value| value.eq_ignore_ascii_case("module"))
-            {
-                deferring.push("type=\"module\"".to_string());
-            }
-            (src, deferring)
-        })
-        .collect()
 }
 
 /// One real activation of the real control, through a real press. The panic text

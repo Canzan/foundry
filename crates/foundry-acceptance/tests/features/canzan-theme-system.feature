@@ -330,12 +330,16 @@ Feature: foundry follows the light the operator's environment asks for
 
   @needs-browser @real-io @slice4 @us-cts-04 @kpi
   Scenario: A chosen dark screen never flashes light
-    # KPI 2. TWO assertions, deliberately: the first is the deterministic backstop,
-    # the second the outcome measurement.
+    # KPI 2. Deliberately more than one assertion: a deterministic backstop, the
+    # paired reading of the head, and an outcome measurement.
     #   (a) the theme script is fetched and run BEFORE the browser is allowed to
-    #       paint — a source-level fact that goes RED the instant the tag is moved
-    #       to the foot of the body or given a defer/async/module attribute, which
-    #       DISCUSS names as the single most likely regression in this feature;
+    #       paint, and every head script outside the pre-paint family defers — a
+    #       source-level fact that goes RED the instant a tag is moved to the foot
+    #       of the body, given a defer/async/module attribute, or quietly stripped
+    #       of its defer, which is the most likely regression in this head;
+    #   (a2) the served head is exactly the head this suite and the project gate
+    #       were both written against, each compared with the same independently
+    #       written table, so a drifted reader fails on the side that drifted;
     #   (b) the script's fetch completes BEFORE the page's first contentful paint,
     #       read from the browser's own paint timing.
     # HONEST LIMIT: (b) can pass by luck on a fast loopback even with a deferred
@@ -346,6 +350,7 @@ Feature: foundry follows the light the operator's environment asks for
     Given the operator has chosen dark while her device prefers light
     When she navigates to any foundry screen
     Then the theme is settled before the browser is permitted to paint
+    And the served head declares exactly the scripts the pre-paint promise names
     And the theme script finished loading before the screen first painted
 
   @needs-browser @real-io @slice4 @us-cts-04 @error

@@ -2023,23 +2023,84 @@ fn paints_stored_state_onto_the_document(source: &str) -> bool {
 
 #[cfg(test)]
 mod pre_paint_script_tests {
-    //! The two fixtures the pre-paint law needs: the shipped shape passes, and
-    //! each deferring attribute on a pre-paint tag is refused by name. The
-    //! driving port is the rule function over a staged tree, as everywhere else
-    //! in this module.
+    //! THE PRE-PAINT LAW'S ORACLE — what a contributor who touches the head of
+    //! the document shell is answered, and what she is answered it WITH.
+    //!
+    //! The driving port is the rule function over a staged tree, as everywhere
+    //! else in this module: a contributor runs `cargo xtask check-arch` over a
+    //! repository, and what she observes is the exit status plus, on refusal,
+    //! one entry per refused script saying what failed, why it matters and how
+    //! to fix it. The staged trees are the heads she cannot produce in the live
+    //! repository without breaking it.
+    //!
+    //! THE LAW HAS TWO ARMS AND MUST BE TOTAL. A head script whose asset NAMES
+    //! stored state and NAMES the document element must carry none of `defer`,
+    //! `async`, `type="module"`; every other head script must carry `defer`.
+    //! Every head script therefore gets exactly one verdict and exactly one
+    //! message. A rule that answers "no verdict" for a shape is the defect this
+    //! oracle exists to catch: the contributor reads silence as permission.
+    //!
+    //! MEMBERSHIP IS A NAMES TEST AND IT OVER-APPROXIMATES ON PURPOSE. No
+    //! source test can decide WHEN an asset touches what it names, so a true
+    //! stamper spelled through an alias and a settled-DOM neighbour that merely
+    //! names the same pair are ONE INPUT CLASS. They get ONE refusal text, with
+    //! the five clauses that let the contributor — not the gate — make the
+    //! judgement only she can make. The oracle asserts that identity, because a
+    //! gate that split the class would be guessing at an intent its input does
+    //! not contain.
+    //!
+    //! WHAT THIS ORACLE DOES NOT CLAIM. It observes what the gate ANSWERS, not
+    //! what a browser does: the paint-order reasoning behind the law lives in
+    //! the design's model, and the served head is observed a second time, by
+    //! the acceptance suite, against the same written table.
 
     use super::*;
 
-    /// A pre-paint asset: it reads the stored choice and stamps the document.
-    const PRE_PAINT_ASSET: &str = "(function () {\n  \
+    // ---- the assets the staged heads name --------------------------------
+
+    /// A TRUE pre-paint stamper, spelled the way the two shipped ones are: it
+    /// reads the operator's stored choice and stamps the document element.
+    const PLAINLY_SPELLED_STAMPER: &str = "(function () {\n  \
          var v = window.localStorage.getItem(\"foundry.nav\");\n  \
          document.documentElement.setAttribute(\"data-nav-collapsed\", \"\");\n})();\n";
-    /// A settled-DOM asset: it stamps the document but reads no stored state,
-    /// so it is NOT pre-paint and `defer` on it is correct.
-    const SETTLED_DOM_ASSET: &str = "(function () {\n  \
+
+    /// A TRUE pre-paint stamper spelled in the idioms a narrow spelling test
+    /// MISSES — the store reached through a LOCAL ALIAS, the document element
+    /// held in an ELEMENT REFERENCE. It stamps the document from stored state
+    /// exactly as the shipped pair does, and a search for
+    /// `localStorage.getItem` or `documentElement.setAttribute` finds neither
+    /// in it. Accepted with `defer`, it brings the flash back with the gate
+    /// green, which is the hole this change closes.
+    const ALIASED_STAMPER: &str = "(function () {\n  \
+         var store = window.localStorage;\n  \
+         var root = document.documentElement;\n  \
+         var v = store.getItem(\"foundry.nav\");\n  \
+         if (v) { root.setAttribute(\"data-nav-collapsed\", \"\"); }\n})();\n";
+
+    /// A SETTLED-DOM asset that NAMES the very same pair and touches it only
+    /// once the DOM is settled. From SOURCE it is the same shape as the aliased
+    /// stamper above — nothing a source test can read tells the two apart — so
+    /// the two are one input class and must be answered with one text.
+    const SETTLED_DOM_NAMING_BOTH: &str = "document.addEventListener(\
+         \"DOMContentLoaded\", function () {\n  \
+         var store = window.localStorage;\n  \
+         var root = document.documentElement;\n  \
+         root.dataset.lastBoard = store.getItem(\"foundry.board\") || \"\";\n});\n";
+
+    /// A neighbour that works on the settled document and reads NO stored
+    /// state, so it is not a pre-paint script and `defer` on it is correct.
+    const NON_STAMPING_NEIGHBOUR: &str = "(function () {\n  \
          document.documentElement.dataset.kbReady = \"1\";\n})();\n";
 
-    fn stage(files: &[(&str, &str)]) -> tempfile::TempDir {
+    /// Where a staged asset lives, from the `src` its tag carries.
+    fn asset_path(src: &str) -> String {
+        format!(
+            "crates/foundry-app/static/{}",
+            src.strip_prefix("/static/").expect("a /static/ src")
+        )
+    }
+
+    fn stage(files: &[(String, String)]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().expect("tempdir");
         for (rel_path, body) in files {
             let path = dir.path().join(rel_path);
@@ -2049,78 +2110,896 @@ mod pre_paint_script_tests {
         dir
     }
 
-    /// The shipped arrangement: a pre-paint tag with no deferring attribute,
-    /// beside a deferred settled-DOM neighbour, inside a head whose COMMENT
-    /// names `<script>` in prose.
-    fn stage_shell(nav_tag: &str) -> tempfile::TempDir {
-        stage(&[
-            (
-                "crates/foundry-app/templates/base.html",
-                &format!(
-                    "<!doctype html>\n<html>\n<head>\n\
-                     {{# a plain external <script> in <head> is render-blocking #}}\n\
-                     {nav_tag}\n\
-                     <script src=\"/static/js/keyboard.js\" defer></script>\n\
-                     </head>\n<body></body>\n</html>\n"
-                ),
+    /// A tree whose document shell declares exactly `tags` in its head, beside
+    /// the assets they name. The head carries the kind of COMMENT the shipped
+    /// shell carries — one that writes `<script>` in prose, in the sentence
+    /// explaining why the pre-paint tags must not defer — so a parse that
+    /// stopped stripping comments is caught here and not in production.
+    fn stage_head(tags: &[String], assets: &[(&str, &str)]) -> tempfile::TempDir {
+        let mut files = vec![(
+            "crates/foundry-app/templates/base.html".to_string(),
+            format!(
+                "<!doctype html>\n<html>\n<head>\n\
+                 {{# a plain external <script> in <head> is render-blocking #}}\n\
+                 {}\n</head>\n<body></body>\n</html>\n",
+                tags.join("\n")
             ),
-            (
-                "crates/foundry-app/static/js/nav-collapse.js",
-                PRE_PAINT_ASSET,
-            ),
-            (
-                "crates/foundry-app/static/js/keyboard.js",
-                SETTLED_DOM_ASSET,
-            ),
-        ])
+        )];
+        for (src, body) in assets {
+            files.push((asset_path(src), (*body).to_string()));
+        }
+        stage(&files)
     }
 
-    #[test]
-    fn a_render_blocking_pre_paint_tag_beside_a_deferred_neighbour_passes() {
-        let tree = stage_shell("<script src=\"/static/js/nav-collapse.js\"></script>");
-        assert!(
-            check_pre_paint_scripts_are_render_blocking(tree.path()).is_empty(),
-            "the shipped shape — a pre-paint tag carrying none of the three attributes, \
-             beside a deferred asset that reads no stored state — must not be flagged: {:?}",
-            check_pre_paint_scripts_are_render_blocking(tree.path())
-        );
-        // ANTI-VACUITY: the same tree with the attribute planted MUST fire, or
-        // the clean assertion above would hold over a rule that sees nothing.
-        let planted = stage_shell("<script src=\"/static/js/nav-collapse.js\" defer></script>");
+    /// One head script tag, with whatever attributes it carries.
+    fn tag(src: &str, attributes: &[&str]) -> String {
+        if attributes.is_empty() {
+            format!("<script src=\"{src}\"></script>")
+        } else {
+            format!("<script src=\"{src}\" {}></script>", attributes.join(" "))
+        }
+    }
+
+    /// The gate's answer over a staged tree: the entries a contributor reads.
+    fn answers(tree: &tempfile::TempDir) -> Vec<String> {
+        check_pre_paint_scripts_are_render_blocking(tree.path())
+    }
+
+    /// The entries that name `src`. The gate's observable surface is ONE entry
+    /// per refused script, so "exactly one verdict, exactly one message" is
+    /// read here as the number of entries naming that script.
+    fn entries_naming<'a>(found: &'a [String], src: &str) -> Vec<&'a String> {
+        found.iter().filter(|entry| entry.contains(src)).collect()
+    }
+
+    /// The three attributes a head script can carry that defer its execution
+    /// past parsing, each of which moves a pre-paint stamp past the first
+    /// paint.
+    const DEFERRING_ATTRIBUTES: [&str; 3] = ["defer", "async", "type=\"module\""];
+
+    /// Wordings that CLAIM the gate observed what it cannot observe. The gate
+    /// reads names out of source; it never watches the asset read and stamp.
+    /// An entry that says otherwise sends a contributor looking for a
+    /// behaviour the gate never measured.
+    const OBSERVATION_CLAIMS: [&str; 4] = [
+        "reads the operator's stored choice and stamps",
+        "reads site storage and stamps",
+        "observed to read",
+        "was seen to stamp",
+    ];
+
+    /// The clauses of the ONE refusal text the names-both-and-defers class
+    /// gets, each identified by the smallest machine-checkable part of its
+    /// MEANING rather than by a sentence to copy — the wording stays the
+    /// crafter's, the clause stays the contributor's. Returns the clauses the
+    /// entry does not carry.
+    fn clauses_missing_from(entry: &str, src: &str, attributes: &[&str]) -> Vec<&'static str> {
+        let lower = entry.to_lowercase();
+        let mut missing = Vec::new();
+        if !(entry.contains(src)
+            && attributes
+                .iter()
+                .all(|carried| lower.contains(&carried.to_lowercase())))
+        {
+            missing.push("C1 — the src and the attributes the tag carries");
+        }
+        if !(lower.contains("name")
+            && (entry.contains("localStorage") || entry.contains("sessionStorage"))
+            && entry.contains("documentElement")
+            && lower.contains("when"))
+        {
+            missing.push(
+                "C2 — that the gate decided BY NAME, the asset naming stored state and the \
+                 document element, and that source cannot show WHEN it touches them",
+            );
+        }
+        if !(lower.contains("remove") && lower.contains("render-blocking")) {
+            missing.push(
+                "C3 — case one: remove the attributes, a plain external script in the head being \
+                 render-blocking by specification",
+            );
+        }
+        if !(lower.contains("split") && lower.contains("exception")) {
+            missing.push(
+                "C4 — case two: split the stored-state read into its own deferred asset, or \
+                 record a deliberate exception",
+            );
+        }
+        if !(lower.contains("do not drop") && lower.contains("accept")) {
+            missing.push(
+                "C5 — the warning: do not drop the attributes to satisfy this refusal, because a \
+                 plain tag puts a non-pre-paint script on the render-blocking path and this gate \
+                 would then accept it",
+            );
+        }
+        missing
+    }
+
+    /// True when the entry tells the contributor the one thing a refused
+    /// neighbour needs to be told: add `defer`.
+    fn tells_her_to_add_defer(entry: &str) -> bool {
+        let plain = entry.replace('`', "").to_lowercase();
+        plain.contains("add defer") || plain.contains("add the defer")
+    }
+
+    /// Assert one entry of the single refusal text the names-both class gets.
+    fn assert_one_refusal_text(found: &[String], src: &str, attributes: &[&str], idiom: &str) {
+        let entries = entries_naming(found, src);
         assert_eq!(
-            check_pre_paint_scripts_are_render_blocking(planted.path()).len(),
+            entries.len(),
             1,
-            "the rule reports nothing on a deferred pre-paint tag, so the clean tree above \
+            "{idiom} carrying {attributes:?} must receive EXACTLY ONE entry naming `{src}`, and \
+             it received {}. A shape with no entry is a shape the contributor reads as permitted, \
+             and a shape with two entries tells her the gate holds two opinions about one tag. \
+             All {} entry/entries: {found:?}",
+            entries.len(),
+            found.len()
+        );
+        let entry = entries[0];
+        let missing = clauses_missing_from(entry, src, attributes);
+        assert!(
+            missing.is_empty(),
+            "the refusal for {idiom} is missing {} of its five required clauses: {missing:?}. \
+             This refusal is the only thing the contributor gets: the gate decided by NAME, so it \
+             cannot know which of the two legitimate cases she is in, and each missing clause \
+             either hides that or leaves her one of the two remedies short. Say all five. The \
+             entry was:\n{entry}",
+            missing.len()
+        );
+        let claimed: Vec<&&str> = OBSERVATION_CLAIMS
+            .iter()
+            .filter(|claim| entry.to_lowercase().contains(&claim.to_lowercase()))
+            .collect();
+        assert!(
+            claimed.is_empty(),
+            "the refusal for {idiom} claims an observation the gate never made: {claimed:?}. It \
+             read NAMES out of comment-stripped source; it did not watch the asset read stored \
+             state or stamp the document, and for a settled-DOM neighbour that claim is simply \
+             false. Say the asset NAMES them. The entry was:\n{entry}"
+        );
+    }
+
+    // ---- (a) the head this repository ships -------------------------------
+
+    /// The shipped head, through the rule, over the REAL tree: two plain
+    /// stampers above seven deferred neighbours, accepted. This is the arm that
+    /// keeps the widened membership test honest — three of the shipped
+    /// neighbours already name the document element, so a membership test
+    /// widened carelessly refuses the head foundry ships and the contributor
+    /// cannot run the gate at all.
+    #[test]
+    fn the_head_this_repository_ships_is_accepted() {
+        let found = check_pre_paint_scripts_are_render_blocking(&workspace_root());
+        assert!(
+            found.is_empty(),
+            "the gate refuses the head this repository SHIPS: {found:?}. Either the shell changed \
+             without its scripts' loading being reconsidered, or the rule now refuses a \
+             legitimate neighbour — several of them name the document element already, and one \
+             added storage name would class a settled-DOM neighbour as a pre-paint script. A gate \
+             that refuses the shipped tree is a gate nobody can run."
+        );
+    }
+
+    /// THE PAIRED READING — the gate's half of it. The gate keeps its own parse
+    /// of the head so it can CONTRADICT the acceptance suite; until something
+    /// compared the two, "they are independent" was a claim with nothing behind
+    /// it. Each side is compared with the same independently written table, so
+    /// a reader that drifts fails on exactly the side that drifted. HONEST
+    /// LIMIT: a drift that changes BOTH readers identically is not caught, and
+    /// the two inputs differ by construction — template source here, served
+    /// markup there — which is what makes the pairing worth having rather than
+    /// a tautology.
+    #[test]
+    fn the_gate_reads_the_shipped_head_as_the_pre_paint_family_above_its_deferred_neighbours() {
+        let shell = workspace_root()
+            .join("crates")
+            .join("foundry-app")
+            .join("templates")
+            .join("base.html");
+        let markup = std::fs::read_to_string(&shell).expect("the document shell must be readable");
+        let stripped = strip_markup_comments(&markup);
+        let head = head_region(&stripped).expect("the shell must declare a head");
+        let read = head_script_tags(head);
+
+        let expected: Vec<(String, Vec<String>)> = [
+            ("/static/js/theme.js", vec![]),
+            ("/static/js/nav-collapse.js", vec![]),
+            ("/static/vendor/htmx.min.js", vec!["defer"]),
+            ("/static/js/board-dnd.js", vec!["defer"]),
+            ("/static/js/board-lane-dnd.js", vec!["defer"]),
+            ("/static/js/board-live.js", vec!["defer"]),
+            ("/static/js/csrf-upload.js", vec!["defer"]),
+            ("/static/js/keyboard.js", vec!["defer"]),
+            ("/static/js/form-errors.js", vec!["defer"]),
+        ]
+        .into_iter()
+        .map(|(src, deferring)| {
+            (
+                src.to_string(),
+                deferring.into_iter().map(str::to_string).collect(),
+            )
+        })
+        .collect();
+
+        assert_eq!(
+            read, expected,
+            "the gate reads a different head from the one both it and the acceptance suite were \
+             written against. Either the shell changed — a script added, removed, reordered, or a \
+             loading attribute altered — or this parse has drifted and no longer understands a \
+             quoting form or an attribute it is shown. Both matter: the promise is kept by WHICH \
+             scripts are plain and which defer, and a parse that mis-reads an attribute makes \
+             every verdict about this head vacuous. If the shell genuinely changed, change the \
+             table on BOTH sides and say in the head why the new script belongs where it is."
+        );
+    }
+
+    /// A staged head in the shipped ARRANGEMENT is accepted, and the same head
+    /// with the attribute planted is refused — so the acceptance above cannot
+    /// be the silence of a rule that sees nothing.
+    #[test]
+    fn a_plain_pre_paint_tag_beside_deferred_neighbours_is_accepted() {
+        let assets = [
+            ("/static/js/nav-collapse.js", PLAINLY_SPELLED_STAMPER),
+            ("/static/js/keyboard.js", NON_STAMPING_NEIGHBOUR),
+        ];
+        let clean = stage_head(
+            &[
+                tag("/static/js/nav-collapse.js", &[]),
+                tag("/static/js/keyboard.js", &["defer"]),
+            ],
+            &assets,
+        );
+        let found = answers(&clean);
+        assert!(
+            found.is_empty(),
+            "a pre-paint tag carrying none of the three attributes, beside a deferred neighbour \
+             that reads no stored state, is the shape the promise asks for and must be accepted: \
+             {found:?}"
+        );
+        let planted = stage_head(
+            &[
+                tag("/static/js/nav-collapse.js", &["defer"]),
+                tag("/static/js/keyboard.js", &["defer"]),
+            ],
+            &assets,
+        );
+        assert_eq!(
+            answers(&planted).len(),
+            1,
+            "the rule answers nothing when the pre-paint tag is deferred, so the acceptance above \
              proves nothing"
         );
     }
 
+    // ---- (b), (c), (f) one input class, one refusal text ------------------
+
+    /// A true stamper is refused whichever idiom it is spelled in and whichever
+    /// deferring attribute it carries — and the settled-DOM neighbour that
+    /// merely NAMES the same pair gets the very same refusal, because source
+    /// cannot tell the two apart.
     #[test]
-    fn each_deferring_attribute_on_a_pre_paint_tag_is_refused_by_name() {
-        for (attribute, named) in [
-            ("defer", "defer"),
-            ("async", "async"),
-            ("type=\"module\"", "type=\"module\""),
+    fn a_script_that_names_stored_state_and_the_document_element_is_refused_with_one_text() {
+        for (idiom, asset) in [
+            ("a stamper spelled plainly", PLAINLY_SPELLED_STAMPER),
+            (
+                "a stamper spelled through an alias and an element reference",
+                ALIASED_STAMPER,
+            ),
+            (
+                "a settled-DOM neighbour that only NAMES the pair",
+                SETTLED_DOM_NAMING_BOTH,
+            ),
         ] {
-            let tree = stage_shell(&format!(
-                "<script src=\"/static/js/nav-collapse.js\" {attribute}></script>"
-            ));
-            let found = check_pre_paint_scripts_are_render_blocking(tree.path());
+            for attribute in DEFERRING_ATTRIBUTES {
+                let src = "/static/js/nav-state.js";
+                let tree = stage_head(
+                    &[
+                        tag(src, &[attribute]),
+                        tag("/static/js/keyboard.js", &["defer"]),
+                    ],
+                    &[
+                        (src, asset),
+                        ("/static/js/keyboard.js", NON_STAMPING_NEIGHBOUR),
+                    ],
+                );
+                assert_one_refusal_text(&answers(&tree), src, &[attribute], idiom);
+            }
+        }
+    }
+
+    /// ONE INPUT CLASS, ONE TEXT — asserted by comparing the texts. The gate
+    /// decides by names alone, so the aliased true stamper and the settled-DOM
+    /// neighbour are the same input: same src, same attribute, therefore the
+    /// SAME entry, byte for byte. Two different texts would mean the gate had
+    /// guessed which of the two intents the asset had, from a source that does
+    /// not contain the answer — the class of defect this oracle exists to remove.
+    #[test]
+    fn the_same_refusal_text_serves_a_true_stamper_and_a_settled_dom_neighbour() {
+        let src = "/static/js/nav-state.js";
+        for attribute in DEFERRING_ATTRIBUTES {
+            let refusal_for = |asset: &str| {
+                let tree = stage_head(
+                    &[
+                        tag(src, &[attribute]),
+                        tag("/static/js/keyboard.js", &["defer"]),
+                    ],
+                    &[
+                        (src, asset),
+                        ("/static/js/keyboard.js", NON_STAMPING_NEIGHBOUR),
+                    ],
+                );
+                let found = answers(&tree);
+                let entries = entries_naming(&found, src);
+                assert_eq!(
+                    entries.len(),
+                    1,
+                    "one entry must name `{src}` carrying {attribute}, not {}: {found:?}",
+                    entries.len()
+                );
+                entries[0].clone()
+            };
+            let for_the_stamper = refusal_for(ALIASED_STAMPER);
+            let for_the_neighbour = refusal_for(SETTLED_DOM_NAMING_BOTH);
             assert_eq!(
-                found.len(),
-                1,
-                "`{attribute}` on the pre-paint tag must be refused exactly once: {found:?}"
-            );
-            assert!(
-                found[0].contains("pre-paint-script:")
-                    && found[0].contains("/static/js/nav-collapse.js")
-                    && found[0].contains(named)
-                    && found[0].contains("flash"),
-                "the refusal must name the rule, the TAG, the attribute and the flash it \
-                 reintroduces: {}",
-                found[0]
+                for_the_stamper, for_the_neighbour,
+                "the gate answers a true stamper and a settled-DOM neighbour with DIFFERENT texts \
+                 for the same tag carrying {attribute}. Their sources name the same two things \
+                 and differ only in WHEN they touch them, which no source test can read — so a \
+                 difference here is the gate guessing at an intent its input does not contain, \
+                 and half its guesses send the contributor the wrong way. One class, one text, \
+                 five clauses, and she picks the case."
             );
         }
+    }
+
+    // ---- (g) the plain settled-DOM asset ----------------------------------
+
+    /// THE HAZARD THIS GATE CARRIES RATHER THAN CLOSES, asserted rather than
+    /// hoped for. The settled-DOM asset made PLAIN is ACCEPTED: it names the
+    /// same pair as a true stamper, so refusing it would also refuse the two
+    /// legitimate pre-paint scripts, and the gate cannot tell them apart. The
+    /// refusal's own warning clause is what steers a contributor away from
+    /// reaching this state, and this test records that the gate does not catch
+    /// her if she ignores it — an accepted, unobserved state, not a passing
+    /// check.
+    #[test]
+    fn the_settled_dom_neighbour_made_plain_is_accepted() {
+        let src = "/static/js/last-board.js";
+        let tree = stage_head(
+            &[
+                tag("/static/js/nav-collapse.js", &[]),
+                tag(src, &[]),
+                tag("/static/js/keyboard.js", &["defer"]),
+            ],
+            &[
+                ("/static/js/nav-collapse.js", PLAINLY_SPELLED_STAMPER),
+                (src, SETTLED_DOM_NAMING_BOTH),
+                ("/static/js/keyboard.js", NON_STAMPING_NEIGHBOUR),
+            ],
+        );
+        let found = answers(&tree);
+        assert!(
+            found.is_empty(),
+            "the gate refuses a PLAIN head script whose asset names stored state and the document \
+             element: {found:?}. It cannot: from source that asset is the same shape as the two \
+             legitimate pre-paint scripts, so this refusal would refuse them too. The plain \
+             settled-DOM script stays an accepted and unobserved hazard, guarded by the refusal's \
+             warning clause and by a reviewer, and this test exists to say so plainly rather than \
+             to pretend the gate catches it."
+        );
+    }
+
+    // ---- (d) a neighbour that lost its defer ------------------------------
+
+    /// A head in which ONE deferred neighbour has quietly lost its `defer` is
+    /// refused and the neighbour is NAMED — not accepted because the other
+    /// neighbours still defer. That weakness is exactly what the delivered
+    /// oracle had, and it let a head script sit on the render-blocking path
+    /// with nothing in the repository observing it.
+    #[test]
+    fn a_neighbour_that_quietly_lost_its_defer_is_refused_by_name() {
+        let undeferred = "/static/js/board-live.js";
+        let still_deferred = ["/static/js/keyboard.js", "/static/js/form-errors.js"];
+        let mut tags = vec![tag("/static/js/nav-collapse.js", &[]), tag(undeferred, &[])];
+        let mut assets = vec![
+            ("/static/js/nav-collapse.js", PLAINLY_SPELLED_STAMPER),
+            (undeferred, NON_STAMPING_NEIGHBOUR),
+        ];
+        for src in still_deferred {
+            tags.push(tag(src, &["defer"]));
+            assets.push((src, NON_STAMPING_NEIGHBOUR));
+        }
+
+        let found = answers(&stage_head(&tags, &assets));
+        let entries = entries_naming(&found, undeferred);
+        assert_eq!(
+            entries.len(),
+            1,
+            "of {} head script(s), one neighbour lost its `defer` and the gate answered {} \
+             entry/entries naming it. A head script that is not a pre-paint script and does not \
+             defer sits on the render-blocking path, delaying the paint the operator waits for, \
+             and it does so silently — every settled-page assertion still passes. It must be \
+             refused by NAME, and the other neighbours still deferring must not earn it a pass. \
+             All answers: {found:?}",
+            tags.len(),
+            entries.len()
+        );
+        assert!(
+            tells_her_to_add_defer(entries[0]),
+            "the entry names the undeferred neighbour but does not tell the contributor the one \
+             thing she needs to be told — add `defer`. A refusal without its remedy sends her \
+             guessing, and the guess that satisfies this gate fastest is deleting the tag. The \
+             entry was:\n{}",
+            entries[0]
+        );
+        for src in still_deferred {
+            assert!(
+                entries_naming(&found, src).is_empty(),
+                "the gate also names `{src}`, which carries `defer` and is therefore correct as \
+                 it stands. A refusal that sweeps up the compliant neighbours tells the \
+                 contributor nothing about which tag to fix. All answers: {found:?}"
+            );
+        }
+    }
+
+    // ---- (e) a non-stamping script loaded async or as a module ------------
+
+    /// A head script that stamps nothing from stored state and is loaded
+    /// `async`, or as `type="module"`, is refused and told to add `defer` —
+    /// instead of being answered nothing at all. "Defers" said nothing about
+    /// either shape, so eight of the twenty-four shapes had no verdict, and a
+    /// contributor reads no verdict as permission.
+    #[test]
+    fn a_non_stamping_head_script_loaded_async_or_as_a_module_is_told_to_add_defer() {
+        for attribute in ["async", "type=\"module\""] {
+            let src = "/static/js/board-live.js";
+            let tree = stage_head(
+                &[
+                    tag("/static/js/nav-collapse.js", &[]),
+                    tag(src, &[attribute]),
+                ],
+                &[
+                    ("/static/js/nav-collapse.js", PLAINLY_SPELLED_STAMPER),
+                    (src, NON_STAMPING_NEIGHBOUR),
+                ],
+            );
+            let found = answers(&tree);
+            let entries = entries_naming(&found, src);
+            assert_eq!(
+                entries.len(),
+                1,
+                "a non-stamping head script loaded with {attribute} received {} entry/entries. \
+                 Neither shape is `defer`, and neither is safe: an `async` head script may run \
+                 before the first paint and a module script runs after it, so the one loading the \
+                 head promises is the one it must carry. Answering nothing leaves the contributor \
+                 reading silence as permission. All answers: {found:?}",
+                entries.len()
+            );
+            assert!(
+                tells_her_to_add_defer(entries[0]),
+                "the entry refuses {attribute} but does not tell the contributor to add `defer`, \
+                 so she cannot tell whether the gate wants the attribute changed, the tag moved, \
+                 or the script deleted. The entry was:\n{}",
+                entries[0]
+            );
+        }
+    }
+
+    // ---- every shape gets exactly one verdict -----------------------------
+
+    /// EXHAUSTIVE over the head-script shapes: three storage values (named in
+    /// `localStorage`, in `sessionStorage`, named in neither) by the document
+    /// element named or not, by the four loading modes (plain, `defer`,
+    /// `async`, `type="module"`). Twenty-four shapes, one head, and every shape
+    /// must come back with exactly one verdict and, when refused, exactly one
+    /// message. The domain is closed and small, so it is enumerated rather than
+    /// sampled; this crate vendors no property-test library and needs none for
+    /// twenty-four members.
+    ///
+    /// The expected verdict is computed from the shape, never by asking the
+    /// rule: a script that names BOTH must be plain, every other script must
+    /// carry `defer`.
+    #[test]
+    fn every_head_script_shape_gets_exactly_one_verdict_and_one_message() {
+        let storages = [
+            ("names localStorage", Some("localStorage")),
+            ("names sessionStorage", Some("sessionStorage")),
+            ("names no store", None),
+        ];
+        let loadings: [(&str, Vec<&str>); 4] = [
+            ("loaded plain", vec![]),
+            ("loaded with defer", vec!["defer"]),
+            ("loaded with async", vec!["async"]),
+            ("loaded as a module", vec!["type=\"module\""]),
+        ];
+
+        let mut tags = Vec::new();
+        let mut assets: Vec<(String, String)> = Vec::new();
+        // (src, shape in words, expected verdict, the attributes it carries)
+        let mut shapes: Vec<(String, String, Verdictish, Vec<&str>)> = Vec::new();
+        for (storage_words, storage) in storages {
+            for names_document_element in [true, false] {
+                for (loading_words, attributes) in &loadings {
+                    let index = shapes.len();
+                    let src = format!("/static/js/shape-{index:02}.js");
+                    let body = format!(
+                        "(function () {{\n  {}\n  {}\n}})();\n",
+                        match storage {
+                            Some(store) => {
+                                format!("var v = window.{store}.getItem(\"foundry.nav\");")
+                            }
+                            None => "var v = 0;".to_string(),
+                        },
+                        if names_document_element {
+                            "document.documentElement.setAttribute(\"data-x\", \"1\");"
+                        } else {
+                            "var ready = true;"
+                        }
+                    );
+                    let names_both = storage.is_some() && names_document_element;
+                    let expected = match (names_both, attributes.is_empty()) {
+                        (true, true) => Verdictish::Accepted,
+                        (true, false) => Verdictish::RefusedAsAPrePaintScript,
+                        (false, _) if attributes == &vec!["defer"] => Verdictish::Accepted,
+                        (false, _) => Verdictish::RefusedForNotDeferring,
+                    };
+                    let words = format!(
+                        "a head script that {storage_words}, {} the document element, \
+                         {loading_words}",
+                        if names_document_element {
+                            "names"
+                        } else {
+                            "does not name"
+                        }
+                    );
+                    tags.push(tag(&src, attributes));
+                    assets.push((asset_path(&src), body));
+                    shapes.push((src, words, expected, attributes.clone()));
+                }
+            }
+        }
+        assert_eq!(
+            shapes.len(),
+            24,
+            "the sweep must visit all twenty-four shapes — three storage values by the document \
+             element named or not by four loading modes — and it built {}",
+            shapes.len()
+        );
+
+        let mut files = vec![(
+            "crates/foundry-app/templates/base.html".to_string(),
+            format!(
+                "<!doctype html>\n<html>\n<head>\n\
+                 {{# a plain external <script> in <head> is render-blocking #}}\n\
+                 {}\n</head>\n<body></body>\n</html>\n",
+                tags.join("\n")
+            ),
+        )];
+        files.extend(assets);
+        let found = answers(&stage(&files));
+
+        let mut unanswered = Vec::new();
+        let mut wrongly_refused = Vec::new();
+        let mut doubly_answered = Vec::new();
+        let mut wrong_kind = Vec::new();
+        for (src, words, expected, attributes) in &shapes {
+            let entries = entries_naming(&found, src);
+            if entries.len() > 1 {
+                doubly_answered.push(format!("{words} ({} entries)", entries.len()));
+                continue;
+            }
+            match (expected, entries.first()) {
+                (Verdictish::Accepted, Some(entry)) => {
+                    wrongly_refused.push(format!("{words} — answered: {entry}"));
+                }
+                (Verdictish::Accepted, None) => {}
+                (_, None) => unanswered.push(words.clone()),
+                (Verdictish::RefusedAsAPrePaintScript, Some(entry)) => {
+                    let missing = clauses_missing_from(entry, src, attributes);
+                    if !missing.is_empty() {
+                        wrong_kind.push(format!("{words} — clauses missing: {missing:?}"));
+                    }
+                }
+                (Verdictish::RefusedForNotDeferring, Some(entry)) => {
+                    if !tells_her_to_add_defer(entry) {
+                        wrong_kind.push(format!("{words} — not told to add defer: {entry}"));
+                    }
+                }
+            }
+        }
+
+        assert!(
+            unanswered.is_empty(),
+            "{} of the twenty-four head-script shapes got NO VERDICT: {unanswered:?}. A gate must \
+             never answer nothing: the contributor reads silence as permission, and the shapes \
+             with no verdict are precisely the ones nobody has thought about yet. Every head \
+             script either stamps the document from stored state — and must then be plain — or it \
+             does not, and must then carry `defer`.",
+            unanswered.len()
+        );
+        assert!(
+            wrongly_refused.is_empty(),
+            "{} of the twenty-four shapes were refused although the head promises them: \
+             {wrongly_refused:?}. A script that names both must be PLAIN and a script that does \
+             not must carry `defer`; refusing either leaves the contributor unable to write a \
+             correct head at all.",
+            wrongly_refused.len()
+        );
+        assert!(
+            doubly_answered.is_empty(),
+            "{} of the twenty-four shapes received MORE THAN ONE message: {doubly_answered:?}. \
+             One tag, one verdict, one message — two tell her the gate holds two opinions about \
+             the same tag and leave her guessing which to act on.",
+            doubly_answered.len()
+        );
+        assert!(
+            wrong_kind.is_empty(),
+            "{} of the twenty-four shapes were refused with the WRONG MESSAGE: {wrong_kind:?}. A \
+             script refused for naming both needs all five clauses, because the gate cannot know \
+             which of the two legitimate cases she is in; a script refused for not deferring needs \
+             the one remedy that fixes it.",
+            wrong_kind.len()
+        );
+    }
+
+    /// What a shape is answered, computed from the shape rather than read off
+    /// the rule.
+    #[derive(Debug, PartialEq)]
+    enum Verdictish {
+        Accepted,
+        RefusedAsAPrePaintScript,
+        RefusedForNotDeferring,
+    }
+
+    // ---- membership is a names test, in every idiom ------------------------
+
+    /// The segment kinds an asset can be built from, with what each one NAMES
+    /// in comment-stripped source: a store, the document element, or neither.
+    /// The two comment kinds name both IN PROSE and must therefore name
+    /// nothing — the gate's own explanation of the mechanism must not classify
+    /// a file that does not implement it.
+    const SEGMENT_KINDS: [(&str, &str, bool, bool); 11] = [
+        (
+            "a direct getItem read",
+            "var a = localStorage.getItem(\"foundry.nav\");",
+            true,
+            false,
+        ),
+        (
+            "a bracket read of the store",
+            "var b = window.localStorage[\"foundry.nav\"];",
+            true,
+            false,
+        ),
+        (
+            "a local alias of the store",
+            "var store = window.sessionStorage; var c = store.getItem(\"foundry.nav\");",
+            true,
+            false,
+        ),
+        (
+            "a destructured read",
+            "var { getItem } = window.localStorage; var d = getItem(\"foundry.nav\");",
+            true,
+            false,
+        ),
+        (
+            "a direct stamp of the document element",
+            "document.documentElement.setAttribute(\"data-x\", \"1\");",
+            false,
+            true,
+        ),
+        (
+            "a stamp through an element reference",
+            "var root = document.documentElement; root.setAttribute(\"data-x\", \"1\");",
+            false,
+            true,
+        ),
+        (
+            "a dataset stamp",
+            "document.documentElement.dataset.x = \"1\";",
+            false,
+            true,
+        ),
+        (
+            "a settled-DOM line naming the document element",
+            "document.addEventListener(\"DOMContentLoaded\", function () { \
+             document.documentElement.classList.add(\"ready\"); });",
+            false,
+            true,
+        ),
+        (
+            "a line comment mentioning both",
+            "// localStorage.getItem and document.documentElement.setAttribute, explained",
+            false,
+            false,
+        ),
+        (
+            "a block comment mentioning both",
+            "/* localStorage and documentElement are named here only in prose */",
+            false,
+            false,
+        ),
+        ("a line naming neither", "var n = 0;", false, false),
+    ];
+
+    /// MEMBERSHIP IS A NAMES TEST, AND IT IS EXHAUSTIVELY OBSERVED over every
+    /// asset built from one, two or three of the segment kinds above — 1463
+    /// assets, every one of them declared with `defer` in one head, so the
+    /// gate's answer for each is its membership verdict.
+    ///
+    /// The expected verdict is computed from the KINDS the asset was built
+    /// from, never by calling the classifier: an asset is a member exactly when
+    /// some code segment names a store and some code segment names the document
+    /// element. That makes three facts observations rather than hopes: the
+    /// alias-plus-element-reference idiom IS recognised, so no true stamp is
+    /// missed whatever it is spelled like; the settled-DOM segment paired with
+    /// a read IS recognised too, which is the deliberate over-approximation,
+    /// refused loudly rather than accepted silently; and a mention in a comment
+    /// alone is NOT recognised.
+    ///
+    /// LIMIT, stated rather than claimed away: the enumeration is total over
+    /// its bound and therefore needs no seed and no shrinker, and this crate
+    /// vendors neither. It visits one-segment assets before two and three, so
+    /// the smallest failing asset is reported first.
+    #[test]
+    fn membership_follows_what_the_asset_names_in_every_idiom_and_ignores_its_comments() {
+        let mut tags = Vec::new();
+        let mut files: Vec<(String, String)> = Vec::new();
+        let mut expected_members: BTreeSet<String> = BTreeSet::new();
+        let mut words: BTreeMap<String, String> = BTreeMap::new();
+        let mut sequences: Vec<Vec<usize>> = Vec::new();
+        for first in 0..SEGMENT_KINDS.len() {
+            sequences.push(vec![first]);
+        }
+        for first in 0..SEGMENT_KINDS.len() {
+            for second in 0..SEGMENT_KINDS.len() {
+                sequences.push(vec![first, second]);
+            }
+        }
+        for first in 0..SEGMENT_KINDS.len() {
+            for second in 0..SEGMENT_KINDS.len() {
+                for third in 0..SEGMENT_KINDS.len() {
+                    sequences.push(vec![first, second, third]);
+                }
+            }
+        }
+
+        for (index, sequence) in sequences.iter().enumerate() {
+            let src = format!("/static/js/named-{index:04}.js");
+            let body = sequence
+                .iter()
+                .map(|kind| format!("  {}\n", SEGMENT_KINDS[*kind].1))
+                .collect::<String>();
+            let names_a_store = sequence.iter().any(|kind| SEGMENT_KINDS[*kind].2);
+            let names_the_document = sequence.iter().any(|kind| SEGMENT_KINDS[*kind].3);
+            if names_a_store && names_the_document {
+                expected_members.insert(src.clone());
+            }
+            words.insert(
+                src.clone(),
+                sequence
+                    .iter()
+                    .map(|kind| SEGMENT_KINDS[*kind].0)
+                    .collect::<Vec<&str>>()
+                    .join(" then "),
+            );
+            tags.push(tag(&src, &["defer"]));
+            files.push((asset_path(&src), format!("(function () {{\n{body}}})();\n")));
+        }
+
+        // The three witnesses this law exists for must be IN the enumeration,
+        // or it could lose them and stay green.
+        let alias_and_element_reference = "a local alias of the store then a stamp through an \
+                                           element reference";
+        let settled_dom_and_a_read = "a settled-DOM line naming the document element then a \
+                                      direct getItem read";
+        let comment_only = "a line comment mentioning both";
+        for (witness, must_be_a_member) in [
+            (alias_and_element_reference, true),
+            (settled_dom_and_a_read, true),
+            (comment_only, false),
+        ] {
+            let built = words
+                .iter()
+                .find(|(_, description)| *description == witness)
+                .map(|(src, _)| src.clone())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "the enumeration no longer builds the asset this law exists for: \
+                         {witness}. Without it the law holds over a domain that excludes its own \
+                         witness."
+                    )
+                });
+            assert_eq!(
+                expected_members.contains(&built),
+                must_be_a_member,
+                "the expected classification of `{witness}` is wrong in this test itself, so the \
+                 comparison below would measure the test rather than the gate"
+            );
+        }
+
+        let mut shell = vec![(
+            "crates/foundry-app/templates/base.html".to_string(),
+            format!(
+                "<!doctype html>\n<html>\n<head>\n{}\n</head>\n<body></body>\n</html>\n",
+                tags.join("\n")
+            ),
+        )];
+        shell.extend(files);
+        let found = answers(&stage(&shell));
+
+        let refused: BTreeSet<String> = words
+            .keys()
+            .filter(|src| !entries_naming(&found, src).is_empty())
+            .cloned()
+            .collect();
+        let missed: Vec<String> = expected_members
+            .difference(&refused)
+            .map(|src| words[src].clone())
+            .collect();
+        let over_reached: Vec<String> = refused
+            .difference(&expected_members)
+            .map(|src| words[src].clone())
+            .collect();
+
+        assert!(
+            missed.is_empty(),
+            "{} of the {} assets that NAME a store and the document element were accepted with \
+             `defer`, so the gate does not recognise them: {missed:?}. Membership is what the \
+             source NAMES, in whatever idiom it spells it — an asset read through an alias and \
+             stamped through an element reference is a pre-paint script exactly as much as one \
+             spelled `localStorage.getItem` and `documentElement.setAttribute`, and accepting it \
+             deferred puts the stamp after the first paint with the gate green, which is the \
+             flash this law exists to prevent.",
+            missed.len(),
+            expected_members.len()
+        );
+        assert!(
+            over_reached.is_empty(),
+            "{} of the {} assets were refused although they name a store or the document element \
+             but NOT BOTH — or name them only in a comment: {over_reached:?}. The gate's own \
+             prose explaining the mechanism names both, so a classifier that reads comments \
+             classifies files that implement nothing, and a contributor refused for a sentence \
+             she wrote cannot act on the refusal.",
+            over_reached.len(),
+            words.len()
+        );
+    }
+
+    // ---- the fail-closed arm ----------------------------------------------
+
+    /// A head that declares scripts and yields NO pre-paint script at all is
+    /// reported, even though every tag in it is correctly deferred. The shell
+    /// carries at least the theme stamp and the nav-collapse stamp, so an empty
+    /// pre-paint set means the rule has stopped seeing the family it governs —
+    /// and from then on it would hold over nothing, with the gate green.
+    #[test]
+    fn a_head_that_yields_no_pre_paint_script_at_all_is_reported() {
+        let tree = stage_head(
+            &[
+                tag("/static/js/keyboard.js", &["defer"]),
+                tag("/static/js/form-errors.js", &["defer"]),
+            ],
+            &[
+                ("/static/js/keyboard.js", NON_STAMPING_NEIGHBOUR),
+                ("/static/js/form-errors.js", NON_STAMPING_NEIGHBOUR),
+            ],
+        );
+        let found = answers(&tree);
+        assert_eq!(
+            found.len(),
+            1,
+            "a head whose scripts are all correctly deferred and which holds NO pre-paint script \
+             must still be reported exactly once — blindness is the one failure a rule cannot \
+             report on itself. Answers: {found:?}"
+        );
+        assert!(
+            found[0].contains("pre-paint-script:"),
+            "the blindness report must be attributed to this rule, or a reader cannot tell which \
+             layer stopped seeing its subject: {}",
+            found[0]
+        );
     }
 }
 

@@ -32,6 +32,7 @@ pub mod pg_time;
 pub mod project_lifecycle;
 pub mod readme_inspect;
 pub mod round_robin_proxy;
+pub mod served_markup;
 pub mod slack_double;
 pub mod sse_client;
 pub mod team_lifecycle;
