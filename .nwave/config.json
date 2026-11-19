@@ -1,0 +1,23 @@
+{
+  "enabled": true,
+  "examine": {
+    "level": "extended",
+    "public": [
+      "crates/foundry-app/templates/base.html",
+      "crates/foundry-app/static/VENDOR.md",
+      "crates/foundry-app/static/js/*.js",
+      "DEVELOPER.md",
+      "CHANGELOG.md"
+    ]
+  },
+  "rigor": {
+    "note": "board-lane-overflow-menu ran ADR-025 scaffolded RED: DISTILL authored all 23 scenarios @pending and CLASSIFIED them red (23/23 MISSING_FUNCTIONALITY, zero BROKEN, zero false-GREEN), and DELIVER un-pended them slice by slice. PREPARE, RED_ACCEPTANCE and GREEN ran for every step and are logged with the provenance of each red observation. RED_UNIT is logged only for the three steps that actually added unit tests (02-01, 03-02, and 03-01's property suite), because logging it for a markup-only step would be a false entry. COMMIT did not run: this delivery is no-commit mode (the user has not asked for commits), the same mode issue-edit-modal-close-icon shipped under. 2026-10-03 (card-pointer-drag 03-01/03-02): tdd_phases moved to the ADR-025 canon [RED, GREEN, COMMIT] because the installed des-log-phase accepts only those names; des-verify-integrity maps the earlier legacy PREPARE/RED_ACCEPTANCE/RED_UNIT logs onto RED, so all prior steps still verify.",
+    "profile": "adr-025-scaffolded-red",
+    "tdd_phases": [
+      "RED",
+      "GREEN",
+      "COMMIT"
+    ]
+  },
+  "schema-version": 1
+}

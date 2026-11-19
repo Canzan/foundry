@@ -16,6 +16,8 @@
 #     scripts/examine-foundry mail
 #     scripts/examine-foundry rotate-secrets
 #     scripts/examine-foundry new-issue Lena backend/identity-platform "Rotate the bind password"
+#     scripts/examine-foundry gate --file crates/foundry-app/templates/base.html my-head.html
+#     scripts/examine-foundry suite us-cts-04 --file crates/foundry-app/templates/base.html my-head.html
 #     scripts/examine-foundry stop
 #
 # Paths may be written with or without the leading slash; under
@@ -101,6 +103,21 @@
 # viewport, 390x844 unless --width or --height is given), --js off (JavaScript disabled for the whole run), --slow <N> (CPU
 # slowed N times), --fresh.
 #
+# `gate` and `suite` look at the candidate as a contributor does. Each copies
+# the candidate (without target/ and .git/) to a staged tree in the VM, puts
+# each `--file <repo path> <your file>` in place there, prints what the staged
+# tree changes, then runs the project gate (`cargo xtask check-arch --root
+# <staged tree>`) or the acceptance scenarios with that one tag, written with or
+# without its @ (built from the
+# staged tree, in release, then run) and prints the exit status and the output.
+# A `--file` may replace crates/foundry-app/templates/base.html or add or
+# replace a file under crates/foundry-app/static/, nothing else. With no
+# `--file` the staged tree is the candidate as it is. The checkout is never
+# changed. `suite` builds in its own target directory in the VM, which `stop`
+# keeps as a cache: the first build takes about 20 minutes; a later run that
+# changes the head rebuilds only what the files change, about 8 minutes in all,
+# so give its call a 10-minute limit.
+#
 # No subcommand reads the caller's stdin: main runs with stdin from /dev/null.
 set -euo pipefail
 
@@ -149,6 +166,10 @@ usage: examine-foundry start <state> [--before] [--replicas 2]
        examine-foundry new-issue [--replica 2] <viewer> <team>/<project> <title>
        examine-foundry browser <viewer> [--width px] [--height px] [--phone] [--js off] [--slow N] [--fresh] <step>...
            steps: go <path> | reload | watch-go <path> | watch-reload | look | key <Tab|Shift+Tab|Enter|Space|Escape> | tab-order <N> | click <name> | hover <name> | sign-in | width <px>
+       examine-foundry gate [--file <repo path> <your file>]...
+       examine-foundry suite <tag> [--file <repo path> <your file>]...
+           a --file replaces crates/foundry-app/templates/base.html or a file under crates/foundry-app/static/
+           gate takes seconds; suite takes about 8 minutes, so give its call a 10-minute limit
        examine-foundry stop
        examine-foundry states | viewers
 Write each path without its leading slash: admin/instance/integrations, not /admin/instance/integrations.
@@ -400,6 +421,7 @@ host_main() {
       [ "$#" -ge 1 ] || die "browser needs at least one step, such as: browser Priya go workspace look"
       run_op 200 browser "$bviewer" "$bw" "$bh" "$bjs" "$bslow" "$bfresh" "$bphone" "$@"
       ;;
+    gate | suite) host_contributor "$cmd" "$@" ;;
     stop) run_op 120 stop ;;
     slack-info) run_op 60 slack-info ;;
     mail)
@@ -481,6 +503,65 @@ run_op() {
     vm_up
     in_vm "$limit" nolock __vm "$@"
   fi
+}
+
+# gate | suite: the examiner's files go to the VM as one tar, and the VM stages
+# the candidate with them. Paths are read from the caller's directory.
+host_contributor() {
+  local op="$1" tag='' limit=900
+  shift
+  if [ "$op" = suite ]; then
+    # A tag is written as in a feature file, with or without its @.
+    tag="${1#@}"
+    case "$tag" in
+      [a-z0-9]*) ;;
+      *) die "usage: examine-foundry suite <tag> [--file <repo path> <your file>]... (such as us-cts-04)" ;;
+    esac
+    case "$tag" in *[!a-z0-9_-]*) die "a tag is lowercase letters, digits, _ or -, not $1" ;; esac
+    limit=3600
+    shift
+  fi
+  local files="$TMPDIR_HOST/examine-foundry-files"
+  rm -rf "$files"
+  mkdir -p "$files/tree"
+  while [ "$#" -gt 0 ]; do
+    [ "$1" = --file ] && [ "$#" -ge 3 ] || die "each file is --file <repo path> <your file>, not $1"
+    local target="$2" source="$3"
+    case "$target" in
+      crates/foundry-app/templates/base.html | crates/foundry-app/static/?*) ;;
+      *) die "a --file replaces crates/foundry-app/templates/base.html or a file under crates/foundry-app/static/, not $target" ;;
+    esac
+    case "/$target/" in
+      */../* | */./* | *//*) die "no empty, . or .. part in $target" ;;
+    esac
+    case "$target" in *[!A-Za-z0-9._/-]*) die "a repo path is letters, digits, . _ - and /, not $target" ;; esac
+    [ -f "$source" ] || die "no file $source"
+    mkdir -p "$files/tree/$(dirname "$target")"
+    cp "$source" "$files/tree/$target"
+    shift 3
+  done
+  local tar="$TMPDIR_HOST/examine-foundry-files.tar"
+  if [ "$(uname -s)" = Darwin ]; then
+    # No AppleDouble ._ files or extended attributes in the staged tree.
+    COPYFILE_DISABLE=1 tar --no-mac-metadata --no-xattrs -cf "$tar" -C "$files/tree" .
+  else
+    tar -cf "$tar" -C "$files/tree" .
+  fi
+  rm -rf "$files"
+  if [ "$(uname -s)" = Linux ]; then
+    (
+      flock -w 900 9 || die "another test run holds ~/test.lock"
+      timeout "$limit" bash "$SELF" __vm contributor "$op" "$tag" "$tar" "$ROOT" 9>&-
+    ) 9>"$HOME/test.lock"
+    return
+  fi
+  vm_up
+  local remote=/tmp/examine-foundry-files.tar
+  timeout 60 limactl copy "$tar" "$VM:$remote" 2>/dev/null || die "could not copy the files into $VM"
+  rm -f "$tar"
+  # test-in-lima.sh syncs the checkout first, so the VM stages this candidate.
+  (cd "$ROOT" && timeout "$limit" scripts/test-in-lima.sh \
+    bash scripts/examine-foundry __vm contributor "$op" "$tag" "$remote" foundry)
 }
 
 # On a Linux host: build here, then boot, all under ~/test.lock.
@@ -1076,8 +1157,53 @@ rotate_secrets() {
   printf 'exit status: %s\n\n%s\n' "$status" "$out"
 }
 
+# Stage the candidate CANDIDATE (relative to the VM home, or absolute) with the
+# files in TAR, then run the gate or the scenarios with TAG over it.
+vm_contributor() {
+  local op="$1" tag="$2" tar="$3" candidate="$4"
+  case "$candidate" in /*) ;; *) candidate="$HOME/$candidate" ;; esac
+  local stage="$HOME/examine-foundry-gate/repo"
+  mkdir -p "$stage"
+  rsync -a --delete --exclude=/target --exclude=/.git "$candidate/" "$stage/"
+  tar -xf "$tar" -C "$stage"
+  rm -f "$tar"
+  echo "== what the staged tree changes in the candidate"
+  (cd "$HOME" && diff -ruN --exclude=target --exclude=.git "$candidate/crates/foundry-app" "$stage/crates/foundry-app" |
+    sed "s|$candidate/|candidate/|; s|$stage/|staged/|") || true
+  echo "== end of changes"
+  local status=0
+  if [ "$op" = gate ]; then
+    echo "== cargo xtask check-arch over the staged tree"
+    (cd "$candidate" && CARGO_BUILD_JOBS=4 cargo run -q -p xtask -- check-arch --root "$stage") 2>&1 || status=$?
+    echo "== check-arch exit $status"
+    return 0
+  fi
+  local log="$HOME/examine-foundry-gate/build.log"
+  echo "== building the acceptance suite from the staged tree"
+  # Its own target directory, kept across stop as a build cache: cargo names the
+  # staged crates as it names the candidate's, so a shared one would overwrite
+  # the candidate's build. A scenario that runs the foundry binary runs the
+  # candidate's release binary.
+  local target="$HOME/examine-foundry-gate/target"
+  if ! (cd "$stage" && CARGO_TARGET_DIR="$target" CARGO_BUILD_JOBS=4 \
+    cargo test -p foundry-acceptance --release --test acceptance --no-run) >"$log" 2>&1; then
+    tail -n 40 "$log"
+    echo "== the staged tree does not build; no scenario ran"
+    return 0
+  fi
+  echo "== FOUNDRY_ACCEPTANCE_TAGS=$tag cargo test -p foundry-acceptance --release --test acceptance"
+  (cd "$stage" && CARGO_TARGET_DIR="$target" CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS="$tag" \
+    CARGO_BIN_EXE_foundry="$candidate/target/release/foundry" \
+    cargo test -p foundry-acceptance --release --test acceptance) >"$log" 2>&1 || status=$?
+  # Failures and the summary come last; the passing steps before them are dropped.
+  # and so are the harness's curl retries while a server starts.
+  grep -v -E '^\s+✔|^curl: \([0-9]+\)' "$log" | tail -n 150
+  echo "== suite exit $status"
+}
+
 vm_stop() {
   vm_teardown
+  rm -rf "$HOME/examine-foundry-gate/repo"
   docker ps -aq --filter label=foundry-examine=1 | xargs -r docker rm -f >/dev/null
   echo "examine-foundry: stopped; no probe container or process is left"
 }
@@ -2397,6 +2523,7 @@ vm_main() {
     mail) vm_require_running && mail_print ;;
     rotate-secrets) vm_require_running && rotate_secrets ;;
     time-passes) vm_require_running && time_passes "$1" ;;
+    contributor) vm_contributor "$@" ;;
     get)
       use_replica "$1"
       vm_request GET "$2" "$3"
