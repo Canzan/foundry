@@ -279,11 +279,11 @@
 "L7/F143",
 "T1"
 ],
-"still_passes_if": "F295",
+"still_passes_if": "F297",
 "test": "crates/foundry-acceptance/tests/features/project-key-length-one-source.feature :: A second copy of the refusal sentence is refused and named"
 },
 "expected": "F293",
-"stimulus": "F292",
+"stimulus": "F296",
 "user_result": "F294"
 }
 ]
@@ -292,7 +292,7 @@
 "B": 3,
 "C": 1,
 "E": 9,
-"F": 295,
+"F": 297,
 "L": 7,
 "P": 3,
 "S": 1,
@@ -1361,10 +1361,10 @@
 "F29": "A project key is 2 to 10 characters inclusive and every character is a capital letter A to Z; the 2-character minimum is unchanged and out of scope.",
 "F290": "An older project is left exactly as it was, and the longer keys become usable in the same move.",
 "F291": "A widening that leaves the rows alone but takes a long lock while applying, which a deploy observes rather than this row.",
-"F292": "A throwaway copy of the codebase is given a second copy of the sentence that refuses a project key, once in the web code, once in the services code and once in the store code; the architecture gate is then run over each copy, and over an untouched copy.",
 "F293": "Each planted copy is refused by the gate, which names the file holding the second sentence, and the untouched copy is accepted.",
 "F294": "The rule the operator reads cannot drift from the rule the product enforces, because a second copy of that sentence cannot be added unnoticed.",
-"F295": "A second copy written in words the plant does not use, since the plant carries the sentence in the wordings the refusal can take rather than every paraphrase of it.",
+"F296": "A throwaway copy of the codebase is given a second copy of the very sentence the product gives an operator whose key is refused, once in the web code, once in the services code and once in the store code; the architecture gate is then run over each copy, and over an untouched copy.",
+"F297": "A gate that bites a second copy only in the one file each row plants, or only in the three crates these rows reach, since the law covers every file those crates hold now or gain later and these rows plant one file per crate.",
 "F3": "An operator creates a project whose key is 2 to 10 capital letters A-Z, such as PLATFORMOP, and every issue of that project carries that key as its prefix, such as PLATFORMOP-1.",
 "F30": "Out of scope: renaming the key of an existing project, lower-case or digit keys, and any change to the 2-character minimum.",
 "F31": "crates/foundry-store/migrations/0001_init.sql is shipped and must not be edited; the database rule changes only through a new migration file.",

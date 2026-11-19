@@ -457,7 +457,7 @@ A widening that leaves the rows alone but takes a long lock while applying, whic
 P2
 
 ```text
-A throwaway copy of the codebase is given a second copy of the sentence that refuses a project key, once in the web code, once in the services code and once in the store code; the architecture gate is then run over each copy, and over an untouched copy.
+A throwaway copy of the codebase is given a second copy of the very sentence the product gives an operator whose key is refused, once in the web code, once in the services code and once in the store code; the architecture gate is then run over each copy, and over an untouched copy.
 ```
 
 ```text
@@ -475,7 +475,7 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/project\-key\-length\-one\-source\.feature \:\: A second copy of the refusal sentence is refused and named
 
 ```text
-A second copy written in words the plant does not use, since the plant carries the sentence in the wordings the refusal can take rather than every paraphrase of it.
+A gate that bites a second copy only in the one file each row plants, or only in the three crates these rows reach, since the law covers every file those crates hold now or gain later and these rows plant one file per crate.
 ```
 
 ###### Obligations

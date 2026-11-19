@@ -388,7 +388,19 @@ proptest! {
             team.push(lower.clone());
         }
         team.extend(suffixes.iter().map(|n| format!("{lower}-{n}")));
-        let minted = mint_project_slug(&name("日本語ボード"), &key(&k), &team);
+        // The mint is owed a key of the whole accepted range, so the key is built
+        // here with its own checkpoint rather than through the fixture helper.
+        let built = ProjectKey::try_new(&k).map_err(|e| e.to_string());
+        prop_assert!(
+            built.is_ok(),
+            "WHAT: the key {:?} of {} capital letters cannot be built, so no address can be \
+             minted from it ({:?}). WHY: a project named without Latin letters takes its key \
+             in lower case as its board address, for every key an operator may choose. \
+             HOW: accept a key of two to ten capital letters.",
+            k, k.chars().count(), built.as_ref().err()
+        );
+        let built = built.expect("an accepted key");
+        let minted = mint_project_slug(&name("日本語ボード"), &built, &team);
         let MintedSlug::KeyFallback(slug) = minted else {
             panic!("a name without an address must take the fallback");
         };

@@ -8,25 +8,24 @@
 
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
+use foundry_core::ProjectKeyError;
 
 /// The gate copies the tree, builds a binary and runs a nested dependency
 /// check; one scenario at a time keeps the lane deterministic.
 static GATE_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
-/// The sentence in the wordings a second copy could carry. The gate must bite
-/// whichever of them the refusal ends up reading.
 const PLANTED_SENTENCE_FILE: &str = "planted_project_key_sentence.rs";
 
+/// One plant, carrying the sentence the product actually ships: the text the
+/// refusal of a badly shaped key reads out, taken from that refusal rather than
+/// restated here. A gate clause can then pass only by biting the sentence the
+/// operator is given, never a wording the product never ships.
 fn planted_source() -> String {
-    [
-        "// A second copy of the project key refusal, planted to see the gate bite.",
-        "pub const A: &str = \"project key must be 2 to 10 capital letters A to Z\";",
-        "pub const B: &str = \"Project key must be 2 to 10 capital letters A to Z\";",
-        "pub const C: &str = \"project key must be 2 to 10 capital letters A-Z\";",
-        "pub const D: &str = \"Project key must be 2 to 10 capital letters A-Z\";",
-    ]
-    .join("\n")
-        + "\n"
+    let shipped_sentence = ProjectKeyError::WrongLength.to_string();
+    format!(
+        "// A second copy of the project key refusal, planted to see the gate bite.\n\
+         pub const SECOND_COPY: &str = \"{shipped_sentence}\";\n"
+    )
 }
 
 fn crate_dir_for(area: &str) -> &'static str {
