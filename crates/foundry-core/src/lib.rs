@@ -59,23 +59,53 @@ pub enum DomainError {
 // ---------------------------------------------------------------- ProjectKey
 //
 // Invariant I-P3 (`design/domain-model.md`): project key prefix matches
-// `^[A-Z]{2,6}$`. Enforced here as the single domain construction point
-// AND as a Postgres CHECK constraint at the data layer (defence in
-// depth). Acceptance suite drives this via the US-07 property outline.
+// `^[A-Z]{PROJECT_KEY_MIN_LETTERS,PROJECT_KEY_MAX_LETTERS}$`. Enforced here as
+// the single domain construction point AND as a Postgres CHECK constraint at
+// the data layer (defence in depth): migration
+// `crates/foundry-store/migrations/0035_project_key_length.sql` states the same
+// bound for every writer, including those that never pass this crate; change
+// both together. Acceptance drives this through the US-07 create form and the
+// executed domain-against-database parity probe.
+
+/// The fewest characters a project key may carry. Untouched by the widening to
+/// [`PROJECT_KEY_MAX_LETTERS`] (project-key-length, out of scope).
+pub const PROJECT_KEY_MIN_LETTERS: usize = 2;
+
+/// The most characters a project key may carry. The bound has one owner: the
+/// length arm reads it and the refusal sentence interpolates it, so no second
+/// number can drift from it.
+pub const PROJECT_KEY_MAX_LETTERS: usize = 10;
 
 /// Reasons a string fails to be a valid `ProjectKey`.
 ///
 /// Variants are flat (no `String` payload) so callers can map them to
-/// localized HTML error messages without losing the original input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+/// localized HTML error messages without losing the original input. They stay
+/// distinct as domain diagnosis — which arm refused the key — while their
+/// `Display` is the single operator sentence below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProjectKeyError {
-    #[error("project key must not be empty")]
     Empty,
-    #[error("project key must be 2-6 characters")]
     WrongLength,
-    #[error("project key must contain only uppercase A-Z characters")]
     InvalidCharacters,
 }
+
+impl fmt::Display for ProjectKeyError {
+    /// The ONE operator sentence that refuses a key, stating the whole rule
+    /// whichever arm fired: the operator who typed a lower-case eleven-letter
+    /// key learns both halves of the rule from it, and the arms stay a domain
+    /// concern. This is its only home in the workspace — `cargo xtask
+    /// check-arch` fails any second copy under the web, services, api or store
+    /// crates; render `err.to_string()` there instead.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Project key must be {PROJECT_KEY_MIN_LETTERS} to {PROJECT_KEY_MAX_LETTERS} \
+             capital letters A to Z"
+        )
+    }
+}
+
+impl std::error::Error for ProjectKeyError {}
 
 /// Domain value object: the uppercase prefix used to build issue keys
 /// (e.g. `AUTH-1`, `AUTH-2`). Constructed only via [`ProjectKey::try_new`].
@@ -87,17 +117,22 @@ impl ProjectKey {
     ///
     /// Rules (in order):
     /// 1. Empty -> `Empty`.
-    /// 2. Length outside 2..=6 (counted as bytes; ASCII-only is checked
-    ///    next so byte-length == char-length on success) -> `WrongLength`.
+    /// 2. Length outside [`PROJECT_KEY_MIN_LETTERS`]..=[`PROJECT_KEY_MAX_LETTERS`]
+    ///    (counted as bytes; ASCII-only is checked next so byte-length ==
+    ///    char-length on success) -> `WrongLength`.
     /// 3. Any character outside `A`..=`Z` -> `InvalidCharacters`.
+    ///
+    /// Which arm refuses is domain diagnosis only: all three render the one
+    /// operator sentence stating the whole rule, so the byte-then-character
+    /// order is invisible to the operator.
     pub fn try_new(raw: &str) -> Result<Self, ProjectKeyError> {
         if raw.is_empty() {
             return Err(ProjectKeyError::Empty);
         }
-        if raw.len() < 2 || raw.len() > 6 {
+        if raw.len() < PROJECT_KEY_MIN_LETTERS || raw.len() > PROJECT_KEY_MAX_LETTERS {
             // We check length in bytes first to short-circuit huge inputs;
-            // the character validation below catches non-ASCII content
-            // even if its byte-length happens to land inside 2..=6.
+            // the character validation below catches non-ASCII content even if
+            // its byte-length happens to land inside the accepted window.
             return Err(ProjectKeyError::WrongLength);
         }
         if !raw.bytes().all(|b| b.is_ascii_uppercase()) {
@@ -214,7 +249,7 @@ mod project_key_tests {
     // text (3 input variations covering min boundary / typical / max boundary).
     #[test]
     fn accepts_uppercase_keys_within_length_range() {
-        for raw in ["AU", "AUTH", "AUTHWS"] {
+        for raw in ["AU", "AUTH", "AUTHWS", "PLATFORMOP"] {
             let key = ProjectKey::try_new(raw).expect("expected accepted key");
             assert_eq!(key.as_str(), raw, "value object preserves input");
         }
@@ -229,10 +264,10 @@ mod project_key_tests {
     // Behaviour 3 — too short / too long input is rejected with WrongLength.
     #[test]
     fn rejects_inputs_outside_length_range() {
-        for raw in ["A", "AUTHWORD2", "AUTHWORD"] {
-            // Note: "AUTHWORD2" mixes a digit but length (9) exceeds 6
-            // so the length check fires first — intentional ordering so
-            // the user sees the most actionable error first.
+        for raw in ["A", "PLATFORMOPS", "PLATFORMOPSX"] {
+            // One past the long end (11) and one further (12); the short end
+            // is "A". A nine-character key carrying a digit now sits inside
+            // the window and is refused by the character arm instead.
             assert_eq!(
                 ProjectKey::try_new(raw),
                 Err(ProjectKeyError::WrongLength),
@@ -245,7 +280,7 @@ mod project_key_tests {
     // window are rejected with InvalidCharacters.
     #[test]
     fn rejects_non_uppercase_ascii_when_length_is_in_range() {
-        for raw in ["auth", "Auth", "AU1", "AUTH-X", "AU TH"] {
+        for raw in ["auth", "Auth", "AU1", "AUTH-X", "AU TH", "AUTHWORD2"] {
             assert_eq!(
                 ProjectKey::try_new(raw),
                 Err(ProjectKeyError::InvalidCharacters),

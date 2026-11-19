@@ -119,6 +119,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_stylesheet_dark_block_parity(root));
     violations.extend(check_workspace_name_one_source(root));
     violations.extend(check_project_name_one_source(root));
+    violations.extend(check_project_key_one_source(root));
     violations.extend(check_name_rule_legacy_seam(root));
     violations.extend(check_team_membership_one_seam(root));
     violations.extend(check_team_name_one_source(root));
@@ -6285,6 +6286,41 @@ mod project_name_one_source_tests {
             "a missing crates directory must FAIL the guard, never pass it vacuously"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// project-key-length L7 / T1 — `project-key-one-source`
+// ---------------------------------------------------------------------------
+
+/// The opening of the ONE sentence that refuses a project key, quote included.
+/// It is the opening of `ProjectKeyError`'s `Display`; the sentence states the
+/// whole 2 to 10 capital letter rule and the bound comes from
+/// `foundry_core::PROJECT_KEY_MIN_LETTERS` / `PROJECT_KEY_MAX_LETTERS`, so a
+/// second copy cannot be kept equal to it by review.
+const PROJECT_KEY_COPY_PREFIX: &str = "\"Project key must";
+
+const PROJECT_KEY_ONE_SOURCE: OneSourceRule = OneSourceRule {
+    id: "project-key-one-source",
+    copy_prefix: PROJECT_KEY_COPY_PREFIX,
+    home: "ProjectKeyError's Display in foundry-core",
+    reference: "project-key-length L7/T1",
+    seam_forbidden_in: &[],
+    seam_calls_in: None,
+};
+
+/// `project-key-one-source` (project-key-length law L7, architectural test T1).
+///
+/// The literal prefix `"Project key must` appears in no `.rs` under
+/// `crates/{foundry-app,foundry-services,foundry-api,foundry-store}/src`
+/// (comments and in-file `#[cfg(test)]` included) — its one home is
+/// `ProjectKeyError`'s `Display` in `crates/foundry-core/src`; a door renders
+/// `err.to_string()`. Test trees and the acceptance crate may hold the expected
+/// sentence. The already-in-use refusal (`"Project key is already in use …"`)
+/// answers a different question, uniqueness rather than shape, and stays with
+/// the handler. Every violation names `file:line`; a missing `crates/` or an
+/// unreadable directory fails the rule rather than passing vacuously.
+fn check_project_key_one_source(root: &Path) -> Vec<String> {
+    scan_one_source(root, &PROJECT_KEY_ONE_SOURCE)
 }
 
 // ---------------------------------------------------------------------------

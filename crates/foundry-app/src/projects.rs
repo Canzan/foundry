@@ -35,7 +35,7 @@ use axum::http::header::{
 };
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
-use foundry_core::{ProjectKeyError, ProjectName};
+use foundry_core::ProjectName;
 use foundry_services::projects::{
     CreateProjectError, CreateProjectRequest, FALLBACK_SLUG_ATTEMPTS,
 };
@@ -211,7 +211,7 @@ pub async fn submit_create(
             &headers,
             raw_name,
             raw_key,
-            key_error_message(err),
+            &err.to_string(),
             is_htmx,
             nav,
         ),
@@ -639,16 +639,6 @@ fn redirect_to(location: &str) -> Response {
 fn internal_error<E: std::fmt::Display>(label: &str, err: E) -> Response {
     tracing::error!(error = %err, "{label} failed");
     (StatusCode::INTERNAL_SERVER_ERROR, "internal error").into_response()
-}
-
-fn key_error_message(err: ProjectKeyError) -> &'static str {
-    match err {
-        ProjectKeyError::Empty => "Project key must not be empty",
-        ProjectKeyError::WrongLength => "Project key must be 2-6 characters",
-        ProjectKeyError::InvalidCharacters => {
-            "Project key must contain only uppercase A-Z characters"
-        }
-    }
 }
 
 #[allow(clippy::too_many_arguments)]
