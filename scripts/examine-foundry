@@ -93,6 +93,15 @@
 #                               typing, in this same profile (so what the browser
 #                               stored before is kept)
 #   width <px>                  change the viewport width
+#   click-card <issue key>      a real pointer click at the centre of the board
+#                               card with that key, such as GEN-1
+#   choose <list name> <option> choose the option with that label in the one
+#                               drop-down list with that accessible name, such
+#                               as: choose Status Done (the list takes the
+#                               option, then fires input and change)
+#   board                       each board column by its heading, with the
+#                               keys of its cards top to bottom, and the dialog
+#                               that is open
 # A link in navigation and the focus show `current=<value>` when the page marks
 # them with aria-current. The focus line also lists the words the control
 # paints: each with its box, and `seen` when the point at its centre shows it
@@ -166,6 +175,7 @@ usage: examine-foundry start <state> [--before] [--replicas 2]
        examine-foundry new-issue [--replica 2] <viewer> <team>/<project> <title>
        examine-foundry browser <viewer> [--width px] [--height px] [--phone] [--js off] [--slow N] [--fresh] <step>...
            steps: go <path> | reload | watch-go <path> | watch-reload | look | key <Tab|Shift+Tab|Enter|Space|Escape> | tab-order <N> | click <name> | hover <name> | sign-in | width <px>
+                  | click-card <issue key> | choose <list name> <option> | board
        examine-foundry gate [--file <repo path> <your file>]...
        examine-foundry suite <tag> [--file <repo path> <your file>]...
            a --file replaces crates/foundry-app/templates/base.html or a file under crates/foundry-app/static/
@@ -1166,8 +1176,11 @@ vm_contributor() {
   case "$candidate" in /*) ;; *) candidate="$HOME/$candidate" ;; esac
   local stage="$HOME/examine-foundry-gate/repo"
   mkdir -p "$stage"
-  rsync -a --delete --exclude=/target --exclude=/.git "$candidate/" "$stage/"
-  tar -xf "$tar" -C "$stage"
+  # A file whose bytes change gets the time of now, never its source's time: a
+  # file put back to the candidate's bytes would otherwise look older than the
+  # last build, and cargo would reuse that build.
+  rsync -rlp --checksum --delete --exclude=/target --exclude=/.git "$candidate/" "$stage/"
+  tar -m -xf "$tar" -C "$stage"
   rm -f "$tar"
   echo "== what the staged tree changes in the candidate"
   (cd "$HOME" && diff -ruN --exclude=target --exclude=.git "$candidate/crates/foundry-app" "$stage/crates/foundry-app" |
@@ -1810,6 +1823,26 @@ try {
         say(`\n> look`);
         await look();
         break;
+      case "click-card": {
+        const k = arg();
+        say(`\n> click-card ${k}`);
+        const nav = once("Page.frameStartedLoading", 600);
+        await clickCard(k);
+        await afterAction(nav);
+        await sleep(500);
+        break;
+      }
+      case "choose": {
+        const field = arg(), option = arg();
+        say(`\n> choose "${field}" "${option}"`);
+        await choose(field, option);
+        break;
+      }
+      case "board":
+        say(`\n> board`);
+        await sleep(500);
+        await board();
+        break;
       default:
         fail(`no browser step named ${step}`);
     }
@@ -2126,6 +2159,93 @@ async function click(name) {
   await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
   await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
   await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+
+// Run a function in a world of its own, apart from the page's scripts, and
+// return its value. What it changes in the DOM, the page sees.
+async function inPage(fn, ...args) {
+  const { frameTree } = await send("Page.getFrameTree");
+  const { executionContextId } = await send("Page.createIsolatedWorld", {
+    frameId: frameTree.frame.id, worldName: "examine-foundry-reader",
+  });
+  const { result, exceptionDetails } = await send("Runtime.evaluate", {
+    contextId: executionContextId,
+    returnByValue: true,
+    expression: `(${fn})(...${JSON.stringify(args)})`,
+  });
+  if (exceptionDetails) fail(exceptionDetails.exception?.description || exceptionDetails.text);
+  return result.value;
+}
+
+// A real pointer click at the centre of the one board card with that issue key.
+async function clickCard(k) {
+  const b = await inPage((k) => {
+    const cards = [...document.querySelectorAll("[data-issue-key]")].filter((e) => e.getAttribute("data-issue-key") === k);
+    if (cards.length !== 1) return { n: cards.length };
+    cards[0].scrollIntoView({ block: "center" });
+    const r = cards[0].getBoundingClientRect();
+    return { n: 1, x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width };
+  }, k);
+  if (b.n !== 1) fail(`${b.n} board cards carry the key ${k}`);
+  if (!b.w) fail(`the card ${k} has no box to click`);
+  say(`  clicked the card ${k} at ${Math.round(b.x)},${Math.round(b.y)}`);
+  const x = b.x, y = b.y;
+  await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+  await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button: "left", clickCount: 1 });
+  await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button: "left", clickCount: 1 });
+}
+
+// Choose the option with that label in the one drop-down list with that
+// accessible name, as a person's choice does: the list takes the option, then
+// fires input and change.
+async function choose(field, option) {
+  const { nodes } = await axTree();
+  const hits = nodes.filter((n) => !n.ignored && ["combobox", "listbox"].includes(role(n)) && nameOf(n) === field);
+  if (hits.length !== 1) fail(`${hits.length} drop-down lists are named "${field}"`);
+  const { frameTree } = await send("Page.getFrameTree");
+  const { executionContextId } = await send("Page.createIsolatedWorld", {
+    frameId: frameTree.frame.id, worldName: "examine-foundry-reader",
+  });
+  const { object } = await send("DOM.resolveNode", { backendNodeId: hits[0].backendDOMNodeId, executionContextId });
+  const { result } = await send("Runtime.callFunctionOn", {
+    objectId: object.objectId,
+    returnByValue: true,
+    arguments: [{ value: option }],
+    functionDeclaration: `function (label) {
+      const all = [...this.options].map((o) => o.textContent.trim());
+      const i = all.indexOf(label);
+      if (i < 0) return "no option named " + JSON.stringify(label) + "; the options are " + JSON.stringify(all);
+      this.focus();
+      this.selectedIndex = i;
+      this.dispatchEvent(new Event("input", { bubbles: true }));
+      this.dispatchEvent(new Event("change", { bubbles: true }));
+      return "chose " + JSON.stringify(label) + " of " + JSON.stringify(all);
+    }`,
+  });
+  if (String(result.value).startsWith("no option")) fail(result.value);
+  say(`  ${result.value}`);
+}
+
+// What the board shows now: each column by its heading, with the keys of the
+// cards in it, top to bottom; a card hidden from view is marked.
+async function board() {
+  const cols = await inPage(() =>
+    [...document.querySelectorAll("section[data-column]")].map((c) => {
+      const h = c.querySelector("h3");
+      const cards = [...c.querySelectorAll("[data-issue-key]")].map((e) => {
+        const r = e.getBoundingClientRect();
+        return e.getAttribute("data-issue-key") + (r.width && r.height ? "" : " (not shown)");
+      });
+      return `${h ? h.textContent.trim() : "?"}: ${cards.length ? cards.join(", ") : "no cards"}`;
+    }),
+  );
+  if (!cols.length) say("  no board columns on this page");
+  for (const c of cols) say(`  column ${c}`);
+  const modal = await inPage(() => {
+    const d = document.querySelector("#modal-root [role=dialog]");
+    return d ? (d.querySelector("h2")?.textContent.trim() || "a dialog") : "";
+  });
+  say(`  dialog: ${modal || "none open"}`);
 }
 JS
 }
