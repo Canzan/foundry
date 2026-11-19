@@ -967,4 +967,137 @@ None.
 
 ## Examination
 
-None.
+### E1
+
+met
+
+#### Observations
+
+```text
+Destination inventory, expanded versus collapsed, two rights sets (state slack-connected-three, 1280x800, real browser, real sign-in form). Priya (workspace admin + instance admin), expanded nav walked with Tab: Home(current), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, Theme - 18 stops in the cycle. She presses "Left nav: expanded. Collapse the left nav."; the sidebar narrows from complementary w=240 to w=72 and the Tab walk of the collapsed rail yields the same seven destinations in the same order, each a 40 px icon, all "visible" and focusable: Home(current=page), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, then Theme - again 18 stops. Lena (plain member, neither admin), collapsed rail: Home(current=page), Board, Settings, Keyboard shortcuts, Sign out, Theme; Integrations and Instance admin are absent, matching her rights, and nothing she had while expanded is missing. On /admin/instance/integrations her collapsed rail enumerates the same seven rights-matched icons.
+
+```
+
+```text
+Focus order and reachability while collapsed. A 40-stop Tab walk of Priya's page expanded and then collapsed gives cycles of equal length (18 stops each) with the same controls; the collapsed cycle contains no control that the expanded one lacked and loses none. Every rail entry reported in the collapsed walk is marked "visible"; no stop in either collapsed walk (Priya 40 stops, Lena 30 stops) lands on a rail link that is invisible, clipped away or off-screen, and the workspace-name and display-name rows of the expanded sidebar produce no focus stop while the rail is collapsed. The only clipped things in the collapsed rail are the label words (1x1, "not seen"), which belong to the focusable icons that are themselves visible.
+
+```
+
+### E2
+
+met
+
+#### Observations
+
+```text
+Collapsed rail navigation, Home to Board. Priya is on / with the rail collapsed (complementary w=72) and Home carrying current=page. She activates the Board icon (click link "Board" at 36,174): the page changes to /team/backend/project/identity-platform (status 200). After it, complementary is still w=72 (collapsed), Board alone carries current=page and Home no longer does. A full reload of that URL keeps complementary w=72, keeps Board current=page and Home unmarked, so the collapsed choice survives a fresh document load, not only an in-page step.
+
+```
+
+### E3
+
+met
+
+#### Observations
+
+```text
+Sign out from the collapsed rail. On /admin/instance/integrations with the rail collapsed, the rail carries button "Sign out" focusable at x=16 w=40. One click on it ("clicked button Sign out at 36,720") changes the page to /sign-in (status 200) - the same place the expanded nav's Sign out leads - with no confirmation page, no menu and no second press between the click and /sign-in. The next look of /sign-in shows only the sign-in form, so the session ended. Lena's collapsed rail carries the same "Sign out" button at x=16 w=40, so the one-press rail sign-out is not limited to the admin rights set.
+
+```
+
+### E4
+
+met
+
+#### Observations
+
+```text
+Names and visible labels of the rail icons. Collapsed, every rail control's accessible name is its destination: "Home", "Board", "Settings", "Keyboard shortcuts", "Integrations", "Instance admin", "Sign out" - the same wording as the expanded nav items. While an icon does not hold the focus its label is clipped: words painted "Home" x=64 w=1 h=1 "not seen at its centre". On keyboard focus the same label is painted and seen at full size: Home 54x27, Board 54x27, Settings 69x27, Keyboard shortcuts 136x27, Integrations 91x27, Instance admin 110x27, Sign out 68x27 - materially larger than the 1x1 clipped box. Pointer hover gives the same result: hover link "Board" paints "Board" x=64 w=54 h=27 seen. At 390 px the revealed label can reach past the left viewport edge (focused "Settings" paints at x=-2 w=69), so a small part of the word sits outside the viewport there.
+
+```
+
+### E5
+
+met
+
+#### Observations
+
+```text
+Current-page marking, collapsed rail against expanded nav, same URLs. On / collapsed: Home current=page, Board unmarked. On /team/backend/project/identity-platform collapsed: Board current=page, Home unmarked. Exactly one item is marked in each case. On the two sub-pages the rail marks Home: /team/backend/project/identity-platform/integrations collapsed shows Home current=page, and /admin/instance/integrations collapsed shows Home current=page while the Instance admin icon is unmarked. The expanded nav was then opened on those same two URLs: /admin/instance/integrations expanded (complementary w=240) shows [Primary] link "Home" current=page, Board unmarked; /team/backend/project/identity-platform/integrations expanded shows Home current=page as well. The collapsed rail therefore marks each page exactly as the expanded nav marks it, including the sub-page case where both mark Home.
+
+```
+
+### E6
+
+met
+
+#### Observations
+
+```text
+Destination inventory, expanded versus collapsed, two rights sets (state slack-connected-three, 1280x800, real browser, real sign-in form). Priya (workspace admin + instance admin), expanded nav walked with Tab: Home(current), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, Theme - 18 stops in the cycle. She presses "Left nav: expanded. Collapse the left nav."; the sidebar narrows from complementary w=240 to w=72 and the Tab walk of the collapsed rail yields the same seven destinations in the same order, each a 40 px icon, all "visible" and focusable: Home(current=page), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, then Theme - again 18 stops. Lena (plain member, neither admin), collapsed rail: Home(current=page), Board, Settings, Keyboard shortcuts, Sign out, Theme; Integrations and Instance admin are absent, matching her rights, and nothing she had while expanded is missing. On /admin/instance/integrations her collapsed rail enumerates the same seven rights-matched icons.
+
+```
+
+```text
+Focus order and reachability while collapsed. A 40-stop Tab walk of Priya's page expanded and then collapsed gives cycles of equal length (18 stops each) with the same controls; the collapsed cycle contains no control that the expanded one lacked and loses none. Every rail entry reported in the collapsed walk is marked "visible"; no stop in either collapsed walk (Priya 40 stops, Lena 30 stops) lands on a rail link that is invisible, clipped away or off-screen, and the workspace-name and display-name rows of the expanded sidebar produce no focus stop while the rail is collapsed. The only clipped things in the collapsed rail are the label words (1x1, "not seen"), which belong to the focusable icons that are themselves visible.
+
+```
+
+### E7
+
+met
+
+#### Observations
+
+```text
+Phone widths with the collapsed bar. Home page /, rail collapsed. At 480x800: "viewport 480x800; page 480 px wide; horizontal scroll: no", "boxes that scroll sideways inside the page: none", "boxes that reach past the right edge: none"; the sidebar is now a top bar, complementary x=0 w=480 h=73, and all of her controls are in it (expand button, Home and Board icons in navigation "Primary" x=104 w=82 h=44, Sign out x=370 w=40, Theme x=414 w=30). At 390 px (phone emulation, page 375 px): "horizontal scroll: no"; the bar grows to h=125, i.e. the icons wrap onto a second row inside the bar, and a 10-stop Tab walk there reaches Home, Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out and Theme, all visible. On the board page the same two widths report an inner div that scrolls sideways (448 px box, 692 px content) and off-screen lane buttons; that strip is the board's own lane content and is present with the nav expanded as well, while the document still reports "horizontal scroll: no".
+
+```
+
+### E8
+
+not_examined
+
+```text
+No public surface: the admitted probe command is only the app harness examine-foundry, which exposes no project-gate verb, and the public projection is empty (see O9). Observing a refusal per stored-state spelling needs examiner-supplied head-script fixtures in the source tree, which this source-blind examination may not edit. Prerequisite: a public probe that runs the project gate over examiner-supplied head trees and prints its refusal text. Owner: the evidence-capture owner of the examine harness. Remedy: add a gate verb to the admitted probe surface, or project the gate run and its refusal text as public evidence.
+```
+
+### E9
+
+not_examined
+
+```text
+No public surface: the admitted probe surface carries no acceptance-suite verb and no way to mutate a head script, so the negative control (one non-pre-paint head script loses its defer, suite must fail and name it) cannot be run publicly; the rendered page view shows text, links and forms, not script tags or defer attributes (see O9). Prerequisite: a public probe that runs the acceptance suite against a head with one neighbour's defer removed, with the failure text captured. Owner: the evidence-capture owner of the examine harness. Remedy: expose that suite run and its named failure through the probe surface.
+```
+
+### E10
+
+not_examined
+
+```text
+No public surface: the head comments are not in the served text view and the public projection directory is empty, so neither the head comments, nor the gate refusal text, nor the contributor documentation is publicly readable (see O9); their agreement cannot be compared. Prerequisite: public projection of the document-shell head comments, the gate refusal text and the gate documentation, plus the head the suite asserts. Owner: the evidence-capture owner of the public projection. Remedy: project those three texts and the asserted head into the public workspace.
+```
+
+### E11
+
+met
+
+#### Observations
+
+```text
+The collapsed choice across a sign-out and sign-in in the same browser. Priya, rail collapsed, presses Sign out in the rail on /admin/instance/integrations; the page becomes /sign-in. She signs in again in the same browser profile through the real form; the page becomes / (status 200) and the first look of it shows complementary x=0 w=72 (collapsed, not the 240 px expanded sidebar), navigation "Primary" x=16 w=40, the rail "Sign out" button at x=16 w=40, Home current=page, and "other links on the page: 12" - the same inventory count her home page carried before she signed out. A watch-reload of an authenticated page while collapsed sampled 76 frames before paint and reported the same layout in every frame (navigation Primary 16+40; complementary 0+72), with no frame showing an expanded 240 px sidebar.
+
+```
+
+```text
+Destination inventory, expanded versus collapsed, two rights sets (state slack-connected-three, 1280x800, real browser, real sign-in form). Priya (workspace admin + instance admin), expanded nav walked with Tab: Home(current), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, Theme - 18 stops in the cycle. She presses "Left nav: expanded. Collapse the left nav."; the sidebar narrows from complementary w=240 to w=72 and the Tab walk of the collapsed rail yields the same seven destinations in the same order, each a 40 px icon, all "visible" and focusable: Home(current=page), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, then Theme - again 18 stops. Lena (plain member, neither admin), collapsed rail: Home(current=page), Board, Settings, Keyboard shortcuts, Sign out, Theme; Integrations and Instance admin are absent, matching her rights, and nothing she had while expanded is missing. On /admin/instance/integrations her collapsed rail enumerates the same seven rights-matched icons.
+
+```
+
+### E12
+
+not_examined
+
+```text
+No public surface: a verdict for an async and a type=module non-stamping head script needs examiner-supplied head fixtures run through the project gate, and the admitted probe command exposes no gate verb (see O9). Prerequisite: a public probe that runs the gate over an async head script and a type=module head script the examiner supplies, printing one verdict and one message each. Owner: the evidence-capture owner of the examine harness. Remedy: expose the gate over examiner-supplied head trees, or project those gate runs as public evidence.
+```
