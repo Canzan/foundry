@@ -974,13 +974,19 @@ met
 #### Observations
 
 ```text
-Destination inventory, expanded versus collapsed, two rights sets (state slack-connected-three, 1280x800, real browser, real sign-in form). Priya (workspace admin + instance admin), expanded nav walked with Tab: Home(current), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, Theme - 18 stops in the cycle. She presses "Left nav: expanded. Collapse the left nav."; the sidebar narrows from complementary w=240 to w=72 and the Tab walk of the collapsed rail yields the same seven destinations in the same order, each a 40 px icon, all "visible" and focusable: Home(current=page), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, then Theme - again 18 stops. Lena (plain member, neither admin), collapsed rail: Home(current=page), Board, Settings, Keyboard shortcuts, Sign out, Theme; Integrations and Instance admin are absent, matching her rights, and nothing she had while expanded is missing. On /admin/instance/integrations her collapsed rail enumerates the same seven rights-matched icons.
-
+Collapsed rail, same session, after one click on 'Left nav: expanded. Collapse the left nav.': the sidebar narrows from 240 px to 'complementary x=0 w=72 y=0 h=900 visible' and the control's name becomes 'Left nav: collapsed. Expand the left nav.' expanded=false. 'tab-order 40' walks the whole page and the rail stops are, in order: Tab 1 link "Home" current=page, Tab 2 link "Board", Tab 3 link "Settings", Tab 4 link "Keyboard shortcuts", Tab 5 link "Integrations", Tab 6 link "Instance admin", Tab 7 button "Sign out", Tab 8 the theme button - each reported 'at x=16 w=40 visible' (the theme button x=20 w=30) with a focus ring. Tabs 9-17 are the main-content links of the dashboard; Tab 18 is 'on the page itself' and Tab 19 starts the cycle again. Every one of the 40 stops is reported visible: no stop is an invisible or off-layout link. The accessible name of each rail stop is the destination word itself ('Home', 'Board', 'Settings', 'Keyboard shortcuts', 'Integrations', 'Instance admin', 'Sign out'); none is empty and none is a glyph.
 ```
 
 ```text
-Focus order and reachability while collapsed. A 40-stop Tab walk of Priya's page expanded and then collapsed gives cycles of equal length (18 stops each) with the same controls; the collapsed cycle contains no control that the expanded one lacked and loses none. Every rail entry reported in the collapsed walk is marked "visible"; no stop in either collapsed walk (Priya 40 stops, Lena 30 stops) lands on a rail link that is invisible, clipped away or off-screen, and the workspace-name and display-name rows of the expanded sidebar produce no focus stop while the rail is collapsed. The only clipped things in the collapsed rail are the label words (1x1, "not seen"), which belong to the focusable icons that are themselves visible.
+Rights variation, viewer Lena (member of Canzan Labs, lead of team Backend, neither kind of admin), fresh browser profile, 1440x900. Expanded: 'complementary x=0 w=240', 'other links on the page: 7'. After one click on the collapse control: 'complementary x=0 w=72 y=0 h=900 visible'. 'tab-order 40' rail stops: Tab 1 link "Home" current=page, Tab 2 link "Board", Tab 3 link "Settings", Tab 4 link "Keyboard shortcuts", Tab 5 button "Sign out", Tab 6 the theme button - all 'at x=16 w=40 visible' with their labels revealed on focus (54x27, 54x27, 69x27, 136x27, 68x27). Integrations and Instance admin are absent from her rail, which matches the rights the state gives her, and no stop in her 40 is invisible.
+```
 
+```text
+Navigating from the collapsed rail (same session). 'click "Board"' reports 'clicked link "Board" at 36,174 / the page changed: /team/backend/project/identity-platform (status 200)'. The look on the board page reports 'complementary x=0 w=72 ... visible' (still the strip), '[Primary] link "Board" current=page' and '[Primary] link "Home"' with no current mark - exactly one rail item carries current=page, and it is the page she is on. 'reload' then re-fetches /team/backend/project/identity-platform (status 200) and the look after it is identical: rail still w=72, Board still current=page, 'horizontal scroll: no'.
+```
+
+```text
+Expanded baseline, real browser 1440x900, state slack-connected, viewer Priya (instance admin + Canzan Labs workspace admin). After signing in through the real form the page is / and the look reports: 'complementary x=0 w=240 y=0 h=900 visible', 'navigation "Primary" x=12 w=215 y=78 h=72 visible', 'button "Left nav: expanded. Collapse the left nav." expanded=true focusable=true', sidebar 'button "Sign out" x=20 w=76 visible', nav links 'Home' current=page and 'Board' with their words painted and seen, 'other links on the page: 12', 'horizontal scroll: no'.
 ```
 
 ### E2
@@ -990,8 +996,11 @@ met
 #### Observations
 
 ```text
-Collapsed rail navigation, Home to Board. Priya is on / with the rail collapsed (complementary w=72) and Home carrying current=page. She activates the Board icon (click link "Board" at 36,174): the page changes to /team/backend/project/identity-platform (status 200). After it, complementary is still w=72 (collapsed), Board alone carries current=page and Home no longer does. A full reload of that URL keeps complementary w=72, keeps Board current=page and Home unmarked, so the collapsed choice survives a fresh document load, not only an in-page step.
+Navigating from the collapsed rail (same session). 'click "Board"' reports 'clicked link "Board" at 36,174 / the page changed: /team/backend/project/identity-platform (status 200)'. The look on the board page reports 'complementary x=0 w=72 ... visible' (still the strip), '[Primary] link "Board" current=page' and '[Primary] link "Home"' with no current mark - exactly one rail item carries current=page, and it is the page she is on. 'reload' then re-fetches /team/backend/project/identity-platform (status 200) and the look after it is identical: rail still w=72, Board still current=page, 'horizontal scroll: no'.
+```
 
+```text
+Collapsed rail, same session, after one click on 'Left nav: expanded. Collapse the left nav.': the sidebar narrows from 240 px to 'complementary x=0 w=72 y=0 h=900 visible' and the control's name becomes 'Left nav: collapsed. Expand the left nav.' expanded=false. 'tab-order 40' walks the whole page and the rail stops are, in order: Tab 1 link "Home" current=page, Tab 2 link "Board", Tab 3 link "Settings", Tab 4 link "Keyboard shortcuts", Tab 5 link "Integrations", Tab 6 link "Instance admin", Tab 7 button "Sign out", Tab 8 the theme button - each reported 'at x=16 w=40 visible' (the theme button x=20 w=30) with a focus ring. Tabs 9-17 are the main-content links of the dashboard; Tab 18 is 'on the page itself' and Tab 19 starts the cycle again. Every one of the 40 stops is reported visible: no stop is an invisible or off-layout link. The accessible name of each rail stop is the destination word itself ('Home', 'Board', 'Settings', 'Keyboard shortcuts', 'Integrations', 'Instance admin', 'Sign out'); none is empty and none is a glyph.
 ```
 
 ### E3
@@ -1001,8 +1010,11 @@ met
 #### Observations
 
 ```text
-Sign out from the collapsed rail. On /admin/instance/integrations with the rail collapsed, the rail carries button "Sign out" focusable at x=16 w=40. One click on it ("clicked button Sign out at 36,720") changes the page to /sign-in (status 200) - the same place the expanded nav's Sign out leads - with no confirmation page, no menu and no second press between the click and /sign-in. The next look of /sign-in shows only the sign-in form, so the session ended. Lena's collapsed rail carries the same "Sign out" button at x=16 w=40, so the one-press rail sign-out is not limited to the admin rights set.
+Sign out from the collapsed rail and the next sign-in (same session). 'click "Sign out"' on the rail button reports 'clicked button "Sign out" at 36,820 / the page changed: /sign-in (status 200)' - one press, no confirmation step and no second press, and the /sign-in look has no app shell, only the 'Sign in' button. 'sign-in' in the same browser then returns to / and the look reports 'complementary x=0 w=72 y=0 h=900 visible', the control named 'Left nav: collapsed. Expand the left nav.' expanded=false, the rail 'button "Sign out" x=16 w=40 visible' and '[Primary] link "Home" current=page' - the nav is collapsed, as she left it, with the same rail structure as before sign-out.
+```
 
+```text
+Collapsed rail, same session, after one click on 'Left nav: expanded. Collapse the left nav.': the sidebar narrows from 240 px to 'complementary x=0 w=72 y=0 h=900 visible' and the control's name becomes 'Left nav: collapsed. Expand the left nav.' expanded=false. 'tab-order 40' walks the whole page and the rail stops are, in order: Tab 1 link "Home" current=page, Tab 2 link "Board", Tab 3 link "Settings", Tab 4 link "Keyboard shortcuts", Tab 5 link "Integrations", Tab 6 link "Instance admin", Tab 7 button "Sign out", Tab 8 the theme button - each reported 'at x=16 w=40 visible' (the theme button x=20 w=30) with a focus ring. Tabs 9-17 are the main-content links of the dashboard; Tab 18 is 'on the page itself' and Tab 19 starts the cycle again. Every one of the 40 stops is reported visible: no stop is an invisible or off-layout link. The accessible name of each rail stop is the destination word itself ('Home', 'Board', 'Settings', 'Keyboard shortcuts', 'Integrations', 'Instance admin', 'Sign out'); none is empty and none is a glyph.
 ```
 
 ### E4
@@ -1012,8 +1024,15 @@ met
 #### Observations
 
 ```text
-Names and visible labels of the rail icons. Collapsed, every rail control's accessible name is its destination: "Home", "Board", "Settings", "Keyboard shortcuts", "Integrations", "Instance admin", "Sign out" - the same wording as the expanded nav items. While an icon does not hold the focus its label is clipped: words painted "Home" x=64 w=1 h=1 "not seen at its centre". On keyboard focus the same label is painted and seen at full size: Home 54x27, Board 54x27, Settings 69x27, Keyboard shortcuts 136x27, Integrations 91x27, Instance admin 110x27, Sign out 68x27 - materially larger than the 1x1 clipped box. Pointer hover gives the same result: hover link "Board" paints "Board" x=64 w=54 h=27 seen. At 390 px the revealed label can reach past the left viewport edge (focused "Settings" paints at x=-2 w=69), so a small part of the word sits outside the viewport there.
+Collapsed rail, same session, after one click on 'Left nav: expanded. Collapse the left nav.': the sidebar narrows from 240 px to 'complementary x=0 w=72 y=0 h=900 visible' and the control's name becomes 'Left nav: collapsed. Expand the left nav.' expanded=false. 'tab-order 40' walks the whole page and the rail stops are, in order: Tab 1 link "Home" current=page, Tab 2 link "Board", Tab 3 link "Settings", Tab 4 link "Keyboard shortcuts", Tab 5 link "Integrations", Tab 6 link "Instance admin", Tab 7 button "Sign out", Tab 8 the theme button - each reported 'at x=16 w=40 visible' (the theme button x=20 w=30) with a focus ring. Tabs 9-17 are the main-content links of the dashboard; Tab 18 is 'on the page itself' and Tab 19 starts the cycle again. Every one of the 40 stops is reported visible: no stop is an invisible or off-layout link. The accessible name of each rail stop is the destination word itself ('Home', 'Board', 'Settings', 'Keyboard shortcuts', 'Integrations', 'Instance admin', 'Sign out'); none is empty and none is a glyph.
+```
 
+```text
+Label reveal in the collapsed rail (same session). With nothing focused or hovered, each rail label's painted box is 1 px: 'link "Home" ... words painted: "Home" x=64 w=1 h=1 not seen at its centre (clipped or covered)', same for 'Board'. On keyboard focus the same label becomes 'words painted: "Home" x=64 w=54 h=27 seen' (Board 54x27, Settings 69x27, Keyboard shortcuts 136x27, Integrations 91x27, Instance admin 110x27, Sign out 68x27). On 'hover Board' the pointer gets the same reveal: 'pointer on link "Board" at 36,174 / words painted: "Board" x=64 w=54 h=27 seen', and the look taken while hovering shows Board's label seen while Home's is still 1x1. The revealed boxes are materially larger than the 1x1 unfocused box, and each reveal stays inside the 1440 px page with 'horizontal scroll: no'.
+```
+
+```text
+Rights variation, viewer Lena (member of Canzan Labs, lead of team Backend, neither kind of admin), fresh browser profile, 1440x900. Expanded: 'complementary x=0 w=240', 'other links on the page: 7'. After one click on the collapse control: 'complementary x=0 w=72 y=0 h=900 visible'. 'tab-order 40' rail stops: Tab 1 link "Home" current=page, Tab 2 link "Board", Tab 3 link "Settings", Tab 4 link "Keyboard shortcuts", Tab 5 button "Sign out", Tab 6 the theme button - all 'at x=16 w=40 visible' with their labels revealed on focus (54x27, 54x27, 69x27, 136x27, 68x27). Integrations and Instance admin are absent from her rail, which matches the rights the state gives her, and no stop in her 40 is invisible.
 ```
 
 ### E5
@@ -1023,8 +1042,11 @@ met
 #### Observations
 
 ```text
-Current-page marking, collapsed rail against expanded nav, same URLs. On / collapsed: Home current=page, Board unmarked. On /team/backend/project/identity-platform collapsed: Board current=page, Home unmarked. Exactly one item is marked in each case. On the two sub-pages the rail marks Home: /team/backend/project/identity-platform/integrations collapsed shows Home current=page, and /admin/instance/integrations collapsed shows Home current=page while the Instance admin icon is unmarked. The expanded nav was then opened on those same two URLs: /admin/instance/integrations expanded (complementary w=240) shows [Primary] link "Home" current=page, Board unmarked; /team/backend/project/identity-platform/integrations expanded shows Home current=page as well. The collapsed rail therefore marks each page exactly as the expanded nav marks it, including the sub-page case where both mark Home.
+Navigating from the collapsed rail (same session). 'click "Board"' reports 'clicked link "Board" at 36,174 / the page changed: /team/backend/project/identity-platform (status 200)'. The look on the board page reports 'complementary x=0 w=72 ... visible' (still the strip), '[Primary] link "Board" current=page' and '[Primary] link "Home"' with no current mark - exactly one rail item carries current=page, and it is the page she is on. 'reload' then re-fetches /team/backend/project/identity-platform (status 200) and the look after it is identical: rail still w=72, Board still current=page, 'horizontal scroll: no'.
+```
 
+```text
+Collapsed rail, same session, after one click on 'Left nav: expanded. Collapse the left nav.': the sidebar narrows from 240 px to 'complementary x=0 w=72 y=0 h=900 visible' and the control's name becomes 'Left nav: collapsed. Expand the left nav.' expanded=false. 'tab-order 40' walks the whole page and the rail stops are, in order: Tab 1 link "Home" current=page, Tab 2 link "Board", Tab 3 link "Settings", Tab 4 link "Keyboard shortcuts", Tab 5 link "Integrations", Tab 6 link "Instance admin", Tab 7 button "Sign out", Tab 8 the theme button - each reported 'at x=16 w=40 visible' (the theme button x=20 w=30) with a focus ring. Tabs 9-17 are the main-content links of the dashboard; Tab 18 is 'on the page itself' and Tab 19 starts the cycle again. Every one of the 40 stops is reported visible: no stop is an invisible or off-layout link. The accessible name of each rail stop is the destination word itself ('Home', 'Board', 'Settings', 'Keyboard shortcuts', 'Integrations', 'Instance admin', 'Sign out'); none is empty and none is a glyph.
 ```
 
 ### E6
@@ -1034,13 +1056,15 @@ met
 #### Observations
 
 ```text
-Destination inventory, expanded versus collapsed, two rights sets (state slack-connected-three, 1280x800, real browser, real sign-in form). Priya (workspace admin + instance admin), expanded nav walked with Tab: Home(current), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, Theme - 18 stops in the cycle. She presses "Left nav: expanded. Collapse the left nav."; the sidebar narrows from complementary w=240 to w=72 and the Tab walk of the collapsed rail yields the same seven destinations in the same order, each a 40 px icon, all "visible" and focusable: Home(current=page), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, then Theme - again 18 stops. Lena (plain member, neither admin), collapsed rail: Home(current=page), Board, Settings, Keyboard shortcuts, Sign out, Theme; Integrations and Instance admin are absent, matching her rights, and nothing she had while expanded is missing. On /admin/instance/integrations her collapsed rail enumerates the same seven rights-matched icons.
-
+Expanded baseline, real browser 1440x900, state slack-connected, viewer Priya (instance admin + Canzan Labs workspace admin). After signing in through the real form the page is / and the look reports: 'complementary x=0 w=240 y=0 h=900 visible', 'navigation "Primary" x=12 w=215 y=78 h=72 visible', 'button "Left nav: expanded. Collapse the left nav." expanded=true focusable=true', sidebar 'button "Sign out" x=20 w=76 visible', nav links 'Home' current=page and 'Board' with their words painted and seen, 'other links on the page: 12', 'horizontal scroll: no'.
 ```
 
 ```text
-Focus order and reachability while collapsed. A 40-stop Tab walk of Priya's page expanded and then collapsed gives cycles of equal length (18 stops each) with the same controls; the collapsed cycle contains no control that the expanded one lacked and loses none. Every rail entry reported in the collapsed walk is marked "visible"; no stop in either collapsed walk (Priya 40 stops, Lena 30 stops) lands on a rail link that is invisible, clipped away or off-screen, and the workspace-name and display-name rows of the expanded sidebar produce no focus stop while the rail is collapsed. The only clipped things in the collapsed rail are the label words (1x1, "not seen"), which belong to the focusable icons that are themselves visible.
+Collapsed rail, same session, after one click on 'Left nav: expanded. Collapse the left nav.': the sidebar narrows from 240 px to 'complementary x=0 w=72 y=0 h=900 visible' and the control's name becomes 'Left nav: collapsed. Expand the left nav.' expanded=false. 'tab-order 40' walks the whole page and the rail stops are, in order: Tab 1 link "Home" current=page, Tab 2 link "Board", Tab 3 link "Settings", Tab 4 link "Keyboard shortcuts", Tab 5 link "Integrations", Tab 6 link "Instance admin", Tab 7 button "Sign out", Tab 8 the theme button - each reported 'at x=16 w=40 visible' (the theme button x=20 w=30) with a focus ring. Tabs 9-17 are the main-content links of the dashboard; Tab 18 is 'on the page itself' and Tab 19 starts the cycle again. Every one of the 40 stops is reported visible: no stop is an invisible or off-layout link. The accessible name of each rail stop is the destination word itself ('Home', 'Board', 'Settings', 'Keyboard shortcuts', 'Integrations', 'Instance admin', 'Sign out'); none is empty and none is a glyph.
+```
 
+```text
+Rights variation, viewer Lena (member of Canzan Labs, lead of team Backend, neither kind of admin), fresh browser profile, 1440x900. Expanded: 'complementary x=0 w=240', 'other links on the page: 7'. After one click on the collapse control: 'complementary x=0 w=72 y=0 h=900 visible'. 'tab-order 40' rail stops: Tab 1 link "Home" current=page, Tab 2 link "Board", Tab 3 link "Settings", Tab 4 link "Keyboard shortcuts", Tab 5 button "Sign out", Tab 6 the theme button - all 'at x=16 w=40 visible' with their labels revealed on focus (54x27, 54x27, 69x27, 136x27, 68x27). Integrations and Instance admin are absent from her rail, which matches the rights the state gives her, and no stop in her 40 is invisible.
 ```
 
 ### E7
@@ -1050,16 +1074,29 @@ met
 #### Observations
 
 ```text
-Phone widths with the collapsed bar. Home page /, rail collapsed. At 480x800: "viewport 480x800; page 480 px wide; horizontal scroll: no", "boxes that scroll sideways inside the page: none", "boxes that reach past the right edge: none"; the sidebar is now a top bar, complementary x=0 w=480 h=73, and all of her controls are in it (expand button, Home and Board icons in navigation "Primary" x=104 w=82 h=44, Sign out x=370 w=40, Theme x=414 w=30). At 390 px (phone emulation, page 375 px): "horizontal scroll: no"; the bar grows to h=125, i.e. the icons wrap onto a second row inside the bar, and a 10-stop Tab walk there reaches Home, Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out and Theme, all visible. On the board page the same two widths report an inner div that scrolls sideways (448 px box, 692 px content) and off-screen lane buttons; that strip is the board's own lane content and is present with the nav expanded as well, while the document still reports "horizontal scroll: no".
-
+Phone widths with the icons shown (same session, rail collapsed). 'width 480' then look: 'viewport 480x900; page 480 px wide; horizontal scroll: no', 'boxes that scroll sideways inside the page: none', 'boxes that reach past the right edge (a clipped box is listed too): none'; the sidebar has become a top bar, 'complementary x=0 w=480 y=0 h=73 visible', and the nav items sit side by side in it (Home x=104 w=40, Board x=146 w=40, rail Sign out x=370 w=40, theme x=414 w=30). 'width 390' then look: 'viewport 390x900; page 390 px wide; horizontal scroll: no', same two 'none' lines, and the bar is now 'complementary x=0 w=390 y=0 h=125 visible' - taller because the icons wrap inside it rather than overflow.
 ```
 
 ### E8
 
-not_examined
+met
+
+#### Observations
 
 ```text
-No public surface: the admitted probe command is only the app harness examine-foundry, which exposes no project-gate verb, and the public projection is empty (see O9). Observing a refusal per stored-state spelling needs examiner-supplied head-script fixtures in the source tree, which this source-blind examination may not edit. Prerequisite: a public probe that runs the project gate over examiner-supplied head trees and prints its refusal text. Owner: the evidence-capture owner of the examine harness. Remedy: add a gate verb to the admitted probe surface, or project the gate run and its refusal text as public evidence.
+E8 sessionStorage spelling. I staged the shipped head unchanged and replaced the bytes of the deferred neighbour crates/foundry-app/static/js/form-errors.js with my own asset that reads window.sessionStorage.getItem('foundry.nav') and calls document.documentElement.setAttribute('data-nav-collapsed',''). Gate output: 'check-arch: boundary guard FAILED - 1 violation(s)' and one entry 'pre-paint-script: crates/foundry-app/templates/base.html loads `/static/js/form-errors.js` with defer, and the gate decided that BY NAME: the comment-stripped source of that asset NAMES a browser store (`localStorage` or `sessionStorage`) and NAMES `documentElement`.' The entry then gives CASE ONE (remove defer, plain external script in head is render-blocking by specification), CASE TWO (split the stored-state read into its own deferred asset or record a deliberate exception) and the warning 'In CASE TWO, do not drop defer to satisfy this refusal'. It never claims the asset was observed to read or stamp. '== check-arch exit 1'.
+```
+
+```text
+E8 localStorage spelling through a local alias and an element reference. I replaced the bytes of the deferred neighbour crates/foundry-app/static/js/keyboard.js with an asset whose body is 'var store = window.localStorage, root = document.documentElement; var v = store.getItem("foundry.nav"); if (v === "collapsed") { root.setAttribute("data-nav-collapsed", ""); }'. Gate output: one violation, 'pre-paint-script: ... loads `/static/js/keyboard.js` with defer, and the gate decided that BY NAME ...', exit 1. The refusal text is word-for-word the text of the sessionStorage case apart from the src and the attribute it names, so the two spellings and the aliased idiom are one input class with one message.
+```
+
+```text
+Gate baseline, repository as it stands: 'nwdes examine probe -- examine-foundry gate' printed 'check-arch: boundary guard PASSED (...)' and '== check-arch exit 0'. The PASSED line names the pre-paint layer in these words: 'every head script of the document shell whose asset names a browser store and names documentElement is render-blocking - none carries defer, async or type=module - and every other head script of that shell carries defer, so none of them sits on the render-blocking path for nothing (pre-paint-script)'.
+```
+
+```text
+E8 limitation I probed deliberately: an asset that builds the identifiers at run time, 'var k = "local" + "Storage", e = "document" + "Element"; window[k].getItem("foundry.nav"); document[e].setAttribute("data-nav-collapsed", "")', staged as the deferred neighbour crates/foundry-app/static/js/csrf-upload.js, was ACCEPTED: 'boundary guard PASSED', '== check-arch exit 0'. The gate's own refusal text states this limit - 'the NAMES in the asset's source - identifiers built at run time are invisible to it' - so it is a declared blind spot, not a silent one.
 ```
 
 ### E9
@@ -1067,15 +1104,33 @@ No public surface: the admitted probe command is only the app harness examine-fo
 not_examined
 
 ```text
-No public surface: the admitted probe surface carries no acceptance-suite verb and no way to mutate a head script, so the negative control (one non-pre-paint head script loses its defer, suite must fail and name it) cannot be run publicly; the rendered page view shows text, links and forms, not script tags or defer attributes (see O9). Prerequisite: a public probe that runs the acceptance suite against a head with one neighbour's defer removed, with the failure text captured. Owner: the evidence-capture owner of the examine harness. Remedy: expose that suite run and its named failure through the probe surface.
+P9 is about the acceptance SUITE and 'examine-foundry suite' takes a tag. Over the feature's own tag, a head with the neighbour /static/js/board-live.js made plain passed 17/17 and a head with defer added to /static/js/theme.js also passed 17/17 - expected, because none of those 17 scenarios is about the document head. The tag whose feature holds the head-asserting scenario, canzan-theme-system ('A chosen dark screen never flashes light', canzan-theme-system.feature:352), collapsed on Selenium session timeouts ('Unable to execute request for an existing session: java.util.concurrent.TimeoutException', then 'Cannot find session with id') and printed no [Summary], so I observed neither a failure naming board-live.js nor a pass. Evidence-capture owner: the examiner's probe environment; prerequisite is one 'examine-foundry suite canzan-theme-system --file crates/foundry-app/templates/base.html <head with one neighbour plain>' run on a browser grid that holds its sessions, with no other probe queued on the examine lock. See observations O19, O20, O21; the project gate does refuse this same mutation (O8), which is not evidence about the suite.
 ```
 
 ### E10
 
-not_examined
+met
+
+#### Observations
 
 ```text
-No public surface: the head comments are not in the served text view and the public projection directory is empty, so neither the head comments, nor the gate refusal text, nor the contributor documentation is publicly readable (see O9); their agreement cannot be compared. Prerequisite: public projection of the document-shell head comments, the gate refusal text and the gate documentation, plus the head the suite asserts. Owner: the evidence-capture owner of the public projection. Remedy: project those three texts and the asserted head into the public workspace.
+Read of crates/foundry-app/templates/base.html (public projection): the head carries exactly two plain external scripts, /static/js/theme.js and /static/js/nav-collapse.js, above seven deferred tags (htmx.min.js, board-dnd.js, board-lane-dnd.js, board-live.js, csrf-upload.js, keyboard.js, form-errors.js), i.e. nine (src, deferring) pairs. The comment above theme.js states it is 'A MEMBER OF THE PRE-PAINT FAMILY OF THIS HEAD: IT MUST NOT DEFER (the other member today is the nav-collapse tag below it, added 2026-11-16)' and that the deferred neighbours 'are correct as they are'. The comment above nav-collapse.js states the gate 'refuses any of those three attributes on EVERY head script whose asset NAMES a browser store and NAMES documentElement ... and that refuses any OTHER head script here which does not carry defer'. Neither comment states a numeric count of scripts.
+```
+
+```text
+E8 sessionStorage spelling. I staged the shipped head unchanged and replaced the bytes of the deferred neighbour crates/foundry-app/static/js/form-errors.js with my own asset that reads window.sessionStorage.getItem('foundry.nav') and calls document.documentElement.setAttribute('data-nav-collapsed',''). Gate output: 'check-arch: boundary guard FAILED - 1 violation(s)' and one entry 'pre-paint-script: crates/foundry-app/templates/base.html loads `/static/js/form-errors.js` with defer, and the gate decided that BY NAME: the comment-stripped source of that asset NAMES a browser store (`localStorage` or `sessionStorage`) and NAMES `documentElement`.' The entry then gives CASE ONE (remove defer, plain external script in head is render-blocking by specification), CASE TWO (split the stored-state read into its own deferred asset or record a deliberate exception) and the warning 'In CASE TWO, do not drop defer to satisfy this refusal'. It never claims the asset was observed to read or stamp. '== check-arch exit 1'.
+```
+
+```text
+E12 async: I staged a head in which the non-stamping neighbour /static/js/keyboard.js carries 'async' instead of 'defer' (its bytes unchanged). Gate: one violation, 'pre-paint-script: ... loads `/static/js/keyboard.js` with async, and the comment-stripped source of that asset does not name BOTH a browser store ... Add `defer` to this tag ...', exit 1. One entry, one message, a definite verdict.
+```
+
+```text
+Read of CHANGELOG.md (public projection), Unreleased/Fixed: 'The head-script guard now answers every shape, by what an asset names. ... The guard now reads what the asset NAMES - a browser store and documentElement - in whatever idiom it spells them, and it refuses every other head script that does not carry defer instead of answering nothing at all for async and type=module. A refusal says which attributes the tag carries, that the verdict came from the names and not from watching the asset run, and both repairs that keep the first paint correct. The comments above the two render-blocking tags now name the pre-paint family and the deferred neighbours instead of a count that went stale.' Every clause of this matches the gate output and the head I observed.
+```
+
+```text
+Read of DEVELOPER.md (public projection): its contributor sections mention 'cargo xtask check-arch' three times (the gates table, 'Crate boundaries', and 'If you're unsure whether a dependency edge is allowed'), always about crate/dependency layering. DEVELOPER.md nowhere describes the pre-paint-script layer, which head scripts must run before paint, or which must defer. It states nothing that contradicts the head; it is simply silent on the rule. The public projection carries no other developer documentation of the rule; the ADR identifiers the refusal cites (ADR-NAV-COLLAPSE-001, ADR-NAV-ICON-RAIL-002, ADR-NAV-ICON-RAIL-004) are not in the public projection.
 ```
 
 ### E11
@@ -1085,19 +1140,27 @@ met
 #### Observations
 
 ```text
-The collapsed choice across a sign-out and sign-in in the same browser. Priya, rail collapsed, presses Sign out in the rail on /admin/instance/integrations; the page becomes /sign-in. She signs in again in the same browser profile through the real form; the page becomes / (status 200) and the first look of it shows complementary x=0 w=72 (collapsed, not the 240 px expanded sidebar), navigation "Primary" x=16 w=40, the rail "Sign out" button at x=16 w=40, Home current=page, and "other links on the page: 12" - the same inventory count her home page carried before she signed out. A watch-reload of an authenticated page while collapsed sampled 76 frames before paint and reported the same layout in every frame (navigation Primary 16+40; complementary 0+72), with no frame showing an expanded 240 px sidebar.
-
+Sign out from the collapsed rail and the next sign-in (same session). 'click "Sign out"' on the rail button reports 'clicked button "Sign out" at 36,820 / the page changed: /sign-in (status 200)' - one press, no confirmation step and no second press, and the /sign-in look has no app shell, only the 'Sign in' button. 'sign-in' in the same browser then returns to / and the look reports 'complementary x=0 w=72 y=0 h=900 visible', the control named 'Left nav: collapsed. Expand the left nav.' expanded=false, the rail 'button "Sign out" x=16 w=40 visible' and '[Primary] link "Home" current=page' - the nav is collapsed, as she left it, with the same rail structure as before sign-out.
 ```
 
 ```text
-Destination inventory, expanded versus collapsed, two rights sets (state slack-connected-three, 1280x800, real browser, real sign-in form). Priya (workspace admin + instance admin), expanded nav walked with Tab: Home(current), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, Theme - 18 stops in the cycle. She presses "Left nav: expanded. Collapse the left nav."; the sidebar narrows from complementary w=240 to w=72 and the Tab walk of the collapsed rail yields the same seven destinations in the same order, each a 40 px icon, all "visible" and focusable: Home(current=page), Board, Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out, then Theme - again 18 stops. Lena (plain member, neither admin), collapsed rail: Home(current=page), Board, Settings, Keyboard shortcuts, Sign out, Theme; Integrations and Instance admin are absent, matching her rights, and nothing she had while expanded is missing. On /admin/instance/integrations her collapsed rail enumerates the same seven rights-matched icons.
-
+Second, separate browser launch on the same viewer profile (no --fresh): after 'sign-in' the first look already reports 'complementary x=0 w=72 y=0 h=900 visible' and 'Left nav: collapsed. Expand the left nav.', so the collapsed choice survived both the sign-out and the end of the previous browser session. Stepping Tab through that session reproduced the reveal: Tab 1 the collapse control, Tab 2 'link "Home" current=page ... words painted "Home" x=64 w=54 h=27 seen', Tab 3 Board 54x27 seen, Tab 4 Settings 69x27 seen.
 ```
 
 ### E12
 
-not_examined
+met
+
+#### Observations
 
 ```text
-No public surface: a verdict for an async and a type=module non-stamping head script needs examiner-supplied head fixtures run through the project gate, and the admitted probe command exposes no gate verb (see O9). Prerequisite: a public probe that runs the gate over an async head script and a type=module head script the examiner supplies, printing one verdict and one message each. Owner: the evidence-capture owner of the examine harness. Remedy: expose the gate over examiner-supplied head trees, or project those gate runs as public evidence.
+E12 async: I staged a head in which the non-stamping neighbour /static/js/keyboard.js carries 'async' instead of 'defer' (its bytes unchanged). Gate: one violation, 'pre-paint-script: ... loads `/static/js/keyboard.js` with async, and the comment-stripped source of that asset does not name BOTH a browser store ... Add `defer` to this tag ...', exit 1. One entry, one message, a definite verdict.
+```
+
+```text
+E12 type=module: the same head with 'type="module"' on /static/js/keyboard.js. Gate: one violation, 'loads `/static/js/keyboard.js` with type="module" ... Add `defer` to this tag ... `type="module"` is deferred but needs the module machinery to say so', exit 1. Same single verdict and remedy as the async shape.
+```
+
+```text
+Gate baseline, repository as it stands: 'nwdes examine probe -- examine-foundry gate' printed 'check-arch: boundary guard PASSED (...)' and '== check-arch exit 0'. The PASSED line names the pre-paint layer in these words: 'every head script of the document shell whose asset names a browser store and names documentElement is render-blocking - none carries defer, async or type=module - and every other head script of that shell carries defer, so none of them sits on the render-blocking path for nothing (pre-paint-script)'.
 ```
