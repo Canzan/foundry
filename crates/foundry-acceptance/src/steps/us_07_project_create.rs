@@ -677,3 +677,228 @@ fn slugify(input: &str) -> String {
     }
     out
 }
+
+// ----- The project key rule: 2 to 10 capital letters A to Z --------------
+//
+// Steps for law L1 (which keys the form accepts), L5 (what a refused key is
+// answered with, and that it leaves nothing behind) and the project-key half
+// of L6 (a project that carries a shorter key keeps it). The issue-key halves
+// of L4 and L6 live with the file-issue steps.
+
+/// The one sentence a refused key is answered with. The operator must be able
+/// to read the whole rule out of it: the subject, both ends of the length and
+/// the capital-letters-A-to-Z shape — and never the old six-letter end.
+#[then(regex = r"^the refusal states that a project key must be 2 to 10 capital letters A to Z$")]
+async fn refusal_states_the_key_rule(world: &mut FoundryWorld) {
+    let status = world.last_status.expect("status captured");
+    assert_eq!(
+        status.as_u16(),
+        422,
+        "WHAT: the create answered {status} instead of 422 for a key outside the rule. \
+         WHY: a key the rule refuses must come back to the operator as a refusal of the form, \
+         not as a success or a server error. HOW: answer the create form again with 422."
+    );
+    let body = world.last_body.as_deref().unwrap_or("");
+    let message = rendered_error_message(body).unwrap_or_else(|| {
+        panic!(
+            "WHAT: the refused create rendered no message for the operator to read. \
+             WHY: every refused key must be answered with one sentence that states the whole \
+             key rule. HOW: re-render the form with that sentence. Body was:\n{body}"
+        )
+    });
+    let said = message.to_ascii_lowercase();
+    let states_length = said.contains("2 to 10") || said.contains("2-10");
+    let states_capitals = said.contains("capital letter") || said.contains("uppercase");
+    let states_alphabet = said.contains("a to z") || said.contains("a-z");
+    let names_subject = said.contains("project key") || said.contains("key prefix");
+    let keeps_old_bound = said.contains("2 to 6") || said.contains("2-6");
+    assert!(
+        names_subject && states_length && states_capitals && states_alphabet && !keeps_old_bound,
+        "WHAT: the refusal read {message:?}, which does not state that a project key must be \
+         2 to 10 capital letters A to Z (subject={names_subject}, length={states_length}, \
+         capitals={states_capitals}, alphabet={states_alphabet}, still states the old 2 to 6 \
+         bound={keeps_old_bound}). WHY: the operator has to learn the whole rule from the one \
+         sentence she is given, whichever part of the rule her key broke. HOW: answer every \
+         refused key with one sentence naming 2 to 10 capital letters A to Z."
+    );
+}
+
+/// A refusal leaves nothing behind — not the key the operator typed, and not a
+/// quietly corrected version of it (upper-cased, or with the characters the
+/// rule refuses dropped).
+#[then(regex = r#"^no project was created from the key "([^"]*)", in that form or tidied up$"#)]
+async fn no_project_from_key(world: &mut FoundryWorld, key: String) {
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let tidied: String = key
+        .to_uppercase()
+        .chars()
+        .filter(|c| c.is_ascii_uppercase())
+        .collect();
+    let mut candidates = vec![key.clone(), key.trim().to_string(), key.to_uppercase()];
+    if !tidied.is_empty() {
+        candidates.push(tidied);
+    }
+    candidates.sort();
+    candidates.dedup();
+    for candidate in &candidates {
+        let count: (i64,) = sqlx::query_as("SELECT count(*) FROM projects WHERE key_prefix = $1")
+            .bind(candidate)
+            .fetch_one(pool)
+            .await
+            .expect("count projects by key");
+        assert_eq!(
+            count.0, 0,
+            "WHAT: a project carrying the key {candidate:?} exists after the refused create of \
+             {key:?}. WHY: a refused key must create nothing, and must not be corrected into an \
+             acceptable key behind the operator's back. HOW: refuse the key and write no row."
+        );
+    }
+    let attempted = world
+        .us_07_last_attempted_name
+        .clone()
+        .unwrap_or_else(|| "Probe".to_string());
+    let by_name: (i64,) = sqlx::query_as("SELECT count(*) FROM projects WHERE name = $1")
+        .bind(&attempted)
+        .fetch_one(pool)
+        .await
+        .expect("count projects by name");
+    assert_eq!(
+        by_name.0, 0,
+        "WHAT: a project named {attempted:?} exists after the create was refused for its key. \
+         WHY: a refused create must leave no project behind at all. HOW: write no row when the \
+         key is refused."
+    );
+}
+
+#[when(regex = r#"^(\w+) opens the board of "([^"]+)"$"#)]
+async fn opens_the_board(world: &mut FoundryWorld, who: String, project_name: String) {
+    let body = fetch_board_of(world, &who, &project_name).await;
+    world.last_body = Some(body);
+}
+
+#[then(regex = r#"^the board she opened shows the project key "([^"]+)"$"#)]
+async fn opened_board_shows_key(world: &mut FoundryWorld, key: String) {
+    let body = world.last_body.clone().expect("a board was opened");
+    assert_board_shows_key(&body, &key);
+}
+
+#[then(regex = r#"^opening the board of "([^"]+)" shows the project key "([^"]+)"$"#)]
+async fn board_shows_key(world: &mut FoundryWorld, project_name: String, key: String) {
+    let body = fetch_board_of(world, "Mei", &project_name).await;
+    assert_board_shows_key(&body, &key);
+}
+
+#[then(regex = r#"^the project list on her landing page shows the project key "([^"]+)"$"#)]
+async fn landing_page_shows_key(world: &mut FoundryWorld, key: String) {
+    let body = fetch_page_as(world, "Mei", "/").await;
+    let shown = card_keys(&body);
+    assert!(
+        shown.contains(&key),
+        "WHAT: the project list shows the keys {shown:?}, not {key:?}. WHY: the key the operator \
+         gave her project must come back to her whole wherever the project is listed, not \
+         shortened or re-lettered. HOW: render the stored key as it is."
+    );
+}
+
+fn assert_board_shows_key(body: &str, key: &str) {
+    let shown = board_key(body).unwrap_or_else(|| {
+        panic!(
+            "WHAT: the board shows no project key. WHY: the operator reads her project's key \
+                off its board. HOW: render the key in the board header. Body was:\n{body}"
+        )
+    });
+    assert_eq!(
+        shown.trim(),
+        key,
+        "WHAT: the board shows the key {shown:?} where the project carries {key:?}. WHY: a key \
+         that is shortened, padded or re-lettered on the page is a different key to the operator \
+         and to anyone she sends it to. HOW: render the stored key unchanged."
+    );
+}
+
+/// Text of the board header's key, from `Key prefix: AUTH`.
+fn board_key(body: &str) -> Option<String> {
+    let marker = "Key prefix:";
+    let start = body.find(marker)? + marker.len();
+    let rest = &body[start..];
+    let end = rest.find('<')?;
+    Some(rest[..end].trim().to_string())
+}
+
+/// Text of each project-card key on the landing page.
+fn card_keys(body: &str) -> Vec<String> {
+    let marker = "card__key\">";
+    let mut out = Vec::new();
+    let mut rest = body;
+    while let Some(at) = rest.find(marker) {
+        rest = &rest[at + marker.len()..];
+        if let Some(end) = rest.find('<') {
+            out.push(rest[..end].trim().to_string());
+            rest = &rest[end..];
+        }
+    }
+    out
+}
+
+/// The single `<p class="error">...</p>` message a refused form renders.
+fn rendered_error_message(body: &str) -> Option<String> {
+    let anchor = body.find("class=\"error\"")?;
+    let rest = &body[anchor..];
+    let open = rest.find('>')? + 1;
+    let rest = &rest[open..];
+    let end = rest.find('<')?;
+    let text = rest[..end].trim();
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
+    }
+}
+
+async fn fetch_board_of(world: &mut FoundryWorld, who: &str, project_name: &str) -> String {
+    let team_slug = world
+        .us_07_last_team_slug
+        .clone()
+        .unwrap_or_else(|| "backend".to_string());
+    let url = format!(
+        "/team/{team_slug}/project/{slug}",
+        slug = slugify(project_name)
+    );
+    fetch_page_as(world, who, &url).await
+}
+
+async fn fetch_page_as(world: &mut FoundryWorld, who: &str, url: &str) -> String {
+    ensure_harness(world).await;
+    let (email, password) = identity_for(who);
+    let harness = world.harness.as_ref().expect("harness");
+    let http = world.http.as_ref().expect("http");
+    let outcome =
+        crate::support::harness::signed_in_get(harness, http, &email, &password, url).await;
+    assert_eq!(
+        outcome.status.as_u16(),
+        200,
+        "WHAT: {url} answered {status} instead of opening. WHY: the operator must be able to \
+         open her project and her project list. HOW: serve the page.",
+        status = outcome.status
+    );
+    outcome.body
+}
+
+/// The operator's own earlier create, kept as a precondition of a later
+/// scenario (the chained narrative: the Given of one scenario is the Given
+/// plus When of the one before it). It posts the create form exactly as the
+/// When step does and asserts nothing, so the scenario's own Then steps are
+/// what report a key the form will not take.
+#[given(
+    regex = r#"^(\w+) has created a project under "([^"]+)" with name "([^"]+)" and key prefix "([^"]*)"$"#
+)]
+async fn has_created_project(
+    world: &mut FoundryWorld,
+    who: String,
+    team_name: String,
+    project_name: String,
+    key: String,
+) {
+    perform_create(world, &who, &team_name, &project_name, &key).await;
+}

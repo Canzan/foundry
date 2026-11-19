@@ -1,0 +1,1490 @@
+{
+"acceptance": {
+"S1": [
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F102"
+],
+"still_passes_if": "F239",
+"test": "crates/foundry-acceptance/tests/features/us-07-project-create.feature :: A ten-letter key creates the project and is shown in full"
+},
+"expected": "F237",
+"stimulus": "F236",
+"user_result": "F238"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F100"
+],
+"still_passes_if": "F243",
+"test": "crates/foundry-acceptance/tests/features/us-07-project-create.feature :: A two-letter key is still accepted and shown in full"
+},
+"expected": "F241",
+"stimulus": "F240",
+"user_result": "F242"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F100",
+"L1/F101",
+"L1/F102",
+"L2/F100",
+"L2/F101"
+],
+"still_passes_if": "F247",
+"test": "crates/foundry-acceptance/tests/features/us-07-project-create.feature :: A key of two to ten capital letters is accepted on the create form"
+},
+"expected": "F245",
+"stimulus": "F244",
+"user_result": "F246"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5",
+"L5/F130",
+"L5/F131",
+"L5/F132",
+"L5/F133",
+"L5/F134",
+"L1/F103",
+"L1/F104",
+"L1/F105",
+"L1/F106",
+"L1/F107",
+"L1/F108",
+"L1/F109"
+],
+"still_passes_if": "F251",
+"test": "crates/foundry-acceptance/tests/features/us-07-project-create.feature :: A key outside two to ten capital letters is refused with the whole rule and creates nothing"
+},
+"expected": "F249",
+"stimulus": "F248",
+"user_result": "F250"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F125"
+],
+"still_passes_if": "F255",
+"test": "crates/foundry-acceptance/tests/features/us-07-project-create.feature :: The first issue of a ten-letter-key project carries the whole key"
+},
+"expected": "F253",
+"stimulus": "F252",
+"user_result": "F254"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F125"
+],
+"still_passes_if": "F259",
+"test": "crates/foundry-acceptance/tests/features/us-07-project-create.feature :: A later issue of a ten-letter-key project keeps the whole key"
+},
+"expected": "F257",
+"stimulus": "F256",
+"user_result": "F258"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6",
+"L6/F137",
+"L6/F138"
+],
+"still_passes_if": "F263",
+"test": "crates/foundry-acceptance/tests/features/us-07-project-create.feature :: A project with a shorter key keeps its key and its issue keys"
+},
+"expected": "F261",
+"stimulus": "F260",
+"user_result": "F262"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F137"
+],
+"still_passes_if": "F267",
+"test": "crates/foundry-acceptance/tests/features/us-07-project-create.feature :: A project with a shorter key still takes new issues under that key"
+},
+"expected": "F265",
+"stimulus": "F264",
+"user_result": "F266"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F137"
+],
+"still_passes_if": "F271",
+"test": "crates/foundry-acceptance/tests/features/us-07-project-create.feature :: A short-key and a ten-letter-key project keep their own issue keys side by side"
+},
+"expected": "F269",
+"stimulus": "F268",
+"user_result": "F270"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1",
+"L1/F100",
+"L1/F101",
+"L1/F102",
+"L1/F103",
+"L1/F104",
+"L1/F105",
+"L1/F106",
+"L1/F107",
+"L1/F108",
+"L1/F109"
+],
+"still_passes_if": "F275",
+"test": "crates/foundry-core/tests/project_key.rs::a_key_is_accepted_exactly_when_it_is_two_to_ten_capital_letters"
+},
+"expected": "F273",
+"stimulus": "F272",
+"user_result": "F274"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2",
+"L2/F100",
+"L2/F101"
+],
+"still_passes_if": "F279",
+"test": "crates/foundry-core/tests/project_key.rs::every_key_the_earlier_rule_accepted_is_still_accepted"
+},
+"expected": "F277",
+"stimulus": "F276",
+"user_result": "F278"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4",
+"L4/F125"
+],
+"still_passes_if": "F283",
+"test": "crates/foundry-core/tests/project_key.rs::an_issue_key_reads_as_the_project_key_then_the_number"
+},
+"expected": "F281",
+"stimulus": "F280",
+"user_result": "F282"
+},
+{
+"covers": [
+"P1",
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3",
+"L3/F100",
+"L3/F102",
+"L3/F103",
+"L3/F105",
+"L3/F106",
+"L3/F108",
+"T2"
+],
+"still_passes_if": "F287",
+"test": "crates/foundry-store/tests/project_key_db_rule.rs::the_stored_rule_admits_exactly_the_keys_the_application_accepts"
+},
+"expected": "F285",
+"stimulus": "F284",
+"user_result": "F286"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6",
+"L6/F137",
+"L6/F138"
+],
+"still_passes_if": "F291",
+"test": "crates/foundry-store/tests/project_key_db_rule.rs::widening_the_stored_rule_leaves_every_earlier_project_untouched"
+},
+"expected": "F289",
+"stimulus": "F288",
+"user_result": "F290"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7",
+"L7/F141",
+"L7/F142",
+"L7/F143",
+"T1"
+],
+"still_passes_if": "F295",
+"test": "crates/foundry-acceptance/tests/features/project-key-length-one-source.feature :: A second copy of the refusal sentence is refused and named"
+},
+"expected": "F293",
+"stimulus": "F292",
+"user_result": "F294"
+}
+]
+},
+"counters": {
+"B": 3,
+"C": 1,
+"E": 9,
+"F": 295,
+"L": 7,
+"P": 3,
+"S": 1,
+"T": 2,
+"Y": 7
+},
+"design": {
+"adrs": [
+{
+"key": "001",
+"status": "Accepted",
+"title": "The project key bound and its sentence have one owner"
+}
+],
+"paradigm": "object_oriented",
+"slices": {
+"S1": {
+"oracle": "crates/foundry-acceptance/tests/features/us-07-project-create.feature",
+"prefactoring": {
+"existing_oracle": "crates/foundry-acceptance/tests/features/us-07-project-create.feature",
+"move": "F19",
+"preserved": "F20",
+"verification": [
+"cargo test -p foundry-acceptance --test acceptance"
+]
+},
+"public_oracle": {
+"expected": "F17",
+"falsifier": "F18",
+"promises": [
+"P1",
+"P2",
+"P3"
+],
+"stimulus": "F16"
+},
+"records": {
+"agreement": [
+{
+"contract": "The project key shape: 2 to 10 capital letters A-Z",
+"decision": "Migrated",
+"locator": "crates/foundry-core/src/lib.rs:93",
+"party": "Producer",
+"reason": "F69"
+},
+{
+"contract": "The project key shape: 2 to 10 capital letters A-Z",
+"decision": "Migrated",
+"locator": "crates/foundry-store/migrations/0035_project_key_length.sql:1",
+"party": "Consumer",
+"reason": "F70"
+},
+{
+"contract": "The project key shape: 2 to 10 capital letters A-Z",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-store/src/lib.rs:1799",
+"party": "Producer",
+"reason": "F71"
+},
+{
+"contract": "The project key shape: 2 to 10 capital letters A-Z",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-services/src/lib.rs:1026",
+"party": "Consumer",
+"reason": "F72"
+},
+{
+"contract": "The project key shape: 2 to 10 capital letters A-Z",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/src/keyboard.rs:250",
+"party": "Consumer",
+"reason": "F73"
+},
+{
+"contract": "The project key shape: 2 to 10 capital letters A-Z",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-store/migrations/0001_init.sql:57",
+"party": "Consumer",
+"reason": "F74"
+},
+{
+"contract": "The operator sentence that refuses a key",
+"decision": "Migrated",
+"locator": "crates/foundry-core/src/lib.rs:71",
+"party": "Producer",
+"reason": "F75"
+},
+{
+"contract": "The operator sentence that refuses a key",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/projects.rs:644",
+"party": "Consumer",
+"reason": "F76"
+},
+{
+"contract": "The operator sentence that refuses a key",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/src/projects.rs:739",
+"party": "Consumer",
+"reason": "F77"
+}
+],
+"architectural_tests": [
+{
+"command": "cargo test -p foundry-acceptance --test acceptance",
+"id": "T1",
+"obligation": "F234",
+"oracle": "crates/foundry-acceptance/tests/features/project-key-length-one-source.feature"
+}
+],
+"boundaries": {
+"dependency_direction": "F81",
+"driven_ports": [
+"F79",
+"F80"
+],
+"driving_port": "F78",
+"failures": [
+{
+"condition": "F82",
+"id": "B1",
+"observation": "F83",
+"outcome": "Refusal"
+},
+{
+"condition": "F84",
+"id": "B2",
+"observation": "F85",
+"outcome": "Refusal"
+},
+{
+"condition": "F86",
+"id": "B3",
+"observation": "F87",
+"outcome": "Indeterminate"
+}
+]
+},
+"claims": [
+{
+"admitted_input": "F153",
+"bypass": "F155",
+"constructor": "ProjectKey::try_new",
+"consumer": "foundry_services::projects::create_project, then foundry_store insert_project",
+"harm": "F152",
+"id": "C1",
+"owner": "crates/foundry-core/src/lib.rs",
+"proposition": "F151",
+"public_observation": "F154"
+}
+],
+"closure": [
+{
+"axis": "Safety",
+"basis": "F162",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F161"
+},
+{
+"axis": "Inhabitation",
+"basis": "F163",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F161"
+},
+{
+"axis": "PublicReachability",
+"basis": "F164",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F161"
+},
+{
+"axis": "Liveness",
+"basis": "F165",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F161"
+}
+],
+"constraints": [
+"F29",
+"F30",
+"F31",
+"F32",
+"F33",
+"F34",
+"F35",
+"F36",
+"F37"
+],
+"constructors": [
+{
+"name": "ProjectKey::try_new",
+"signature": "fn try_new(raw: &str) -> Result<ProjectKey, ProjectKeyError>"
+},
+{
+"name": "IssueKey::try_new",
+"signature": "fn try_new(project_key: &ProjectKey, number: u32) -> Result<IssueKey, IssueKeyError>"
+}
+],
+"contract_tests": [
+{
+"command": "cargo test -p foundry-store --test project_key_db_rule",
+"consumer": "crates/foundry-store/migrations/0035_project_key_length.sql:1",
+"contract": "The project key shape: 2 to 10 capital letters A-Z",
+"id": "T2",
+"obligation": "F235",
+"observation": "F203",
+"oracle": "crates/foundry-store/tests/project_key_db_rule.rs",
+"producer": "crates/foundry-core/src/lib.rs:93"
+}
+],
+"decisions": [
+"F21",
+"F22",
+"F23",
+"F24",
+"F25",
+"F26",
+"F27",
+"F28",
+"F225",
+"F226",
+"F227"
+],
+"equality": [
+{
+"definition": "F96",
+"under": "ProjectKey"
+},
+{
+"definition": "F97",
+"under": "A refused key"
+}
+],
+"impact": [
+{
+"decision": "Changed",
+"kind": "domain-value-object",
+"locator": "crates/foundry-core/src/lib.rs:93",
+"reason": "F50"
+},
+{
+"decision": "Changed",
+"kind": "refusal-copy",
+"locator": "crates/foundry-core/src/lib.rs:71",
+"reason": "F51"
+},
+{
+"decision": "Changed",
+"kind": "web-handler",
+"locator": "crates/foundry-app/src/projects.rs:644",
+"reason": "F52"
+},
+{
+"decision": "Changed",
+"kind": "migration",
+"locator": "crates/foundry-store/migrations/0035_project_key_length.sql:1",
+"reason": "F53"
+},
+{
+"decision": "Changed",
+"kind": "architecture-rule",
+"locator": "xtask/src/check_arch.rs:6015",
+"reason": "F54"
+},
+{
+"decision": "Changed",
+"kind": "domain-unit-test",
+"locator": "crates/foundry-core/src/lib.rs:232",
+"reason": "F55"
+},
+{
+"decision": "Changed",
+"kind": "acceptance-support",
+"locator": "crates/foundry-core/tests/project_name.rs:380",
+"reason": "F228"
+},
+{
+"decision": "Changed",
+"kind": "acceptance-oracle",
+"locator": "crates/foundry-acceptance/tests/features/us-07-project-create.feature:10",
+"reason": "F57"
+},
+{
+"decision": "Changed",
+"kind": "acceptance-support",
+"locator": "crates/foundry-acceptance/src/steps/us_07_project_create.rs:479",
+"reason": "F58"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "store-test",
+"locator": "crates/foundry-store/tests/insert_issue_with_outbox.rs:280",
+"reason": "F59"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "app-property-test",
+"locator": "crates/foundry-app/src/teams.rs:1477",
+"reason": "F60"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "read-path",
+"locator": "crates/foundry-services/src/lib.rs:1026",
+"reason": "F61"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "read-path",
+"locator": "crates/foundry-app/src/keyboard.rs:250",
+"reason": "F62"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "form-template",
+"locator": "crates/foundry-app/templates/project_create.html:9",
+"reason": "F63"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "api-description",
+"locator": "crates/foundry-api/openapi.json:1",
+"reason": "F64"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "unique-index",
+"locator": "crates/foundry-store/migrations/0001_init.sql:61",
+"reason": "F65"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "lifecycle-audit",
+"locator": "crates/foundry-store/migrations/0025_project_lifecycle_events.sql:35",
+"reason": "F66"
+},
+{
+"decision": "Changed",
+"kind": "acceptance-support",
+"locator": "crates/foundry-core/tests/project_key.rs:1",
+"reason": "F229"
+},
+{
+"decision": "Changed",
+"kind": "acceptance-support",
+"locator": "crates/foundry-store/tests/project_key_db_rule.rs:1",
+"reason": "F230"
+},
+{
+"decision": "Changed",
+"kind": "acceptance-support",
+"locator": "crates/foundry-acceptance/tests/features/project-key-length-one-source.feature:1",
+"reason": "F231"
+},
+{
+"decision": "Changed",
+"kind": "acceptance-support",
+"locator": "crates/foundry-acceptance/src/steps/feature_project_key_length.rs:1",
+"reason": "F232"
+},
+{
+"decision": "Changed",
+"kind": "acceptance-runner",
+"locator": "crates/foundry-acceptance/tests/acceptance.rs:35",
+"reason": "F233"
+}
+],
+"laws": [
+{
+"id": "L1",
+"kind": "Invariant",
+"layer": "Domain",
+"owner": "crates/foundry-core/src/lib.rs",
+"statement": "F98",
+"treatment": {
+"falsifier": "F112",
+"generator": {
+"depth_bound": "Flat strings, no nesting",
+"domain": "F99",
+"must_include": [
+"F100",
+"F101",
+"F102",
+"F103",
+"F104",
+"F105",
+"F106",
+"F107",
+"F108",
+"F109"
+],
+"seed_policy": "The repository proptest runner with its default seeding; a failure prints the seed that replays it",
+"shrinking": "F110",
+"size_bound": "14 characters, 256 cases"
+},
+"independent_observation": "F111",
+"kind": "Broad"
+}
+},
+{
+"id": "L2",
+"kind": "Invariant",
+"layer": "Domain",
+"owner": "crates/foundry-core/src/lib.rs",
+"statement": "F113",
+"treatment": {
+"falsifier": "F117",
+"generator": {
+"depth_bound": "Flat strings, no nesting",
+"domain": "F114",
+"must_include": [
+"F100",
+"F101"
+],
+"seed_policy": "The repository proptest runner with its default seeding",
+"shrinking": "F115",
+"size_bound": "6 characters, 128 cases"
+},
+"independent_observation": "F116",
+"kind": "Broad"
+}
+},
+{
+"id": "L3",
+"kind": "Invariant",
+"layer": "Infrastructure",
+"owner": "crates/foundry-store/migrations/0035_project_key_length.sql",
+"statement": "F118",
+"treatment": {
+"falsifier": "F122",
+"generator": {
+"depth_bound": "Flat strings, no nesting",
+"domain": "F119",
+"must_include": [
+"F100",
+"F102",
+"F103",
+"F106",
+"F108",
+"F105"
+],
+"seed_policy": "The repository proptest runner with its default seeding, cases drawn once and replayed from the printed seed",
+"shrinking": "F120",
+"size_bound": "14 characters, 64 cases, one database container for the file"
+},
+"independent_observation": "F121",
+"kind": "Broad"
+}
+},
+{
+"id": "L4",
+"kind": "Algebraic",
+"layer": "Domain",
+"owner": "crates/foundry-core/src/lib.rs",
+"statement": "F123",
+"treatment": {
+"falsifier": "F128",
+"generator": {
+"depth_bound": "One key and one number per case",
+"domain": "F124",
+"must_include": [
+"F125"
+],
+"seed_policy": "The repository proptest runner with its default seeding",
+"shrinking": "F126",
+"size_bound": "10 characters and 1000, 128 cases"
+},
+"independent_observation": "F127",
+"kind": "Broad"
+}
+},
+{
+"id": "L5",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/src/projects.rs",
+"statement": "F129",
+"treatment": {
+"cases": [
+"F130",
+"F131",
+"F132",
+"F133",
+"F134"
+],
+"kind": "Finite",
+"reason": "F135"
+}
+},
+{
+"id": "L6",
+"kind": "Invariant",
+"layer": "Infrastructure",
+"owner": "crates/foundry-store/migrations/0035_project_key_length.sql",
+"statement": "F136",
+"treatment": {
+"cases": [
+"F137",
+"F138"
+],
+"kind": "Finite",
+"reason": "F139"
+}
+},
+{
+"id": "L7",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "xtask/src/check_arch.rs",
+"statement": "F140",
+"treatment": {
+"cases": [
+"F141",
+"F142",
+"F143"
+],
+"kind": "Finite",
+"reason": "F144"
+}
+}
+],
+"observations": [
+{
+"cannot_distinguish": "F89",
+"description": "F88",
+"result_type": "An HTTP status with a rendered page or an error fragment"
+},
+{
+"cannot_distinguish": "F91",
+"description": "F90",
+"result_type": "The key text as rendered"
+},
+{
+"cannot_distinguish": "F93",
+"description": "F92",
+"result_type": "Result of an accepted key or a typed refusal"
+},
+{
+"cannot_distinguish": "F95",
+"description": "F94",
+"result_type": "The write is accepted, or it fails the check"
+}
+],
+"refuted": [
+{
+"cause": "F146",
+"counterexample": "F147",
+"statement": "F145"
+},
+{
+"cause": "F149",
+"counterexample": "F150",
+"statement": "F148"
+}
+],
+"reuse": [
+{
+"decision": "Extend",
+"locator": "crates/foundry-core/src/lib.rs:83",
+"reason": "F38",
+"symbol": "ProjectKey"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-core/src/lib.rs:71",
+"reason": "F39",
+"symbol": "ProjectKeyError"
+},
+{
+"decision": "Replace",
+"locator": "crates/foundry-app/src/projects.rs:644",
+"reason": "F40",
+"symbol": "key_error_message"
+},
+{
+"decision": "Reuse",
+"locator": "xtask/src/check_arch.rs:5727",
+"reason": "F41",
+"symbol": "OneSourceRule"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-core/src/project_name.rs:20",
+"reason": "F42",
+"symbol": "PROJECT_NAME_MAX_CHARS"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-services/src/projects.rs:293",
+"reason": "F43",
+"symbol": "create_project"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-store/src/lib.rs:1799",
+"reason": "F44",
+"symbol": "insert_project"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-store/tests/project_key_db_rule.rs:1",
+"reason": "F45",
+"symbol": "project_key_db_rule"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-core/tests/project_key.rs:1",
+"reason": "F46",
+"symbol": "project_key_properties"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-store/migrations/0001_init.sql:57",
+"reason": "F47",
+"symbol": "key_prefix"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-store/migrations/0035_project_key_length.sql:1",
+"reason": "F48",
+"symbol": "key_prefix"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-core/tests/project_name.rs:379",
+"reason": "F49",
+"symbol": "a_fallback_address_is_the_lowest_free_candidate"
+}
+],
+"risks": [
+{
+"allowed": "F168",
+"forbidden": "F169",
+"id": "Y1",
+"kind": "Stressor",
+"owner": "crates/foundry-store/src/lib.rs run_migrations at start-up",
+"preserved": "F167",
+"residue": "F170",
+"source": "F166"
+},
+{
+"allowed": "F173",
+"forbidden": "F174",
+"id": "Y2",
+"kind": "Stressor",
+"owner": "the deploy owner",
+"preserved": "F172",
+"residue": "F175",
+"source": "F171"
+},
+{
+"allowed": "F178",
+"forbidden": "F179",
+"id": "Y3",
+"kind": "SinglePointOfFailure",
+"owner": "crates/foundry-store",
+"preserved": "F177",
+"residue": "F180",
+"source": "F176"
+},
+{
+"allowed": "F183",
+"forbidden": "F184",
+"id": "Y4",
+"kind": "Bypass",
+"owner": "crates/foundry-app/src/keyboard.rs and crates/foundry-services/src/lib.rs",
+"preserved": "F182",
+"residue": "F185",
+"source": "F181"
+},
+{
+"allowed": "F188",
+"forbidden": "F189",
+"id": "Y5",
+"kind": "Stressor",
+"owner": "the deploy owner",
+"preserved": "F187",
+"residue": "F190",
+"source": "F186"
+},
+{
+"allowed": "F193",
+"forbidden": "F194",
+"id": "Y6",
+"kind": "Stressor",
+"owner": "crates/foundry-store",
+"preserved": "F192",
+"residue": "F195",
+"source": "F191"
+},
+{
+"allowed": "F198",
+"forbidden": "F199",
+"id": "Y7",
+"kind": "Stressor",
+"owner": "crates/foundry-app/templates",
+"preserved": "F197",
+"residue": "F200",
+"source": "F196"
+}
+],
+"states": [
+{
+"kind": "Admitted",
+"owner": "crates/foundry-core/src/lib.rs",
+"state": "F156"
+},
+{
+"kind": "Admitted",
+"owner": "crates/foundry-store/src/lib.rs",
+"state": "F157"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-core/src/lib.rs",
+"state": "F158"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-store/src/lib.rs",
+"state": "F159"
+},
+{
+"kind": "Unknown",
+"owner": "crates/foundry-store/src/lib.rs",
+"state": "F160"
+}
+]
+},
+"supports": [
+"crates/foundry-acceptance/src/steps/us_07_project_create.rs",
+"crates/foundry-acceptance/src/steps/us_08_file_issue.rs",
+"crates/foundry-acceptance/src/support/harness.rs",
+"crates/foundry-acceptance/tests/features/project-key-length-one-source.feature",
+"crates/foundry-acceptance/src/steps/feature_project_key_length.rs",
+"crates/foundry-acceptance/tests/acceptance.rs",
+"crates/foundry-core/tests/project_key.rs",
+"crates/foundry-core/tests/project_name.rs",
+"crates/foundry-store/tests/project_key_db_rule.rs"
+],
+"targets": [
+{
+"change": "Extend",
+"path": "crates/foundry-core/src/lib.rs",
+"reason": "F9"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/projects.rs",
+"reason": "F10"
+},
+{
+"change": "Create",
+"path": "crates/foundry-store/migrations/0035_project_key_length.sql",
+"reason": "F11"
+},
+{
+"change": "Extend",
+"path": "xtask/src/check_arch.rs",
+"reason": "F12"
+}
+],
+"verification": [
+"cargo xtask check-arch",
+"cargo test -p foundry-core",
+"cargo test -p foundry-store --test project_key_db_rule",
+"cargo test -p foundry-acceptance --test acceptance",
+"cargo xtask smoke"
+]
+}
+}
+},
+"expectations": {
+"rows": [
+{
+"id": "E1",
+"lacuna": "F205",
+"promises": [
+"P1"
+],
+"text": "F204"
+},
+{
+"id": "E2",
+"lacuna": "F207",
+"promises": [
+"P1"
+],
+"text": "F206"
+},
+{
+"id": "E3",
+"lacuna": "F209",
+"promises": [
+"P1"
+],
+"text": "F208"
+},
+{
+"id": "E4",
+"lacuna": "F211",
+"promises": [
+"P2"
+],
+"text": "F210"
+},
+{
+"id": "E5",
+"lacuna": "F213",
+"promises": [
+"P2"
+],
+"text": "F212"
+},
+{
+"id": "E6",
+"lacuna": "F215",
+"promises": [
+"P2"
+],
+"text": "F214"
+},
+{
+"id": "E7",
+"isolated": "yes",
+"lacuna": "F217",
+"needs": "F218",
+"promises": [
+"P3"
+],
+"text": "F216"
+},
+{
+"id": "E8",
+"isolated": "yes",
+"lacuna": "F220",
+"needs": "F221",
+"promises": [
+"P3"
+],
+"text": "F219"
+},
+{
+"blocking": "no",
+"id": "E9",
+"lacuna": "F223",
+"needs": "F224",
+"promises": [
+"P3"
+],
+"text": "F222"
+}
+]
+},
+"facts": {
+"F1": "change the max length of the project key to <=10",
+"F10": "The restated operator sentence goes away; the handler renders the refusal Display.",
+"F100": "AU",
+"F101": "AUTHWS",
+"F102": "PLATFORMOP",
+"F103": "PLATFORMOPS",
+"F104": "A",
+"F105": "the empty string",
+"F106": "auth",
+"F107": "AUTH-X",
+"F108": "AU1",
+"F109": "a four-character non-ASCII string longer than ten bytes",
+"F11": "The new migration replaces the key_prefix check with the widened one, finding the existing constraint by its definition rather than by its name.",
+"F110": "proptest shrinking to the shortest failing string, replayed from the printed seed",
+"F111": "The expected verdict is computed in the test from the stated rule, by counting characters and classifying each one, never by calling the constructor under test",
+"F112": "An eleven-letter capital key is accepted, or a ten-letter capital key is refused",
+"F113": "Every key the earlier 2 to 6 rule accepted the new rule still accepts.",
+"F114": "Strings of capital letters A to Z of length 2 to 6",
+"F115": "proptest shrinking to the shortest failing string",
+"F116": "The earlier rule is restated in the test as length 2 to 6 of capital letters, independent of the constructor",
+"F117": "A two to six letter capital key the new rule refuses",
+"F118": "The database admits a key_prefix write exactly when the domain rule accepts the same text.",
+"F119": "The same strings as the domain law, excluding the null character which a text column cannot hold",
+"F12": "A project-key clause joins the existing one-source rules so a second copy of the sentence fails the gate.",
+"F120": "proptest shrinking to the shortest disagreeing string",
+"F121": "The domain verdict and the real insert outcome are read separately for the same text and then compared; neither is derived from the other",
+"F122": "A key the domain accepts that the write refuses, or a key the domain refuses that the write stores",
+"F123": "An issue key renders the project key verbatim, then a hyphen, then the issue number.",
+"F124": "Accepted keys of 2 to 10 capital letters paired with issue numbers 1 to 1000",
+"F125": "PLATFORMOP with number 1",
+"F126": "proptest shrinking to the shortest key and smallest number",
+"F127": "The expected string is assembled in the test from the key text and the number, not from the rendering under test",
+"F128": "A ten-letter prefix truncated, padded or case-folded in the rendered issue key",
+"F129": "A refused key leaves no project created and answers one sentence that states the 2 to 10 capital letter rule.",
+"F130": "An eleven-letter capital key",
+"F131": "A one-letter key",
+"F132": "An empty key",
+"F133": "A lower-case key",
+"F134": "A key carrying a digit",
+"F135": "Five named refusal classes meet the create form; each is one example at the HTTP boundary, and the class set is closed by the rule itself.",
+"F136": "Applying the new migration leaves every existing project row unchanged and its key still accepted.",
+"F137": "A row with a two-letter key, the shortest the earlier rule allowed",
+"F138": "A row with a six-letter key, the longest the earlier rule allowed",
+"F139": "The pre-change set is bounded by its two length ends; a row at each end witnesses that the widening rewrites nothing.",
+"F140": "The operator sentence that refuses a key has exactly one home in the workspace.",
+"F141": "A second copy of the sentence placed in the web crate source",
+"F142": "A second copy placed in the services crate source",
+"F143": "A second copy placed in the store crate source",
+"F144": "The gate decides over every file of the four closed crates, so the law is witnessed by one injected copy per crate that may not hold it.",
+"F145": "Three independent statements of the same bound can be kept equal by review.",
+"F146": "No owner holds the bound, so each statement is edited on its own; the operator sentence has already drifted from the domain sentence in capitalisation.",
+"F147": "crates/foundry-app/src/projects.rs:647 states Project key must be 2-6 characters while crates/foundry-core/src/lib.rs:74 states project key must be 2-6 characters.",
+"F148": "A refused key is best answered by a sentence naming only its own arm.",
+"F149": "The product asks every refused key to be answered with the whole rule, and an arm-specific sentence leaves two of the three arms without the length rule.",
+"F150": "The key auth is refused today with Project key must contain only uppercase A-Z characters, which never states the length rule.",
+"F151": "A ProjectKey value can hold only 2 to 10 capital letters A to Z.",
+"F152": "An out-of-shape key reaches the write and either fails it with a server error or gives every issue of that project a prefix no operator can read.",
+"F153": "Any string from the create form key field after the handler trims it",
+"F154": "The key on the project board header and the prefix of each issue key",
+"F155": "The inner field is private and the crate exposes no raw constructor, setter or deserializer, so Rust blocks the invalid value on typed paths; foundry-store reads key_prefix back as plain text, so a row written by a database client or restored from an older backup is re-parsed at the read path and the widened CHECK is the only guard on that write.",
+"F156": "A stored key of 2 to 10 capital letters A-Z",
+"F157": "A stored key of 2 to 6 capital letters, created before this change, with its issue keys unchanged",
+"F158": "A new key of 11 or more characters, of one character, empty, or carrying any character outside A-Z",
+"F159": "A project created while the serving code enforces a rule wider than the database rule",
+"F16": "Signed in as a member of the Backend team, the operator posts the project create form with the name Platform Operations and the key PLATFORMOP, then files an issue in the project she lands on; next she posts the same form with the key PLATFORMOPSX; and she opens the board of a project created earlier with the key AUTH.",
+"F160": "A key_prefix written straight into the database by an operator with a database client, or restored from a backup taken before this change",
+"F161": "A project key of 2 to 10 capital letters",
+"F162": "The constructor is the only public way to build the value, the inner field is private and the crate exposes no raw constructor or deserializer, so Rust blocks an out-of-shape key on typed paths; the widened CHECK refuses the same set on every write, including writers that never pass the typed path. No byte of this change exists yet, so nothing is observed.",
+"F163": "PLATFORMOP is admitted input of the constructor, which yields the value, which create_project hands to insert_project, and the widened CHECK admits it. No byte of this change exists yet.",
+"F164": "The path is the key field of the create form, then POST /team/{team_slug}/projects, then create_project, then ProjectKey::try_new, then insert_project, then the board header and the prefix of the first issue key. Every step names an existing symbol; only the widened bound is not built.",
+"F165": "No liveness claim: the create is one synchronous request, its refusal is immediate, and no step waits on another process, a timer, a queue or a remote party. Bounded synchronous execution carries this axis, for liveness only; the other three axes rest on the construction argument above, not on it.",
+"F166": "Negate the assumption that the application rule and the database rule change together: a build ships the widened domain rule while the new migration has not been applied to that database.",
+"F167": "Every 2 to 6 letter key still creates a project, and every existing project still opens.",
+"F168": "A 7 to 10 letter create answers a server error from the write instead of the form sentence.",
+"F169": "A stored key that the database rule refuses.",
+"F17": "The first post creates the project and lands on its board, which shows PLATFORMOP, and the filed issue carries the key PLATFORMOP-1. The second post creates nothing and answers a refusal whose message states that a project key must be 2 to 10 capital letters A to Z. The earlier AUTH project still opens, still shows AUTH and its issue keys are unchanged.",
+"F170": "The create path and every read path keep working for the keys the earlier rule allowed.",
+"F171": "Negate the assumption that all replicas run one version: during a rolling upgrade an old replica enforcing 2 to 6 serves next to a new one enforcing 2 to 10.",
+"F172": "Existing projects, and every create of a 2 to 6 letter key, on either replica.",
+"F173": "A 7 to 10 letter create is refused with the rule sentence by whichever old replica answers, until the rollout finishes.",
+"F174": "A stored key that either rule refuses.",
+"F175": "The widening is monotone, so no interleaving offers the database a key it refuses.",
+"F176": "The widened CHECK is the only guard for a writer that does not pass the domain constructor.",
+"F177": "The stored rule on every write path, including a database client and a restore.",
+"F178": "A direct writer is refused by the check and sees a check violation.",
+"F179": "An out-of-shape key stored without any refusal.",
+"F18": "A ten-letter key refused, an eleven-letter key accepted or stored, a refusal whose message still states a 2 to 6 rule, an issue key whose prefix is truncated or case-folded, or an earlier two to six letter project that no longer opens.",
+"F180": "The parity test reads the database verdict for itself rather than trusting the domain.",
+"F181": "foundry-store reads key_prefix back as plain text, so a row written by a database client or restored from an older backup is re-parsed at the read path.",
+"F182": "The read path refuses to build a key it does not accept, and no unparsed key reaches a template.",
+"F183": "The affected project reports an error on its keyboard and issue-key paths rather than rendering a bad key.",
+"F184": "An unchecked key text rendered as a key.",
+"F185": "The widened rule accepts every key the earlier rule accepted, so no older backup becomes newly unreadable.",
+"F186": "Second set, walked over the finished design: negate the assumption that the constraint swap is instant, because a long transaction holds the projects table while the migration waits for its lock.",
+"F187": "The earlier rule stays in force until the swap completes.",
+"F188": "Start-up blocks on the lock and the replica does not serve while it waits.",
+"F189": "Serving while the constraint swap is half applied.",
+"F19": "Give the key rule one owner with no behaviour change: move the 2 and the 6 into named constants in foundry-core, make the refusal Display the operator sentence byte for byte, and have the web handler render that Display instead of its own copy; this makes the later widening one edit in one place.",
+"F190": "The swap is one drop and one add in one transaction, so an interrupted migration leaves the earlier constraint in place.",
+"F191": "Second set: negate the assumption that no two operators want the same longer key, as two creates race on one new ten-letter key.",
+"F192": "The unique key per workspace, which refuses the second create.",
+"F193": "The second create answers 409 with the already-in-use sentence.",
+"F194": "Two projects of one workspace holding one key.",
+"F195": "The unique index is untouched by this feature and decides the race.",
+"F196": "Second set: negate the assumption that a longer key still reads well, as a ten-letter key renders in the board header, the dashboard card and every issue key.",
+"F197": "The key renders verbatim everywhere it appears.",
+"F198": "A dashboard card key may wrap or clip where the stylesheet gives it a narrow box.",
+"F199": "A truncated, padded or case-folded key in an issue key.",
+"F2": "An operator can give a project a key of up to 10 capital letters, so issue keys can carry a longer, clearer prefix",
+"F20": "Every operator-visible answer of the create path stays byte-identical: the same status and the same sentence for each refusal class, the same redirect and board for an accepted key, with the bound still 2 to 6.",
+"F200": "No template states a key length and none truncates, so only the card box is a layout question.",
+"F203": "For each probe key the domain verdict and the outcome of a real insert into a real Postgres agree",
+"F204": "An operator who fills the project form with a 10-letter capital key such as PLATFORMOP gets the project created, and the project is listed and opened afterwards showing exactly that key, with no truncation and no change of letters.",
+"F205": "A check of the promise can use one single key length and one single form path, so a product that accepts only exactly 10 letters, or that stores the key correctly but shows a shortened form elsewhere, still looks correct to the user.",
+"F206": "A 2-letter capital key such as PL is still accepted on the same form and creates a project with that key, so the longer limit does not remove the short keys an operator could already use.",
+"F207": "The promise names the lower end only inside a range, so a check can exercise the long key alone and never show that 2-letter keys remain accepted.",
+"F208": "The first issue an operator files in a project with a 10-letter key is identified to the operator as PLATFORMOP-1, and each later issue in the same project keeps the same full key as its prefix with the next number.",
+"F209": "A check can observe one issue only, and only at the moment of creation, so a wrong or shortened prefix on later issues, in lists, in search results, or after a reload, stays unseen.",
+"F21": "One bound, one owner: the key length is stated three times today, as a length check, a refusal sentence and a database CHECK, and three independent numbers cannot be kept equal by review, so the bound becomes named constants in foundry-core that the refusal sentence interpolates.",
+"F210": "An 11-letter key is refused on the project form, the operator reads a message that names the 2 to 10 capital letter rule, and no project with that key exists afterwards in the project list.",
+"F211": "A check can assert that some error text appears and stop there, so a message that omits the limits, or a refusal that still leaves a created project behind, can pass.",
+"F212": "A key of 1 letter, and an empty key, are refused on the same form with the same 2 to 10 capital letter rule message, and no project is created.",
+"F213": "The promise groups too short with too long, so a check can cover the long case alone; an empty field may also be answered by a separate generic required-field message that the check accepts as the rule message.",
+"F214": "A key that contains any character other than A-Z, including a lower-case letter, a digit, a space, a hyphen, an underscore or an accented letter, is refused with the same rule message and no project is created; the form does not quietly correct the key and create the project instead.",
+"F215": "A check can use one invalid character only, so other classes stay unobserved, and a form that silently upper-cases or strips characters before it validates looks identical to a correct refusal unless the resulting project list is also observed.",
+"F216": "A project that an operator created before this change still shows its original key, and every issue it already had still shows the same issue key as before, so no existing reference an operator wrote down becomes wrong.",
+"F217": "A check can create its subject after the change and call it existing, which cannot show what happens to data written under the earlier rule; nothing observable from outside states which upgrade path the installation took.",
+"F218": "A project with a 2 to 6 letter key and at least one filed issue that exists before the change is applied, then observed after it.",
+"F219": "In that pre-change project an operator can still do the ordinary work: open the project, file a new issue that gets the next number under the unchanged key, and open an issue that already existed.",
+"F22": "Refusal copy keeps one home: the web handler restates the operator sentence, so it renders the ProjectKeyError Display instead and a new check-arch clause fails any second copy, mirroring the project-name rule this repository already enforces.",
+"F220": "Keeps working has no stated boundary, so a check can sample a few actions only; a sample cannot show that every pre-change project and every operation in a real installation is unaffected.",
+"F221": "The same pre-change project and its existing issues, observed after the change.",
+"F222": "A pre-change project and a new 10-letter-key project exist side by side, and the issue keys of the two do not mix or collide: each issue keeps its own project prefix.",
+"F223": "This is only observable when both kinds of project are present at once; a check that uses one project at a time cannot show the coexistence, and a short observation cannot show collisions that appear only at higher issue numbers.",
+"F224": "The pre-change project kept, plus a project created after the change with a 10-letter key.",
+"F225": "Tests belong to the oracle owner: the craft targets of this slice are the domain source, the web handler, the new migration and the gate code, and every file that observes a law is an acceptance support the acceptance designer creates before craft, so no obligation waits on a production file that does not exist yet.",
+"F226": "The gate is observed through its own CLI: the one-source law lives in gate code the crafter owns, so the acceptance designer observes it from outside by running cargo xtask check-arch --root over a throwaway copy of the tree carrying a planted second copy of the sentence, the form the gate already documents and the programmatic steps already use; before the clause exists that planted copy is accepted, which is the law red.",
+"F227": "Preservation is seeded before the widening: the migration preservation observation runs the migration set up to the one before the widening, seeds a two-letter and a six-letter project row, then applies the widening and compares those rows, so it distinguishes a key left alone from a key re-minted; seeding after the widening cannot tell the two apart.",
+"F228": "The acceptance designer owns this test file; its fallback-address generator draws keys from the widened set so the mint is exercised with a ten-letter key.",
+"F229": "A new file the acceptance designer creates and owns, holding the generated key laws on the pure core: the accepted set, the monotone widening and the issue-key rendering.",
+"F23": "Every refusal states the whole rule: the product asks every refused key to get a message stating the 2 to 10 capital letter rule, so all three refusal arms render one sentence naming 2 to 10 capital letters A-Z, while the arms stay as domain diagnosis.",
+"F230": "A new file the acceptance designer creates and owns, holding the domain-against-database parity probe and the migration preservation observation on a real Postgres.",
+"F231": "A new feature file the acceptance designer creates, holding the contributor-port scenarios that drive the gate over a planted copy of the tree; it keeps the contributor port out of the operator story file.",
+"F232": "A new step module the acceptance designer creates for the gate scenarios, following the staged-root form that crates/foundry-acceptance/src/steps/feature_a_programmatic.rs:1484 already uses.",
+"F233": "The runner force-links each step module, so the acceptance designer adds the new module there or its steps are stripped from the test binary and its scenarios would report undefined.",
+"F234": "The operator sentence that refuses a key appears in no source file of the web, services, api and store crates, over every file those crates hold now or gain later; its one home is the refusal Display in foundry-core. The acceptance designer observes it through the real gate CLI over a throwaway copy of the tree, the form the gate already documents: cargo xtask check-arch --root COPY exits non-zero and names the file and line of a planted second copy of the sentence, while the same gate over the unplanted copy exits zero. Before the gate clause is built, the planted copy is accepted, which is the red this obligation starts from.",
+"F235": "The database admits exactly the keys the domain rule accepts, arm for arm, so the stored rule is never stricter and never looser than the rule the application enforces. The acceptance designer owns the probe file; it needs no production code that does not exist, because it reads the domain verdict from the existing construction point and the database verdict from a real insert.",
+"F236": "An operator posts the project create form with the name Platform Operations and the key PLATFORMOP.",
+"F237": "The project is created, she lands on its board, the board header shows the key PLATFORMOP in full, and the project list she returns to shows PLATFORMOP.",
+"F238": "She gets a project whose ten-letter key is exactly the one she typed, shown whole wherever she reads it.",
+"F239": "A product that accepts exactly ten letters and refuses seven to nine, because this row exercises the ten-letter end alone; the two-letter row, the accepted-key table and the generated domain law over every length close that gap.",
+"F24": "Widen the database rule by migration: migration 0001 is shipped and must never be edited, so a new migration drops the key_prefix CHECK found by its definition rather than by its name and adds a named CHECK for 2 to 10 letters.",
+"F240": "An operator posts the same form with the two-letter key PL.",
+"F241": "The project is created and the key PL is shown in full on its board and in her project list.",
+"F242": "The longer limit takes none of the short keys away that she could already use.",
+"F243": "A product that accepts only the two ends of the range, since this row and the ten-letter row read the ends; the accepted-key table and the generated domain law cover the lengths between them.",
+"F244": "An operator offers the create form the keys AU, AUTH, AUTHWS and PLATFORMOP in turn.",
+"F245": "Each key is accepted and the create goes through.",
+"F246": "Every key of two to ten capital letters is one she may use, including the short ones she could use before.",
+"F247": "A form that accepts a key the stored rule would refuse, because this row reads the form's answer only; the executed parity of the domain rule against the real database closes that.",
+"F248": "An operator posts the create form with an eleven-letter key, a twelve-letter key, a one-letter key, an empty key, two lower-case keys, two keys carrying a digit, a key carrying a hyphen, a key carrying a space, a key carrying an underscore, a ten-letter key carrying an accented letter and a four-character key written in Japanese.",
+"F249": "Each attempt comes back refused on the form with one sentence stating that a project key must be 2 to 10 capital letters A to Z, and no project exists afterwards under the typed key or under a tidied-up version of it.",
+"F25": "Keep byte length then character check: the length arm counts bytes before the A-Z arm runs, which only reorders refusals for non-ASCII input, and one shared refusal sentence makes that order invisible to the operator.",
+"F250": "Whatever she got wrong, she reads the whole rule in one sentence and her project list is untouched.",
+"F251": "A refusal sentence that states the rule while the stored rule stays narrower than it, because this row reads the operator's answer only; the executed parity against the real database closes that.",
+"F252": "In a project whose key is PLATFORMOP, the operator files her first issue.",
+"F253": "The issue is identified as PLATFORMOP-1, and the board lists that one issue under that key and no other.",
+"F254": "Her issue carries the whole project key she chose, with the number one after it.",
+"F255": "A product that keys the first issue correctly and shortens later ones, because this row stops at the first issue; the later-issue row and the side-by-side row cover the rest.",
+"F256": "In the same project, after nine issues have been filed, the operator files one more and then reopens the board and an earlier issue.",
+"F257": "The new issue is PLATFORMOP-10, the board lists PLATFORMOP-1 to PLATFORMOP-10 and nothing else, and the page of the seventh issue shows PLATFORMOP-7.",
+"F258": "Every issue she files or revisits keeps the whole key and its own number, including past the ninth.",
+"F259": "A product that renders issue keys correctly on the board and the issue page but shortens them in search results or in a notification, because this row reads the board and the issue page only.",
+"F26": "Carriers stay with their owners: ProjectKey owns the rule and its text, ProjectKeyError owns the refusal, CreateProjectError owns the create outcome, the projects CHECK owns the stored rule, and this change adds no per-process state.",
+"F260": "An operator opens a project that already carries a two-letter key, and another that carries a six-letter key, each with three issues already filed.",
+"F261": "Each board opens, shows its own key unchanged and lists exactly the three issue keys it already had, and an earlier issue still opens under its own key.",
+"F262": "Nothing she wrote down about an older project becomes wrong.",
+"F263": "An upgrade that re-minted the keys of projects written under the earlier rule, because these older projects are seeded after the stored rule is widened; the migration's own preservation check observes the upgrade itself.",
+"F264": "In the project that already carries the two-letter key and three issues, the operator files a new issue.",
+"F265": "The new issue is the fourth under that same unchanged key, and the board lists the first four issues and nothing else.",
+"F266": "She goes on working in her older project exactly as before.",
+"F267": "A product that keeps the key but renumbers from one again, which the exact list of the first four issues would catch only for this one project; the side-by-side row covers numbering across projects.",
+"F268": "A project carrying a two-letter key with nine issues and a project carrying the ten-letter key with nine issues stand side by side, and the operator files one more issue in the longer-key one.",
+"F269": "The longer-key board lists its own ten issues and no issue of the other project, and the shorter-key board still lists its own nine and none of the longer-key ones.",
+"F27": "Each layer states one rule: the domain answers a Result over a raw string, the application turns a refused key into a typed refusal and writes nothing, the HTTP adapter answers 422 and re-renders the form with the sentence, and the database admits the same set on every write including writers outside the application.",
+"F270": "Each project keeps its own issue keys; none of her keys points at the other project.",
+"F271": "Two projects whose keys share a prefix mixing up at a higher number, because this row pairs a two-letter and a ten-letter key that share no prefix.",
+"F272": "Keys of every length from nothing to fourteen characters are offered to the rule, made of capital letters, lower-case letters, digits, punctuation, a space and characters outside the Latin alphabet, together with the named keys AU, AUTHWS, PLATFORMOP, PLATFORMOPS, a single letter, nothing at all, auth, AUTH-X, AU1 and four characters written in Japanese.",
+"F273": "A key is accepted exactly when it is 2 to 10 characters and every one of them is a capital letter A to Z, an accepted key keeps the text that was typed, and every other key is refused.",
+"F274": "Every key an operator can type gets the answer the stated rule gives, with no key quietly accepted or quietly refused.",
+"F275": "A rule that counts bytes instead of characters for keys written outside the Latin alphabet, because every such key is refused either way; only the refusal arm would differ, and the operator reads the same sentence for both.",
+"F276": "Every key of two to six capital letters, the keys AU and AUTHWS among them, is offered to the rule again.",
+"F277": "Each one is still accepted.",
+"F278": "No key an operator could already use stops working.",
+"F279": "A rule that widened the upper end but moved the lower end, which the two-letter end of this range is what catches.",
+"F28": "No formal model here: no shared state, no multi-step protocol, no concurrency and no crash window is introduced, the widening is monotone so no replica interleaving can offer the database a key it refuses, and the two independent statements of the rule are compared by executed parity against a real database, which a third transcription cannot do.",
+"F280": "Keys of two to ten capital letters are paired with issue numbers from one to a thousand, PLATFORMOP with number one among them.",
+"F281": "Each issue key reads as the project key verbatim, a hyphen, then the number, with the expected text assembled from the key and the number rather than read back from the rendering.",
+"F282": "Her issue keys carry the whole project key, whatever its length and however high the number.",
+"F283": "A rendering that is right in the domain and shortened by a template, which the board and issue-page rows observe instead.",
+"F284": "The same keys are offered twice over, each as a real write into a real database and as a question to the rule the application enforces: AU, PLATFORMOP, PLATFORMOPS, auth, AU1, nothing at all, and keys drawn at every length up to fourteen characters.",
+"F285": "For every key the two answers agree: the database stores exactly the keys the application accepts, and refuses exactly the keys it refuses.",
+"F286": "A create the product accepts is never turned into a server error by the store, and no key shape slips into the store behind the product's back.",
+"F287": "A write that reaches the store through a path that does not pass the rule at all, since this row compares verdicts on the same text rather than auditing every writer.",
+"F288": "A project keyed with two letters and a project keyed with six letters, the two ends of what the earlier rule allowed, are written while the database still carries the earlier rule; then the widening is applied.",
+"F289": "Both rows read exactly as before, both keys are still accepted by the rule, and the database now also admits a ten-letter key.",
+"F29": "A project key is 2 to 10 characters inclusive and every character is a capital letter A to Z; the 2-character minimum is unchanged and out of scope.",
+"F290": "An older project is left exactly as it was, and the longer keys become usable in the same move.",
+"F291": "A widening that leaves the rows alone but takes a long lock while applying, which a deploy observes rather than this row.",
+"F292": "A throwaway copy of the codebase is given a second copy of the sentence that refuses a project key, once in the web code, once in the services code and once in the store code; the architecture gate is then run over each copy, and over an untouched copy.",
+"F293": "Each planted copy is refused by the gate, which names the file holding the second sentence, and the untouched copy is accepted.",
+"F294": "The rule the operator reads cannot drift from the rule the product enforces, because a second copy of that sentence cannot be added unnoticed.",
+"F295": "A second copy written in words the plant does not use, since the plant carries the sentence in the wordings the refusal can take rather than every paraphrase of it.",
+"F3": "An operator creates a project whose key is 2 to 10 capital letters A-Z, such as PLATFORMOP, and every issue of that project carries that key as its prefix, such as PLATFORMOP-1.",
+"F30": "Out of scope: renaming the key of an existing project, lower-case or digit keys, and any change to the 2-character minimum.",
+"F31": "crates/foundry-store/migrations/0001_init.sql is shipped and must not be edited; the database rule changes only through a new migration file.",
+"F32": "Every project that exists before the change keeps its key, its issue keys and its board; no row is rewritten and no key is re-minted.",
+"F33": "The widening is monotone: every key the 2 to 6 rule accepted the 2 to 10 rule accepts, so an old replica serving next to a new one can never offer the database a key the database refuses.",
+"F34": "A replica applies migrations at start-up under the existing advisory lock before it serves, so the serving code never enforces a rule wider than the database rule.",
+"F35": "The dev deploy at foundry.unintelligent-design.us updates from main and applies the new migration on start-up; the production deploy at foundry.jeffbailey.us is held for approval by design.",
+"F36": "Default test budgets apply and no derogation is requested: the real-database parity test joins the existing foundry-store integration tests, which already start one Postgres container per test file.",
+"F37": "Tests and gates run in the shared Lima VM local-dev through scripts/test-in-lima.sh, never on Docker on the Mac.",
+"F38": "The value object that owns the key rule and is the single construction point; the bound moves into named constants beside it.",
+"F39": "The owner of the refusal; its Display becomes the one operator sentence stating the 2 to 10 capital letter rule.",
+"F4": "A key shorter than 2 letters, longer than 10 letters, or with any character other than A-Z is refused on the project form with a message that states the 2 to 10 capital letter rule, and no project is created.",
+"F40": "A second statement of the operator sentence in the web handler; it is replaced by rendering the error Display, so no copy can drift again.",
+"F41": "The existing one-source scanner already guards the workspace, project and team name copy; the key copy becomes one more clause, with no new scanner.",
+"F42": "The naming and shape precedent for a named cap constant in this crate; the key constants follow it.",
+"F43": "Already parses the raw key through the one construction point and maps a refusal to a typed outcome; no change is needed.",
+"F44": "The only writer of a project row; it binds the accepted value and needs no change.",
+"F45": "The domain-against-database parity probe needs a real database and its own seeded parents; the existing name-rule suite keeps its probe helpers private and answers a different question.",
+"F46": "The broad key laws need generated input; the in-file unit tests hold only fixed examples and the neighbouring tests file owns the name rule.",
+"F47": "The stored rule lives in this shipped line; it is widened by a new migration because a shipped migration is never edited.",
+"F48": "A new migration file is the only way to change the stored rule; no existing migration can carry it.",
+"F49": "This existing property owns the key-fallback address law; its key generator widens here rather than a second property restating the law.",
+"F5": "Every project that exists before the change keeps its key and its issue keys unchanged, and keeps working.",
+"F50": "The length arm moves from a literal 2 to 6 to the named constants.",
+"F51": "All three arms render one sentence that states the whole rule and interpolates the constants.",
+"F52": "The restated sentence is removed; the handler renders the error Display.",
+"F53": "A new migration replaces the key_prefix CHECK with the widened one; no existing migration file is touched.",
+"F54": "A project-key clause joins the one-source rules so a second copy of the key sentence fails the gate.",
+"F55": "A nine-character key with a digit now fails on the character arm instead of the length arm, and the accepted row gains a ten-letter key.",
+"F57": "Its header and key-shape outline state the 2 to 6 rule; the acceptance designer owns that file and extends it for this slice.",
+"F58": "The outcome step observes a redirect or a refusal; the acceptance designer owns whether it also reads the refusal sentence.",
+"F59": "Its per-case prefix generator stays inside the widened set, so every existing case still inserts.",
+"F6": "The project key length rule on project creation: 2 to 10 capital letters A-Z, in the domain, the database and the form message.",
+"F60": "It generates two to six letter keys, which the widened rule still accepts.",
+"F61": "It re-parses a stored key, and the widened rule accepts every key any earlier rule allowed to be stored.",
+"F62": "Same re-parse of a stored key; no stored key becomes unparseable.",
+"F63": "The key field declares no maxlength, so the server rule is the only bound and the longer key reaches the handler.",
+"F64": "The project key appears in no described request body, parameter or schema, so the API description does not state the bound.",
+"F65": "The key stays unique per workspace; widening the shape does not change the index or its refusal.",
+"F66": "The audit row stores the key as plain text with no shape check, so a longer key records unchanged.",
+"F69": "The one construction point states the rule and is widened in this change.",
+"F7": "Renaming the key of an existing project; lower-case or digit keys; any change to the 2-letter minimum; a Teams item in the left nav.",
+"F70": "The stored rule must admit exactly what the construction point admits; the new migration widens it in the same change.",
+"F71": "The only writer binds the text of an already accepted value, so it states no bound of its own.",
+"F72": "It re-parses a stored key through the same construction point, and the widened rule accepts every stored key.",
+"F73": "Same re-parse of a stored key at the keyboard path.",
+"F74": "Every key already stored under the 2 to 6 rule satisfies the widened rule, so no stored row is rewritten or refused.",
+"F75": "The Display of the refusal becomes the one operator sentence and states the whole rule.",
+"F76": "The handler stops restating the sentence and renders the producer text, so the two cannot drift.",
+"F77": "The already-in-use sentence answers a different refusal, uniqueness rather than shape, and stays with the handler.",
+"F78": "The project create form: HTTP POST /team/{team_slug}/projects, with the key read from the key_prefix field",
+"F79": "The projects table through foundry-store insert_project",
+"F8": "An operator creates a project with a 10-letter key and files an issue that carries it; an 11-letter key is refused with the 2 to 10 rule; an existing 2-6 letter project still works.",
+"F80": "The project board page and the issue key prefix, where the stored key is read back",
+"F81": "foundry-app depends on foundry-services, which depends on foundry-core; foundry-store holds the only writer of a project row; foundry-core depends on no other crate, and the database rule is a second statement of the domain rule, never a source for it.",
+"F82": "The key is shorter than 2 characters, longer than 10, or carries a character outside A to Z",
+"F83": "The form answers 422 and re-renders with the sentence stating the 2 to 10 capital letter rule, and no project row exists",
+"F84": "The key is well shaped but already used by another project of the workspace",
+"F85": "The form answers 409 with the already-in-use sentence, which is a different refusal and unchanged by this feature",
+"F86": "The write fails the database CHECK because the migration has not been applied to this database",
+"F87": "The create answers a server error and writes nothing; start-up ordering is what prevents this state, not the create path",
+"F88": "The answer the operator gets from the project create form",
+"F89": "Which refusal arm fired, because every refused key renders the same sentence",
+"F9": "The bound becomes named constants, the length arm reads them and all three refusal arms render one sentence stating the whole rule.",
+"F90": "The key a created project carries, on its board header and as the prefix of its first issue key",
+"F91": "How the key was stored, and the order in which two projects were created",
+"F92": "The domain verdict on a raw key",
+"F93": "Where in the string the offending character sits",
+"F94": "The database verdict on a key_prefix write",
+"F95": "Which writer attempted the write",
+"F96": "Two keys are equal when their text is equal; an accepted key is the input text unchanged, so the value, its Display and the stored column agree.",
+"F97": "Two refused keys are equal for the operator when they render the same sentence, and all refusals now do; in the domain they stay distinguishable by their refusal arm.",
+"F98": "A raw key is accepted exactly when it is 2 to 10 characters long and every character is a capital letter A to Z.",
+"F99": "Strings assembled from capital letters, lower-case letters, digits, punctuation, space and non-ASCII scalars, of length 0 to 14"
+},
+"product": {
+"promises": [
+{
+"id": "P1",
+"kind": "Outcome",
+"text": "F3"
+},
+{
+"id": "P2",
+"kind": "Outcome",
+"text": "F4"
+},
+{
+"id": "P3",
+"kind": "Outcome",
+"text": "F5"
+}
+],
+"scope_in": [
+"F6"
+],
+"scope_out": [
+"F7"
+],
+"slices": [
+{
+"id": "S1",
+"observation": "F8",
+"promises": [
+"P1",
+"P2",
+"P3"
+]
+}
+]
+},
+"request": "F1",
+"schema": "nwdes.handoff",
+"scope": {
+"id": "project-key-length",
+"kind": "Feature"
+},
+"version": 4,
+"work": {
+"size": "S",
+"value": "F2"
+}
+}

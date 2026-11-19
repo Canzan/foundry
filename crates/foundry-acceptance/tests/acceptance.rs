@@ -31,6 +31,15 @@ use foundry_acceptance::support::harness;
 use foundry_acceptance::support::pg_backup;
 use foundry_acceptance::world::FoundryWorld;
 
+// The one-source steps for the project key rule are compiled straight into this
+// binary from their step module, so their registrations are never stripped. The
+// shim gives that module the `crate::world` path it reads the world through.
+pub mod world {
+    pub use foundry_acceptance::world::FoundryWorld;
+}
+#[path = "../src/steps/feature_project_key_length.rs"]
+mod feature_project_key_length;
+
 // Force-link the step modules so `inventory::submit!` items are not
 // stripped from the static archive when the test binary is linked.
 #[allow(unused_imports)]

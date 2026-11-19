@@ -1,0 +1,1512 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>:root{
+  /* The font stack is inlined here because the nwdes renderer injects only
+     this stylesheet; the nwave_ai page builder takes the same stack from
+     manifest.json. Both carriers are pinned by tests. */
+  --nwave-font-stack:"Lato", -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+    --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+    --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+    --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+    --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+  }
+}
+:root[data-theme="light"]{
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+:root[data-theme="dark"]{
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+  --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+  --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--nwave-font-stack);
+  font-size:15px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 6rem;
+  display:flex;flex-direction:column;gap:1.1rem}
+.brandbar{background:#131316;border-radius:4px;padding:.7rem 1rem;display:flex;align-items:center}
+.brandbar-logo{height:1.9rem;width:auto;display:block}
+.provenance{
+  display:flex;flex-wrap:wrap;gap:.5rem .9rem;align-items:baseline;
+  background:var(--accent-soft);border-left:3px solid var(--accent);
+  padding:.7rem .95rem;border-radius:0 4px 4px 0;font-size:.8rem;color:var(--muted);
+}
+.provenance strong{color:var(--ink);font-weight:600}
+.provenance code{background:none;padding:0;color:var(--accent)}
+h1,h2,h3,h4{text-wrap:balance;line-height:1.22;margin:0;font-weight:640}
+h1{font-size:1.9rem;letter-spacing:-.018em;margin-top:.6rem}
+h2{font-size:1.28rem;letter-spacing:-.01em;margin-top:2.2rem;
+  padding-bottom:.4rem;border-bottom:1px solid var(--rule)}
+h3{font-size:1.02rem;margin-top:1.5rem;color:var(--accent)}
+h4{font-size:.9rem;margin-top:1.1rem;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted)}
+p{margin:0;max-width:74ch}
+ul,ol{margin:0;padding-left:1.3rem;display:flex;flex-direction:column;gap:.35rem;max-width:74ch}
+hr{border:0;border-top:1px solid var(--rule);margin:1.6rem 0;width:100%}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.86em;
+  background:var(--accent-soft);padding:.1em .34em;border-radius:3px}
+pre{background:var(--panel);border:1px solid var(--rule);border-radius:5px;
+  padding:1rem 1.1rem;overflow-x:auto;margin:0;font-size:.78rem;line-height:1.5}
+pre code{background:none;padding:0;font-size:inherit}
+blockquote{margin:0;padding:.75rem 1rem;background:var(--panel);
+  border-left:3px solid var(--quar);border-radius:0 4px 4px 0;color:var(--muted);max-width:74ch}
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:5px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:.83rem;
+  font-variant-numeric:tabular-nums}
+th{position:sticky;top:0;background:var(--panel);text-align:left;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);font-weight:620;padding:.6rem .75rem;
+  border-bottom:1px solid var(--rule);white-space:nowrap}
+td{padding:.55rem .75rem;border-bottom:1px solid var(--rule);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+.chip{display:inline-block;padding:.12em .55em;border-radius:100px;
+  font-size:.7rem;font-weight:650;letter-spacing:.03em;white-space:nowrap;
+  border:1px solid currentColor}
+.s-ready{color:var(--ready)} .s-wip{color:var(--wip)} .s-done{color:var(--done)}
+.s-quar{color:var(--quar)} .s-cont{color:var(--cont)} .s-guard{color:var(--guard)}
+.s-dsn{color:var(--dsn)}
+.v-keep{color:var(--keep)} .v-simp{color:var(--simp)}
+.v-drop{color:var(--drop)} .v-unk{color:var(--unk)}
+/* --- directory tree: connectors drawn with borders, not characters,
+   so the chips stay aligned regardless of name length --- */
+.treewrap{border:1px solid var(--rule);border-radius:5px;background:var(--panel);
+  padding:.9rem 1.1rem;overflow-x:auto}
+ul.tree{list-style:none;margin:0;padding:0;display:block;max-width:none;
+  font-size:.83rem;line-height:1.5}
+ul.tree ul.tree{margin-left:.62rem;padding-left:.95rem;border-left:1px solid var(--rule)}
+ul.tree li{position:relative;padding:.16rem 0 .16rem .95rem;margin:0}
+ul.tree ul.tree>li::before{content:"";position:absolute;left:-.95rem;top:.72rem;
+  width:.82rem;border-top:1px solid var(--rule)}
+ul.tree ul.tree>li:last-child::after{content:"";position:absolute;left:-1.02rem;
+  top:.75rem;bottom:0;width:1px;background:var(--panel)}
+ul.tree summary{cursor:pointer;list-style:none;padding:.16rem 0;margin-left:-.95rem;
+  padding-left:.95rem;border-radius:3px}
+ul.tree summary::-webkit-details-marker{display:none}
+ul.tree summary::before{content:"▾";position:absolute;left:-.15rem;color:var(--muted);
+  font-size:.7rem;transition:transform .12s ease}
+ul.tree details:not([open])>summary::before{content:"▸"}
+ul.tree summary:hover{background:var(--accent-soft)}
+ul.tree summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.t-id{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-weight:650;
+  color:var(--accent);margin-right:.55rem;white-space:nowrap}
+.t-name{color:var(--ink);margin-right:.55rem}
+.t-badge{display:inline-block;font-size:.7rem;color:var(--muted);
+  border:1px solid var(--rule);border-radius:3px;padding:.02em .4em;
+  margin-right:.35rem;white-space:nowrap}
+li.t-branch>details>summary .t-id{font-size:.86rem;letter-spacing:.01em}
+/* --- colore del TESTO per stato: si legge la riga intera, non solo la chip --- */
+li.row-s-done>.t-name,li.row-s-done>details>summary .t-name{color:var(--done);
+  text-decoration:line-through;text-decoration-thickness:1px;opacity:.82}
+li.row-s-done>.t-id,li.row-s-done>details>summary .t-id{color:var(--done)}
+li.row-s-wip>.t-name,li.row-s-wip>details>summary .t-name{color:var(--wip);font-weight:560}
+li.row-s-wip>.t-id,li.row-s-wip>details>summary .t-id{color:var(--wip)}
+li.row-s-wip>details>summary{background:color-mix(in srgb,var(--wip) 9%,transparent);
+  border-left:2px solid var(--wip);margin-left:-1.15rem;padding-left:1.1rem}
+li.row-s-quar>.t-name,li.row-s-quar>details>summary .t-name{color:var(--muted);opacity:.72}
+li.row-s-cont>.t-name,li.row-s-cont>details>summary .t-name{color:var(--cont)}
+li.row-s-dsn>.t-name,li.row-s-dsn>details>summary .t-name{color:var(--dsn)}
+li.row-s-dsn>.t-id,li.row-s-dsn>details>summary .t-id{color:var(--dsn)}
+/* leaf with detail: closed by default, so the tree stays scannable
+   and the full row is a click away instead of a table to search */
+li.t-has-detail>details>summary::before{content:"›";font-size:.85rem}
+li.t-has-detail>details[open]>summary::before{content:"⌄";font-size:.7rem}
+li.t-has-detail>details[open]>summary{background:var(--accent-soft)}
+dl.t-detail{display:grid;grid-template-columns:auto 1fr;gap:.28rem .9rem;
+  margin:.45rem 0 .6rem .3rem;padding:.6rem .8rem;font-size:.78rem;
+  background:var(--paper);border:1px solid var(--rule);border-radius:4px}
+dl.t-detail dt{color:var(--muted);font-size:.7rem;text-transform:uppercase;
+  letter-spacing:.05em;font-weight:620;white-space:nowrap;padding-top:.06rem}
+dl.t-detail dd{margin:0;color:var(--ink)}
+@media (max-width:640px){.wrap{padding:1.5rem 1rem 4rem}h1{font-size:1.5rem}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200.0001 281.99999" width="1200" height="282">
+  <!-- nWave wordmark (nWave-logo-tYW) — yellow n + white Wave, for dark backgrounds -->
+  <g transform="matrix(1.4449288,0,0,1.4449288,-451.84019,-521.62622)">
+    <path
+      d="m 452.34925,552.58492 q -15.46668,0 -25.60003,-10.13335 -10.13334,-10.13334 -10.13334,-26.40003 0,-8.00001 2.13333,-18.66669 2.13334,-10.93335 4.80001,-21.86669 2.93334,-10.93335 5.60001,-19.46669 2.93333,-8.80001 4,-12.80002 3.46667,-11.20001 2.93334,-16.53335 -0.53334,-5.60001 -3.73334,-7.46668 -3.2,-1.86667 -7.73334,-1.86667 -5.86668,0 -13.06669,4.80001 -7.2,4.8 -15.73335,18.13335 -2.66667,4.26668 -8.00001,13.86669 -5.33334,9.33334 -12.00001,21.60002 -6.40001,12.00002 -13.33335,25.33337 -6.93334,13.06668 -13.06668,25.33336 -6.13335,12.00002 -10.66668,21.06669 -2.93334,5.86668 -8.80001,6.40001 -5.86668,0.8 -10.66668,-2.66667 -4.53334,-3.73334 -4.26668,-10.13334 2.13334,-29.86671 6.40001,-60.00008 4.53334,-30.13337 11.73335,-60.00007 1.6,-6.13334 5.86667,-8.26668 4.53334,-2.13333 9.33335,-0.8 5.06667,1.33334 8.00001,5.33334 3.2,3.73334 1.86667,9.60001 -2.66667,11.46668 -5.33334,23.4667 -2.40001,11.73335 -4.53334,23.46669 8.26667,-15.46668 15.20002,-28.2667 7.20001,-12.80001 10.93334,-18.66669 9.86668,-15.46668 22.13336,-25.06669 12.53335,-9.60001 28.00004,-9.60001 15.73335,0 24.53336,8.53334 8.80001,8.26668 10.93335,21.60003 2.13333,13.33334 -2.40001,28.2667 -1.06666,3.73333 -3.73333,12.53335 -2.40001,8.53334 -5.06668,19.20002 -2.66667,10.40001 -4.8,19.73336 -1.86667,9.06667 -1.86667,13.86668 0,4.26667 1.6,8.00001 1.86667,3.46667 8.53334,3.46667 5.06668,0 11.20002,-2.93334 6.40001,-3.2 13.06668,-9.33334 4.53334,-4.26667 9.33335,-3.46667 4.8,0.8 8.00001,4.53334 3.46667,3.73333 3.73333,8.80001 0.53334,4.8 -4,8.80001 -9.06668,8.26667 -19.46669,13.60001 -10.13335,5.06668 -21.8667,5.06668 z"
+      fill="#fbcf09" aria-label="n" />
+    <path
+      fill="#ffffff"
+      d="m 491.73113,362.45678 h 29.19637 q 4.52157,0 7.49288,2.19618 3.1005,2.067 4.134,5.68425 L 564.3345,482.0844 q 1.16269,4.134 2.067,9.04313 1.0335,4.77993 1.93782,10.20581 1.0335,-5.42588 2.19618,-10.20581 1.29188,-4.90913 2.71294,-9.04313 l 36.68925,-111.74719 q 1.0335,-2.97131 4.00481,-5.42587 3.1005,-2.45456 7.49288,-2.45456 h 10.20581 q 4.52156,0 7.49288,2.19618 2.97131,2.067 4.134,5.68425 l 36.43087,111.74719 q 2.84213,8.268 4.90913,18.34463 0.90431,-5.03832 1.80862,-9.68907 1.0335,-4.65075 2.067,-8.65556 l 31.78013,-111.74719 q 0.90431,-3.22968 4.00481,-5.55506 3.1005,-2.32537 7.49287,-2.32537 h 27.25857 L 701.01488,549.2619 H 669.62232 L 628.79907,421.62465 q -0.77513,-2.45456 -1.67944,-5.29669 -0.77513,-2.84212 -1.55025,-6.07181 -0.77513,3.22969 -1.67944,6.07181 -0.77512,2.84213 -1.55025,5.29669 L 581.12888,549.2619 H 549.73632 Z M 868.7002,549.2619 h -14.33981 q -4.52156,0 -7.10531,-1.29187 -2.58375,-1.42107 -3.87563,-5.55507 l -2.84212,-9.43068 q -5.03832,4.52156 -9.94744,8.00962 -4.77994,3.35888 -9.94744,5.68425 -5.1675,2.32538 -10.98094,3.48806 -5.81343,1.16269 -12.91875,1.16269 -8.39718,0 -15.5025,-2.19619 -7.10531,-2.32537 -12.27281,-6.84693 -5.03831,-4.52157 -7.88044,-11.23932 -2.84212,-6.71775 -2.84212,-15.63168 0,-7.49288 3.87562,-14.72738 4.00482,-7.36369 13.17713,-13.17712 9.17231,-5.94263 24.41644,-9.81825 15.24412,-3.87563 37.85193,-4.39238 v -7.75125 q 0,-13.30631 -5.68425,-19.6365 -5.55506,-6.45937 -16.27762,-6.45937 -7.75125,0 -12.91875,1.80862 -5.1675,1.80863 -9.04313,4.134 -3.74643,2.19619 -6.97612,4.00481 -3.22969,1.80863 -7.10531,1.80863 -3.22969,0 -5.55507,-1.67944 -2.32537,-1.67944 -3.74643,-4.134 l -5.81344,-10.20581 q 22.86619,-20.92838 55.16306,-20.92838 11.62688,0 20.67,3.87563 9.17231,3.74644 15.5025,10.59337 6.33019,6.71775 9.55988,16.14844 3.35887,9.43069 3.35887,20.67 z m -62.01,-19.89487 q 4.90913,0 9.04313,-0.90432 4.134,-0.90431 7.75125,-2.71293 3.74643,-1.80863 7.10531,-4.39238 3.48806,-2.71294 6.97612,-6.33019 v -22.34943 q -13.95225,0.64593 -23.38293,2.45456 -9.3015,1.67944 -14.98575,4.39237 -5.68425,2.71294 -8.13882,6.33019 -2.32537,3.61725 -2.32537,7.88044 0,8.39719 4.90912,12.01444 5.03832,3.61725 13.04794,3.61725 z m 155.15439,19.89487 h -28.938 l -52.7085,-132.54637 h 26.48344 q 3.48806,0 5.81344,1.67943 2.45456,1.67944 3.35887,4.26319 l 25.57913,70.79475 q 2.19618,6.201 3.61725,12.14363 1.55025,5.94262 2.71293,11.88525 1.16269,-5.94263 2.58375,-11.88525 1.55025,-5.94263 3.87563,-12.14363 l 26.22506,-70.79475 q 0.90431,-2.58375 3.22969,-4.26319 2.32537,-1.67943 5.55506,-1.67943 h 25.19156 z M 1083.7976,414.64853 q 12.5312,0 22.9954,4.00481 10.5934,4.00481 18.2155,11.75606 7.622,7.62206 11.8852,18.86138 4.2632,11.11012 4.2632,25.44993 0,3.61725 -0.3876,6.07182 -0.2583,2.32537 -1.1627,3.74643 -0.7751,1.29188 -2.1961,1.93782 -1.4211,0.51675 -3.6173,0.51675 h -81.9049 q 1.4211,20.41162 10.981,29.9715 9.5598,9.55987 25.3207,9.55987 7.7513,0 13.3063,-1.80862 5.6843,-1.80863 9.8183,-4.00482 4.2632,-2.19618 7.3637,-4.00481 3.2297,-1.80862 6.201,-1.80862 1.9378,0 3.3588,0.77512 1.4211,0.77513 2.4546,2.19619 l 9.3015,11.62687 q -5.2967,6.201 -11.8852,10.46419 -6.5886,4.134 -13.8231,6.71775 -7.1053,2.45456 -14.5982,3.48806 -7.3637,1.0335 -14.3398,1.0335 -13.8231,0 -25.7083,-4.52156 -11.8853,-4.65075 -20.67,-13.56469 -8.7848,-9.04312 -13.8231,-22.22025 -5.0383,-13.30631 -5.0383,-30.74662 0,-13.56469 4.3924,-25.44994 4.3924,-12.01444 12.5312,-20.79919 8.268,-8.91393 20.024,-14.08143 11.8853,-5.1675 26.7418,-5.1675 z m 0.646,22.86618 q -13.9523,0 -21.8327,7.88044 -7.8804,7.88044 -10.0766,22.34944 h 59.943 q 0,-6.201 -1.6795,-11.62688 -1.6794,-5.55506 -5.1675,-9.68906 -3.488,-4.134 -8.7847,-6.45937 -5.2967,-2.45457 -12.402,-2.45457 z"
+      aria-label="Wave" />
+  </g>
+</svg>
+
+<h1>Architecture brief: project-key-length</h1>
+
+<h2>Paradigm</h2>
+
+<p>object_oriented</p>
+
+<h2>Shared records</h2>
+
+<p>None.</p>
+
+<h2>Slices</h2>
+
+<h3>S1</h3>
+
+<h4>Targets</h4>
+
+<p>crates/foundry-core/src/lib.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The bound becomes named constants, the length arm reads them and all three refusal arms render one sentence stating the whole rule.
+</code></pre>
+
+<p>crates/foundry-app/src/projects.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The restated operator sentence goes away; the handler renders the refusal Display.
+</code></pre>
+
+<p>crates/foundry-store/migrations/0035_project_key_length.sql</p>
+
+<p>Create</p>
+
+<pre><code>The new migration replaces the key_prefix check with the widened one, finding the existing constraint by its definition rather than by its name.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<p>Extend</p>
+
+<pre><code>A project-key clause joins the existing one-source rules so a second copy of the sentence fails the gate.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/us-07-project-create.feature</p>
+
+<h4>Verification</h4>
+
+<pre><code>cargo xtask check-arch
+cargo test -p foundry-core
+cargo test -p foundry-store --test project_key_db_rule
+cargo test -p foundry-acceptance --test acceptance
+cargo xtask smoke
+</code></pre>
+
+<h4>Supports</h4>
+
+<p>crates/foundry-acceptance/src/steps/us_07_project_create.rs</p>
+
+<p>crates/foundry-acceptance/src/steps/us_08_file_issue.rs</p>
+
+<p>crates/foundry-acceptance/src/support/harness.rs</p>
+
+<p>crates/foundry-acceptance/tests/features/project-key-length-one-source.feature</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_project_key_length.rs</p>
+
+<p>crates/foundry-acceptance/tests/acceptance.rs</p>
+
+<p>crates/foundry-core/tests/project_key.rs</p>
+
+<p>crates/foundry-core/tests/project_name.rs</p>
+
+<p>crates/foundry-store/tests/project_key_db_rule.rs</p>
+
+<h4>Public oracle</h4>
+
+<pre><code>Signed in as a member of the Backend team, the operator posts the project create form with the name Platform Operations and the key PLATFORMOP, then files an issue in the project she lands on; next she posts the same form with the key PLATFORMOPSX; and she opens the board of a project created earlier with the key AUTH.
+</code></pre>
+
+<pre><code>The first post creates the project and lands on its board, which shows PLATFORMOP, and the filed issue carries the key PLATFORMOP-1. The second post creates nothing and answers a refusal whose message states that a project key must be 2 to 10 capital letters A to Z. The earlier AUTH project still opens, still shows AUTH and its issue keys are unchanged.
+</code></pre>
+
+<pre><code>A ten-letter key refused, an eleven-letter key accepted or stored, a refusal whose message still states a 2 to 6 rule, an issue key whose prefix is truncated or case-folded, or an earlier two to six letter project that no longer opens.
+</code></pre>
+
+<h5>Promises</h5>
+
+<p>P1</p>
+
+<p>P2</p>
+
+<p>P3</p>
+
+<h4>Prefactoring</h4>
+
+<pre><code>Give the key rule one owner with no behaviour change: move the 2 and the 6 into named constants in foundry-core, make the refusal Display the operator sentence byte for byte, and have the web handler render that Display instead of its own copy; this makes the later widening one edit in one place.
+</code></pre>
+
+<pre><code>Every operator-visible answer of the create path stays byte-identical: the same status and the same sentence for each refusal class, the same redirect and board for an accepted key, with the bound still 2 to 6.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/us-07-project-create.feature</p>
+
+<h5>Verification</h5>
+
+<pre><code>cargo test -p foundry-acceptance --test acceptance
+</code></pre>
+
+<h4>Records</h4>
+
+<h5>Decisions</h5>
+
+<pre><code>One bound, one owner: the key length is stated three times today, as a length check, a refusal sentence and a database CHECK, and three independent numbers cannot be kept equal by review, so the bound becomes named constants in foundry-core that the refusal sentence interpolates.
+</code></pre>
+
+<pre><code>Refusal copy keeps one home: the web handler restates the operator sentence, so it renders the ProjectKeyError Display instead and a new check-arch clause fails any second copy, mirroring the project-name rule this repository already enforces.
+</code></pre>
+
+<pre><code>Every refusal states the whole rule: the product asks every refused key to get a message stating the 2 to 10 capital letter rule, so all three refusal arms render one sentence naming 2 to 10 capital letters A-Z, while the arms stay as domain diagnosis.
+</code></pre>
+
+<pre><code>Widen the database rule by migration: migration 0001 is shipped and must never be edited, so a new migration drops the key_prefix CHECK found by its definition rather than by its name and adds a named CHECK for 2 to 10 letters.
+</code></pre>
+
+<pre><code>Keep byte length then character check: the length arm counts bytes before the A-Z arm runs, which only reorders refusals for non-ASCII input, and one shared refusal sentence makes that order invisible to the operator.
+</code></pre>
+
+<pre><code>Carriers stay with their owners: ProjectKey owns the rule and its text, ProjectKeyError owns the refusal, CreateProjectError owns the create outcome, the projects CHECK owns the stored rule, and this change adds no per-process state.
+</code></pre>
+
+<pre><code>Each layer states one rule: the domain answers a Result over a raw string, the application turns a refused key into a typed refusal and writes nothing, the HTTP adapter answers 422 and re-renders the form with the sentence, and the database admits the same set on every write including writers outside the application.
+</code></pre>
+
+<pre><code>No formal model here: no shared state, no multi-step protocol, no concurrency and no crash window is introduced, the widening is monotone so no replica interleaving can offer the database a key it refuses, and the two independent statements of the rule are compared by executed parity against a real database, which a third transcription cannot do.
+</code></pre>
+
+<pre><code>Tests belong to the oracle owner: the craft targets of this slice are the domain source, the web handler, the new migration and the gate code, and every file that observes a law is an acceptance support the acceptance designer creates before craft, so no obligation waits on a production file that does not exist yet.
+</code></pre>
+
+<pre><code>The gate is observed through its own CLI: the one-source law lives in gate code the crafter owns, so the acceptance designer observes it from outside by running cargo xtask check-arch --root over a throwaway copy of the tree carrying a planted second copy of the sentence, the form the gate already documents and the programmatic steps already use; before the clause exists that planted copy is accepted, which is the law red.
+</code></pre>
+
+<pre><code>Preservation is seeded before the widening: the migration preservation observation runs the migration set up to the one before the widening, seeds a two-letter and a six-letter project row, then applies the widening and compares those rows, so it distinguishes a key left alone from a key re-minted; seeding after the widening cannot tell the two apart.
+</code></pre>
+
+<h5>Constraints</h5>
+
+<pre><code>A project key is 2 to 10 characters inclusive and every character is a capital letter A to Z; the 2-character minimum is unchanged and out of scope.
+</code></pre>
+
+<pre><code>Out of scope: renaming the key of an existing project, lower-case or digit keys, and any change to the 2-character minimum.
+</code></pre>
+
+<pre><code>crates/foundry-store/migrations/0001_init.sql is shipped and must not be edited; the database rule changes only through a new migration file.
+</code></pre>
+
+<pre><code>Every project that exists before the change keeps its key, its issue keys and its board; no row is rewritten and no key is re-minted.
+</code></pre>
+
+<pre><code>The widening is monotone: every key the 2 to 6 rule accepted the 2 to 10 rule accepts, so an old replica serving next to a new one can never offer the database a key the database refuses.
+</code></pre>
+
+<pre><code>A replica applies migrations at start-up under the existing advisory lock before it serves, so the serving code never enforces a rule wider than the database rule.
+</code></pre>
+
+<pre><code>The dev deploy at foundry.unintelligent-design.us updates from main and applies the new migration on start-up; the production deploy at foundry.jeffbailey.us is held for approval by design.
+</code></pre>
+
+<pre><code>Default test budgets apply and no derogation is requested: the real-database parity test joins the existing foundry-store integration tests, which already start one Postgres container per test file.
+</code></pre>
+
+<pre><code>Tests and gates run in the shared Lima VM local-dev through scripts/test-in-lima.sh, never on Docker on the Mac.
+</code></pre>
+
+<h5>Reuse</h5>
+
+<p>ProjectKey</p>
+
+<p>crates/foundry-core/src/lib.rs:83</p>
+
+<p>Extend</p>
+
+<pre><code>The value object that owns the key rule and is the single construction point; the bound moves into named constants beside it.
+</code></pre>
+
+<p>ProjectKeyError</p>
+
+<p>crates/foundry-core/src/lib.rs:71</p>
+
+<p>Extend</p>
+
+<pre><code>The owner of the refusal; its Display becomes the one operator sentence stating the 2 to 10 capital letter rule.
+</code></pre>
+
+<p>key_error_message</p>
+
+<p>crates/foundry-app/src/projects.rs:644</p>
+
+<p>Replace</p>
+
+<pre><code>A second statement of the operator sentence in the web handler; it is replaced by rendering the error Display, so no copy can drift again.
+</code></pre>
+
+<p>OneSourceRule</p>
+
+<p>xtask/src/check_arch.rs:5727</p>
+
+<p>Reuse</p>
+
+<pre><code>The existing one-source scanner already guards the workspace, project and team name copy; the key copy becomes one more clause, with no new scanner.
+</code></pre>
+
+<p>PROJECT_NAME_MAX_CHARS</p>
+
+<p>crates/foundry-core/src/project_name.rs:20</p>
+
+<p>Reuse</p>
+
+<pre><code>The naming and shape precedent for a named cap constant in this crate; the key constants follow it.
+</code></pre>
+
+<p>create_project</p>
+
+<p>crates/foundry-services/src/projects.rs:293</p>
+
+<p>Reuse</p>
+
+<pre><code>Already parses the raw key through the one construction point and maps a refusal to a typed outcome; no change is needed.
+</code></pre>
+
+<p>insert_project</p>
+
+<p>crates/foundry-store/src/lib.rs:1799</p>
+
+<p>Reuse</p>
+
+<pre><code>The only writer of a project row; it binds the accepted value and needs no change.
+</code></pre>
+
+<p>project_key_db_rule</p>
+
+<p>crates/foundry-store/tests/project_key_db_rule.rs:1</p>
+
+<p>CreateNew</p>
+
+<pre><code>The domain-against-database parity probe needs a real database and its own seeded parents; the existing name-rule suite keeps its probe helpers private and answers a different question.
+</code></pre>
+
+<p>project_key_properties</p>
+
+<p>crates/foundry-core/tests/project_key.rs:1</p>
+
+<p>CreateNew</p>
+
+<pre><code>The broad key laws need generated input; the in-file unit tests hold only fixed examples and the neighbouring tests file owns the name rule.
+</code></pre>
+
+<p>key_prefix</p>
+
+<p>crates/foundry-store/migrations/0001_init.sql:57</p>
+
+<p>Extend</p>
+
+<pre><code>The stored rule lives in this shipped line; it is widened by a new migration because a shipped migration is never edited.
+</code></pre>
+
+<p>key_prefix</p>
+
+<p>crates/foundry-store/migrations/0035_project_key_length.sql:1</p>
+
+<p>CreateNew</p>
+
+<pre><code>A new migration file is the only way to change the stored rule; no existing migration can carry it.
+</code></pre>
+
+<p>a_fallback_address_is_the_lowest_free_candidate</p>
+
+<p>crates/foundry-core/tests/project_name.rs:379</p>
+
+<p>Extend</p>
+
+<pre><code>This existing property owns the key-fallback address law; its key generator widens here rather than a second property restating the law.
+</code></pre>
+
+<h5>Impact</h5>
+
+<p>domain-value-object</p>
+
+<p>crates/foundry-core/src/lib.rs:93</p>
+
+<p>Changed</p>
+
+<pre><code>The length arm moves from a literal 2 to 6 to the named constants.
+</code></pre>
+
+<p>refusal-copy</p>
+
+<p>crates/foundry-core/src/lib.rs:71</p>
+
+<p>Changed</p>
+
+<pre><code>All three arms render one sentence that states the whole rule and interpolates the constants.
+</code></pre>
+
+<p>web-handler</p>
+
+<p>crates/foundry-app/src/projects.rs:644</p>
+
+<p>Changed</p>
+
+<pre><code>The restated sentence is removed; the handler renders the error Display.
+</code></pre>
+
+<p>migration</p>
+
+<p>crates/foundry-store/migrations/0035_project_key_length.sql:1</p>
+
+<p>Changed</p>
+
+<pre><code>A new migration replaces the key_prefix CHECK with the widened one; no existing migration file is touched.
+</code></pre>
+
+<p>architecture-rule</p>
+
+<p>xtask/src/check_arch.rs:6015</p>
+
+<p>Changed</p>
+
+<pre><code>A project-key clause joins the one-source rules so a second copy of the key sentence fails the gate.
+</code></pre>
+
+<p>domain-unit-test</p>
+
+<p>crates/foundry-core/src/lib.rs:232</p>
+
+<p>Changed</p>
+
+<pre><code>A nine-character key with a digit now fails on the character arm instead of the length arm, and the accepted row gains a ten-letter key.
+</code></pre>
+
+<p>acceptance-support</p>
+
+<p>crates/foundry-core/tests/project_name.rs:380</p>
+
+<p>Changed</p>
+
+<pre><code>The acceptance designer owns this test file; its fallback-address generator draws keys from the widened set so the mint is exercised with a ten-letter key.
+</code></pre>
+
+<p>acceptance-oracle</p>
+
+<p>crates/foundry-acceptance/tests/features/us-07-project-create.feature:10</p>
+
+<p>Changed</p>
+
+<pre><code>Its header and key-shape outline state the 2 to 6 rule; the acceptance designer owns that file and extends it for this slice.
+</code></pre>
+
+<p>acceptance-support</p>
+
+<p>crates/foundry-acceptance/src/steps/us_07_project_create.rs:479</p>
+
+<p>Changed</p>
+
+<pre><code>The outcome step observes a redirect or a refusal; the acceptance designer owns whether it also reads the refusal sentence.
+</code></pre>
+
+<p>store-test</p>
+
+<p>crates/foundry-store/tests/insert_issue_with_outbox.rs:280</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Its per-case prefix generator stays inside the widened set, so every existing case still inserts.
+</code></pre>
+
+<p>app-property-test</p>
+
+<p>crates/foundry-app/src/teams.rs:1477</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It generates two to six letter keys, which the widened rule still accepts.
+</code></pre>
+
+<p>read-path</p>
+
+<p>crates/foundry-services/src/lib.rs:1026</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It re-parses a stored key, and the widened rule accepts every key any earlier rule allowed to be stored.
+</code></pre>
+
+<p>read-path</p>
+
+<p>crates/foundry-app/src/keyboard.rs:250</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Same re-parse of a stored key; no stored key becomes unparseable.
+</code></pre>
+
+<p>form-template</p>
+
+<p>crates/foundry-app/templates/project_create.html:9</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The key field declares no maxlength, so the server rule is the only bound and the longer key reaches the handler.
+</code></pre>
+
+<p>api-description</p>
+
+<p>crates/foundry-api/openapi.json:1</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The project key appears in no described request body, parameter or schema, so the API description does not state the bound.
+</code></pre>
+
+<p>unique-index</p>
+
+<p>crates/foundry-store/migrations/0001_init.sql:61</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The key stays unique per workspace; widening the shape does not change the index or its refusal.
+</code></pre>
+
+<p>lifecycle-audit</p>
+
+<p>crates/foundry-store/migrations/0025_project_lifecycle_events.sql:35</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The audit row stores the key as plain text with no shape check, so a longer key records unchanged.
+</code></pre>
+
+<p>acceptance-support</p>
+
+<p>crates/foundry-core/tests/project_key.rs:1</p>
+
+<p>Changed</p>
+
+<pre><code>A new file the acceptance designer creates and owns, holding the generated key laws on the pure core: the accepted set, the monotone widening and the issue-key rendering.
+</code></pre>
+
+<p>acceptance-support</p>
+
+<p>crates/foundry-store/tests/project_key_db_rule.rs:1</p>
+
+<p>Changed</p>
+
+<pre><code>A new file the acceptance designer creates and owns, holding the domain-against-database parity probe and the migration preservation observation on a real Postgres.
+</code></pre>
+
+<p>acceptance-support</p>
+
+<p>crates/foundry-acceptance/tests/features/project-key-length-one-source.feature:1</p>
+
+<p>Changed</p>
+
+<pre><code>A new feature file the acceptance designer creates, holding the contributor-port scenarios that drive the gate over a planted copy of the tree; it keeps the contributor port out of the operator story file.
+</code></pre>
+
+<p>acceptance-support</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_project_key_length.rs:1</p>
+
+<p>Changed</p>
+
+<pre><code>A new step module the acceptance designer creates for the gate scenarios, following the staged-root form that crates/foundry-acceptance/src/steps/feature_a_programmatic.rs:1484 already uses.
+</code></pre>
+
+<p>acceptance-runner</p>
+
+<p>crates/foundry-acceptance/tests/acceptance.rs:35</p>
+
+<p>Changed</p>
+
+<pre><code>The runner force-links each step module, so the acceptance designer adds the new module there or its steps are stripped from the test binary and its scenarios would report undefined.
+</code></pre>
+
+<h5>Agreement</h5>
+
+<p>The project key shape: 2 to 10 capital letters A-Z</p>
+
+<p>crates/foundry-core/src/lib.rs:93</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>The one construction point states the rule and is widened in this change.
+</code></pre>
+
+<p>The project key shape: 2 to 10 capital letters A-Z</p>
+
+<p>crates/foundry-store/migrations/0035_project_key_length.sql:1</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The stored rule must admit exactly what the construction point admits; the new migration widens it in the same change.
+</code></pre>
+
+<p>The project key shape: 2 to 10 capital letters A-Z</p>
+
+<p>crates/foundry-store/src/lib.rs:1799</p>
+
+<p>Producer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The only writer binds the text of an already accepted value, so it states no bound of its own.
+</code></pre>
+
+<p>The project key shape: 2 to 10 capital letters A-Z</p>
+
+<p>crates/foundry-services/src/lib.rs:1026</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It re-parses a stored key through the same construction point, and the widened rule accepts every stored key.
+</code></pre>
+
+<p>The project key shape: 2 to 10 capital letters A-Z</p>
+
+<p>crates/foundry-app/src/keyboard.rs:250</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Same re-parse of a stored key at the keyboard path.
+</code></pre>
+
+<p>The project key shape: 2 to 10 capital letters A-Z</p>
+
+<p>crates/foundry-store/migrations/0001_init.sql:57</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Every key already stored under the 2 to 6 rule satisfies the widened rule, so no stored row is rewritten or refused.
+</code></pre>
+
+<p>The operator sentence that refuses a key</p>
+
+<p>crates/foundry-core/src/lib.rs:71</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>The Display of the refusal becomes the one operator sentence and states the whole rule.
+</code></pre>
+
+<p>The operator sentence that refuses a key</p>
+
+<p>crates/foundry-app/src/projects.rs:644</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The handler stops restating the sentence and renders the producer text, so the two cannot drift.
+</code></pre>
+
+<p>The operator sentence that refuses a key</p>
+
+<p>crates/foundry-app/src/projects.rs:739</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The already-in-use sentence answers a different refusal, uniqueness rather than shape, and stays with the handler.
+</code></pre>
+
+<h5>Not applicable</h5>
+
+<p>None.</p>
+
+<h5>Boundaries</h5>
+
+<pre><code>The project create form: HTTP POST /team/{team_slug}/projects, with the key read from the key_prefix field
+</code></pre>
+
+<h6>Driven ports</h6>
+
+<pre><code>The projects table through foundry-store insert_project
+</code></pre>
+
+<pre><code>The project board page and the issue key prefix, where the stored key is read back
+</code></pre>
+
+<pre><code>foundry-app depends on foundry-services, which depends on foundry-core; foundry-store holds the only writer of a project row; foundry-core depends on no other crate, and the database rule is a second statement of the domain rule, never a source for it.
+</code></pre>
+
+<h6>Failures</h6>
+
+<p>####### B1</p>
+
+<pre><code>The key is shorter than 2 characters, longer than 10, or carries a character outside A to Z
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>The form answers 422 and re-renders with the sentence stating the 2 to 10 capital letter rule, and no project row exists
+</code></pre>
+
+<p>####### B2</p>
+
+<pre><code>The key is well shaped but already used by another project of the workspace
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>The form answers 409 with the already-in-use sentence, which is a different refusal and unchanged by this feature
+</code></pre>
+
+<p>####### B3</p>
+
+<pre><code>The write fails the database CHECK because the migration has not been applied to this database
+</code></pre>
+
+<p>Indeterminate</p>
+
+<pre><code>The create answers a server error and writes nothing; start-up ordering is what prevents this state, not the create path
+</code></pre>
+
+<h5>Observations</h5>
+
+<pre><code>The answer the operator gets from the project create form
+</code></pre>
+
+<p>An HTTP status with a rendered page or an error fragment</p>
+
+<pre><code>Which refusal arm fired, because every refused key renders the same sentence
+</code></pre>
+
+<pre><code>The key a created project carries, on its board header and as the prefix of its first issue key
+</code></pre>
+
+<p>The key text as rendered</p>
+
+<pre><code>How the key was stored, and the order in which two projects were created
+</code></pre>
+
+<pre><code>The domain verdict on a raw key
+</code></pre>
+
+<p>Result of an accepted key or a typed refusal</p>
+
+<pre><code>Where in the string the offending character sits
+</code></pre>
+
+<pre><code>The database verdict on a key_prefix write
+</code></pre>
+
+<p>The write is accepted, or it fails the check</p>
+
+<pre><code>Which writer attempted the write
+</code></pre>
+
+<h5>Equality</h5>
+
+<p>ProjectKey</p>
+
+<pre><code>Two keys are equal when their text is equal; an accepted key is the input text unchanged, so the value, its Display and the stored column agree.
+</code></pre>
+
+<p>A refused key</p>
+
+<pre><code>Two refused keys are equal for the operator when they render the same sentence, and all refusals now do; in the domain they stay distinguishable by their refusal arm.
+</code></pre>
+
+<h5>Constructors</h5>
+
+<p>ProjectKey::try_new</p>
+
+<p>fn try_new(raw: &amp;str) -&gt; Result&lt;ProjectKey, ProjectKeyError&gt;</p>
+
+<p>IssueKey::try_new</p>
+
+<p>fn try_new(project_key: &amp;ProjectKey, number: u32) -&gt; Result&lt;IssueKey, IssueKeyError&gt;</p>
+
+<h5>Laws</h5>
+
+<h6>L1</h6>
+
+<pre><code>A raw key is accepted exactly when it is 2 to 10 characters long and every character is a capital letter A to Z.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Domain</p>
+
+<p>crates/foundry-core/src/lib.rs</p>
+
+<h6>Treatment</h6>
+
+<p>Broad</p>
+
+<h6>Generator</h6>
+
+<pre><code>Strings assembled from capital letters, lower-case letters, digits, punctuation, space and non-ASCII scalars, of length 0 to 14
+</code></pre>
+
+<p>14 characters, 256 cases</p>
+
+<p>The repository proptest runner with its default seeding; a failure prints the seed that replays it</p>
+
+<h6>Must include</h6>
+
+<pre><code>AU
+</code></pre>
+
+<pre><code>AUTHWS
+</code></pre>
+
+<pre><code>PLATFORMOP
+</code></pre>
+
+<pre><code>PLATFORMOPS
+</code></pre>
+
+<pre><code>A
+</code></pre>
+
+<pre><code>the empty string
+</code></pre>
+
+<pre><code>auth
+</code></pre>
+
+<pre><code>AUTH-X
+</code></pre>
+
+<pre><code>AU1
+</code></pre>
+
+<pre><code>a four-character non-ASCII string longer than ten bytes
+</code></pre>
+
+<p>Flat strings, no nesting</p>
+
+<pre><code>proptest shrinking to the shortest failing string, replayed from the printed seed
+</code></pre>
+
+<pre><code>The expected verdict is computed in the test from the stated rule, by counting characters and classifying each one, never by calling the constructor under test
+</code></pre>
+
+<pre><code>An eleven-letter capital key is accepted, or a ten-letter capital key is refused
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h6>L2</h6>
+
+<pre><code>Every key the earlier 2 to 6 rule accepted the new rule still accepts.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Domain</p>
+
+<p>crates/foundry-core/src/lib.rs</p>
+
+<h6>Treatment</h6>
+
+<p>Broad</p>
+
+<h6>Generator</h6>
+
+<pre><code>Strings of capital letters A to Z of length 2 to 6
+</code></pre>
+
+<p>6 characters, 128 cases</p>
+
+<p>The repository proptest runner with its default seeding</p>
+
+<h6>Must include</h6>
+
+<pre><code>AU
+</code></pre>
+
+<pre><code>AUTHWS
+</code></pre>
+
+<p>Flat strings, no nesting</p>
+
+<pre><code>proptest shrinking to the shortest failing string
+</code></pre>
+
+<pre><code>The earlier rule is restated in the test as length 2 to 6 of capital letters, independent of the constructor
+</code></pre>
+
+<pre><code>A two to six letter capital key the new rule refuses
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h6>L3</h6>
+
+<pre><code>The database admits a key_prefix write exactly when the domain rule accepts the same text.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Infrastructure</p>
+
+<p>crates/foundry-store/migrations/0035_project_key_length.sql</p>
+
+<h6>Treatment</h6>
+
+<p>Broad</p>
+
+<h6>Generator</h6>
+
+<pre><code>The same strings as the domain law, excluding the null character which a text column cannot hold
+</code></pre>
+
+<p>14 characters, 64 cases, one database container for the file</p>
+
+<p>The repository proptest runner with its default seeding, cases drawn once and replayed from the printed seed</p>
+
+<h6>Must include</h6>
+
+<pre><code>AU
+</code></pre>
+
+<pre><code>PLATFORMOP
+</code></pre>
+
+<pre><code>PLATFORMOPS
+</code></pre>
+
+<pre><code>auth
+</code></pre>
+
+<pre><code>AU1
+</code></pre>
+
+<pre><code>the empty string
+</code></pre>
+
+<p>Flat strings, no nesting</p>
+
+<pre><code>proptest shrinking to the shortest disagreeing string
+</code></pre>
+
+<pre><code>The domain verdict and the real insert outcome are read separately for the same text and then compared; neither is derived from the other
+</code></pre>
+
+<pre><code>A key the domain accepts that the write refuses, or a key the domain refuses that the write stores
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h6>L4</h6>
+
+<pre><code>An issue key renders the project key verbatim, then a hyphen, then the issue number.
+</code></pre>
+
+<p>Algebraic</p>
+
+<p>Domain</p>
+
+<p>crates/foundry-core/src/lib.rs</p>
+
+<h6>Treatment</h6>
+
+<p>Broad</p>
+
+<h6>Generator</h6>
+
+<pre><code>Accepted keys of 2 to 10 capital letters paired with issue numbers 1 to 1000
+</code></pre>
+
+<p>10 characters and 1000, 128 cases</p>
+
+<p>The repository proptest runner with its default seeding</p>
+
+<h6>Must include</h6>
+
+<pre><code>PLATFORMOP with number 1
+</code></pre>
+
+<p>One key and one number per case</p>
+
+<pre><code>proptest shrinking to the shortest key and smallest number
+</code></pre>
+
+<pre><code>The expected string is assembled in the test from the key text and the number, not from the rendering under test
+</code></pre>
+
+<pre><code>A ten-letter prefix truncated, padded or case-folded in the rendered issue key
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h6>L5</h6>
+
+<pre><code>A refused key leaves no project created and answers one sentence that states the 2 to 10 capital letter rule.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Adapter</p>
+
+<p>crates/foundry-app/src/projects.rs</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>An eleven-letter capital key
+</code></pre>
+
+<pre><code>A one-letter key
+</code></pre>
+
+<pre><code>An empty key
+</code></pre>
+
+<pre><code>A lower-case key
+</code></pre>
+
+<pre><code>A key carrying a digit
+</code></pre>
+
+<pre><code>Five named refusal classes meet the create form; each is one example at the HTTP boundary, and the class set is closed by the rule itself.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h6>L6</h6>
+
+<pre><code>Applying the new migration leaves every existing project row unchanged and its key still accepted.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Infrastructure</p>
+
+<p>crates/foundry-store/migrations/0035_project_key_length.sql</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>A row with a two-letter key, the shortest the earlier rule allowed
+</code></pre>
+
+<pre><code>A row with a six-letter key, the longest the earlier rule allowed
+</code></pre>
+
+<pre><code>The pre-change set is bounded by its two length ends; a row at each end witnesses that the widening rewrites nothing.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h6>L7</h6>
+
+<pre><code>The operator sentence that refuses a key has exactly one home in the workspace.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>xtask/src/check_arch.rs</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>A second copy of the sentence placed in the web crate source
+</code></pre>
+
+<pre><code>A second copy placed in the services crate source
+</code></pre>
+
+<pre><code>A second copy placed in the store crate source
+</code></pre>
+
+<pre><code>The gate decides over every file of the four closed crates, so the law is witnessed by one injected copy per crate that may not hold it.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h5>Refuted</h5>
+
+<pre><code>Three independent statements of the same bound can be kept equal by review.
+</code></pre>
+
+<pre><code>No owner holds the bound, so each statement is edited on its own; the operator sentence has already drifted from the domain sentence in capitalisation.
+</code></pre>
+
+<pre><code>crates/foundry-app/src/projects.rs:647 states Project key must be 2-6 characters while crates/foundry-core/src/lib.rs:74 states project key must be 2-6 characters.
+</code></pre>
+
+<pre><code>A refused key is best answered by a sentence naming only its own arm.
+</code></pre>
+
+<pre><code>The product asks every refused key to be answered with the whole rule, and an arm-specific sentence leaves two of the three arms without the length rule.
+</code></pre>
+
+<pre><code>The key auth is refused today with Project key must contain only uppercase A-Z characters, which never states the length rule.
+</code></pre>
+
+<h5>Claims</h5>
+
+<h6>C1</h6>
+
+<pre><code>A ProjectKey value can hold only 2 to 10 capital letters A to Z.
+</code></pre>
+
+<pre><code>An out-of-shape key reaches the write and either fails it with a server error or gives every issue of that project a prefix no operator can read.
+</code></pre>
+
+<p>crates/foundry-core/src/lib.rs</p>
+
+<pre><code>Any string from the create form key field after the handler trims it
+</code></pre>
+
+<p>ProjectKey::try_new</p>
+
+<p>foundry_services::projects::create_project, then foundry_store insert_project</p>
+
+<pre><code>The key on the project board header and the prefix of each issue key
+</code></pre>
+
+<pre><code>The inner field is private and the crate exposes no raw constructor, setter or deserializer, so Rust blocks the invalid value on typed paths; foundry-store reads key_prefix back as plain text, so a row written by a database client or restored from an older backup is re-parsed at the read path and the widened CHECK is the only guard on that write.
+</code></pre>
+
+<h5>States</h5>
+
+<p>Admitted</p>
+
+<pre><code>A stored key of 2 to 10 capital letters A-Z
+</code></pre>
+
+<p>crates/foundry-core/src/lib.rs</p>
+
+<p>Admitted</p>
+
+<pre><code>A stored key of 2 to 6 capital letters, created before this change, with its issue keys unchanged
+</code></pre>
+
+<p>crates/foundry-store/src/lib.rs</p>
+
+<p>Excluded</p>
+
+<pre><code>A new key of 11 or more characters, of one character, empty, or carrying any character outside A-Z
+</code></pre>
+
+<p>crates/foundry-core/src/lib.rs</p>
+
+<p>Excluded</p>
+
+<pre><code>A project created while the serving code enforces a rule wider than the database rule
+</code></pre>
+
+<p>crates/foundry-store/src/lib.rs</p>
+
+<p>Unknown</p>
+
+<pre><code>A key_prefix written straight into the database by an operator with a database client, or restored from a backup taken before this change
+</code></pre>
+
+<p>crates/foundry-store/src/lib.rs</p>
+
+<h5>Models</h5>
+
+<p>None.</p>
+
+<h5>Closure</h5>
+
+<pre><code>A project key of 2 to 10 capital letters
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>The constructor is the only public way to build the value, the inner field is private and the crate exposes no raw constructor or deserializer, so Rust blocks an out-of-shape key on typed paths; the widened CHECK refuses the same set on every write, including writers that never pass the typed path. No byte of this change exists yet, so nothing is observed.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<pre><code>A project key of 2 to 10 capital letters
+</code></pre>
+
+<p>Inhabitation</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>PLATFORMOP is admitted input of the constructor, which yields the value, which create_project hands to insert_project, and the widened CHECK admits it. No byte of this change exists yet.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<pre><code>A project key of 2 to 10 capital letters
+</code></pre>
+
+<p>PublicReachability</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>The path is the key field of the create form, then POST /team/{team_slug}/projects, then create_project, then ProjectKey::try_new, then insert_project, then the board header and the prefix of the first issue key. Every step names an existing symbol; only the widened bound is not built.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<pre><code>A project key of 2 to 10 capital letters
+</code></pre>
+
+<p>Liveness</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>No liveness claim: the create is one synchronous request, its refusal is immediate, and no step waits on another process, a timer, a queue or a remote party. Bounded synchronous execution carries this axis, for liveness only; the other three axes rest on the construction argument above, not on it.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h5>Risks</h5>
+
+<h6>Y1</h6>
+
+<p>Stressor</p>
+
+<pre><code>Negate the assumption that the application rule and the database rule change together: a build ships the widened domain rule while the new migration has not been applied to that database.
+</code></pre>
+
+<pre><code>Every 2 to 6 letter key still creates a project, and every existing project still opens.
+</code></pre>
+
+<pre><code>A 7 to 10 letter create answers a server error from the write instead of the form sentence.
+</code></pre>
+
+<pre><code>A stored key that the database rule refuses.
+</code></pre>
+
+<pre><code>The create path and every read path keep working for the keys the earlier rule allowed.
+</code></pre>
+
+<p>crates/foundry-store/src/lib.rs run_migrations at start-up</p>
+
+<h6>Y2</h6>
+
+<p>Stressor</p>
+
+<pre><code>Negate the assumption that all replicas run one version: during a rolling upgrade an old replica enforcing 2 to 6 serves next to a new one enforcing 2 to 10.
+</code></pre>
+
+<pre><code>Existing projects, and every create of a 2 to 6 letter key, on either replica.
+</code></pre>
+
+<pre><code>A 7 to 10 letter create is refused with the rule sentence by whichever old replica answers, until the rollout finishes.
+</code></pre>
+
+<pre><code>A stored key that either rule refuses.
+</code></pre>
+
+<pre><code>The widening is monotone, so no interleaving offers the database a key it refuses.
+</code></pre>
+
+<p>the deploy owner</p>
+
+<h6>Y3</h6>
+
+<p>SinglePointOfFailure</p>
+
+<pre><code>The widened CHECK is the only guard for a writer that does not pass the domain constructor.
+</code></pre>
+
+<pre><code>The stored rule on every write path, including a database client and a restore.
+</code></pre>
+
+<pre><code>A direct writer is refused by the check and sees a check violation.
+</code></pre>
+
+<pre><code>An out-of-shape key stored without any refusal.
+</code></pre>
+
+<pre><code>The parity test reads the database verdict for itself rather than trusting the domain.
+</code></pre>
+
+<p>crates/foundry-store</p>
+
+<h6>Y4</h6>
+
+<p>Bypass</p>
+
+<pre><code>foundry-store reads key_prefix back as plain text, so a row written by a database client or restored from an older backup is re-parsed at the read path.
+</code></pre>
+
+<pre><code>The read path refuses to build a key it does not accept, and no unparsed key reaches a template.
+</code></pre>
+
+<pre><code>The affected project reports an error on its keyboard and issue-key paths rather than rendering a bad key.
+</code></pre>
+
+<pre><code>An unchecked key text rendered as a key.
+</code></pre>
+
+<pre><code>The widened rule accepts every key the earlier rule accepted, so no older backup becomes newly unreadable.
+</code></pre>
+
+<p>crates/foundry-app/src/keyboard.rs and crates/foundry-services/src/lib.rs</p>
+
+<h6>Y5</h6>
+
+<p>Stressor</p>
+
+<pre><code>Second set, walked over the finished design: negate the assumption that the constraint swap is instant, because a long transaction holds the projects table while the migration waits for its lock.
+</code></pre>
+
+<pre><code>The earlier rule stays in force until the swap completes.
+</code></pre>
+
+<pre><code>Start-up blocks on the lock and the replica does not serve while it waits.
+</code></pre>
+
+<pre><code>Serving while the constraint swap is half applied.
+</code></pre>
+
+<pre><code>The swap is one drop and one add in one transaction, so an interrupted migration leaves the earlier constraint in place.
+</code></pre>
+
+<p>the deploy owner</p>
+
+<h6>Y6</h6>
+
+<p>Stressor</p>
+
+<pre><code>Second set: negate the assumption that no two operators want the same longer key, as two creates race on one new ten-letter key.
+</code></pre>
+
+<pre><code>The unique key per workspace, which refuses the second create.
+</code></pre>
+
+<pre><code>The second create answers 409 with the already-in-use sentence.
+</code></pre>
+
+<pre><code>Two projects of one workspace holding one key.
+</code></pre>
+
+<pre><code>The unique index is untouched by this feature and decides the race.
+</code></pre>
+
+<p>crates/foundry-store</p>
+
+<h6>Y7</h6>
+
+<p>Stressor</p>
+
+<pre><code>Second set: negate the assumption that a longer key still reads well, as a ten-letter key renders in the board header, the dashboard card and every issue key.
+</code></pre>
+
+<pre><code>The key renders verbatim everywhere it appears.
+</code></pre>
+
+<pre><code>A dashboard card key may wrap or clip where the stylesheet gives it a narrow box.
+</code></pre>
+
+<pre><code>A truncated, padded or case-folded key in an issue key.
+</code></pre>
+
+<pre><code>No template states a key length and none truncates, so only the card box is a layout question.
+</code></pre>
+
+<p>crates/foundry-app/templates</p>
+
+<h5>Architectural tests</h5>
+
+<h6>T1</h6>
+
+<pre><code>The operator sentence that refuses a key appears in no source file of the web, services, api and store crates, over every file those crates hold now or gain later; its one home is the refusal Display in foundry-core. The acceptance designer observes it through the real gate CLI over a throwaway copy of the tree, the form the gate already documents: cargo xtask check-arch --root COPY exits non-zero and names the file and line of a planted second copy of the sentence, while the same gate over the unplanted copy exits zero. Before the gate clause is built, the planted copy is accepted, which is the red this obligation starts from.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/project-key-length-one-source.feature</p>
+
+<pre><code>cargo test -p foundry-acceptance --test acceptance
+</code></pre>
+
+<h5>Contract tests</h5>
+
+<h6>T2</h6>
+
+<pre><code>The database admits exactly the keys the domain rule accepts, arm for arm, so the stored rule is never stricter and never looser than the rule the application enforces. The acceptance designer owns the probe file; it needs no production code that does not exist, because it reads the domain verdict from the existing construction point and the database verdict from a real insert.
+</code></pre>
+
+<p>The project key shape: 2 to 10 capital letters A-Z</p>
+
+<p>crates/foundry-core/src/lib.rs:93</p>
+
+<p>crates/foundry-store/migrations/0035_project_key_length.sql:1</p>
+
+<pre><code>For each probe key the domain verdict and the outcome of a real insert into a real Postgres agree
+</code></pre>
+
+<p>crates/foundry-store/tests/project_key_db_rule.rs</p>
+
+<pre><code>cargo test -p foundry-store --test project_key_db_rule
+</code></pre>
+
+<h2>ADRs</h2>
+
+<p>- 001 The project key bound and its sentence have one owner — Accepted</p>
+
+</body></html>

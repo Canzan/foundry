@@ -678,3 +678,185 @@ fn slugify(input: &str) -> String {
     }
     out
 }
+
+// ----- Issue keys under the project key rule -----------------------------
+//
+// Steps for law L4 (an issue key is the project key, a hyphen and the number)
+// and the issue-key half of L6 (a project that carries a shorter key keeps the
+// issue keys it already had and goes on minting them under that same key).
+// "Exactly" means: every listed issue is on the board under that key, no
+// further number of that key is, and no other project's key appears at all.
+
+#[then(regex = r#"^opening the board of "([^"]+)" lists exactly the issues "([^"]+)"$"#)]
+async fn board_lists_exactly(world: &mut FoundryWorld, project_name: String, spec: String) {
+    let url = format!(
+        "/team/backend/project/{slug}",
+        slug = slugify(&project_name)
+    );
+    let body = fetch_url_body(world, &url).await;
+    assert_board_lists_exactly(world, &body, &spec).await;
+}
+
+#[then(regex = r#"^the board she opened lists exactly the issues "([^"]+)"$"#)]
+async fn opened_board_lists_exactly(world: &mut FoundryWorld, spec: String) {
+    let body = world.last_body.clone().expect("a board was opened");
+    assert_board_lists_exactly(world, &body, &spec).await;
+}
+
+#[then(regex = r#"^opening issue (\d+) of "([^"]+)" shows the key "([^"]+)"$"#)]
+async fn issue_page_shows_key(
+    world: &mut FoundryWorld,
+    number: u32,
+    project_name: String,
+    key: String,
+) {
+    let url = format!(
+        "/team/backend/project/{slug}/issues/{number}",
+        slug = slugify(&project_name)
+    );
+    let body = fetch_url_body(world, &url).await;
+    assert!(
+        mentions_issue_key(&body, &key),
+        "WHAT: the page of an issue the operator had already filed does not show the key \
+         {key:?}. WHY: an issue she wrote down by its key must still be reachable and still \
+         carry that key. HOW: render the stored project key and the issue number. Body was:\n\
+         {body}"
+    );
+}
+
+async fn assert_board_lists_exactly(world: &mut FoundryWorld, body: &str, spec: &str) {
+    let expected = parse_issue_key_spec(spec);
+    assert!(
+        !expected.is_empty(),
+        "WHAT: the expected issue list {spec:?} names no issue. WHY: an assertion with no \
+         expected key cannot fail. HOW: name the issue keys the board must show."
+    );
+    for key in &expected {
+        assert!(
+            mentions_issue_key(body, key),
+            "WHAT: the board does not show the issue {key:?}, which the project holds. WHY: an \
+             issue key the operator wrote down must keep appearing, whole and unchanged. HOW: \
+             render each issue as its project key, a hyphen and its number. Board was:\n{body}"
+        );
+    }
+    let mut prefixes: Vec<String> = expected
+        .iter()
+        .filter_map(|k| k.rsplit_once('-').map(|(p, _)| p.to_string()))
+        .collect();
+    prefixes.sort();
+    prefixes.dedup();
+    for prefix in &prefixes {
+        let highest = expected
+            .iter()
+            .filter_map(|k| k.rsplit_once('-'))
+            .filter(|(p, _)| p == prefix)
+            .filter_map(|(_, n)| n.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0);
+        for number in 1..=highest + 3 {
+            let candidate = format!("{prefix}-{number}");
+            if expected.contains(&candidate) {
+                continue;
+            }
+            assert!(
+                !mentions_issue_key(body, &candidate),
+                "WHAT: the board shows {candidate:?}, which is not one of the project's issues. \
+                 WHY: a board that invents or renumbers issue keys gives the operator a key that \
+                 points at nothing. HOW: list each issue once, under its own number."
+            );
+        }
+    }
+    let harness = world.harness.as_ref().expect("harness");
+    let pool = harness.app.state.store.pool();
+    let rows: Vec<(String,)> = sqlx::query_as("SELECT key_prefix FROM projects")
+        .fetch_all(pool)
+        .await
+        .expect("read project keys");
+    for (other,) in rows {
+        if prefixes.contains(&other) {
+            continue;
+        }
+        assert!(
+            !mentions_any_issue_of(body, &other),
+            "WHAT: this board shows an issue keyed {other:?}, which belongs to another project. \
+             WHY: each project's issues must keep their own key; mixed keys send the operator to \
+             the wrong project. HOW: key each issue from its own project. Board was:\n{body}"
+        );
+    }
+}
+
+/// `AU-1, AU-3` or `AU-1 through AU-4` (inclusive), in any mix.
+fn parse_issue_key_spec(spec: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for item in spec.split(',') {
+        let item = item.trim();
+        if item.is_empty() {
+            continue;
+        }
+        match item.split_once(" through ") {
+            Some((first, last)) => {
+                let (prefix, from) = first
+                    .trim()
+                    .rsplit_once('-')
+                    .unwrap_or_else(|| panic!("issue key {first:?} has no number"));
+                let (_, to) = last
+                    .trim()
+                    .rsplit_once('-')
+                    .unwrap_or_else(|| panic!("issue key {last:?} has no number"));
+                let from: u32 = from.parse().expect("first issue number");
+                let to: u32 = to.parse().expect("last issue number");
+                for number in from..=to {
+                    out.push(format!("{prefix}-{number}"));
+                }
+            }
+            None => out.push(item.to_string()),
+        }
+    }
+    out
+}
+
+/// `AU-1` is mentioned by `AU-1` but not by `AU-10`.
+fn mentions_issue_key(body: &str, key: &str) -> bool {
+    let mut from = 0usize;
+    while let Some(at) = body[from..].find(key) {
+        let start = from + at;
+        let after = body[start + key.len()..].chars().next();
+        let before = body[..start].chars().next_back();
+        let digit_follows = after.is_some_and(|c| c.is_ascii_digit());
+        let letter_precedes = before.is_some_and(|c| c.is_ascii_alphanumeric());
+        if !digit_follows && !letter_precedes {
+            return true;
+        }
+        from = start + key.len();
+    }
+    false
+}
+
+/// Any issue key of this project key at all, e.g. `PLATFORMOP-7`.
+fn mentions_any_issue_of(body: &str, prefix: &str) -> bool {
+    let needle = format!("{prefix}-");
+    let mut from = 0usize;
+    while let Some(at) = body[from..].find(&needle) {
+        let start = from + at;
+        let after = body[start + needle.len()..].chars().next();
+        let before = body[..start].chars().next_back();
+        if after.is_some_and(|c| c.is_ascii_digit())
+            && !before.is_some_and(|c| c.is_ascii_alphanumeric())
+        {
+            return true;
+        }
+        from = start + needle.len();
+    }
+    false
+}
+
+/// The operator's own earlier filings, kept as a precondition. Each one goes
+/// through the file-issue form and asserts nothing, so the scenario's own Then
+/// steps report what the issue keys turned out to be.
+#[given(regex = r#"^(\w+) has filed (\d+) issues against "([^"]+)"$"#)]
+async fn has_filed_issues(world: &mut FoundryWorld, who: String, count: u32, project_name: String) {
+    for n in 1..=count {
+        let title = format!("Earlier piece of work {n}");
+        perform_file_issue(world, &who, &project_name, &title).await;
+    }
+}

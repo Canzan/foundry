@@ -377,7 +377,7 @@ proptest! {
     /// and is the LOWEST free candidate (every lower candidate is taken).
     #[test]
     fn a_fallback_address_is_the_lowest_free_candidate(
-        k in "[A-Z]{2,6}",
+        k in "[A-Z]{2,10}",
         taken_slugs in prop::collection::vec(slug_token(), 0..8),
         suffixes in prop::collection::btree_set(2u32..8, 0..6),
         base_taken in any::<bool>(),
