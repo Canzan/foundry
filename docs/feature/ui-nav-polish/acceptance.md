@@ -112,18 +112,18 @@ In a real browser at desk width the operator opens a board holding more work tha
 ```
 
 ```text
-With the page scrolled down, the whole nav still lies inside what she can see, from its top edge to its bottom edge, and every place in it can still be seen and pressed - in both geometries. On a page with nothing to scroll the nav is in view exactly as it has always been.
+With the page scrolled down, the whole nav still lies inside what she can see, from its top edge to its bottom edge, and every place in it can still be seen and pressed - in both geometries. On a page with nothing to scroll the whole nav lies inside what she can see as well: the open nav used to run about ten pixels past the bottom of the window there, because the rail took the height of the whole page frame.
 ```
 
 ```text
-At the bottom of a long board the operator goes somewhere else straight away instead of scrolling back to the top to find the nav.
+At the bottom of a long board the operator goes somewhere else straight away instead of scrolling back to the top to find the nav, and on a page with nothing to scroll no edge of the nav is cut off below her window.
 ```
 
 ##### Disposition
 
 Tested
 
-crates\/foundry\-acceptance\/tests\/features\/ui\-nav\-polish\.feature\: The whole nav is still in view at the bottom of a long page\; A page with nothing to scroll leaves the nav where it has always been
+crates\/foundry\-acceptance\/tests\/features\/ui\-nav\-polish\.feature\: The whole nav is still in view at the bottom of a long page\; On a page with nothing to scroll the whole nav fits her window
 
 ```text
 The nav is held in view by lifting it out of the page rather than by pinning it in place; what the row refuses is the part of it she cannot see or press, so a different mechanism that keeps every place reachable passes.
@@ -281,6 +281,36 @@ A condition is applied to the wrong item - the check reads where the mark comes 
 ```
 
 ###### Obligations
+
+
+##### Covers
+
+P5
+
+```text
+In a real browser the operator looks at a board with the nav beside it, once in the light palette and once in the dark one, and every control she can see on that page is measured as it is drawn for her.
+```
+
+```text
+The word Sign out and the word of the theme control each stand out from the surface behind them at the ratio body text owes, in both palettes, and neither control is asked for a fill or an outline of its own on top of that word; every control that draws no word at all, such as the glyph that narrows the nav, is still identified by its own fill or its outline strongly enough to be found by its shape.
+```
+
+```text
+She reads the two quiet controls as easily as the links beside them, and she can still pick out the controls that carry no word.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/canzan\-theme\-system\.feature\: Board and rail text stays legible in both palettes
+
+```text
+The two quiet controls keep some fill or outline of their own as well; the row reads how legible their words are, so a control that is both legible and outlined passes. What it refuses is a quiet control whose word cannot be read, and a wordless control with nothing to find it by.
+```
+
+###### Obligations
+
 
 
 ## Expectations

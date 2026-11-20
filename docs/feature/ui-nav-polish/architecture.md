@@ -30,6 +30,18 @@ User decision 2026-11-20: hide Invite a member and Machine tokens from operators
 User decision 2026-11-20: the UI clean-up covers groups A to D, delivered as three Requests; this one is group C.
 ```
 
+#### K4
+
+```text
+User decision 2026-11-20: a rail control that draws a glyph and its own word is exempt from the WCAG 1.4.11 boundary rule, exactly as the rail links are. Its text must still obey the WCAG 1.4.3 text-contrast rule.
+```
+
+#### K5
+
+```text
+User decision 2026-11-20: the phone bar's one-fifth bound holds for phones 390 px wide and up; on smaller phones the bar may be taller but shows every destination.
+```
+
 ### Reuse
 
 None.
@@ -120,12 +132,12 @@ Extend
 Mark conditions on the three moved members, the workspace-admin condition on two of them, and the sign-out submit joins the item presentation.
 ```
 
-crates\/foundry\-app\/static\/css\/foundry\.fb3aa227\.css
+crates\/foundry\-app\/static\/css\/foundry\.b3a70ff6\.css
 
 Extend
 
 ```text
-Sticky rail, phone glyph geometry, quiet lower group; the file is then renamed to the sha256 prefix of its new bytes and the old name removed.
+Sticky rail, phone glyph geometry, the clipped workspace name and the quiet lower group. The file carries the sha256 prefix of its own bytes, so any further change renames it again and removes the old name.
 ```
 
 crates\/foundry\-app\/templates\/base\.html
@@ -192,6 +204,7 @@ crates\/foundry\-acceptance\/tests\/features\/ui\-nav\-polish\.feature
 scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 cargo test -p foundry-app nav"
 scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 cargo xtask check-arch"
 scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=ui-nav-polish cargo test -p foundry-acceptance"
+scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=us-cts-01 cargo test -p foundry-acceptance"
 scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=all cargo test -p foundry-acceptance"
 ```
 
@@ -211,6 +224,10 @@ crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature
 
 crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_icon\_rail\.rs
 
+crates\/foundry\-acceptance\/tests\/features\/canzan\-theme\-system\.feature
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_canzan\_theme\.rs
+
 #### Public oracle
 
 ```text
@@ -218,11 +235,11 @@ Through the real public driving port, with a real session cookie: a workspace ad
 ```
 
 ```text
-On each page the one member carrying aria-current=page is the member that owns it - Teams on /teams and its team page, Invite a member on /workspace/invites, Machine tokens on /admin/tokens, Home on the dashboard, Board on the board - and never a second member. The member with no rights and the instance-only super-admin are offered Home, Board and Teams and neither admin link; the workspace admin is offered all five. Every offered href answers her own cookie with a page, never the refusal 404. At desk width the whole rail box lies inside the viewport after the scroll in both geometries, with every member visible. At the phone device the bar is at most 168.8 px high with every member visible, activatable and at least 44 px. The sign-out submit and the theme control resolve to the rail surface fill, no border their neighbour links lack and the same text tier and weight; Sign out still ends the session and the theme control still changes the palette.
+On each page the one member carrying aria-current=page is the member that owns it - Teams on /teams and its team page, Invite a member on /workspace/invites, Machine tokens on /admin/tokens, Home on the dashboard, Board on the board - and never a second member. The member with no rights and the instance-only super-admin are offered Home, Board and Teams and neither admin link; the workspace admin is offered all five. Every offered href answers her own cookie with a page, never the refusal 404. At desk width the whole rail box lies inside the viewport after the scroll in both geometries, with every member visible. At the phone device the bar is at most 168.8 px high with every member visible, activatable and at least 44 px, and the workspace name is still one line that ends in an ellipsis, clipped out of the strip but not out of the document. The sign-out submit and the theme control resolve to the rail surface fill, no border their neighbour links lack and the same text tier and weight; each one draws a glyph and its own word, and that word reaches 4.5:1 against the surface behind it in both palettes, with no fill or border boundary owed; Sign out still ends the session and the theme control still changes the palette.
 ```
 
 ```text
-The shipped build fails it today on every count: /teams, /workspace/invites and /admin/tokens mark Home, the two admin links are offered to a plain member and answer her 404, the rail scrolls away with a long page, the phone bar takes about 320 of 844 px, and the sign-out submit is a filled black slab beside bordered neighbours. Each law also fails on its own plausible wrong implementation: marking the owner member on /teams but leaving Home marked too is caught by exactly-one; hiding the two links from everyone is caught by the workspace-admin row; hiding them by clip instead of by condition is caught by the visible-and-activatable reading; and capping the phone bar height with overflow is caught by the invisible-and-focusable reading.
+The shipped build fails it today on every count: /teams, /workspace/invites and /admin/tokens mark Home, the two admin links are offered to a plain member and answer her 404, the rail scrolls away with a long page, the phone bar takes about 320 of 844 px, and the sign-out submit is a filled black slab beside bordered neighbours. Each law also fails on its own plausible wrong implementation: marking the owner member on /teams but leaving Home marked too is caught by exactly-one; hiding the two links from everyone is caught by the workspace-admin row; hiding them by clip instead of by condition is caught by the visible-and-activatable reading; capping the phone bar height with overflow is caught by the invisible-and-focusable reading; removing the workspace name with display:none on a phone is caught by the one-line-with-ellipsis reading; a quiet control whose word falls below 4.5:1 is caught by the text reading; and exempting every transparent button instead of a control with a visible word is caught by the glyph-only button that still owes a boundary.
 ```
 
 ##### Promises
@@ -272,11 +289,11 @@ Sticky rail: the bare .sidebar rule takes position: sticky, top: 0, align-self: 
 ```
 
 ```text
-Phone bar height: below the 480 px breakpoint the bar draws the GLYPH geometry instead of the word geometry, reusing the shipped folded-rail mechanism - .sidebar__icon becomes visible and .sidebar__label is clipped, never display:none, so each word stays in the accessibility tree and each member is a 44 px thumb square. The two wrapping groups then take about two rows instead of about four, and the workspace name leaves the layout exactly as it already does when the rail is folded. Every destination stays inside the bar and nothing is hidden by a height cap or by overflow.
+Phone bar height: below the 480 px breakpoint the bar draws the GLYPH geometry instead of the word geometry, and reuses the shipped folded-rail mechanism. .sidebar__icon becomes visible and .sidebar__label is clipped, never display:none, so each word stays in the accessibility tree and each member is a 44 px thumb square. The workspace name is clipped out of the flow in the same way, not removed: position absolute, a 1 px box and clip-path inset(50%), with text-overflow and overflow untouched. display:none takes the name out of the layout, and the shipped instance-admin-workspace-rename row reads the name box on a phone; a removed box measures 0 and makes that row red. The clip keeps the element in the document for the promise that reads it, for the same reason the member word is clipped. The two wrapping groups then take about two rows instead of about four. Every destination stays inside the bar, and nothing is hidden by a height cap or by overflow.
 ```
 
 ```text
-Quiet lower group: the sign-out submit and the JS-built .theme-toggle take the presentation of their neighbour links, .sidebar__user a - transparent fill over the rail surface, --cz-muted text, 5 px radius, no border, no bold - so the global black button fill no longer reaches the rail and no fill or border identifies either control as the heaviest thing in the nav. The border .theme-toggle carried for WCAG 1.4.11 goes because the control becomes text-plus-glyph like its neighbours, the same reason .sidebar__user a never needed one; its button role, aria-label, title and click behaviour are untouched. The shared .sidebar__user :focus-visible rule is untouched, so the selection ring still reads as a shape.
+Quiet lower group: the sign-out submit and the JS-built .theme-toggle take the presentation of their neighbour links, .sidebar__user a - transparent fill over the rail surface, --cz-muted text, 5 px radius, no border, no bold - so the global black button fill no longer reaches the rail, and no fill or border makes either control the heaviest thing in the nav. Both controls draw a glyph and their own word, like those neighbour links. The border .theme-toggle carried for WCAG 1.4.11 goes with the user decision of 2026-11-20: a rail control drawn as text plus an icon is exempt from the boundary rule, exactly as the rail links are. The text of both controls keeps the WCAG 1.4.3 obligation at the --cz-muted tier the theme lane already walks. The quiet presentation satisfies no boundary property by itself: the shipped canzan-theme-system walk skips a transparent fill, reads 1:1 for a fill equal to the surface, counts a zero-width border as none and reads no third property. That walk enumerates BUTTONS, so it cannot read the exemption, and the acceptance designer migrates the scope of that law for a rail control drawn as text plus an icon. The button role, aria-label, title and click behaviour of the theme control are untouched, and the shared .sidebar__user :focus-visible rule is untouched, so the selection ring still reads as a shape.
 ```
 
 ```text
@@ -302,7 +319,7 @@ The shipped rail law holds unchanged: nothing in the rail may be invisible AND f
 ```
 
 ```text
-Shipped promises this Request must not break: every rail member carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word and no aria-label (check-arch rail-member); every primary control is at least 44 px high at phone width (pwa-mobile-rendering); no colour literal outside the three stylesheet token regions and the three regions declare the identical token set (check-arch token seam); exactly one primary nav item is current on every authenticated page (navigation-bar-linear-ui).
+Shipped promises this Request must not break: every rail member carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word and no aria-label (check-arch rail-member); every primary control is at least 44 px high at phone width (pwa-mobile-rendering); no colour literal outside the three stylesheet token regions and the three regions declare the identical token set (check-arch token seam); exactly one primary nav item is current on every authenticated page (navigation-bar-linear-ui); the sidebar shows a long workspace name on one line that ends in an ellipsis, on a phone as on a desk (instance-admin-workspace-rename). One shipped promise changes, and only in scope: by the user decision of 2026-11-20 the control-boundary rule of canzan-theme-system (3:1 fill or border for every visible button inside .app-shell) reads a rail control drawn as text plus an icon for text contrast instead.
 ```
 
 ```text
@@ -363,17 +380,17 @@ The one owner of every rail member. The three moved destinations gain the mark c
 
 sidebar\_\_label
 
-crates\/foundry\-app\/static\/css\/foundry\.fb3aa227\.css\:1094
+crates\/foundry\-app\/static\/css\/foundry\.b3a70ff6\.css\:1114
 
 Reuse
 
 ```text
-The folded geometry already clips the word rather than removing it, which is exactly what the phone bar needs; reusing the mechanism keeps one answer to how a glyph-only member keeps its accessible name.
+The folded geometry clips the word instead of removing it, which is what the phone bar needs and what the workspace name needs. Reusing the mechanism keeps one answer to how a glyph-only member keeps its accessible name and how a clipped element stays readable for the promise that measures it.
 ```
 
-home\_for
+teams\_for
 
-crates\/foundry\-app\/src\/teams\.rs\:1203
+crates\/foundry\-app\/src\/teams\.rs\:1205
 
 Extend
 
@@ -381,24 +398,24 @@ Extend
 The single nav assembly for every /teams page and its descendants, so one edit marks Teams on all of them.
 ```
 
-home\_for
+invites\_for
 
 crates\/foundry\-app\/src\/member\_invites\.rs\:100
 
 Extend
 
 ```text
-Both invite renders (form at 100 and sent fragment at 140) assemble the rail here; both become invites_for.
+Both invite renders assemble the rail here, the form at 100 and the sent fragment at 140, and both name Invite a member.
 ```
 
-home\_for
+nav\_for
 
-crates\/foundry\-app\/src\/admin\_tokens\.rs\:70
+crates\/foundry\-app\/src\/admin\_tokens\.rs\:64
 
 Extend
 
 ```text
-Four renders in this module assemble the rail (70, 107, 170, 393); all four become tokens_for, which is why the prefactoring move pulls them into one private helper first.
+One private helper assembles the rail for all four token renders, so the section this module marks is named once. It is the target of the prefactoring move.
 ```
 
 NAV\_PROBE
@@ -411,24 +428,24 @@ Extend
 The one live reading of the rail already returns each member box, its visibility, its accessible name and which member is marked; the sticky and phone-height readings are two more fields of the SAME probe, so a geometry fact and a mark fact cannot come from two moments. Acceptance support, owned by the acceptance designer.
 ```
 
-foundry\.fb3aa227\.css
+foundry\.b3a70ff6\.css
 
 crates\/foundry\-app\/templates\/base\.html\:6
 
 Extend
 
 ```text
-The serving reader of the stylesheet name; the link takes the new hash, no new head member and no second stylesheet.
+The serving reader of the stylesheet name. The link carries the content hash, with no new head member and no second stylesheet.
 ```
 
-foundry\.fb3aa227\.css
+foundry\.b3a70ff6\.css
 
 crates\/foundry\-app\/static\/VENDOR\.md\:33
 
 Extend
 
 ```text
-The auditor row for the hand-authored stylesheet; its name and sha256 are recomputed in place.
+The auditor row for the hand-authored stylesheet. Its name and its sha256 are recomputed in place, and check-arch refuses a mismatch.
 ```
 
 static\_cache\_control\_value
@@ -475,12 +492,12 @@ Mark conditions on three members, the workspace-admin condition on two of them, 
 
 stylesheet
 
-crates\/foundry\-app\/static\/css\/foundry\.fb3aa227\.css\:984
+crates\/foundry\-app\/static\/css\/foundry\.b3a70ff6\.css\:984
 
 Migrated
 
 ```text
-Sticky rail, phone glyph geometry and the quiet lower group change the bytes, so the content-hashed name changes with them; the old name is removed in the same change.
+Sticky rail, phone glyph geometry, the clipped workspace name and the quiet lower group change the bytes, so the content-hashed name changes with them and the old name is removed in the same change.
 ```
 
 template\-head
@@ -635,12 +652,12 @@ No horizontal overflow, the 44 px thumb target, the rail not at full width on a 
 
 acceptance\-oracle
 
-crates\/foundry\-acceptance\/tests\/features\/canzan\-theme\-system\.feature\:140
+crates\/foundry\-acceptance\/tests\/features\/canzan\-theme\-system\.feature\:159
 
-UnchangedCompatible
+Migrated
 
 ```text
-It pins the focus ring as a shape, rail and board legibility in both palettes and the token seam. The quiet lower group keeps the focus rule, names only tokens and keeps --cz-muted text, which is the tier it already walks.
+Its two control-boundary rows demand 3:1 from every visible button inside .app-shell, so they refuse the quiet sign-out submit and the quiet theme control: the crafter measured 0.00:1 in the dark palette and the same in the light one. The user decision of 2026-11-20 exempts a rail control drawn as text plus an icon from that boundary rule and keeps its text-contrast duty, so the scope of this law changes. The acceptance designer owns these rows and migrates them; the lane is a support of this slice, never a production target. The focus-ring row, the body-text rows and the token-seam row stay true and are not edited.
 ```
 
 acceptance\-oracle
@@ -651,6 +668,26 @@ UnchangedCompatible
 
 ```text
 It asserts the Integrations item for a workspace admin and its absence otherwise, on the same fact and the same condition this Request reuses; nothing it reads changes.
+```
+
+acceptance\-steps
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_canzan\_theme\.rs\:2264
+
+Migrated
+
+```text
+CONTROL_BOUNDARY_PROBE and its assertion hold the enumeration the two migrated rows read: button, .button and submit input inside .app-shell. The exemption for a rail control that draws a glyph and its own word belongs here, together with the text-contrast reading that replaces the boundary reading for those two controls. Owner: acceptance designer.
+```
+
+acceptance\-oracle
+
+crates\/foundry\-acceptance\/tests\/features\/instance\-admin\-workspace\-rename\.feature\:234
+
+UnchangedCompatible
+
+```text
+Its phone row reads the workspace name box and asks for one line that ends in an ellipsis. The phone bar clips the name out of the flow and keeps the element, its overflow and its text-overflow, so the row stays true. display:none measures a 0 box and makes the row red, which is why the mechanism is a clip. No row of this lane is edited.
 ```
 
 ##### Agreement
@@ -705,7 +742,7 @@ NavContext.is_workspace_admin is the one presentation projection of that fact, a
 
 The served stylesheet filename carries the sha256 prefix of its own bytes\, and every reader names the same filename\.
 
-crates\/foundry\-app\/static\/css\/foundry\.fb3aa227\.css\:1
+crates\/foundry\-app\/static\/css\/foundry\.b3a70ff6\.css\:1
 
 Producer
 
@@ -1184,7 +1221,7 @@ None.
 ###### L7
 
 ```text
-In the lower group the sign-out submit and the theme control resolve to the same fill as the rail surface, no border their neighbour links lack and the same text tier and weight as those links; and both still act - one press of Sign out ends the session, one press of the theme control changes the palette.
+In the lower group the sign-out submit and the theme control resolve to the same fill as the rail surface, no border their neighbour links lack and the same text tier and weight as those links; and both still act - one press of Sign out ends the session, one press of the theme control changes the palette. Each control draws a glyph and its own visible word, and that text reaches 4.5:1 against the surface behind it in both palettes; neither control owes a 3:1 fill or border boundary, because a rail control drawn as text plus an icon is exempt from WCAG 1.4.11. A control inside .app-shell that draws no visible word keeps the boundary rule.
 ```
 
 Invariant
@@ -1220,7 +1257,15 @@ scripting off: no theme control exists and the sign-out submit alone carries the
 ```
 
 ```text
-Two controls, two palettes and one with-scripting / without-scripting split: a closed enumeration of readings on one document.
+both palettes: the sign-out word and the theme-control word each reach 4.5:1 against the rail surface, and neither control is read for a fill or border boundary
+```
+
+```text
+a button inside .app-shell with no visible word, for example a glyph-only icon button: the 3:1 fill or border boundary still holds for it
+```
+
+```text
+Two controls, two palettes and one with-scripting / without-scripting split, plus the exempt and the non-exempt shape: a closed enumeration of readings on one document.
 ```
 
 ###### Evidence
@@ -1251,6 +1296,30 @@ The rail carrier holds no request path and the template is given none; adding on
 
 ```text
 A team page /team/general/members has a path no primary member equals, so a path comparison marks nothing there while the owner-family rule marks Teams.
+```
+
+```text
+The quiet lower group satisfies the shipped canzan-theme-system control-boundary law unchanged, because a control drawn as text plus an icon needs no fill and no border to identify it.
+```
+
+```text
+Law scope, not the stylesheet. The shipped walk enumerates every visible button inside .app-shell and asks for 3:1 from the better of the own opaque fill and the border. It skips a transparent fill, counts a zero-width border as none and reads no third property, so the text-plus-icon argument never reaches the checker. The theme control has no escape at all, because its fill is the very surface it is measured against. Only the scope of that law can change, and only the acceptance designer owns it.
+```
+
+```text
+Dark palette: button.sidebar__item [Sign out] computes 0.00:1 against #0f1312, and the light twin computes the same against #f3f4f1. Rows red: every large-text and control-boundary pair reaches at least 3 to 1, and the same holds when the device preference is light.
+```
+
+```text
+On a phone the workspace name can leave the layout with display:none, exactly as it does when the rail is folded.
+```
+
+```text
+The carrier of the promise is the name box itself. A shipped row measures that box on a phone, so the element must stay in the document. The clip the design already blesses for a member word is the mechanism: position absolute, a 1 px box and clip-path inset(50%), with overflow and text-overflow untouched.
+```
+
+```text
+instance-admin-workspace-rename, phone row: the sidebar shows the workspace name on one line ending in an ellipsis. With display:none the reading is scrollWidth 0 and clientWidth 0, so the row goes red. With the clip the same row passes and the bar still measures two rows.
 ```
 
 ##### Claims
@@ -1905,6 +1974,58 @@ The new check-arch obligation that no rail member carries aria-current outside a
 
 crafter
 
+###### Y8
+
+Bypass
+
+```text
+The 1.4.11 exemption is a scope rule inside the acceptance walk, not a property of the stylesheet. A future rail control can drop its visible word, and a new quiet button can be added inside the rail. No Rust type and no gate refuses either one.
+```
+
+```text
+Every rail control that draws a glyph and its own word keeps the WCAG 1.4.3 text ratio, and every other button inside .app-shell keeps the 3:1 fill or border rule.
+```
+
+```text
+A glyph-only rail control is read for the boundary rule and stays red until it carries a fill or a border.
+```
+
+```text
+An exemption that reads the fill, the tag or the class instead of the visible word, because that skips every transparent button in the shell.
+```
+
+```text
+The migrated walk reads the visible word of the control, so the exemption cannot widen by itself. The L7 case that keeps the boundary rule for a button with no visible word is the standing check.
+```
+
+acceptance\-designer
+
+###### Y9
+
+Stressor
+
+```text
+Negate the assumption that a word and a glyph are enough to show a control: the operator needs a boundary, for example in forced-colours mode or with a high-contrast need.
+```
+
+```text
+Forced-colours mode draws its own boundaries from the user agent, and the shared .sidebar__user :focus-visible outline still reads as a shape for the keyboard.
+```
+
+```text
+In the normal palette the two rail controls read as quiet items, like the rail links beside them.
+```
+
+```text
+Removing the focus outline, or hiding the word or the glyph of either control.
+```
+
+```text
+The user decision of 2026-11-20 accepts this residue for a rail control drawn as text plus an icon; the rail links already carry the same one.
+```
+
+product\-owner
+
 ##### Architectural tests
 
 ###### T1
@@ -1926,3 +2047,4 @@ None.
 ## ADRs
 
 - NAV\-POLISH\-001 Nav marks its own page and offers only what opens — Accepted
+- NAV\-POLISH\-002 Rail text\-plus\-glyph controls owe text contrast\, not a boundary — Accepted
