@@ -136,7 +136,7 @@
 "B": 2,
 "C": 2,
 "E": 9,
-"F": 250,
+"F": 258,
 "K": 3,
 "L": 6,
 "P": 4,
@@ -881,6 +881,75 @@
 }
 }
 },
+"examination": {
+"E1": {
+"observations": [
+"F251",
+"F252",
+"F253"
+],
+"verdict": "met"
+},
+"E2": {
+"observations": [
+"F251"
+],
+"verdict": "met"
+},
+"E3": {
+"observations": [
+"F254",
+"F255"
+],
+"verdict": "met"
+},
+"E4": {
+"observations": [
+"F255",
+"F256",
+"F252",
+"F253"
+],
+"verdict": "met"
+},
+"E5": {
+"observations": [
+"F254",
+"F255"
+],
+"verdict": "met"
+},
+"E6": {
+"observations": [
+"F255",
+"F256",
+"F252"
+],
+"verdict": "met"
+},
+"E7": {
+"observations": [
+"F256",
+"F253"
+],
+"verdict": "met"
+},
+"E8": {
+"observations": [
+"F257",
+"F252",
+"F253"
+],
+"verdict": "met"
+},
+"E9": {
+"observations": [
+"F258",
+"F253"
+],
+"verdict": "met"
+}
+},
 "expectations": {
 "rows": [
 {
@@ -1123,6 +1192,14 @@
 "F249": "Reachability and the offering SURFACE are different promises: an oracle that deliberately excludes the shell sidebar is asserting that the page body itself offers the link, which the nav copy cannot satisfy.",
 "F25": "The three new items carry no aria-current and NavSection keeps its two variants (Home, Board). Home therefore stays the single marked section on /teams, /workspace/invites and /admin/tokens exactly as it already is on /account/settings and /keyboard-help, so \"exactly one primary navigation item is marked as the current page\" (navigation-bar-linear-ui, notification-preferences-ui) keeps holding with five primary members instead of two.",
 "F250": "external-integration-plugins-06-finding-integrations.feature:26-28 and the Priya row at :36 count link_hrefs (support/external_integration_plugins.rs:3833, in_sidebar filtered) and demand exactly one; the host default lane failed both with left 0, right 1. The analogous instance-admin reading at support/instance_integration_setup.rs:969 is NOT affected: it reads /admin/instance/workspaces, whose own body carries that link.",
+"F251": "Post-change open left nav, browser lane at 1280x800, observed on three app pages (/, /team/general/project/sandbox, /teams): navigation landmark \"Primary\" (x=12 w=215 y=78 h=183) holds exactly Home, Board, Teams, Invite a member, Machine tokens in that order, each visible with its own word painted and seen (\"Teams\" w=42, \"Invite a member\" w=104, \"Machine tokens\" w=102). Priya's full tab order on Home is: collapse control, Home, Board, Teams, Invite a member, Machine tokens, then Settings, Keyboard shortcuts, Integrations, Instance admin, Sign out button, Theme button, then the two project links. The three new entries therefore sit immediately after Board inside the top navigation landmark, while the utility items sit outside that landmark at x=20 w=199.\n",
+"F252": "One press from the page the operator is on: in the browser lane, signed in as Priya on /team/general/project/sandbox, clicking the nav link \"Teams\" moved straight to /teams (status 200, \"the page changed\"), with no intervening menu, page or confirm step, and the same five-member top group was present on the destination. Over real HTTP the destinations answer directly: Priya and Tomas each get 200 with titles Teams, Invite a member and Machine tokens on /teams, /workspace/invites and /admin/tokens; Lena gets 200 on /teams and 404 on /workspace/invites and /admin/tokens; signed out, GET / lands on /sign-in and all three destinations are 404. Lena saw Invite a member and Machine tokens in Home Quick actions before the change as well, so the destination-level refusal she meets is unchanged by the move.\n",
+"F253": "Residual capture gaps of this examination. The press was driven only for Teams in the open nav; Invite a member and Machine tokens were observed as visible, focusable nav links with matching accessible names and their destinations answered a direct address, but no press was driven through them, and no press was driven on any icon of the folded rail. The Sign out effect was not exercised, so the nav Sign out was compared by presence only. Lena's and Tomas's bottom-group membership was read from the count of links outside the Primary landmark rather than an enumerated tab order. Pages sampled were Home, one board page and /teams (plus /sign-in signed out); /settings does not exist in this build (404), and no error, empty-project or long-name page was observed at narrow width. Viewers sampled were Priya, Tomas, Lena and signed out, in the single fixture state slack-connected.\n",
+"F254": "Post-change Home (GET /, same fixture state) for Priya, Tomas and Lena carries no Quick actions heading, no ul.actions and no second copy of the moved links: the whole main content is the Foundry brand line, \"Welcome back, <name>\", \"Workspace: Canzan Labs\" and \"Your projects\". Priya still lists AUTH Identity Platform -> /team/backend/project/identity-platform and GEN Sandbox -> /team/general/project/sandbox, Lena still lists AUTH Identity Platform, and Tomas still shows the same empty state sentence as before the change, \"You're not on any team yet - ask a workspace admin to add you.\" On Priya's post-change Home the browser lane counts 6 links outside the Primary navigation landmark, which the full tab order accounts for as the four bottom-group nav links plus her two project links, so no moved link is duplicated in the page body.\n",
+"F255": "Pre-change baseline, same fixture state (slack-connected) built with examine-foundry start --before, GET / per viewer. Home carried a Quick actions section whose links were: Priya (instance admin, workspace admin, team lead) Teams -> /teams, Invite a member -> /workspace/invites, Machine tokens -> /admin/tokens, Integrations -> /workspace/integrations, Keyboard shortcuts -> /keyboard-help, Instance admin -> /admin/instance/workspaces, Sign out (POST /sign-out); Tomas (workspace admin, no team) the same minus Instance admin; Lena (plain member, team lead) Teams, Invite a member, Machine tokens, Keyboard shortcuts, Sign out, with no Integrations and no Instance admin. Before the change the open left nav top group held only Home and Board (navigation \"Primary\" y=78 h=72), and Priya's Home carried two Sign out buttons (nav and Quick actions).\n",
+"F256": "Who sees what, before against after, same fixture state. Priya: before 7 Quick actions links, after all 7 offered in the nav (Teams, Invite a member, Machine tokens in the top group; Integrations, Keyboard shortcuts, Instance admin and the Sign out button in the bottom group), read from her full tab order. Lena: before Teams, Invite a member, Machine tokens, Keyboard shortcuts, Sign out and no Integrations or Instance admin; after, the three are in her top group and the browser lane counts only 3 links outside the Primary landmark (Settings, Keyboard shortcuts and her single project link), so she still has no Integrations and no Instance admin. Tomas: before the same set as Priya minus Instance admin; after, the three are in his top group and only 3 links sit outside the Primary landmark (Settings, Keyboard shortcuts, Integrations) with no project link, matching his pre-change set. No sampled viewer gained or lost an offered destination; only its place changed.\n",
+"F257": "Folded icon rail, browser lane at 1280x800 after pressing \"Left nav: expanded. Collapse the left nav.\": the rail is 72 px wide, the Primary navigation landmark is 40 px wide and 208 px tall and still holds Home, Board, Teams, Invite a member, Machine tokens, each link visible and focusable with its accessible name intact. At rest each name is unpainted (\"not seen at its centre (clipped or covered)\"), so the entries show as icons. Hovering Teams paints \"Teams\" beside the rail (x=64 w=57 h=27 seen). Keyboard focus paints the name for every rail member in turn: Home, Board, Teams, Invite a member and Machine tokens, and onward Settings, Keyboard shortcuts, Integrations, Instance admin and Sign out, so the operator can learn each destination without unfolding the nav.\n",
+"F258": "Narrow viewports, browser lane with --phone. Nav folded (Priya): Home at 320, 390 and 480 px reports \"horizontal scroll: no\", no box scrolling sideways inside the page and no box reaching past the right edge. Nav unfolded (Lena): Home at 320, 390 and 480 px and /teams at 320 px report the same clean result. Nav folded on the board page /team/general/project/sandbox: the page itself does not scroll sideways at 320 or 480 px, but an inner lane container does (div, 288 px box with 692 px content at 320; 448 px box with 692 px content at 480), and the boxes listed past the right edge (22 at 320, 11 at 480: section, h3, lane title, button, empty-state text) are all inside that lane strip, which is the board's own sideways lane scroller rather than page-level sideways scroll.\n",
 "F26": "The stylesheet is not touched. The three items reuse .sidebar__item, .sidebar__icon and .sidebar__label, and both the desk collapsed rules and the max-width 480px block already make .sidebar__nav and .sidebar__user wrapping rows bounded by the bar (flex-wrap: wrap with min-width: 0), which is quantified over members and not over a member count. foundry.fb3aa227.css is content-hash named, so any byte change migrates templates/base.html, static/VENDOR.md and three hashed-name assertions in crates/foundry-app/src/lib.rs; spending that for rules that need no change is refused. The .actions rules become unreferenced and stay in place until the next stylesheet change re-fingerprints the file.",
 "F27": "Subtraction the removal makes available: DashboardRoot drops is_instance_admin, is_workspace_admin and csrf. Once the Quick actions list is gone those three fields have no reader, and the same three facts already reach the page through the nav field. The handler keeps computing all three, unchanged and fail-closed, because NavContext::for_page consumes them.",
 "F28": "Glyphs come from the release static/VENDOR.md already pins, lucide-static 1.75.0 (ISC): users for Teams, user-plus for Invite a member, key-round for Machine tokens. The shape children of package/icons/<name>.svg are copied verbatim in upstream order; the svg wrapper is authored like the seven shipped ones (class sidebar__icon, aria-hidden true, focusable false, no title element, stroke currentColor, no fill or colour literal). VENDOR.md gains the three names and its \"all seven\" count becomes ten.",
