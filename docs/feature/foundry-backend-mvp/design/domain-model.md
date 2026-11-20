@@ -165,7 +165,7 @@ If `Project` were the root, every comment write would need to load the whole pro
 ### Project
 - **I-P1**: Project `slug` is unique within a team.
 - **I-P2**: Project `key` (prefix) is unique within a workspace. Two teams cannot both have a project with key `AUTH`.
-- **I-P3**: `key` matches regex `^[A-Z]{2,6}$`.
+- **I-P3**: `key` matches regex `^[A-Z]{2,10}$` (widened from `^[A-Z]{2,6}$` by project-key-length, ADR-001; migration 0035).
 - **I-P4**: `next_issue_number >= 1` always.
 
 ### Issue

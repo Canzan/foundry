@@ -277,7 +277,8 @@ fn lane_set_strategy() -> impl Strategy<Value = Vec<(String, i32)>> {
         .prop_shuffle()
 }
 
-/// A unique `^[A-Z]{2,6}$` key prefix per proptest case (I-P3 CHECK).
+/// A unique key prefix of 2 to 6 capital letters per proptest case, inside the
+/// I-P3 CHECK (`^[A-Z]{2,10}$` since migration 0035).
 fn case_prefix(n: u32) -> String {
     let first = char::from(b'A' + (n / 26 % 26) as u8);
     let second = char::from(b'A' + (n % 26) as u8);

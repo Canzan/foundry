@@ -11,7 +11,7 @@ or "🚀" mints the empty slug. `projects.slug` accepts `""`, but no route match
 segment, so the project is created and unreachable; a second such name collides on `""` and is
 refused as a duplicate name. The user chose (OQ-1, OQ-3) to mint the lower-cased key prefix
 instead, with the lowest free `-N` suffix from 2 on collision, and never to refuse because of a
-fallback. The key prefix is validated (`^[A-Z]{2,6}$`) before the mint. The `UNIQUE (team_id, slug)`
+fallback. The key prefix is validated (`^[A-Z]{2,6}$` when this ADR was written; `^[A-Z]{2,10}$` since project-key-length, ADR-001) before the mint. The `UNIQUE (team_id, slug)`
 index backstops the check-then-insert. Today its violation maps to
 `ProjectInsertError::DuplicateName`, which the handler renders as "Project name must be unique
 within the team" - wrong copy for a slug the user did not choose.
