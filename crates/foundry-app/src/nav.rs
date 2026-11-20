@@ -10,18 +10,30 @@
 //! re-authorizes nothing.
 
 /// The active primary sidebar item. Exactly one value is chosen per
-/// authenticated page (FR-4 / AC-03.3: never zero, never two). Two variants
-/// only, while the rail has FIVE primary destinations: Teams, Invite a member
-/// and Machine tokens (nav-quick-actions) mark no section, so on each of them
-/// `Home` is the marked item, exactly as on `/account/settings` today.
+/// authenticated page (FR-4 / AC-03.3: never zero, never two).
+///
+/// ONE FIELD, FIVE VARIANTS (ui-nav-polish P1, ADR-NAV-POLISH-001). The marked
+/// member is derived by EQUALITY on this sum, so a rail that marks two members —
+/// or none — cannot be built here: there is no second marker to set and no bool
+/// per item to forget. Each variant is the page family that OWNS the member, and
+/// `Home` is also the fallback for every authed surface no primary member owns
+/// (account settings, project create, instance admin, unsubscribe).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavSection {
-    /// Dashboard `/` AND every non-board authed surface (tokens, invites,
-    /// project-create, instance admin). Home is the app's default/hub section.
+    /// Dashboard `/` AND every authed surface no primary member owns
+    /// (account settings, project create, instance admin, unsubscribe). Home is
+    /// the app's default/hub section.
     Home,
     /// The board route family `/team/{slug}/project/{slug}` and its descendants
     /// (board, change report, issue detail).
     Board,
+    /// `/teams` and its descendants (the team list, a team's own page, its
+    /// members) — the destination every signed-in operator is offered.
+    Teams,
+    /// `/workspace/invites` — the invite form and its "invite sent" render.
+    Invites,
+    /// `/admin/tokens` — every machine-token render of that surface.
+    Tokens,
 }
 
 /// Everything the shared sidebar needs, assembled ONCE per authenticated page
@@ -111,8 +123,9 @@ impl NavContext {
     /// (the `/team/{slug}/project/{slug}` route family: board, change report,
     /// issue detail). Identical identity resolution to [`Self::home_for`],
     /// differing only in the active section. The board family is the SOLE surface
-    /// that marks `Board` current; every other authed page uses `home_for`, so
-    /// exactly one primary item is ever current (FR-4: never zero, never two).
+    /// that marks `Board` current, exactly as each of the three siblings below is
+    /// the sole surface that marks its own member, so exactly one primary item is
+    /// ever current (FR-4: never zero, never two).
     pub(crate) async fn board_for(
         state: &crate::AppState,
         user_id: uuid::Uuid,
@@ -127,6 +140,67 @@ impl NavContext {
             is_instance_admin,
             csrf,
             NavSection::Board,
+        )
+        .await
+    }
+
+    /// Assemble the `Teams`-section rail for `/teams` and its descendants
+    /// (ui-nav-polish P1). Same identity resolution as [`Self::home_for`],
+    /// differing only in the section the page names for itself.
+    pub(crate) async fn teams_for(
+        state: &crate::AppState,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        is_instance_admin: bool,
+        csrf: String,
+    ) -> Self {
+        Self::resolved(
+            state,
+            user_id,
+            workspace_id,
+            is_instance_admin,
+            csrf,
+            NavSection::Teams,
+        )
+        .await
+    }
+
+    /// Assemble the `Invites`-section rail for `/workspace/invites`
+    /// (ui-nav-polish P1). Same identity resolution as [`Self::home_for`].
+    pub(crate) async fn invites_for(
+        state: &crate::AppState,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        is_instance_admin: bool,
+        csrf: String,
+    ) -> Self {
+        Self::resolved(
+            state,
+            user_id,
+            workspace_id,
+            is_instance_admin,
+            csrf,
+            NavSection::Invites,
+        )
+        .await
+    }
+
+    /// Assemble the `Tokens`-section rail for `/admin/tokens`
+    /// (ui-nav-polish P1). Same identity resolution as [`Self::home_for`].
+    pub(crate) async fn tokens_for(
+        state: &crate::AppState,
+        user_id: uuid::Uuid,
+        workspace_id: uuid::Uuid,
+        is_instance_admin: bool,
+        csrf: String,
+    ) -> Self {
+        Self::resolved(
+            state,
+            user_id,
+            workspace_id,
+            is_instance_admin,
+            csrf,
+            NavSection::Tokens,
         )
         .await
     }
@@ -184,6 +258,21 @@ impl NavContext {
     /// Whether the Board primary item is the current page.
     pub fn is_board(&self) -> bool {
         self.active == NavSection::Board
+    }
+
+    /// Whether the Teams primary item is the current page.
+    pub fn is_teams(&self) -> bool {
+        self.active == NavSection::Teams
+    }
+
+    /// Whether the Invite-a-member primary item is the current page.
+    pub fn is_invites(&self) -> bool {
+        self.active == NavSection::Invites
+    }
+
+    /// Whether the Machine-tokens primary item is the current page.
+    pub fn is_tokens(&self) -> bool {
+        self.active == NavSection::Tokens
     }
 }
 
@@ -282,9 +371,9 @@ mod tests {
         }
     }
 
-    /// Behaviour 2 — the active-section predicates are a total, mutually
-    /// exclusive pair: exactly one of `is_home()` / `is_board()` is true, driven
-    /// by `active` (FR-4: never zero, never two).
+    /// Behaviour 2 — the active-section predicates are total and mutually
+    /// exclusive: the predicate of the named section is true and every other one
+    /// is false, driven by `active` (FR-4: never zero, never two).
     #[test]
     fn active_section_selects_exactly_one_primary_predicate() {
         let home = nav_with("Acme", NavSection::Home);
@@ -294,6 +383,18 @@ mod tests {
         let board = nav_with("Acme", NavSection::Board);
         assert!(board.is_board(), "Board active → is_board() true");
         assert!(!board.is_home(), "Board active → is_home() false");
+
+        let teams = nav_with("Acme", NavSection::Teams);
+        assert!(teams.is_teams(), "Teams active → is_teams() true");
+        assert!(!teams.is_home(), "Teams active → is_home() false");
+
+        let invites = nav_with("Acme", NavSection::Invites);
+        assert!(invites.is_invites(), "Invites active → is_invites() true");
+        assert!(!invites.is_home(), "Invites active → is_home() false");
+
+        let tokens = nav_with("Acme", NavSection::Tokens);
+        assert!(tokens.is_tokens(), "Tokens active → is_tokens() true");
+        assert!(!tokens.is_home(), "Tokens active → is_home() false");
     }
 
     /// Behaviour 3 (04-02 ADR-003) — the Board deep-link is the workspace's FIRST
@@ -332,9 +433,19 @@ mod tests {
     /// milliseconds, instead of only under a live-Postgres acceptance run.
     #[test]
     fn every_nav_section_marks_exactly_one_primary_item_current() {
-        for active in [NavSection::Home, NavSection::Board] {
+        for active in [
+            NavSection::Home,
+            NavSection::Board,
+            NavSection::Teams,
+            NavSection::Invites,
+            NavSection::Tokens,
+        ] {
             let nav = nav_with("Acme", active);
-            let current = usize::from(nav.is_home()) + usize::from(nav.is_board());
+            let current = usize::from(nav.is_home())
+                + usize::from(nav.is_board())
+                + usize::from(nav.is_teams())
+                + usize::from(nav.is_invites())
+                + usize::from(nav.is_tokens());
             assert_eq!(
                 current, 1,
                 "exactly one primary item must be current for {active:?}, got {current}"

@@ -97,7 +97,7 @@ pub async fn show_invite_form(
     // sign-out form is cookie-matched) and the admin's REAL instance-admin authority
     // (a workspace admin is not necessarily an instance super-admin) — 04-03.
     let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, admin.user_id).await;
-    let nav = crate::nav::NavContext::home_for(
+    let nav = crate::nav::NavContext::invites_for(
         &state,
         admin.user_id,
         admin.workspace_id,
@@ -137,7 +137,7 @@ pub async fn submit_invite(
     // Shared sidebar carrier for the (full-page) invite surface — used by the
     // blank-email re-render below AND the "invite sent" confirmation. Both are
     // mutually-exclusive paths, so `nav` moves into exactly one.
-    let nav = crate::nav::NavContext::home_for(
+    let nav = crate::nav::NavContext::invites_for(
         &state,
         admin.user_id,
         admin.workspace_id,

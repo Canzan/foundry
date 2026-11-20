@@ -116,6 +116,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_static_asset_integrity(root));
     violations.extend(check_pre_paint_scripts_are_render_blocking(root));
     violations.extend(check_sidebar_rail_members(root));
+    violations.extend(check_sidebar_mark_carrier(root));
     violations.extend(check_stylesheet_colour_seam(root));
     violations.extend(check_stylesheet_dark_block_parity(root));
     violations.extend(check_workspace_name_one_source(root));
@@ -178,7 +179,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, every head script of the document shell whose asset names a browser store and names documentElement is render-blocking — none carries defer, async or type=module — and every other head script of that shell carries defer, so none of them sits on the render-blocking path for nothing (pre-paint-script), every member of the left-nav partial — each sidebar__item and the sign-out button — carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word and no aria-label, enumerated from the file rather than counted (rail-member), no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened and the secrets key unwrapped only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no production src outside foundry-store's integrations instance module names an instance integration table in SQL (integrations-instance-tables), no production src writes a sealed column outside the fenced store functions (integrations-seal-fence), every naming of the worker's claimant seam, the outbound seam or the generated-key seam is gated on test-support, the claimant and generated-key seams carry their unique markers and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying either marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, every head script of the document shell whose asset names a browser store and names documentElement is render-blocking — none carries defer, async or type=module — and every other head script of that shell carries defer, so none of them sits on the render-blocking path for nothing (pre-paint-script), every member of the left-nav partial — each sidebar__item and the sign-out button — carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word and no aria-label, enumerated from the file rather than counted (rail-member), every aria-current and every sidebar__item--active of that partial sits inside an {{% if nav.is_...() %}} condition over the carrier's active section, with no literal mark and no condition shared by two members (mark-carrier), no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened and the secrets key unwrapped only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no production src outside foundry-store's integrations instance module names an instance integration table in SQL (integrations-instance-tables), no production src writes a sealed column outside the fenced store functions (integrations-seal-fence), every naming of the worker's claimant seam, the outbound seam or the generated-key seam is gated on test-support, the claimant and generated-key seams carry their unique markers and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying either marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -2219,6 +2220,157 @@ fn check_sidebar_rail_members(root: &Path) -> Vec<String> {
         }
     }
     violations
+}
+
+/// LAYER 1l — the mark-comes-from-the-carrier law (ui-nav-polish T1 / L1, C1).
+///
+/// In `templates/partials/sidebar.html` the current-page mark comes from the
+/// carrier and from nowhere else: every `aria-current` and every
+/// `sidebar__item--active` sits inside an `{% if nav.is_…() %}` condition, none
+/// is written literally, and no two members share one condition.
+///
+/// WHY A GATE AND NOT A TYPE. `NavContext.active` is ONE field of a five-member
+/// sum, so Rust already refuses a carrier that names two sections. What Rust
+/// cannot see is the TEMPLATE: an `aria-current="page"` typed into a member
+/// unconditionally marks that member on every page, and one condition reused on
+/// two members marks both. Either emits the second or wrong mark the carrier
+/// exists to exclude, and the operator then cannot tell where she is — or
+/// believes she is somewhere she is not.
+///
+/// A PREDICATE CALL, NOT A FACT. The guard must be a method call on the carrier
+/// (`nav.is_teams()`), which is what the active-section predicates are; the
+/// rail's rights facts (`nav.is_workspace_admin`, `nav.is_instance_admin`) are
+/// plain bool fields and read without parentheses. So a mark guarded by a rights
+/// fact instead of by the page the operator is on is refused by the same rule:
+/// the two questions are "where is she" and "what may she open", and only the
+/// first one decides a mark.
+///
+/// IT ENUMERATES, IT DOES NOT COUNT, and it fails closed on a partial it cannot
+/// read or one with no member at all — a law that holds over nothing passes for
+/// nothing, which is the same green as a rail of unconditional marks reached
+/// from the other end.
+fn check_sidebar_mark_carrier(root: &Path) -> Vec<String> {
+    let partial = root
+        .join("crates")
+        .join("foundry-app")
+        .join("templates")
+        .join("partials")
+        .join("sidebar.html");
+    let file = rel(root, &partial);
+    let Ok(markup) = std::fs::read_to_string(&partial) else {
+        return vec![format!(
+            "mark-carrier: {file} cannot be read, so the mark-comes-from-the-carrier law holds \
+             over no member at all. WHY: that is the same green as a rail whose marks are typed \
+             in by hand — the gate would pass a nav it never looked at. FIX: restore the sidebar \
+             partial at that path, or point this rule at wherever the rail members now live."
+        )];
+    };
+
+    let members = rail_members(&markup);
+    if members.is_empty() {
+        return vec![format!(
+            "mark-carrier: {file} declares no rail member, so the law quantifies over an empty \
+             set and passes while the operator is offered nothing to be marked. FIX: if the rail \
+             moved, point this rule at its new owner; if the members were lost, restore them."
+        )];
+    }
+
+    let mut violations = Vec::new();
+    let mut owner: std::collections::BTreeMap<String, String> = std::collections::BTreeMap::new();
+    for member in &members {
+        let name = member_name(member);
+        let guards = carrier_guards(member);
+        for marker in ["aria-current", "sidebar__item--active"] {
+            for at in occurrences(member, marker) {
+                if !guards.iter().any(|(body, _)| body.contains(&at)) {
+                    violations.push(format!(
+                        "mark-carrier: {file} — {name} carries `{marker}` outside any \
+                         `{{% if nav.is_…() %}}` condition over the carrier's active section. \
+                         WHY: a mark written literally, or guarded by a rights fact rather than \
+                         by the page the operator is on, marks that member wherever it is \
+                         rendered — so two members are marked at once, or she reads her place \
+                         off a member that does not own the page she opened. FIX: wrap it in \
+                         `{{% if nav.is_X() %}}`, where `is_X()` is the predicate of the \
+                         `NavSection` variant this member owns, and let the handler of that page \
+                         family name the variant."
+                    ));
+                }
+            }
+        }
+        let mine: std::collections::BTreeSet<&str> =
+            guards.iter().map(|(_, condition)| *condition).collect();
+        if mine.len() > 1 {
+            violations.push(format!(
+                "mark-carrier: {file} — {name} is marked by {} different conditions ({mine:?}), \
+                 not by one. WHY: the mark is ONE equality on ONE field, so a member marked by \
+                 two predicates claims to own two page families and is drawn current on both. \
+                 FIX: give the member the single predicate of the variant it owns.",
+                mine.len()
+            ));
+        }
+        for condition in mine {
+            if let Some(previous) = owner.insert(condition.to_string(), name.clone()) {
+                violations.push(format!(
+                    "mark-carrier: {file} — {previous} and {name} are both marked by \
+                     `{condition}`. WHY: the predicate says which ONE member owns the page the \
+                     operator is on, so two members behind it are two marks on every page of \
+                     that family, and the nav contradicts itself. FIX: give each member the \
+                     predicate of its own `NavSection` variant, adding the variant and its \
+                     predicate to `crates/foundry-app/src/nav.rs` if the page family has none."
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// Every `{% if nav.is_…() %} … {% endif %}` run inside one member: the byte
+/// range of its BODY — where a mark may sit — and the predicate that guards it.
+///
+/// A condition that is not a call (`nav.is_workspace_admin`, a rights fact) is
+/// not a guard over the active section, so it is skipped rather than followed;
+/// the scan then resumes INSIDE it, so a mark condition nested in a rights
+/// condition is still seen.
+fn carrier_guards(member: &str) -> Vec<(std::ops::Range<usize>, &str)> {
+    const OPEN: &str = "{% if nav.";
+    const CLOSE: &str = "{% endif %}";
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(at) = member
+        .get(from..)
+        .and_then(|rest| rest.find(OPEN))
+        .map(|at| from + at)
+    {
+        let Some(head_end) = member.get(at..).and_then(|rest| rest.find("%}")) else {
+            break;
+        };
+        let body_start = at + head_end + 2;
+        let condition = member
+            .get(at + 2..at + head_end)
+            .unwrap_or_default()
+            .trim()
+            .trim_start_matches("if ")
+            .trim();
+        if !condition.ends_with("()") {
+            from = body_start;
+            continue;
+        }
+        let Some(body_end) = member
+            .get(body_start..)
+            .and_then(|rest| rest.find(CLOSE))
+            .map(|end| body_start + end)
+        else {
+            break;
+        };
+        found.push((body_start..body_end, condition));
+        from = body_end;
+    }
+    found
+}
+
+/// Every byte index of `needle` in `haystack`, in order.
+fn occurrences(haystack: &str, needle: &str) -> Vec<usize> {
+    haystack.match_indices(needle).map(|(at, _)| at).collect()
 }
 
 /// Every member of the sidebar partial, as its own markup run: the `<a>`

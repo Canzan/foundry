@@ -48,6 +48,31 @@ fn not_found() -> Response {
     (StatusCode::NOT_FOUND, "Not found").into_response()
 }
 
+/// The shared rail for EVERY page this module renders, assembled in ONE place.
+///
+/// All four renders (the index, the "issuing not enabled" notice, the minted-value
+/// page and the validation re-render) owe the rail the same five arguments: the
+/// acting admin's ids, her REAL instance-admin authority — a workspace admin is not
+/// necessarily an instance super-admin (04-03 D2) — and the SAME `csrf` token the
+/// surface's own form was minted with, so the footer sign-out form is
+/// cookie-matched (04-03 D1). Written out four times, a change to the section this
+/// module marks could reach one render and miss three.
+///
+/// Every one of them marks Machine tokens as the page the operator is on
+/// (ui-nav-polish P1): this module IS that page family, so the section is named
+/// once, here.
+async fn nav_for(state: &AppState, admin: &SessionUser, csrf: String) -> crate::nav::NavContext {
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(state, admin.user_id).await;
+    crate::nav::NavContext::tokens_for(
+        state,
+        admin.user_id,
+        admin.workspace_id,
+        is_instance_admin,
+        csrf,
+    )
+    .await
+}
+
 /// `GET /admin/tokens` — the mint form (or the "issuing not enabled" notice on a
 /// verifier-only binary) plus the workspace's issued tokens (metadata only).
 pub async fn show_index(
@@ -63,18 +88,7 @@ pub async fn show_index(
         Ok(rows) => rows,
         Err(err) => return internal_error("list_tokens", err),
     };
-    // The rail footer reuses the SAME `csrf` token minted for the mint form (so the
-    // sign-out form is cookie-matched) and the admin's REAL instance-admin authority
-    // (a workspace admin is not necessarily an instance super-admin) — 04-03.
-    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, admin.user_id).await;
-    let nav = crate::nav::NavContext::home_for(
-        &state,
-        admin.user_id,
-        admin.workspace_id,
-        is_instance_admin,
-        csrf.clone(),
-    )
-    .await;
+    let nav = nav_for(&state, &admin, csrf.clone()).await;
     let page = TokenListPage {
         mint_enabled: state.machine_token_signer.is_some(),
         csrf,
@@ -103,15 +117,7 @@ pub async fn submit_mint(
     let Some(signer) = state.machine_token_signer.clone() else {
         let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
         let tokens = load_token_rows(&state, &admin).await.unwrap_or_default();
-        let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, admin.user_id).await;
-        let nav = crate::nav::NavContext::home_for(
-            &state,
-            admin.user_id,
-            admin.workspace_id,
-            is_instance_admin,
-            csrf.clone(),
-        )
-        .await;
+        let nav = nav_for(&state, &admin, csrf.clone()).await;
         let page = TokenListPage {
             mint_enabled: false,
             csrf,
@@ -162,19 +168,9 @@ pub async fn submit_mint(
             // Reuse the request's existing double-submit CSRF cookie (a valid one is
             // present — this POST already cleared `csrf_middleware`) for the rail
             // footer sign-out form, and attach any freshly-minted cookie so the hidden
-            // `_csrf` matches (04-03 D1). Resolve the admin's REAL instance-admin
-            // authority for the Instance-admin item (04-03 D2).
+            // `_csrf` matches (04-03 D1).
             let (csrf, set_cookie) = ensure_csrf_cookie(&state, &headers);
-            let is_instance_admin =
-                crate::nav::resolve_is_instance_admin(&state, admin.user_id).await;
-            let nav = crate::nav::NavContext::home_for(
-                &state,
-                admin.user_id,
-                admin.workspace_id,
-                is_instance_admin,
-                csrf,
-            )
-            .await;
+            let nav = nav_for(&state, &admin, csrf).await;
             let page = TokenMintedPage {
                 value_once: minted.value.expose_secret().to_string(),
                 jti: minted.jti.to_string(),
@@ -388,16 +384,7 @@ async fn mint_error_response(
         ServiceError::Validation { message, .. } => {
             let (csrf, set_cookie) = ensure_csrf_cookie(state, headers);
             let tokens = load_token_rows(state, admin).await.unwrap_or_default();
-            let is_instance_admin =
-                crate::nav::resolve_is_instance_admin(state, admin.user_id).await;
-            let nav = crate::nav::NavContext::home_for(
-                state,
-                admin.user_id,
-                admin.workspace_id,
-                is_instance_admin,
-                csrf.clone(),
-            )
-            .await;
+            let nav = nav_for(state, admin, csrf.clone()).await;
             let page = TokenListPage {
                 mint_enabled: state.machine_token_signer.is_some(),
                 csrf,

@@ -12,9 +12,11 @@
      you add a destination, and give the new one both.
 
      TEN MEMBERS live in this file today: five primary destinations in
-     `nav#sidebar-nav` (Home, Board, Teams, Invite a member, Machine tokens) and
-     five in `.sidebar__user` (Settings, Keyboard shortcuts, the workspace-admin
-     Integrations, the instance-admin Instance admin, and Sign out). The count is
+     `nav#sidebar-nav` (Home, Board, Teams, and the workspace-admin Invite a
+     member and Machine tokens) and five in `.sidebar__user` (Settings, Keyboard
+     shortcuts, the workspace-admin Integrations, the instance-admin Instance
+     admin, and Sign out). FOUR of the ten are rendered on a condition; the law
+     holds over each of them wherever it is rendered. The count is
      here for the auditor who re-verifies the glyphs against the vendored Lucide
      release (static/VENDOR.md); nothing in the code counts members, and
      `cargo xtask check-arch` ENUMERATES whatever members this file holds rather
@@ -45,14 +47,30 @@
   <nav id="sidebar-nav" class="sidebar__nav" aria-label="Primary">
     <a class="sidebar__item{% if nav.is_home() %} sidebar__item--active{% endif %}" href="/"{% if nav.is_home() %} aria-current="page"{% endif %}><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="sidebar__label">Home</span></a>
     <a class="sidebar__item{% if nav.is_board() %} sidebar__item--active{% endif %}" href="{{ nav.board_href }}"{% if nav.is_board() %} aria-current="page"{% endif %}><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/></svg><span class="sidebar__label">Board</span></a>
-    {# nav-quick-actions — the three destinations the owner moved off the landing
-       page. No condition: each one was offered to every authenticated identity
-       in the Quick actions list and is offered to exactly those identities here
-       (the destination still decides who may enter). No `aria-current`: none of
-       them marks a section, so Home stays the one marked item on all three. #}
-    <a class="sidebar__item" href="/teams"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg><span class="sidebar__label">Teams</span></a>
-    <a class="sidebar__item" href="/workspace/invites"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg><span class="sidebar__label">Invite a member</span></a>
-    <a class="sidebar__item" href="/admin/tokens"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="sidebar__label">Machine tokens</span></a>
+    {# nav-quick-actions, as ui-nav-polish leaves it (P1, P2) — the three
+       destinations the owner moved off the landing page.
+
+       EACH ONE NOW MARKS ITS OWN PAGE. The mark comes from the carrier and from
+       nowhere else: `NavContext.active` is ONE field of a five-member sum, the
+       handler of each page family names its own variant, and the condition below
+       is an equality on that sum. Writing `aria-current` literally on a member,
+       or giving two members one condition, would emit a second or a wrong mark
+       that no type can refuse — which is why `cargo xtask check-arch` reads this
+       file for it (mark-carrier).
+
+       TWO OF THEM ARE OFFERED BY RIGHT. `/workspace/invites` and `/admin/tokens`
+       answer every operator but a workspace admin with the same non-enumerable
+       404 they always have, so offering the links to everyone advertised a
+       surface the application then refused. They take the SAME
+       `nav.is_workspace_admin` condition the Integrations item below already
+       uses — the one fact `NavContext` carries from the single `nav_identity`
+       read (ADR-IW-002), which is the fact those two gates read as well. On a
+       failed identity lookup the neutral identity reports false, so the rail
+       fails closed and offers only what opens. `/teams` keeps no condition: it
+       needs a session and nothing more. #}
+    <a class="sidebar__item{% if nav.is_teams() %} sidebar__item--active{% endif %}" href="/teams"{% if nav.is_teams() %} aria-current="page"{% endif %}><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg><span class="sidebar__label">Teams</span></a>
+    {% if nav.is_workspace_admin %}<a class="sidebar__item{% if nav.is_invites() %} sidebar__item--active{% endif %}" href="/workspace/invites"{% if nav.is_invites() %} aria-current="page"{% endif %}><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg><span class="sidebar__label">Invite a member</span></a>{% endif %}
+    {% if nav.is_workspace_admin %}<a class="sidebar__item{% if nav.is_tokens() %} sidebar__item--active{% endif %}" href="/admin/tokens"{% if nav.is_tokens() %} aria-current="page"{% endif %}><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="sidebar__label">Machine tokens</span></a>{% endif %}
   </nav>
   <div class="sidebar__user">
     <span class="sidebar__identity">{{ nav.display_name }}</span>
@@ -60,6 +78,6 @@
     <a class="sidebar__item" href="/keyboard-help"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 8h.01"/><path d="M12 12h.01"/><path d="M14 8h.01"/><path d="M16 12h.01"/><path d="M18 8h.01"/><path d="M6 8h.01"/><path d="M7 16h10"/><path d="M8 12h.01"/><rect width="20" height="16" x="2" y="4" rx="2"/></svg><span class="sidebar__label">Keyboard shortcuts</span></a>
     {% if nav.is_workspace_admin %}<a class="sidebar__item" href="/workspace/integrations"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22v-5"/><path d="M15 8V2"/><path d="M17 8a1 1 0 0 1 1 1v4a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V9a1 1 0 0 1 1-1z"/><path d="M9 8V2"/></svg><span class="sidebar__label">Integrations</span></a>{% endif %}
     {% if nav.is_instance_admin %}<a class="sidebar__item" href="/admin/instance/workspaces"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/><path d="m9 12 2 2 4-4"/></svg><span class="sidebar__label">Instance admin</span></a>{% endif %}
-    <form method="post" action="/sign-out"><input type="hidden" name="_csrf" value="{{ nav.csrf }}"><button type="submit"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg><span class="sidebar__label">Sign out</span></button></form>
+    <form method="post" action="/sign-out"><input type="hidden" name="_csrf" value="{{ nav.csrf }}"><button class="sidebar__item" type="submit"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/></svg><span class="sidebar__label">Sign out</span></button></form>
   </div>
 </aside>

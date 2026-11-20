@@ -1198,9 +1198,11 @@ fn render(
     }
 }
 
+/// The rail for every `/teams` page and its descendants. ONE assembly, so the
+/// Teams member is marked on all of them (ui-nav-polish P1).
 async fn nav_for(state: &AppState, user: &SessionUser, csrf: String) -> crate::nav::NavContext {
     let is_instance_admin = crate::nav::resolve_is_instance_admin(state, user.user_id).await;
-    crate::nav::NavContext::home_for(
+    crate::nav::NavContext::teams_for(
         state,
         user.user_id,
         user.workspace_id,
