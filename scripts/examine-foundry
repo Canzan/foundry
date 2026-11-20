@@ -5,6 +5,7 @@
 #     scripts/examine-foundry states | viewers
 #     scripts/examine-foundry start secrets-key-no-slack
 #     scripts/examine-foundry start secrets-key-no-slack --before
+#     scripts/examine-foundry upgrade
 #     scripts/examine-foundry get Priya workspace/integrations
 #     scripts/examine-foundry post Priya admin/instance/integrations/secrets-key
 #     scripts/examine-foundry slack-info
@@ -38,6 +39,10 @@
 # `--before` boots the release binary built from the commit named in
 # .nwave/examine-baseline instead of the checkout, from its own clone and target
 # directory in the VM, so a page can be compared before and after a change.
+# `upgrade` then replaces the running release with the checkout's build on the
+# same database and data directory, as a deploy does: every running replica
+# stops, starts again on the new binary, and applies any new migrations as it
+# starts. What the old release stored stays, so it can be read after the change.
 #
 # To add a state: add a line to `states_table` and a `seed_<name>` function (dashes
 # become underscores) that runs after the shared people, team and project exist.
@@ -164,6 +169,7 @@ die() {
 usage() {
   cat <<'USAGE'
 usage: examine-foundry start <state> [--before] [--replicas 2]
+       examine-foundry upgrade
        examine-foundry get [--replica 2] <viewer> <path>
        examine-foundry post [--replica 2] <viewer> <path> [key=value ...]
        examine-foundry slack-info
@@ -332,6 +338,28 @@ host_start() {
   in_vm 900 lock __vm start "$state" "$tree" "$replicas"
 }
 
+# upgrade: build the checkout's release binary, then restart the running
+# replicas on it with their database and data directory kept.
+host_upgrade() {
+  if [ "$(uname -s)" = Linux ]; then
+    (
+      flock -w 900 9 || die "another test run holds ~/test.lock"
+      (cd "$ROOT" && timeout 3600 cargo build --release -p foundry-app --bin foundry) >&2 9>&- ||
+        die "building the release foundry binary failed"
+      timeout 900 bash "$SELF" __vm upgrade "$ROOT" 9>&-
+    ) 9>"$HOME/test.lock"
+    return
+  fi
+  vm_up
+  local log="$TMPDIR_HOST/examine-foundry-build.log"
+  if ! (cd "$ROOT" && timeout 3600 scripts/test-in-lima.sh \
+    bash -c 'CARGO_BUILD_JOBS=4 cargo build --release -p foundry-app --bin foundry') >"$log" 2>&1; then
+    tail -n 20 "$log" >&2
+    die "building the release foundry binary in $VM failed (log: $log)"
+  fi
+  in_vm 900 lock __vm upgrade foundry
+}
+
 # The commit .nwave/examine-baseline names.
 baseline_commit() {
   local file="$ROOT/.nwave/examine-baseline" commit
@@ -434,6 +462,10 @@ host_main() {
       run_op 200 browser "$bviewer" "$bw" "$bh" "$bjs" "$bslow" "$bfresh" "$bphone" "$@"
       ;;
     gate | suite) host_contributor "$cmd" "$@" ;;
+    upgrade)
+      [ "$#" -eq 0 ] || die "upgrade takes nothing more"
+      host_upgrade
+      ;;
     stop) run_op 120 stop ;;
     slack-info) run_op 60 slack-info ;;
     mail)
@@ -1214,6 +1246,28 @@ vm_contributor() {
   # and so are the harness's curl retries while a server starts.
   grep -v -E '^\s+✔|^curl: \([0-9]+\)' "$log" | tail -n 150
   echo "== suite exit $status"
+}
+
+# Restart every running replica on the release binary under ROOT (relative to
+# the VM home, or absolute), keeping the database, data directory and settings.
+vm_upgrade() {
+  local root="$1"
+  vm_require_running
+  case "$root" in /*) ;; *) root="$HOME/$root" ;; esac
+  local binary="$root/target/release/foundry"
+  [ -x "$binary" ] || die "no release binary at $binary"
+  local two=
+  [ -f "$STATE_DIR/foundry-2.pid" ] && two=1
+  stop_replica 2
+  stop_replica 1
+  cp "$binary" "$STATE_DIR/bin/foundry"
+  launch_foundry 1
+  [ -z "$two" ] || launch_foundry 2
+  local state
+  read -r state _ <"$STATE_DIR/state"
+  printf '%s %s\n' "$state" "$root" >"$STATE_DIR/state"
+  echo "examine-foundry: upgraded in place to the checkout's build; the database and data directory are kept, and Foundry applied any new migrations as it started"
+  printf 'examine-foundry: %s\n' "$(replicas_line)"
 }
 
 vm_stop() {
@@ -2631,6 +2685,7 @@ vm_main() {
   shift
   case "$op" in
     start) vm_start "$@" ;;
+    upgrade) vm_upgrade "$@" ;;
     build-before) vm_build_before "$@" ;;
     stop) vm_stop ;;
     slack-info) vm_require_running && slack_info ;;
