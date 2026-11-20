@@ -14,9 +14,10 @@
 //!
 //! THE EXPECTED DESTINATION SET IS DERIVED FROM HER RIGHTS, NOT FROM THE RAIL.
 //! Every assertion about "every destination she had" is measured against a set
-//! built from the rights the scenario granted her — Home, Board, Settings and
-//! Keyboard shortcuts for anyone, Integrations for a workspace admin, Instance
-//! admin for an instance admin, and Sign out always. Reading the expectation off
+//! built from the rights the scenario granted her — Home, Board, Teams, Settings
+//! and Keyboard shortcuts for anyone, Invite a member, Machine tokens and
+//! Integrations for a workspace admin, Instance admin for an instance admin, and
+//! Sign out always. Reading the expectation off
 //! the rail would make the oracle agree with whatever the rail happens to render,
 //! including a rail that silently dropped a destination.
 //!
@@ -51,22 +52,16 @@ use std::time::{Duration, Instant};
 /// rail's promise, written out: it is what "every destination she had" MEANS, and
 /// it is derived from her rights rather than from the page.
 ///
-/// Teams, Invite a member and Machine tokens joined the list when the owner moved
-/// them off the landing page into the nav: every signed-in operator is owed them,
-/// with no rights to qualify for, so folded they are hers exactly as Home and
-/// Board are. They are named HERE rather than read back from the nav on purpose —
-/// a rail compared only against the page it is drawn from agrees with itself even
-/// when both lose a destination.
-const EVERY_OPERATOR: [&str; 7] = [
-    "Home",
-    "Board",
-    "Teams",
-    "Invite a member",
-    "Machine tokens",
-    "Settings",
-    "Keyboard shortcuts",
-];
-const FOR_A_WORKSPACE_ADMIN: &str = "Integrations";
+/// Teams joined the list when the owner moved it off the landing page into the
+/// nav: every signed-in operator is owed it, so folded it is hers exactly as
+/// Home and Board are. Invite a member and Machine tokens moved with it but are
+/// NOT hers — those two pages let a workspace admin in and answer every other
+/// operator nowhere, so the nav offers them to a workspace admin only and the
+/// owed set splits with the rights it is built from. They are named HERE rather
+/// than read back from the nav on purpose — a rail compared only against the
+/// page it is drawn from agrees with itself even when both lose a destination.
+const EVERY_OPERATOR: [&str; 5] = ["Home", "Board", "Teams", "Settings", "Keyboard shortcuts"];
+const FOR_A_WORKSPACE_ADMIN: [&str; 3] = ["Invite a member", "Machine tokens", "Integrations"];
 const FOR_AN_INSTANCE_ADMIN: &str = "Instance admin";
 const ALWAYS_LAST: &str = "Sign out";
 
@@ -825,9 +820,9 @@ async fn then_the_phone_bar_holds_every_icon(world: &mut FoundryWorld) {
 // ==========================================================================
 
 /// The destinations her rights give her, built from the rights she HOLDS and not
-/// from the page: Home, Board, Settings and Keyboard shortcuts for anyone,
-/// Integrations for a workspace admin, Instance admin for an instance admin, and
-/// Sign out always. Read from the store, which is where the rights the scenario
+/// from the page: Home, Board, Teams, Settings and Keyboard shortcuts for
+/// anyone, Invite a member, Machine tokens and Integrations for a workspace
+/// admin, Instance admin for an instance admin, and Sign out always. Read from the store, which is where the rights the scenario
 /// granted live, so the expectation cannot quietly become "whatever the rail
 /// renders".
 async fn owed_destinations(world: &FoundryWorld) -> Vec<String> {
@@ -851,7 +846,7 @@ async fn owed_destinations(world: &FoundryWorld) -> Vec<String> {
     .expect("read the rights the operator holds");
     let mut owed: Vec<String> = EVERY_OPERATOR.iter().map(|name| name.to_string()).collect();
     if workspace_admin {
-        owed.push(FOR_A_WORKSPACE_ADMIN.to_string());
+        owed.extend(FOR_A_WORKSPACE_ADMIN.iter().map(|name| name.to_string()));
     }
     if instance_admin {
         owed.push(FOR_AN_INSTANCE_ADMIN.to_string());

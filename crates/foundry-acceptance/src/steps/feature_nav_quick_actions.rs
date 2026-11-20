@@ -153,7 +153,8 @@ async fn nav_offers_destinations_in_order(world: &mut FoundryWorld, step: &Step)
          destination the operator cannot open from this page — she is sent back to the landing \
          page for it, which is the detour this feature removes. \
          FIX: author the missing destinations as anchors inside nav#sidebar-nav, after Board, each \
-         linking exactly the page named here, with no condition on who is signed in."
+         linking exactly the page named here. A destination the two admin pages would refuse this \
+         operator is not offered to her at all, so the table names what HER rights open."
     );
 }
 

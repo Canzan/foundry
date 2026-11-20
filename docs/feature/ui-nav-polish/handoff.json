@@ -1,9 +1,175 @@
 {
+"acceptance": {
+"S1": [
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F110",
+"L1/F111",
+"L1/F112",
+"L1/F113",
+"L1/F114",
+"L1/F115",
+"L2/F118",
+"L2/F119"
+],
+"still_passes_if": "F267",
+"test": "crates/foundry-acceptance/tests/features/ui-nav-polish.feature: The nav marks the page the operator is on and no other"
+},
+"expected": "F265",
+"stimulus": "F264",
+"user_result": "F266"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3/F122",
+"L3/F123",
+"L3/F124",
+"L3/F125",
+"L4/F128",
+"L4/F129"
+],
+"still_passes_if": "F271",
+"test": "crates/foundry-acceptance/tests/features/ui-nav-polish.feature: An operator the two admin pages refuse is offered neither of them, and keeps everything else; An operator those pages let in is offered all five places, and every one opens"
+},
+"expected": "F269",
+"stimulus": "F268",
+"user_result": "F270"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3"
+],
+"still_passes_if": "F275",
+"test": "crates/foundry-acceptance/tests/features/ui-nav-polish.feature: The two admin pages still refuse an operator the nav no longer offers them to"
+},
+"expected": "F273",
+"stimulus": "F272",
+"user_result": "F274"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F132",
+"L5/F133",
+"L5/F134",
+"L5/F135"
+],
+"still_passes_if": "F279",
+"test": "crates/foundry-acceptance/tests/features/ui-nav-polish.feature: The whole nav is still in view at the bottom of a long page; A page with nothing to scroll leaves the nav where it has always been"
+},
+"expected": "F277",
+"stimulus": "F276",
+"user_result": "F278"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F138",
+"L6/F139",
+"L6/F140",
+"L6/F141"
+],
+"still_passes_if": "F283",
+"test": "crates/foundry-acceptance/tests/features/ui-nav-polish.feature: On her phone the bar above the page is short and keeps every place"
+},
+"expected": "F281",
+"stimulus": "F280",
+"user_result": "F282"
+},
+{
+"covers": [
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7/F144",
+"L7/F145",
+"L7/F148"
+],
+"still_passes_if": "F287",
+"test": "crates/foundry-acceptance/tests/features/ui-nav-polish.feature: Sign out and the theme control read as quietly as the links beside them; With no page scripts there is no theme control and Sign out alone is quiet"
+},
+"expected": "F285",
+"stimulus": "F284",
+"user_result": "F286"
+},
+{
+"covers": [
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7/F146",
+"L7/F147"
+],
+"still_passes_if": "F291",
+"test": "crates/foundry-acceptance/tests/features/ui-nav-polish.feature: One press of Sign out still ends the operator's session; One press of the theme control still changes the palette"
+},
+"expected": "F289",
+"stimulus": "F288",
+"user_result": "F290"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "NotTested",
+"owner": "solution-architect",
+"reason": "F295"
+},
+"expected": "F293",
+"stimulus": "F292",
+"user_result": "F294"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T1"
+],
+"still_passes_if": "F299",
+"test": "xtask/src/check_arch.rs, run by cargo xtask check-arch: the mark-comes-from-the-carrier obligation beside the shipped rail-member law"
+},
+"expected": "F297",
+"stimulus": "F296",
+"user_result": "F298"
+}
+]
+},
 "counters": {
 "B": 2,
 "C": 2,
 "E": 9,
-"F": 263,
+"F": 299,
 "K": 3,
 "L": 7,
 "N": 2,
@@ -1263,9 +1429,45 @@
 "F261": "The oracle sees the single press it made; it does not see whether the theme choice holds after she loads another page or comes back later, and a sign out that appears to work can still leave the old session usable.",
 "F262": "On a phone 390 px wide or wider (and at most 480 px), the nav bar above the content takes at most a fifth of the screen height; on any phone at 480 px and below every destination stays one press away, and on a narrower phone the bar may grow taller rather than hide one.",
 "F263": "User decision 2026-11-20: the phone bar's one-fifth bound holds for phones 390 px wide and up; on smaller phones the bar may be taller but shows every destination.",
+"F264": "A signed-in operator opens, in turn, the dashboard, her board, the teams page, a team's own page, the invite page and her machine tokens page, and then a page no nav item owns; each one as a real authenticated request of the running application.",
+"F265": "On every one of those pages the left nav marks exactly one item as the page she is on, and it is the item that owns that page - Home on the dashboard and on a page no item owns, Board on her board, Teams on the teams page and a team's own page, Invite a member on the invite page, Machine tokens on her tokens page - and the item it marks is one it also offers her.",
+"F266": "Wherever she is, the operator reads her own place off the left nav instead of being told she is on the landing page while she reads her machine tokens.",
+"F267": "The nav keeps marking the owner item but draws the mark in some other tint or order; the reading is of which item carries the mark, never of how it is drawn.",
+"F268": "Four operators in turn - a member with no admin rights, a workspace admin, an instance super-admin who administers no workspace, and one who administers both - open the same board page, and every address the left nav offered each of them is then asked for again with her own session.",
+"F269": "The member with no admin rights and the instance-only super-admin are offered Home, Board and Teams and neither admin link; both workspace admins are offered those three plus Invite a member and Machine tokens; and every address any of them was offered answers her own session with her page, never a refusal.",
 "F27": "L1 to L2, in crates/foundry-app/src/admin_tokens.rs: the four renders at 70, 107, 170 and 393 each assemble the rail with the same five arguments. Extract one private async helper that assembles it once, and have the four call sites use it, with no behaviour change (still NavContext::home_for, still Home current). Then the follow-up change names the new section ONCE instead of four times, so three of the four sites cannot be forgotten.",
+"F270": "The operator sees only the places she can go, and everything the nav shows her opens when she presses it.",
+"F271": "The two links are hidden from an operator they would refuse by a different means than her rights, for instance by the page she happens to be on; the four rights rows are driven on one and the same page, so only a rights-shaped cause satisfies all four.",
+"F272": "A member with no admin rights types the address of the invite page herself, and then the address of the machine tokens page.",
+"F273": "Each one answers her nowhere - the same not-found the application answers for an address that does not exist - so no part of the surface can be mapped by reading refusals.",
+"F274": "What the nav no longer shows her is also still closed to her, and the application tells her nothing about what exists behind it.",
+"F275": "The two pages start answering a different refusal that is still not a page; the reading is of the one uniform not-found both pages ship with.",
+"F276": "In a real browser at desk width the operator opens a board holding more work than fits her window, once with the nav open and once with it narrowed to icons by her own press of its control, and scrolls that page to its bottom; then the same two geometries on a page with nothing to scroll.",
+"F277": "With the page scrolled down, the whole nav still lies inside what she can see, from its top edge to its bottom edge, and every place in it can still be seen and pressed - in both geometries. On a page with nothing to scroll the nav is in view exactly as it has always been.",
+"F278": "At the bottom of a long board the operator goes somewhere else straight away instead of scrolling back to the top to find the nav.",
+"F279": "The nav is held in view by lifting it out of the page rather than by pinning it in place; what the row refuses is the part of it she cannot see or press, so a different mechanism that keeps every place reachable passes.",
 "F28": "Every token page keeps the same rail: the same identity, the same lower-group items, the same Home mark and the same cookie-matched CSRF token in the sign-out form.",
+"F280": "On an emulated phone 390 px across and 844 px tall, the operator opens the dashboard: as a member with no admin rights, as an operator who administers both the workspace and the instance, and after narrowing the nav earlier; and in a fourth reading in a browser that runs no page scripts, held at the same phone width.",
+"F281": "In every one of those four readings the bar above the page is at most a fifth of the screen it was measured on - 168.8 px on the emulated device - every place in it can be seen and pressed, none is under a thumb's width high, and the page does not slide sideways.",
+"F282": "On her phone the operator reads her work instead of a letterbox under a bar of links, and she still reaches every place from it.",
+"F283": "The bar is shortened by some arrangement other than drawing each place as its glyph; what the row refuses is a bar bought by hiding or shrinking a place, which the same reading catches.",
+"F284": "In a real browser the operator looks at the foot of the nav, once in the light palette and once in the dark one, and in a third reading with no page scripts running at all.",
+"F285": "Sign out and the theme control are painted in the nav's own surface, carry no border the links beside them lack, and take the same text colour and weight as those links, in both palettes. With no page scripts there is no theme control at all and the sign-out submit alone carries the law.",
+"F286": "The operator's eye goes to where she is and where she is going, not to the way out and the theme switch.",
+"F287": "Both controls are quietened to some other shared presentation than the one the links carry today; the reading compares each control with a neighbour link in the same document, so the two move together.",
+"F288": "One press of Sign out at the foot of the nav, and in a second reading one press of the theme control.",
+"F289": "The press of Sign out ends her session and the application asks her to sign in again before it opens any page of hers; the press of the theme control leaves the application in a different palette than it was in.",
 "F29": "Current-page mark: enum NavSection in crates/foundry-app/src/nav.rs gains Teams, Invites and Tokens beside Home and Board. The carrier stays ONE field, NavContext.active, so the marked member is derived by equality on a sum and a rail with two marks is unrepresentable in Rust. Layers. Domain: none, this is presentation only. Application: each authed handler names exactly one section for its own page family, through new NavContext::teams_for, invites_for and tokens_for siblings over the existing private resolved() so the neutral fail-closed identity stays decided in one place. Adapter: partials/sidebar.html reads one predicate per item (is_teams, is_invites, is_tokens beside is_home, is_board) and emits the sidebar__item--active class and aria-current=page together. Carriers: decision = NavSection (nav.rs); per-request state = NavContext (nav.rs); effects = none; errors = none new.",
+"F290": "The quieter controls still do exactly what they did: she leaves in one press, and the palette still changes when she asks.",
+"F291": "The palette changes to a third choice rather than the other one; the reading is that the application is in a different palette after the press, which is what she asked for.",
+"F292": "The rights lookup fails part way through rendering a page, so the nav is built from the neutral identity the application falls back to.",
+"F293": "The page still answers her with her page, the nav marks the page she is on, and neither admin link is offered - so nothing is shown that would refuse her.",
+"F294": "An operator whose rights could not be read still gets her page and is offered only places that open.",
+"F295": "No public surface of the running application makes that lookup fail, and the design declares no seam for it at the acceptance boundary. The browser and HTTP supports named for this oracle cannot inject a store failure, and inventing one would be a fixture fact no authority declares. The observable consequence - an identity that is not a workspace admin is offered neither link - is covered by the rights rows above; what is not observed is the failing lookup as the cause.",
+"F296": "The repository's own architecture check is run over the left-nav template.",
+"F297": "Every place where the template says this item is the page she is on sits inside a condition over the one carrier that decides it, none is written into the markup literally, and no two places share one condition - and every member of the nav still carries exactly one glyph and one whole word.",
+"F298": "A later change cannot quietly give the operator a second mark, or a mark that no page chose, in a nav the carrier can no longer refuse.",
+"F299": "A condition is applied to the wrong item - the check reads where the mark comes from, not which item it lands on, which is what the per-page rows above read.",
 "F3": "On Teams, Invite a member and Machine tokens, and on every page under them, the nav marks that item as the page she is on, and no other item.",
 "F30": "Rights-based visibility: the two admin destinations are wrapped in the same {% if nav.is_workspace_admin %} condition the shipped Integrations item already uses. No new lookup and no new authorization decision: the fact is the one is_workspace_admin value NavContext already carries from the single nav_identity read (ADR-IW-002), which is the same fact member_invites show_invite_form and the admin_tokens require_admin gate read. Teams keeps no condition because GET /teams needs only a session. Application layer supplies the fact, Adapter layer decides presence. On identity-lookup failure the neutral identity reports false, so the rail fails closed and offers only links that open.",
 "F31": "Sticky rail: the bare .sidebar rule takes position: sticky, top: 0, align-self: flex-start, height: 100vh and overflow-y: auto, so the rail stops stretching to the whole document height inside the 100vh-min .app-shell flex row, and both geometries, open and folded, inherit it from one declaration. A rail taller than the window then scrolls inside itself, so no member becomes unreachable. The phone block resets position: static and height: auto, because there the rail is a top bar in a stacked shell. Adapter layer only: no Rust, no template and no class-name change.",

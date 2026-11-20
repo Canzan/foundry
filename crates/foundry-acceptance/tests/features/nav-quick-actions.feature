@@ -10,7 +10,9 @@
 #
 # The rights domain is the closed four-member set (a member with no extra rights,
 # a workspace admin, an instance super-admin, both), so every law below is
-# exhausted by its enumerated rows rather than by a generator.
+# exhausted by its enumerated rows rather than by a generator. WHICH of the five
+# destinations each row is owed is the rights law of ui-nav-polish; this lane
+# reads the ORDER they are offered in and the glyph-and-word shape of each one.
 #
 # The FOLDED rail is not re-oracled here. The shipped nav-collapse-icon-rail lane
 # enumerates whatever members the live document holds and names each one from its
@@ -23,7 +25,9 @@ Feature: An operator opens Teams, Invite a member and Machine tokens from the le
   Wherever she is in Foundry, the operator reaches her teams, the invite page and
   her machine tokens from the same left nav she uses for Home and her board — one
   press, no detour through the landing page. The landing page keeps its greeting
-  and her projects, and nobody gains or loses a destination by the move.
+  and her projects. Nobody loses a destination her rights already open; the two
+  admin destinations are offered to the operators those pages let in, which is
+  the rights law ui-nav-polish owns.
 
   Background:
     Given a workspace "Acme" exists with admin "Ada" and display name "Ada Lovelace"
@@ -47,7 +51,7 @@ Feature: An operator opens Teams, Invite a member and Machine tokens from the le
     And the user menu does not contain a link to "/admin/instance/workspaces"
 
   @driving_port
-  Scenario: A member with no rights beyond her workspace opens all five from her board
+  Scenario: A member with no rights beyond her workspace opens the three places her rights open
     Given a member "Mei" who is not an instance admin is signed in
     And Mei is on the team that owns the board
     When Mei opens the authenticated page "/team/general/project/sandbox"
@@ -56,13 +60,11 @@ Feature: An operator opens Teams, Invite a member and Machine tokens from the le
       | Home            | /                             |
       | Board           | /team/general/project/sandbox |
       | Teams           | /teams                        |
-      | Invite a member | /workspace/invites            |
-      | Machine tokens  | /admin/tokens                 |
     And the user menu does not contain a link to "/workspace/integrations"
     And the user menu does not contain a link to "/admin/instance/workspaces"
 
   @driving_port
-  Scenario: An instance super-admin who administers no workspace opens all five from her board
+  Scenario: An instance super-admin who administers no workspace opens the same three places
     Given a member "Mei" who is not an instance admin is signed in
     And Mei is on the team that owns the board
     And Mei has since been made an instance super-admin
@@ -72,8 +74,6 @@ Feature: An operator opens Teams, Invite a member and Machine tokens from the le
       | Home            | /                             |
       | Board           | /team/general/project/sandbox |
       | Teams           | /teams                        |
-      | Invite a member | /workspace/invites            |
-      | Machine tokens  | /admin/tokens                 |
     And the user menu does not contain a link to "/workspace/integrations"
     And the user menu contains a link to "/admin/instance/workspaces"
 
@@ -131,15 +131,13 @@ Feature: An operator opens Teams, Invite a member and Machine tokens from the le
     And the landing page still greets "Mei" and names the workspace "Acme"
     And the landing page still shows the projects section
 
-  # ── A new destination never claims to be the page the operator is on ─────────
+  # ── A page no nav destination owns is still the landing page's own mark ──────
+  # The three moved destinations now mark their OWN pages (ui-nav-polish, P1), so
+  # /teams is read there and not here. What stays here is the complement: a page
+  # no primary destination owns keeps Home as the one marked item.
 
   @driving_port
-  Scenario Outline: The nav marks only the page the operator is on
-    When Ada opens the authenticated page "<page>"
+  Scenario: A page no nav destination owns keeps Home as the one marked item
+    When Ada opens the authenticated page "/account/settings"
     Then the "Home" navigation item is marked as the current page
     And exactly one primary navigation item is marked as the current page
-
-    Examples:
-      | page              |
-      | /teams            |
-      | /account/settings |

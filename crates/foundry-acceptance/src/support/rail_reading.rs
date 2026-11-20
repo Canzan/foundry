@@ -151,6 +151,54 @@ function visibleNow(el) {
   if (centreInViewport(el) && !hitsItsOwnCentre(el)) { return false; }
   return true;
 }
+// THE PAINTED FILL, not the declared one. A control whose own background is
+// fully transparent is painted by whatever is behind it, so the reading walks
+// outwards to the first ancestor that paints. Read off the declared value
+// alone, a transparent control and a control filled with the rail's own colour
+// would read as different fills while the operator sees one surface, and a
+// control filled black over a transparent rail would read the same as its
+// neighbour link.
+function paintedFill(el) {
+  for (var n = el; n && n.nodeType === 1; n = n.parentElement) {
+    var fill = getComputedStyle(n).backgroundColor;
+    var parts = /rgba?\(([^)]+)\)/.exec(fill);
+    if (!parts) { return fill; }
+    var channels = parts[1].split(',');
+    var alpha = channels.length > 3 ? parseFloat(channels[3]) : 1;
+    if (!isNaN(alpha) && alpha > 0.01) { return fill; }
+  }
+  return 'rgba(0, 0, 0, 0)';
+}
+function widestBorder(el) {
+  var s = getComputedStyle(el);
+  return Math.max(
+    parseFloat(s.borderTopWidth) || 0,
+    parseFloat(s.borderRightWidth) || 0,
+    parseFloat(s.borderBottomWidth) || 0,
+    parseFloat(s.borderLeftWidth) || 0
+  );
+}
+// How a member of the rail's LOWER GROUP is drawn, in the terms the promise is
+// written in: the fill the operator sees, whether it carries a border its
+// neighbours do not, and the text tier. Never the token that produced the
+// colour and never the exact hue — two palettes answer different hues for the
+// same promise.
+function readPresentation(el, kind) {
+  if (!el) { return null; }
+  var s = getComputedStyle(el);
+  return {
+    kind: kind,
+    name: (el.getAttribute('aria-label') || el.textContent || '').trim(),
+    fill: paintedFill(el),
+    ownFill: s.backgroundColor,
+    borderWidth: widestBorder(el),
+    colour: s.color,
+    fontWeight: s.fontWeight,
+    fontSize: s.fontSize,
+    visible: visibleNow(el),
+    box: box(el)
+  };
+}
 function focusableNow(el) {
   if (el.disabled) { return false; }
   if (el.tabIndex < 0) { return false; }
@@ -196,6 +244,20 @@ return {
   shellWidth: width(shell),
   viewport: document.documentElement.clientWidth,
   docWidth: document.documentElement.scrollWidth,
+  // THE SAME MOMENT carries the geometry facts the sticky and the phone
+  // promises are read from, so a rail box can never be reported from before a
+  // scroll beside a mark read after it.
+  viewportHeight: document.documentElement.clientHeight,
+  docHeight: document.documentElement.scrollHeight,
+  scrolledTo: window.scrollY,
+  railPosition: rail ? getComputedStyle(rail).position : null,
+  railSurface: rail ? paintedFill(rail) : null,
+  lowerGroup: Array.prototype.slice.call(
+    document.querySelectorAll('.sidebar__user a.sidebar__item')
+  ).map(function (el) { return readPresentation(el, 'a neighbour link'); }).concat(
+    [readPresentation(document.querySelector('.sidebar__user form button'), 'Sign out')],
+    [readPresentation(theme, 'the theme control')]
+  ).filter(function (m) { return m !== null; }),
   shellDirection: shell ? getComputedStyle(shell).flexDirection : null,
   navDisplay: display(nav),
   workspaceDisplay: display(document.querySelector('.sidebar__workspace')),

@@ -28,6 +28,11 @@
 # ---------------------------------------------------------------------------
 # THE ONE THING THIS LANE CANNOT SEE
 # ---------------------------------------------------------------------------
+# What an assistive technology actually says, and the HEIGHT of the phone bar:
+# this lane reads that every destination is laid out inside the bar and that the
+# page does not slide sideways, while how tall that bar may be is read by the
+# ui-nav-polish lane at the one phone device its bound is written for.
+#
 # What an assistive technology actually says. The name is read in one browser
 # engine's accessibility tree, which is the closest observable thing to it, not
 # the announcement itself. Whether a very long destination name stays legible in
