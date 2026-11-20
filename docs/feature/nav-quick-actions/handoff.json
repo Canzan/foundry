@@ -1,0 +1,1051 @@
+{
+"counters": {
+"B": 2,
+"C": 2,
+"E": 9,
+"F": 201,
+"K": 3,
+"L": 6,
+"P": 4,
+"S": 1,
+"T": 1,
+"Y": 6
+},
+"design": {
+"adrs": [
+{
+"key": "NQA-001",
+"status": "Accepted",
+"title": "Nav owns the three moved destinations"
+}
+],
+"paradigm": "procedural",
+"shared": {
+"constraints": [
+{
+"id": "K1",
+"slices": [
+"S1"
+],
+"text": "F10"
+},
+{
+"id": "K2",
+"slices": [
+"S1"
+],
+"text": "F11"
+},
+{
+"id": "K3",
+"slices": [
+"S1"
+],
+"text": "F12"
+}
+]
+},
+"slices": {
+"S1": {
+"oracle": "crates/foundry-acceptance/tests/features/nav-quick-actions.feature",
+"public_oracle": {
+"expected": "F21",
+"falsifier": "F22",
+"promises": [
+"P1",
+"P2",
+"P3",
+"P4"
+],
+"stimulus": "F20"
+},
+"records": {
+"agreement": [
+{
+"contract": "rendered sidebar member markup: inside nav#sidebar-nav each member is one a.sidebar__item carrying exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, with no aria-label",
+"decision": "Migrated",
+"locator": "crates/foundry-app/templates/partials/sidebar.html:36",
+"party": "Producer",
+"reason": "F55"
+},
+{
+"contract": "rendered sidebar member markup: inside nav#sidebar-nav each member is one a.sidebar__item carrying exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, with no aria-label",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/static/css/foundry.fb3aa227.css:1196",
+"party": "Consumer",
+"reason": "F56"
+},
+{
+"contract": "rendered sidebar member markup: inside nav#sidebar-nav each member is one a.sidebar__item carrying exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, with no aria-label",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/static/js/nav-collapse.js:62",
+"party": "Consumer",
+"reason": "F57"
+},
+{
+"contract": "rendered sidebar member markup: inside nav#sidebar-nav each member is one a.sidebar__item carrying exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, with no aria-label",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-acceptance/src/support/rail_reading.rs:74",
+"party": "Consumer",
+"reason": "F58"
+},
+{
+"contract": "rendered sidebar member markup: inside nav#sidebar-nav each member is one a.sidebar__item carrying exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, with no aria-label",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-acceptance/src/steps/feature_navigation_bar.rs:222",
+"party": "Consumer",
+"reason": "F59"
+},
+{
+"contract": "Home Quick actions markup: section.dash__section holding the heading \"Quick actions\" and ul.actions with one link per action plus the sign-out form",
+"decision": "Migrated",
+"locator": "crates/foundry-app/templates/dashboard_root.html:32",
+"party": "Producer",
+"reason": "F60"
+},
+{
+"contract": "Home Quick actions markup: section.dash__section holding the heading \"Quick actions\" and ul.actions with one link per action plus the sign-out form",
+"decision": "Migrated",
+"locator": "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:790",
+"party": "Consumer",
+"reason": "F61"
+},
+{
+"contract": "Home Quick actions markup: section.dash__section holding the heading \"Quick actions\" and ul.actions with one link per action plus the sign-out form",
+"decision": "Incompatible",
+"locator": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature:194",
+"party": "Consumer",
+"reason": "F62"
+},
+{
+"contract": "Home Quick actions markup: section.dash__section holding the heading \"Quick actions\" and ul.actions with one link per action plus the sign-out form",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/static/css/foundry.fb3aa227.css:793",
+"party": "Consumer",
+"reason": "F63"
+},
+{
+"contract": "DashboardRoot template fields consumed by dashboard_root.html",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/views.rs:1188",
+"party": "Producer",
+"reason": "F64"
+},
+{
+"contract": "DashboardRoot template fields consumed by dashboard_root.html",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/signin.rs:750",
+"party": "Consumer",
+"reason": "F65"
+}
+],
+"architectural_tests": [
+{
+"command": "cargo xtask check-arch",
+"id": "T1",
+"obligation": "F180",
+"oracle": "xtask/src/check_arch.rs"
+}
+],
+"boundaries": {
+"dependency_direction": "F71",
+"driven_ports": [
+"F69",
+"F70"
+],
+"driving_port": "F68",
+"failures": [
+{
+"condition": "F72",
+"id": "B1",
+"observation": "F73",
+"outcome": "Refusal"
+},
+{
+"condition": "F74",
+"id": "B2",
+"observation": "F75",
+"outcome": "Refusal"
+}
+]
+},
+"claims": [
+{
+"admitted_input": "F129",
+"bypass": "F131",
+"constructor": "crates/foundry-app/src/views.rs DashboardRoot literal",
+"consumer": "crates/foundry-app/templates/dashboard_root.html",
+"harm": "F128",
+"id": "C1",
+"owner": "crates/foundry-app/src/views.rs",
+"proposition": "F127",
+"public_observation": "F130"
+},
+{
+"admitted_input": "F134",
+"bypass": "F136",
+"constructor": "the sidebar-member markup authored in that partial",
+"consumer": "the served page, the stylesheet clip-and-reveal rules and the rail reading",
+"harm": "F133",
+"id": "C2",
+"owner": "xtask/src/check_arch.rs",
+"proposition": "F132",
+"public_observation": "F135"
+}
+],
+"closure": [
+{
+"axis": "Safety",
+"basis": "F146",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F145"
+},
+{
+"axis": "Inhabitation",
+"basis": "F147",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F145"
+},
+{
+"axis": "PublicReachability",
+"basis": "F148",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F145"
+},
+{
+"axis": "Liveness",
+"basis": "F149",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F145"
+}
+],
+"constraints": [
+"F31",
+"F32",
+"F33"
+],
+"constructors": [
+{
+"name": "sidebar-member",
+"signature": "word plus href plus inline Lucide shape children -> one a.sidebar__item inside nav#sidebar-nav, authored in templates/partials/sidebar.html"
+},
+{
+"name": "NavContext::for_page",
+"signature": "workspace_name, display_name, is_instance_admin, is_workspace_admin, csrf, NavSection, board_href -> NavContext (crates/foundry-app/src/nav.rs, unchanged)"
+}
+],
+"decisions": [
+"F23",
+"F24",
+"F25",
+"F26",
+"F27",
+"F28",
+"F29",
+"F30"
+],
+"equality": [
+{
+"definition": "F84",
+"under": "the nav observations"
+}
+],
+"impact": [
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/partials/sidebar.html:36",
+"reason": "F41"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/dashboard_root.html:32",
+"reason": "F42"
+},
+{
+"decision": "Changed",
+"kind": "view-struct",
+"locator": "crates/foundry-app/src/views.rs:1188",
+"reason": "F43"
+},
+{
+"decision": "Changed",
+"kind": "handler",
+"locator": "crates/foundry-app/src/signin.rs:491",
+"reason": "F44"
+},
+{
+"decision": "Changed",
+"kind": "module-doc",
+"locator": "crates/foundry-app/src/nav.rs:16",
+"reason": "F45"
+},
+{
+"decision": "Changed",
+"kind": "provenance-doc",
+"locator": "crates/foundry-app/static/VENDOR.md:92",
+"reason": "F46"
+},
+{
+"decision": "Changed",
+"kind": "architecture-gate",
+"locator": "xtask/src/check_arch.rs:176",
+"reason": "F47"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "stylesheet",
+"locator": "crates/foundry-app/static/css/foundry.fb3aa227.css:1488",
+"reason": "F48"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "client-script",
+"locator": "crates/foundry-app/static/js/nav-collapse.js:62",
+"reason": "F49"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-support",
+"locator": "crates/foundry-acceptance/src/support/rail_reading.rs:74",
+"reason": "F50"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-support",
+"locator": "crates/foundry-acceptance/src/support/team_membership.rs:1641",
+"reason": "F51"
+},
+{
+"decision": "Migrated",
+"kind": "acceptance-oracle",
+"locator": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature:194",
+"reason": "F52"
+},
+{
+"decision": "Migrated",
+"kind": "acceptance-oracle",
+"locator": "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:790",
+"reason": "F53"
+},
+{
+"decision": "Migrated",
+"kind": "acceptance-oracle",
+"locator": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature:203",
+"reason": "F54"
+}
+],
+"laws": [
+{
+"id": "L1",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/templates/partials/sidebar.html",
+"statement": "F85",
+"treatment": {
+"cases": [
+"F86",
+"F87",
+"F88",
+"F89"
+],
+"kind": "Finite",
+"reason": "F90"
+}
+},
+{
+"id": "L2",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/templates/partials/sidebar.html",
+"statement": "F91",
+"treatment": {
+"cases": [
+"F92",
+"F93",
+"F94",
+"F95"
+],
+"kind": "Finite",
+"reason": "F96"
+}
+},
+{
+"id": "L3",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/templates/dashboard_root.html",
+"statement": "F97",
+"treatment": {
+"cases": [
+"F98",
+"F99",
+"F100",
+"F101"
+],
+"kind": "Finite",
+"reason": "F102"
+}
+},
+{
+"id": "L4",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "xtask/src/check_arch.rs",
+"statement": "F103",
+"treatment": {
+"cases": [
+"F104"
+],
+"kind": "Finite",
+"reason": "F105"
+}
+},
+{
+"id": "L5",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature",
+"statement": "F106",
+"treatment": {
+"cases": [
+"F107",
+"F108",
+"F109",
+"F110"
+],
+"kind": "Finite",
+"reason": "F111"
+}
+},
+{
+"id": "L6",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "crates/foundry-app/src/nav.rs",
+"statement": "F112",
+"treatment": {
+"cases": [
+"F113",
+"F114",
+"F115",
+"F116"
+],
+"kind": "Finite",
+"reason": "F117"
+}
+}
+],
+"not_applicable": [
+{
+"analysis": "contract_tests",
+"reason": "F66"
+},
+{
+"analysis": "prefactoring",
+"reason": "F67"
+}
+],
+"observations": [
+{
+"cannot_distinguish": "F77",
+"description": "F76",
+"result_type": "ordered list of label and href pairs"
+},
+{
+"cannot_distinguish": "F79",
+"description": "F78",
+"result_type": "four booleans per page"
+},
+{
+"cannot_distinguish": "F81",
+"description": "F80",
+"result_type": "list of member readings"
+},
+{
+"cannot_distinguish": "F83",
+"description": "F82",
+"result_type": "boolean"
+}
+],
+"refuted": [
+{
+"cause": "F119",
+"counterexample": "F120",
+"statement": "F118"
+},
+{
+"cause": "F122",
+"counterexample": "F123",
+"statement": "F121"
+},
+{
+"cause": "F125",
+"counterexample": "F126",
+"statement": "F124"
+}
+],
+"reuse": [
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/partials/sidebar.html:36",
+"reason": "F34",
+"symbol": "sidebar__nav"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/dashboard_root.html:32",
+"reason": "F35",
+"symbol": "dash__section"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/views.rs:1188",
+"reason": "F36",
+"symbol": "DashboardRoot"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/signin.rs:491",
+"reason": "F37",
+"symbol": "DashboardRoot"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/nav.rs:16",
+"reason": "F38",
+"symbol": "NavSection"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/static/VENDOR.md:92",
+"reason": "F39",
+"symbol": "lucide-static"
+},
+{
+"decision": "Extend",
+"locator": "xtask/src/check_arch.rs:176",
+"reason": "F40",
+"symbol": "check_arch"
+}
+],
+"risks": [
+{
+"allowed": "F152",
+"forbidden": "F153",
+"id": "Y1",
+"kind": "Stressor",
+"owner": "architect",
+"preserved": "F151",
+"residue": "F154",
+"source": "F150"
+},
+{
+"allowed": "F157",
+"forbidden": "F158",
+"id": "Y2",
+"kind": "Stressor",
+"owner": "architect",
+"preserved": "F156",
+"residue": "F159",
+"source": "F155"
+},
+{
+"allowed": "F162",
+"forbidden": "F163",
+"id": "Y3",
+"kind": "Stressor",
+"owner": "crafter",
+"preserved": "F161",
+"residue": "F164",
+"source": "F160"
+},
+{
+"allowed": "F167",
+"forbidden": "F168",
+"id": "Y4",
+"kind": "Stressor",
+"owner": "host",
+"preserved": "F166",
+"residue": "F169",
+"source": "F165"
+},
+{
+"allowed": "F172",
+"forbidden": "F173",
+"id": "Y5",
+"kind": "SinglePointOfFailure",
+"owner": "architect",
+"preserved": "F171",
+"residue": "F174",
+"source": "F170"
+},
+{
+"allowed": "F177",
+"forbidden": "F178",
+"id": "Y6",
+"kind": "Bypass",
+"owner": "architect",
+"preserved": "F176",
+"residue": "F179",
+"source": "F175"
+}
+],
+"states": [
+{
+"kind": "Admitted",
+"owner": "crates/foundry-app/templates/partials/sidebar.html",
+"state": "F137"
+},
+{
+"kind": "Admitted",
+"owner": "crates/foundry-app/templates/dashboard_root.html",
+"state": "F138"
+},
+{
+"kind": "Admitted",
+"owner": "crates/foundry-app/src/signin.rs",
+"state": "F139"
+},
+{
+"kind": "Excluded",
+"owner": "xtask/src/check_arch.rs",
+"state": "F140"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-app/templates/partials/sidebar.html",
+"state": "F141"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-app/templates/dashboard_root.html",
+"state": "F142"
+},
+{
+"kind": "Unknown",
+"owner": "product",
+"state": "F143"
+},
+{
+"kind": "Unknown",
+"owner": "architect",
+"state": "F144"
+}
+]
+},
+"supports": [
+"crates/foundry-acceptance/src/steps/feature_nav_quick_actions.rs",
+"crates/foundry-acceptance/src/lib.rs",
+"crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
+"crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+"crates/foundry-acceptance/src/steps/feature_canzan_theme.rs"
+],
+"targets": [
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/partials/sidebar.html",
+"reason": "F13"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/dashboard_root.html",
+"reason": "F14"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/views.rs",
+"reason": "F15"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/signin.rs",
+"reason": "F16"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/nav.rs",
+"reason": "F17"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/static/VENDOR.md",
+"reason": "F18"
+},
+{
+"change": "Extend",
+"path": "xtask/src/check_arch.rs",
+"reason": "F19"
+}
+],
+"verification": [
+"scripts/test-in-lima.sh cargo test -p foundry-acceptance --test acceptance",
+"scripts/test-in-lima.sh cargo xtask check-arch",
+"scripts/test-in-lima.sh cargo test -p foundry-app",
+"scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-icon-rail FOUNDRY_XTASK_INCLUDE_DOCKER=1 cargo test -p foundry-acceptance --test acceptance"
+]
+}
+}
+},
+"expectations": {
+"rows": [
+{
+"id": "E1",
+"lacuna": "F182",
+"promises": [
+"P1"
+],
+"text": "F181"
+},
+{
+"id": "E2",
+"lacuna": "F184",
+"promises": [
+"P1"
+],
+"text": "F183"
+},
+{
+"id": "E3",
+"lacuna": "F186",
+"promises": [
+"P2"
+],
+"text": "F185"
+},
+{
+"id": "E4",
+"lacuna": "F188",
+"needs": "F189",
+"promises": [
+"P2"
+],
+"text": "F187"
+},
+{
+"id": "E5",
+"lacuna": "F191",
+"promises": [
+"P2"
+],
+"text": "F190"
+},
+{
+"id": "E6",
+"lacuna": "F193",
+"needs": "F194",
+"promises": [
+"P3"
+],
+"text": "F192"
+},
+{
+"id": "E7",
+"lacuna": "F196",
+"promises": [
+"P3"
+],
+"text": "F195"
+},
+{
+"id": "E8",
+"lacuna": "F198",
+"promises": [
+"P4"
+],
+"text": "F197"
+},
+{
+"id": "E9",
+"isolated": "yes",
+"lacuna": "F200",
+"needs": "F201",
+"promises": [
+"P4"
+],
+"text": "F199"
+}
+]
+},
+"facts": {
+"F1": "Move the quick actions to the left nav and make the left nav collapsible.",
+"F10": "User decision 2026-11-19: remove Home's Quick actions section once its links are in the nav.",
+"F100": "CreateUnlinked",
+"F101": "NoTeam",
+"F102": "DashboardProjectsSection is a closed four-variant enum and the removal is one section, so the four variants are the whole domain.",
+"F103": "Every member of the shipped sidebar partial carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, and no member carries an aria-label.",
+"F104": "every a.sidebar__item and the sign-out button enumerated from templates/partials/sidebar.html, whatever their number",
+"F105": "The population is the file own member list, which the check enumerates rather than assumes, so the law is exhaustive over present and future members without a generator.",
+"F106": "With the nav folded, every member including the three new ones is in the layout, visible, focusable and named by its own word, and the document does not slide sideways at phone width.",
+"F107": "the four rights rows at desk width, folded",
+"F108": "320 px folded",
+"F109": "390 px folded",
+"F11": "User decision 2026-11-19: Teams, Invite a member and Machine tokens go in the top part of the nav, after Board; Settings, Keyboard shortcuts and Sign out stay in the bottom group.",
+"F110": "480 px folded",
+"F111": "Inherited from the shipped lane, which quantifies over the members it reads from the live document. P4 promises every width at or below 480 px while the lane drives the boundary and two widths under it; the stylesheet declares no further breakpoint below 480 px, so the untested widths are recorded as residue rather than claimed.",
+"F112": "Exactly one primary nav item carries aria-current=\"page\" on every authenticated page; none of the three new members ever carries it.",
+"F113": "Home marked on /",
+"F114": "Board marked on a board page",
+"F115": "Home marked on /teams",
+"F116": "Home marked on /account/settings",
+"F117": "NavSection is a closed two-variant enum chosen once per page, so the marked member is a function with two values and the page families enumerate it.",
+"F118": "Removing Home Quick actions section touches no oracle outside Home own scenarios.",
+"F119": "ul.actions is a shared markup contract, not a Home-local section: another feature measures its palette through it, and an older guard asserts the inverse of P1.",
+"F12": "User decision 2026-11-19: each moved link is visible to exactly whoever sees it in Quick actions today; no rights change.",
+"F120": "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs:790-795 resolves six dark-palette values on \".actions a\" and \".actions button\"; crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature:194 asserts the sidebar does NOT contain an Invite a member item or a Machine tokens item.",
+"F121": "Adding rail members needs a new stylesheet rule to keep the phone bar inside the screen.",
+"F122": "The wrap rule is quantified over members, not over a member count, so the member total is not a parameter of the layout.",
+"F123": "[data-nav-collapsed] .sidebar__nav and .sidebar__user already declare flex-wrap: wrap with min-width: 0 and max-width: 100% inside the max-width 480px block, so ten members take rows inside the same bar exactly as seven do.",
+"F124": "Invite a member is the longest word the rail has to draw, so the revealed label box needs a new bound.",
+"F125": "The worst case was already shipped; the new words are shorter than it.",
+"F126": "Keyboard shortcuts, eighteen characters, is already a rail member; Invite a member is fifteen.",
+"F127": "A reintroduced quick-action link cannot silently read a rights fact from the dashboard view struct.",
+"F128": "A second carrier of the same rights fact on one page drifts from the nav and shows an affordance the nav denies.",
+"F129": "the resolved session identity the handler already holds",
+"F13": "Three anchors after Board inside nav#sidebar-nav, each with one inline Lucide svg.sidebar__icon (users, user-plus, key-round) and one span.sidebar__label reading Teams, Invite a member, Machine tokens; no condition, no aria-label, no title element. The partial comment keeps its rule and gains the corrected member count.",
+"F130": "the served Home page offers no gated link of its own",
+"F131": "none through the type system: Askama binds template field reads at compile time, so a template reading a removed field fails the build. The remaining bypass is adding the field back, which is a visible diff, and the nav field itself, which is the intended single carrier.",
+"F132": "A nav member cannot reach an operator as a glyph with no word, or with a second name channel beside its word.",
+"F133": "In the folded rail a member with no word is a silent icon for a screen-reader operator and a blank sliver for a sighted one; a second name channel drifts from the text the oracle reads.",
+"F134": "the bytes of templates/partials/sidebar.html",
+"F135": "the browser-computed name of every folded rail member is non-empty and equals its own word",
+"F136": "Rust types exclude nothing here: the template is text and a missing span compiles. The exclusion is a build-time gate plus the browser lane, so the open bypasses are a commit that skips cargo xtask smoke, an htmx fragment response that does not include the partial, and a host with no Docker where the browser lane observes nothing.",
+"F137": "The four rights rows (plain member, workspace admin, instance admin, both) crossed with the open nav and the folded rail, at desk width and at 320, 390 and 480 px",
+"F138": "The four Home project-section states, each with no Quick actions section",
+"F139": "Signed out: every one of the five nav destinations redirects to /sign-in and no nav is rendered",
+"F14": "Delete the Quick actions section (heading plus ul.actions). Leave the greeting, the workspace line and the Your projects section untouched.",
+"F140": "A nav member with a glyph and no word, or with an aria-label beside its word",
+"F141": "A rights condition on Teams, Invite a member or Machine tokens in either place",
+"F142": "A second nav member list in any other template, or a Quick actions section on Home",
+"F143": "What an assistive technology actually announces for the three new icons (inherited limit of the icon-rail lane, which reads one engine accessibility tree)",
+"F144": "Desk viewports shorter than the ten-member rail, and phone widths below 320 px",
+"F145": "Teams, Invite a member and Machine tokens as nav destinations",
+"F146": "The excluded states are enumerated over the whole rights domain: the three items are authored with no condition, so there is no guard to widen or narrow, and the gated members keep their own conditions. The glyph-and-word exclusion is falsified by the new check-arch layer over the file own member list. Nothing is built yet.",
+"F147": "Each member is constructed from admitted input already present on every authenticated page: NavContext::for_page is unchanged and the three hrefs are literals, so a valid nav holding all five primary members exists for every one of the four rights rows with no new input and no new lookup.",
+"F148": "session identity -> signin.rs:491 dashboard handler and the per-page handlers -> NavContext::for_page (crates/foundry-app/src/nav.rs) -> templates/partials/sidebar.html via app_shell.html -> HTTP GET on / and on /team/{team}/project/{project} -> the anchor the operator presses -> GET /teams, /workspace/invites, /admin/tokens. Every symbol on that path exists today; only the three anchors are new.",
+"F149": "No liveness claim: one synchronous response renders the whole nav, with no queue, retry, background step or eventual state to reach. The fold geometry is a pre-paint client mark with no progress obligation of its own.",
+"F15": "Remove the now readerless DashboardRoot fields is_instance_admin, is_workspace_admin and csrf with their doc comments.",
+"F150": "Negate \"the stylesheet keeps every member inside the bar at 480 px and below\": ten members instead of seven on a 320 px phone.",
+"F151": "Every destination stays inside the top bar and the page does not slide sideways; both groups are wrapping rows bounded by the bar.",
+"F152": "The bar takes more rows and the document scrolls vertically.",
+"F153": "A destination dropped below the breakpoint, or any sideways slide.",
+"F154": "Widths below 320 px are driven by no lane, and how much vertical space a three-row bar leaves the content is unobserved.",
+"F155": "Negate \"the desk rail is shorter than the viewport\": ten members plus brand, identity, theme control and collapse control on a short desk window.",
+"F156": "Every member stays reachable: .app-shell is min-height 100vh with no overflow clip, so the document grows and scrolls vertically instead of clipping the rail.",
+"F157": "The operator scrolls the page to reach the bottom group.",
+"F158": "A member clipped with no way to reach it, or a horizontal scrollbar at desk width.",
+"F159": ".sidebar declares no overflow-y of its own and no lane drives a short desk viewport; adding one would re-fingerprint the stylesheet.",
+"F16": "Drop the same three initialisers from the DashboardRoot literal in the handler and from the in-crate test helper. Keep both admin lookups and ensure_csrf_cookie: NavContext::for_page consumes them.",
+"F160": "Negate \"the pinned lucide-static 1.75.0 tarball is reachable during craft\".",
+"F161": "No hand-drawn glyph enters the template and VENDOR.md keeps claiming only what was copied.",
+"F162": "Craft stops on the three glyphs and reports the missing prerequisite.",
+"F163": "Invented or recalled path data recorded as Lucide provenance.",
+"F164": "Icon provenance stays INDETERMINATE until the tarball is extracted and the shape children compared, per the procedure VENDOR.md already states.",
+"F165": "Negate \"the browser lane runs\": cargo xtask ci on a host with no Docker.",
+"F166": "The served-markup scenarios still fail on a missing or misplaced member, so P1, P2 and P3 keep a falsifier in the fast lane.",
+"F167": "The folded-rail and phone observations stay unobserved for the enlarged set.",
+"F168": "Close evidence that names a green gate without naming the lane that actually ran.",
+"F169": "P4 runtime stays INDETERMINATE until the icon-rail lane is reported with Docker included.",
+"F17": "Correct the NavSection doc comment: the rail has five primary destinations, of which two are marked sections.",
+"F170": "templates/partials/sidebar.html is the sole owner of the member list for every authenticated page.",
+"F171": "One edit changes the nav everywhere, and no page can disagree with another about what the nav offers.",
+"F172": "Nothing: the partial is included by app_shell.html for every full page.",
+"F173": "A second nav member list authored in another template.",
+"F174": "A future page that renders its own nav would diverge silently; the check-arch layer reads this one file only.",
+"F175": "An htmx fragment response re-renders part of a page without including partials/sidebar.html.",
+"F176": "The nav laws are asserted on full-page responses, which is where the nav is produced.",
+"F177": "A fragment carries no nav and is not measured for one.",
+"F178": "Treating a fragment response as evidence that the nav law holds.",
+"F179": "The membership law is unobservable on fragment responses by construction, not by omission.",
+"F18": "Add users, user-plus and key-round to the icons-used list with their rail members and move the verification instruction from seven to ten.",
+"F180": "Every member of templates/partials/sidebar.html carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, and no member carries an aria-label. The layer ENUMERATES the members from the file rather than counting an expected number, so it governs members added after this change.",
+"F181": "From any app page she is already on (Home, a project page, a settings page), the operator sees Teams, Invite a member and Machine tokens in the left nav, and one press on each opens that destination directly, with no intervening menu, page or confirm step.",
+"F182": "An oracle that visits a fixed sample of pages cannot see pages outside the sample (later-added pages, error and empty states), and a press it drives programmatically does not show whether the operator first had to scroll the nav or dismiss something to reach the entry.",
+"F183": "The three entries sit in the top part of the nav immediately after Board, in the order Teams, Invite a member, Machine tokens, and read as part of that same top group rather than as the bottom utility group.",
+"F184": "A check of markup order does not see what the eye sees: styling, a separator or a scroll boundary can place or group the entries elsewhere visually, and the contract fixes no order among the three, so a different order could pass an order-free oracle.",
+"F185": "The Home page shows no Quick actions section: no such heading, and no second copy of those links anywhere on Home, so each of them is offered to the operator in the left nav only.",
+"F186": "An oracle that looks for the words Quick actions cannot see the same block renamed or restyled, nor the same links kept on Home somewhere else (a card, a footer, a greeting line).",
+"F187": "Every link the operator used to reach from Home Quick actions is still offered in the left nav and still opens the same destination as before: Teams, Invite a member, Machine tokens, Integrations, Keyboard shortcuts and Sign out.",
+"F188": "After the change the old Quick actions inventory is no longer visible to the operator, so an oracle written against the new nav cannot see a link silently dropped in the move; matching a label also does not show that the destination behind it is the same page and the same effect (Sign out truly signs out).",
+"F189": "A record of the pre-change Home Quick actions inventory, or a build of the previous release to compare against.",
+"F19": "Add the rail-member layer that enumerates the members of templates/partials/sidebar.html and refuses one without exactly one svg.sidebar__icon and one span.sidebar__label, or with an aria-label, naming the offending member and the fix.",
+"F190": "Home still greets the operator and still shows Your projects with the same projects and the same empty state as before the change.",
+"F191": "Checking that a greeting and a Your projects heading are present does not see loss inside the list: missing or reordered projects, a lost link per project, or a changed empty state.",
+"F192": "An operator who could see a moved link in Home Quick actions still sees that entry in the left nav; an operator who could not see it there still does not see it in the nav.",
+"F193": "Exercising one or two operators cannot see the remaining roles and permission combinations, and nav visibility alone does not show whether the destination still refuses an operator who reaches its address directly.",
+"F194": "At least two operator accounts whose Quick actions sets differed before the change, plus one with no team or token permission.",
+"F195": "No operator gains an entry she could not see before: the move adds no link to anyone and takes none away, so her set of offered destinations is unchanged in content and changed only in place.",
+"F196": "This is an absence claim over all operators: a finite set of sampled accounts cannot show that no role anywhere gained or lost an entry, and the contract names no roles to enumerate.",
+"F197": "With the left nav folded to its icon rail, Teams, Invite a member and Machine tokens are each shown as an icon, the operator can learn each destination name without unfolding the nav (as she can for every other rail item), and one press on the icon opens that destination.",
+"F198": "Asserting that a label or title attribute exists does not show that the name actually reaches the operator on hover or keyboard focus, nor that the three icons are distinguishable from each other and from the existing rail icons.",
+"F199": "At a viewport 480 px wide and narrower, no app page scrolls sideways, with the nav folded and unfolded.",
+"F2": "An operator reaches Teams, Invite a member and Machine tokens from the left nav on every app page, as she reaches Home and Board, instead of only from the Home page",
+"F20": "Signed in as each of the four rights rows, GET /team/general/project/sandbox and GET / over real HTTP against the running binary; then, in the browser lane, narrow the left nav to its icon rail on the dashboard at desk width and at 320, 390 and 480 px.",
+"F200": "An observation taken at exactly 480 px on sampled pages does not see narrower widths (the contract sets no lower bound), other pages, wide content such as long project, team or token names, or sideways scroll that appears only after an interaction such as opening the nav or a menu.",
+"F201": "Viewport width control at 480 px and below on each observed page.",
+"F21": "Each board page nav offers Home, Board, Teams, Invite a member and Machine tokens in that order, linking to /, the first-project board, /teams, /workspace/invites and /admin/tokens, each with one inline icon and its own word, with Home the only member marked current; Integrations and Instance admin appear only for the rights that already gated them. Home carries no Quick actions heading and no ul.actions, and still greets the operator and lists her projects. In the folded rail every member, the three new ones included, is in the layout, visible, focusable and named by its own word, and no page slides sideways.",
+"F22": "A plain member loses any of the three (a condition was authored where none existed); any of the three is placed before Board or outside nav#sidebar-nav; an anchor renders a glyph with no span.sidebar__label, or an aria-label beside it; Home still shows Quick actions, or lost its greeting or project list; two primary members are marked current; the folded rail leaves a new member out of the layout or unnamed; the 320 px page slides sideways.",
+"F23": "CONFIRMED, all three FIXED owner decisions unchanged: Teams, Invite a member and Machine tokens become three unconditional anchors inside nav#sidebar-nav.sidebar__nav, placed after the Board anchor; Home loses its whole Quick actions section; no visibility gate is added or removed. templates/partials/sidebar.html stays the single owner of the rail member list and NavContext (crates/foundry-app/src/nav.rs) gains no field, because each of the three destinations is a fixed href with no per-identity decision and no active-section marking to carry.",
+"F24": "No model for the nav membership, visibility and Home-removal claims: there is no shared state, no multi-step protocol, no concurrency and no crash window - each claim is one synchronous render of one template from one already-resolved NavContext, and the rights domain is the closed four-member set (plain member, workspace admin, instance admin, both) that the shipped icon-rail outline already enumerates. The claims are therefore finite and exhausted by enumerated cases, not by a state model. Quint is installed on this host, so this is a reasoned modelling choice and not a tooling gap; Agda is absent and no claim here needs a proof over types.",
+"F25": "The three new items carry no aria-current and NavSection keeps its two variants (Home, Board). Home therefore stays the single marked section on /teams, /workspace/invites and /admin/tokens exactly as it already is on /account/settings and /keyboard-help, so \"exactly one primary navigation item is marked as the current page\" (navigation-bar-linear-ui, notification-preferences-ui) keeps holding with five primary members instead of two.",
+"F26": "The stylesheet is not touched. The three items reuse .sidebar__item, .sidebar__icon and .sidebar__label, and both the desk collapsed rules and the max-width 480px block already make .sidebar__nav and .sidebar__user wrapping rows bounded by the bar (flex-wrap: wrap with min-width: 0), which is quantified over members and not over a member count. foundry.fb3aa227.css is content-hash named, so any byte change migrates templates/base.html, static/VENDOR.md and three hashed-name assertions in crates/foundry-app/src/lib.rs; spending that for rules that need no change is refused. The .actions rules become unreferenced and stay in place until the next stylesheet change re-fingerprints the file.",
+"F27": "Subtraction the removal makes available: DashboardRoot drops is_instance_admin, is_workspace_admin and csrf. Once the Quick actions list is gone those three fields have no reader, and the same three facts already reach the page through the nav field. The handler keeps computing all three, unchanged and fail-closed, because NavContext::for_page consumes them.",
+"F28": "Glyphs come from the release static/VENDOR.md already pins, lucide-static 1.75.0 (ISC): users for Teams, user-plus for Invite a member, key-round for Machine tokens. The shape children of package/icons/<name>.svg are copied verbatim in upstream order; the svg wrapper is authored like the seven shipped ones (class sidebar__icon, aria-hidden true, focusable false, no title element, stroke currentColor, no fill or colour literal). VENDOR.md gains the three names and its \"all seven\" count becomes ten.",
+"F29": "Placement inside nav#sidebar-nav is load-bearing, not cosmetic: the collapse control reaches the nav by aria-controls=\"sidebar-nav\", the collapsed rules select [data-nav-collapsed] .sidebar__nav, and the browser rail reading enumerates \".sidebar a.sidebar__item\" plus the sign-out button. An item added inside that element is therefore folded, clipped, revealed and read with no change to static/js/nav-collapse.js and no change to crates/foundry-acceptance/src/support/rail_reading.rs.",
+"F3": "On every app page the left nav offers Teams, Invite a member and Machine tokens, placed after Board in the top part of the nav, so the operator opens each of them in one press from wherever she is.",
+"F30": "P4 is inherited, not re-oracled. The shipped nav-collapse-icon-rail scenarios quantify over the members they read from the live document, so the enlarged set is covered by RE-RUNNING that lane rather than by a new browser scenario. The slice therefore takes its RED from fast served-markup scenarios, and the close must name the browser lane that actually ran: on a host without Docker that lane observes nothing and P4 stays unverified behind a green gate.",
+"F31": "No stored or validated input is added: the three destinations are fixed href literals /teams, /workspace/invites and /admin/tokens with no path or query parameter, so no length, range or character bound applies to this change and none is invented. The only authority bound carried is P4 width bound, 480 px and below.",
+"F32": "Visibility bound, read from the authority code and not inferred: the three moved links carry NO condition in dashboard_root.html today (lines 35-37 are plain list items), so every authenticated identity sees them, and the nav items carry no condition either. Integrations keeps nav.is_workspace_admin and Instance admin keeps nav.is_instance_admin, both already in the nav and both untouched. Signed out there is no nav at all: / and the three destinations redirect to /sign-in.",
+"F33": "No route, handler or authorization changes. /teams, /workspace/invites and /admin/tokens keep their own server-side gates, which this change neither reads, copies nor weakens: the nav offers a link, the destination still decides. No new destination page is added.",
+"F34": "The single owner of the rail member list, already carrying the glyph-plus-label rule for every destination. Three anchors are appended after the Board anchor inside nav#sidebar-nav; no second nav list is created anywhere.",
+"F35": "The section the owner decided to remove is the second dash__section (heading plus ul.actions). Only it is deleted; the greeting, the workspace line and the Your projects section with its four states stay byte-unchanged.",
+"F36": "Three fields lose their only reader with the section. Dropping them keeps one carrier per fact on the page: nav already holds is_instance_admin, is_workspace_admin and csrf for the sidebar.",
+"F37": "The one construction site of DashboardRoot (plus its in-crate test helper at signin.rs:750) drops the same three initialisers. The three lookups above it stay: NavContext::for_page consumes them, so no query and no fail-closed default is removed.",
+"F38": "The active-section carrier is REUSED unchanged, two variants, because the three new destinations mark no section. The one line that changes is its doc comment claim that the rail has exactly two primary destinations, which this change makes false.",
+"F39": "The icons-used list and the all-seven verification instruction are the provenance record for inline Lucide path data. Three names join the list and the count becomes ten; the pinned release, the tarball hash and the copy procedure stay unchanged.",
+"F4": "The Home page no longer shows a Quick actions section; each of its links lives in the left nav only (Integrations, Keyboard shortcuts and Sign out are already there), and Home keeps its greeting and Your projects.",
+"F40": "The repository architecture gate already reads templates (base.html, api_docs.html) and already hosts a nav-collapse layer, so the rail-member law gets a free function beside the existing layers rather than a new tool, a new gate command or a new crate.",
+"F41": "Three anchors added after Board, each with its inline Lucide glyph and its span.sidebar__label; the partial comment block that tells the next author to give a new destination both gains the corrected member count.",
+"F42": "The Quick actions section is deleted. Its three moved links move to the nav; Integrations, Keyboard shortcuts, Instance admin and Sign out were already in the nav with identical gates, so nothing becomes unreachable.",
+"F43": "is_instance_admin, is_workspace_admin and csrf removed with their doc comments, which all describe quick-action links that no longer exist.",
+"F44": "Both DashboardRoot literals drop the same three fields. Askama fails to compile if any template still reads them, so the removal cannot be partial.",
+"F45": "The NavSection doc comment states the rail has exactly two primary destinations. It becomes five, and the comment is the only line that changes in this file.",
+"F46": "Three icon names added to the icons-used list and the verification instruction count moved from seven to ten, so the auditor procedure still names every inline glyph.",
+"F47": "A new layer falsifies the rail-member law over whatever members sidebar.html holds, including members added after this change.",
+"F48": "Every rule the new items need already exists and is quantified over members, not over a count: .sidebar__item, .sidebar__icon, .sidebar__label at desk width, the clip-and-reveal rules under [data-nav-collapsed], and the wrapping rows inside the bar below 480px. Changing a byte would rename the hashed file and migrate base.html, VENDOR.md and three cache-policy assertions for no behavioural gain.",
+"F49": "It owns the id on nav.sidebar__nav and the pre-paint mark only; it enumerates no member and injects no glyph, so three more server-rendered anchors inside that element reach it with no edit.",
+"F5": "An operator sees each moved link in the nav exactly when she saw it in Home's Quick actions before: the move changes where a link is, never who may see it.",
+"F50": "It reads members from the live document by selector (\".sidebar a.sidebar__item\" plus the sign-out button) and takes each name from the member own .sidebar__label, so the enlarged set is read with no change.",
+"F51": "when_follows_teams opens / and resolves link_to(dash, \"Teams\") over every a[href] in the body. The sidebar anchor on that same page answers with text \"Teams\" and href /teams, so the step keeps resolving after the Quick actions link is gone.",
+"F52": "The Slice-09 scoping guard asserts the sidebar does NOT contain an Invite a member item and does NOT contain a Machine tokens item, which is the exact inverse of P1. The acceptance designer retires or inverts it before craft; leaving it is a red suite, and silently deleting it without recording the superseded scope is a lost guard.",
+"F53": "Six dark-palette assertions resolve colours on \".actions a\" and \".actions button\", selectors that exist ONLY in Home Quick actions list. With the section gone the dashboard palette scenario reads nothing there, so those rows go and the scenario clause that promises \"the action controls\" goes with them.",
+"F54": "The Then clause names the action controls among the surfaces measured in the dark palette. The project cards and the section labels stay; the action controls clause is removed with its step rows.",
+"F55": "Gains three members that satisfy the same shape; it is the sole producer of the markup.",
+"F56": "Selects on the classes, never on a position or a count, at both geometries and both breakpoints.",
+"F57": "Needs only the id on the nav element and the brand mount; it enumerates no member.",
+"F58": "Enumerates members by selector and reads each name from its own label, so its laws quantify over the enlarged set automatically.",
+"F59": "primary_items reads label, aria-current and href per item; \"shows primary items Home and Board\" is a containment check and the single-current law stays true because the new members mark nothing.",
+"F6": "With the left nav folded into its icon rail, Teams, Invite a member and Machine tokens are each an icon that names its destination and opens it in one press, like every other rail item, and at 480 px and below no page scrolls sideways.",
+"F60": "The producer is deleted, so the contract ends; every link it carried already exists in the nav with the same gate.",
+"F61": "Its six .actions colour rows have no element left to resolve; they are removed with the scenario clause that names them.",
+"F62": "It asserts the two links STAY out of the sidebar, which P1 reverses. It cannot stay as written and is the one oracle this change contradicts rather than extends.",
+"F63": "The .actions rules simply stop matching. Unreferenced rules in a hash-named stylesheet change no behaviour, and removing them would rename the file.",
+"F64": "Three fields removed; Askama binds template reads to struct fields at compile time, so no consumer can keep reading them.",
+"F65": "The in-crate test helper constructs the struct and drops the same three initialisers; it keeps the nav field it already builds.",
+"F66": "No party can change apart from another. The template, the handler, the view struct, the stylesheet and nav-collapse.js ship inside one binary and one commit, and the change persists nothing and crosses no wire: the only durable artefact involved is the per-browser fold choice, which this change does not touch. The slice primary oracle covers every caller in the deployable.",
+"F67": "No preserving move is available or needed. The nav member list is already isolated in one partial and the stylesheet already carries every rule the new members use, so nothing has to be moved to make the change easy. The one restructuring the change does perform, dropping the three readerless DashboardRoot fields, is NOT a preserving move: those fields lose their reader only because the Quick actions section goes, so it is part of the behaviour change and would have no GREEN oracle to observe before it.",
+"F68": "HTTP GET on any authenticated page of the running foundry binary (/, /team/{team}/project/{project}, /teams, /account/settings), served with the real session cookie; the same origin driven in a real browser for the folded-rail geometry",
+"F69": "Postgres through Store::is_instance_admin, Store::is_workspace_admin and nav_identity (read-only, fail-closed, unchanged)",
+"F7": "Teams, Invite a member and Machine tokens added to the left nav after Board, with rail icons; Home's Quick actions section removed.",
+"F70": "the browser document and its accessibility tree, read once per scenario by the shipped rail reading",
+"F71": "Template reads NavContext; NavContext is a presentation projection assembled by the handler from already-resolved session identity. Nothing in the template reaches the store, and no store or domain module learns about a nav member.",
+"F72": "Store::is_workspace_admin or Store::is_instance_admin errors while assembling the nav.",
+"F73": "The gated member is absent from the nav (fail-closed, unchanged), while Home, Board and the three moved members are all offered.",
+"F74": "The browser runs no page scripts, so no fold mark and no collapse control exist.",
+"F75": "The folded geometry is unavailable and the open nav offers all five primary members with their words, as the shipped degraded-arm scenarios already assert.",
+"F76": "The ordered list of (word, href) the primary nav offers on a served page, read from nav#sidebar-nav",
+"F77": "which template branch produced a member, the glyph geometry, the stylesheet that draws it, and whether the destination will authorize the operator once she arrives",
+"F78": "Whether a served Home page carries a Quick actions heading or a ul.actions list, and whether it still carries the greeting, the workspace line and the Your projects section",
+"F79": "how the section was removed, and whether unreferenced .actions rules remain in the stylesheet",
+"F8": "Making the left nav collapsible: delivered by nav-collapse-toggle and nav-collapse-icon-rail in v0.19.0. Any change to who may see a link. Any new destination page.",
+"F80": "Per member of the folded rail: in the layout, visible, focusable, and the name the browser computes for it",
+"F81": "what an assistive technology actually announces, and whether a long word stays legible in its revealed box",
+"F82": "Whether the document slides sideways at a given viewport width with the nav folded",
+"F83": "how many rows the bar took and how much vertical space that left the content",
+"F84": "Two renders of the nav are equal when they offer the same ordered list of (word, href) and mark the same member as the current page. Whitespace, attribute order, glyph path data, the stylesheet hash and the identity strings in the brand and footer are not distinguished.",
+"F85": "On every authenticated page the primary nav offers exactly Home, Board, Teams, Invite a member and Machine tokens, in that order, linking to /, nav.board_href, /teams, /workspace/invites and /admin/tokens.",
+"F86": "a plain member on a board page",
+"F87": "a workspace admin on a board page",
+"F88": "an instance admin on a board page",
+"F89": "a member on / with no projects, where Board falls back to /",
+"F9": "Signed in, the operator opens Teams, Invite a member and Machine tokens from the left nav on a board page, in the open nav and in the folded rail; Home shows no Quick actions; a member who could not see a link before still cannot.",
+"F90": "The rights domain is the closed four-member set and the page families are / and the board route; the order is a single authored sequence, so enumerated cases exhaust it and a generator would only repeat them.",
+"F91": "Each of Teams, Invite a member and Machine tokens is offered to exactly the identities that saw it in Home Quick actions, that is every authenticated identity, while Integrations stays workspace-admin only and Instance admin stays instance-admin only.",
+"F92": "a plain member sees the three and neither gated item",
+"F93": "a workspace admin sees the three and Integrations",
+"F94": "an instance admin sees the three and Instance admin",
+"F95": "a workspace-and-instance admin sees all five",
+"F96": "Visibility is a function of the two boolean rights facts only, so four cases are the whole domain; the moved three carry no condition at all, in either place.",
+"F97": "A served Home page carries no Quick actions heading and no ul.actions, and still carries the greeting, the workspace line and the Your projects section in each of its states.",
+"F98": "Listed, with at least one project card",
+"F99": "CreateOn, the create-first-project empty state"
+},
+"product": {
+"decisions": [
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F10"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F11"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F12"
+}
+],
+"promises": [
+{
+"id": "P1",
+"kind": "Outcome",
+"text": "F3"
+},
+{
+"id": "P2",
+"kind": "Outcome",
+"text": "F4"
+},
+{
+"id": "P3",
+"kind": "Outcome",
+"text": "F5"
+},
+{
+"id": "P4",
+"kind": "Outcome",
+"text": "F6"
+}
+],
+"scope_in": [
+"F7"
+],
+"scope_out": [
+"F8"
+],
+"slices": [
+{
+"id": "S1",
+"observation": "F9",
+"promises": [
+"P1",
+"P2",
+"P3",
+"P4"
+]
+}
+]
+},
+"request": "F1",
+"schema": "nwdes.handoff",
+"scope": {
+"id": "nav-quick-actions",
+"kind": "Feature"
+},
+"version": 4,
+"work": {
+"size": "M",
+"value": "F2"
+}
+}
