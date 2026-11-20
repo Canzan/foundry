@@ -65,11 +65,14 @@ fn dashboard_body(world: &FoundryWorld) -> &str {
 /// The `href` of the rail's Board item (`partials/sidebar.html`): the anchor whose
 /// text is exactly `Board`.
 fn rail_board_href(body: &str) -> Option<String> {
-    let anchor_end = body.find(">Board</a>")?;
-    let anchor_start = body[..anchor_end].rfind("<a ")?;
-    let anchor = &body[anchor_start..anchor_end];
-    let after = &anchor[anchor.find("href=\"")? + "href=\"".len()..];
-    Some(after[..after.find('"')?].to_string())
+    // The first link whose visible words are "Board", read from the parsed
+    // document: the rail item wraps its word in a label span beside an icon,
+    // so a raw `>Board</a>` search stops seeing it.
+    let doc = scraper::Html::parse_document(body);
+    let links = scraper::Selector::parse("a[href]").expect("valid selector");
+    doc.select(&links)
+        .find(|a| a.text().collect::<String>().trim() == "Board")
+        .and_then(|a| a.value().attr("href").map(str::to_string))
 }
 
 /// The "Your projects" section of the dashboard (up to the next section heading).
