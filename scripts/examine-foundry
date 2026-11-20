@@ -104,6 +104,8 @@
 #                               drop-down list with that accessible name, such
 #                               as: choose Status Done (the list takes the
 #                               option, then fires input and change)
+#   shot <name>                 save the viewport as <name>.png; `shots <dir>`
+#                               copies every shot taken since start to <dir>
 #   board                       each board column by its heading, with the
 #                               keys of its cards top to bottom, and the dialog
 #                               that is open
@@ -181,7 +183,8 @@ usage: examine-foundry start <state> [--before] [--replicas 2]
        examine-foundry new-issue [--replica 2] <viewer> <team>/<project> <title>
        examine-foundry browser <viewer> [--width px] [--height px] [--phone] [--js off] [--slow N] [--fresh] <step>...
            steps: go <path> | reload | watch-go <path> | watch-reload | look | key <Tab|Shift+Tab|Enter|Space|Escape> | tab-order <N> | click <name> | hover <name> | sign-in | width <px>
-                  | click-card <issue key> | choose <list name> <option> | board
+                  | click-card <issue key> | choose <list name> <option> | board | shot <name>
+       examine-foundry shots <dir>
        examine-foundry gate [--file <repo path> <your file>]...
        examine-foundry suite <tag> [--file <repo path> <your file>]...
            a --file replaces crates/foundry-app/templates/base.html or a file under crates/foundry-app/static/
@@ -462,6 +465,22 @@ host_main() {
       run_op 200 browser "$bviewer" "$bw" "$bh" "$bjs" "$bslow" "$bfresh" "$bphone" "$@"
       ;;
     gate | suite) host_contributor "$cmd" "$@" ;;
+    shots)
+      [ "$#" -eq 1 ] || die "usage: examine-foundry shots <dir> (copies every shot taken since start)"
+      mkdir -p "$1" || die "cannot make $1"
+      if [ "$(uname -s)" = Linux ]; then
+        cp "$HOME/examine-foundry/shots/"*.png "$1"/ 2>/dev/null || die "no shots taken yet"
+      else
+        vm_up
+        local list f
+        list=$(timeout 30 limactl shell --workdir / "$VM" bash -c 'ls ~/examine-foundry/shots/*.png 2>/dev/null' 2>/dev/null) ||
+          die "no shots taken yet"
+        for f in $list; do
+          timeout 60 limactl copy "$VM:$f" "$1/" 2>/dev/null || die "could not copy $f"
+        done
+      fi
+      ls "$1"
+      ;;
     upgrade)
       [ "$#" -eq 0 ] || die "upgrade takes nothing more"
       host_upgrade
@@ -1637,7 +1656,8 @@ vm_browser() {
   mkdir -p "$profile"
   command -v chromium >/dev/null || die "chromium is not on the VM's PATH"
   command -v node >/dev/null || die "node is not on the VM's PATH"
-  EXAMINE_EMAIL="$(email_of "$viewer")" EXAMINE_PASSWORD="$PASSWORD" \
+  mkdir -p "$STATE_DIR/shots"
+  EXAMINE_EMAIL="$(email_of "$viewer")" EXAMINE_PASSWORD="$PASSWORD" EXAMINE_SHOTS="$STATE_DIR/shots" \
     timeout 170 node --input-type=module -e "$(browser_js)" \
     "$BASE" "$jar" "$profile" "$width" "$height" "$js" "$slow" "$mobile" "$@"
 }
@@ -1890,6 +1910,17 @@ try {
         const field = arg(), option = arg();
         say(`\n> choose "${field}" "${option}"`);
         await choose(field, option);
+        break;
+      }
+      case "shot": {
+        const name = arg();
+        if (!/^[a-z0-9][a-z0-9-]{0,60}$/.test(name)) fail("a shot name is lowercase letters, digits and -, such as home-desk");
+        say(`\n> shot ${name}`);
+        await sleep(300);
+        const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false });
+        const { writeFileSync } = await import("node:fs");
+        writeFileSync(`${process.env.EXAMINE_SHOTS}/${name}.png`, Buffer.from(data, "base64"));
+        say(`  saved the viewport as ${name}.png (copy them out with: examine-foundry shots <dir>)`);
         break;
       }
       case "board":
