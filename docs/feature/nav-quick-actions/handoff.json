@@ -136,7 +136,7 @@
 "B": 2,
 "C": 2,
 "E": 9,
-"F": 243,
+"F": 250,
 "K": 3,
 "L": 6,
 "P": 4,
@@ -277,6 +277,13 @@
 "locator": "crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53",
 "party": "Consumer",
 "reason": "F235"
+},
+{
+"contract": "Home Quick actions markup: section.dash__section holding the heading \"Quick actions\" and ul.actions with one link per action plus the sign-out form",
+"decision": "Incompatible",
+"locator": "crates/foundry-acceptance/tests/features/external-integration-plugins-06-finding-integrations.feature:26",
+"party": "Consumer",
+"reason": "F247"
 }
 ],
 "architectural_tests": [
@@ -484,6 +491,24 @@
 "kind": "acceptance-oracle",
 "locator": "crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53",
 "reason": "F234"
+},
+{
+"decision": "Migrated",
+"kind": "acceptance-oracle",
+"locator": "crates/foundry-acceptance/tests/features/external-integration-plugins-06-finding-integrations.feature:26",
+"reason": "F244"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-support",
+"locator": "crates/foundry-acceptance/src/support/external_integration_plugins.rs:3833",
+"reason": "F245"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-support",
+"locator": "crates/foundry-acceptance/src/steps/feature_external_integration_plugins.rs:1",
+"reason": "F246"
 }
 ],
 "laws": [
@@ -638,6 +663,11 @@
 "cause": "F238",
 "counterexample": "F239",
 "statement": "F237"
+},
+{
+"cause": "F249",
+"counterexample": "F250",
+"statement": "F248"
 }
 ],
 "reuse": [
@@ -800,7 +830,10 @@
 "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
 "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
 "crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
-"crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs"
+"crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs",
+"crates/foundry-acceptance/tests/features/external-integration-plugins-06-finding-integrations.feature",
+"crates/foundry-acceptance/src/support/external_integration_plugins.rs",
+"crates/foundry-acceptance/src/steps/feature_external_integration_plugins.rs"
 ],
 "targets": [
 {
@@ -1082,7 +1115,14 @@
 "F241": "The rail announces every destination she is owed - the three new ones among them - each in the layout, visible, able to take the keyboard focus and named by its own word, the Tab walk stops on every one of them, and the page does not slide sideways",
 "F242": "Folded, she still finds and opens her teams, the invite page and her machine tokens, by eye or by keyboard, and no narrow page slides sideways",
 "F243": "the rail dropped a destination at a width narrower than 320 pixels, which no lane drives",
+"F244": "Two promises pin the dashboard BODY as the surface that offers Integrations to a workspace admin: the @driving_port scenario at :26-28 (Priya follows \"Integrations\" on the dashboard) and the Priya row of the outline at :35-44. Their reading excludes the sidebar (support/external_integration_plugins.rs:3833 link_hrefs filters in_sidebar), so the only link they could ever count was the removed Quick actions one. The confirmed owner decision supersedes that promise: a workspace admin now reaches Integrations from the nav on every page, and the dashboard body offers it nowhere. The not-offered rows (Lena, Sam, Marco) read sidebar-inclusively through all_link_hrefs and still hold, because the nav gates Integrations on nav.is_workspace_admin.",
+"F245": "link_hrefs stays correct for the question it answers, the page own links excluding the shell sidebar, and all_link_hrefs at :3845 already answers the sidebar-inclusive question a migrated Priya row needs. Declared a support so its owner may extend it without a production change; integrations-wayfinding already owns a sidebar-side Priya step (support/integrations_wayfinding.rs then_sidebar_offered) if the journey is re-pointed rather than retired.",
+"F246": "It binds the two step regexes the migrated rows use. Declared a support so the acceptance designer can retire or re-point those rows in one place; no production symbol is involved.",
+"F247": "It requires exactly one Integrations link in the dashboard body outside the sidebar, which only the deleted section supplied. Like the Slice-09 guard it cannot stay as written; its promise is superseded, not merely relocated.",
+"F248": "Integrations and Instance admin were already in the nav with identical gates, so deleting their Quick actions copies changes no oracle.",
+"F249": "Reachability and the offering SURFACE are different promises: an oracle that deliberately excludes the shell sidebar is asserting that the page body itself offers the link, which the nav copy cannot satisfy.",
 "F25": "The three new items carry no aria-current and NavSection keeps its two variants (Home, Board). Home therefore stays the single marked section on /teams, /workspace/invites and /admin/tokens exactly as it already is on /account/settings and /keyboard-help, so \"exactly one primary navigation item is marked as the current page\" (navigation-bar-linear-ui, notification-preferences-ui) keeps holding with five primary members instead of two.",
+"F250": "external-integration-plugins-06-finding-integrations.feature:26-28 and the Priya row at :36 count link_hrefs (support/external_integration_plugins.rs:3833, in_sidebar filtered) and demand exactly one; the host default lane failed both with left 0, right 1. The analogous instance-admin reading at support/instance_integration_setup.rs:969 is NOT affected: it reads /admin/instance/workspaces, whose own body carries that link.",
 "F26": "The stylesheet is not touched. The three items reuse .sidebar__item, .sidebar__icon and .sidebar__label, and both the desk collapsed rules and the max-width 480px block already make .sidebar__nav and .sidebar__user wrapping rows bounded by the bar (flex-wrap: wrap with min-width: 0), which is quantified over members and not over a member count. foundry.fb3aa227.css is content-hash named, so any byte change migrates templates/base.html, static/VENDOR.md and three hashed-name assertions in crates/foundry-app/src/lib.rs; spending that for rules that need no change is refused. The .actions rules become unreferenced and stay in place until the next stylesheet change re-fingerprints the file.",
 "F27": "Subtraction the removal makes available: DashboardRoot drops is_instance_admin, is_workspace_admin and csrf. Once the Quick actions list is gone those three fields have no reader, and the same three facts already reach the page through the nav field. The handler keeps computing all three, unchanged and fail-closed, because NavContext::for_page consumes them.",
 "F28": "Glyphs come from the release static/VENDOR.md already pins, lucide-static 1.75.0 (ISC): users for Teams, user-plus for Invite a member, key-round for Machine tokens. The shape children of package/icons/<name>.svg are copied verbatim in upstream order; the svg wrapper is authored like the seven shipped ones (class sidebar__icon, aria-hidden true, focusable false, no title element, stroke currentColor, no fill or colour literal). VENDOR.md gains the three names and its \"all seven\" count becomes ten.",

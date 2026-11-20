@@ -188,6 +188,12 @@ crates\/foundry\-acceptance\/src\/steps\/feature\_canzan\_theme\.rs
 
 crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_icon\_rail\.rs
 
+crates\/foundry\-acceptance\/tests\/features\/external\-integration\-plugins\-06\-finding\-integrations\.feature
+
+crates\/foundry\-acceptance\/src\/support\/external\_integration\_plugins\.rs
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_external\_integration\_plugins\.rs
+
 #### Public oracle
 
 ```text
@@ -490,6 +496,36 @@ Migrated
 EVERY_OPERATOR and its two rights constants are the rail OWED set, compared to the offered set by sorted equality at :877-881 after being built at :837. Three members added to the nav make every scenario calling that helper fail with offered superset of wanted, so the owed set gains Teams, Invite a member and Machine tokens (or is derived from the open nav) before the lane is re-run. This row was missing from the first survey, which stopped at the reading support.
 ```
 
+acceptance\-oracle
+
+crates\/foundry\-acceptance\/tests\/features\/external\-integration\-plugins\-06\-finding\-integrations\.feature\:26
+
+Migrated
+
+```text
+Two promises pin the dashboard BODY as the surface that offers Integrations to a workspace admin: the @driving_port scenario at :26-28 (Priya follows "Integrations" on the dashboard) and the Priya row of the outline at :35-44. Their reading excludes the sidebar (support/external_integration_plugins.rs:3833 link_hrefs filters in_sidebar), so the only link they could ever count was the removed Quick actions one. The confirmed owner decision supersedes that promise: a workspace admin now reaches Integrations from the nav on every page, and the dashboard body offers it nowhere. The not-offered rows (Lena, Sam, Marco) read sidebar-inclusively through all_link_hrefs and still hold, because the nav gates Integrations on nav.is_workspace_admin.
+```
+
+acceptance\-support
+
+crates\/foundry\-acceptance\/src\/support\/external\_integration\_plugins\.rs\:3833
+
+UnchangedCompatible
+
+```text
+link_hrefs stays correct for the question it answers, the page own links excluding the shell sidebar, and all_link_hrefs at :3845 already answers the sidebar-inclusive question a migrated Priya row needs. Declared a support so its owner may extend it without a production change; integrations-wayfinding already owns a sidebar-side Priya step (support/integrations_wayfinding.rs then_sidebar_offered) if the journey is re-pointed rather than retired.
+```
+
+acceptance\-support
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_external\_integration\_plugins\.rs\:1
+
+UnchangedCompatible
+
+```text
+It binds the two step regexes the migrated rows use. Declared a support so the acceptance designer can retire or re-point those rows in one place; no production symbol is involved.
+```
+
 ##### Agreement
 
 rendered sidebar member markup\: inside nav\#sidebar\-nav each member is one a\.sidebar\_\_item carrying exactly one inline svg\.sidebar\_\_icon and exactly one span\.sidebar\_\_label holding its whole word\, with no aria\-label
@@ -634,6 +670,18 @@ Migrated
 
 ```text
 It is the one consumer that encodes the member LIST rather than the member SHAPE, so it cannot absorb a new destination; its owed set is migrated with the producer.
+```
+
+Home Quick actions markup\: section\.dash\_\_section holding the heading \"Quick actions\" and ul\.actions with one link per action plus the sign\-out form
+
+crates\/foundry\-acceptance\/tests\/features\/external\-integration\-plugins\-06\-finding\-integrations\.feature\:26
+
+Consumer
+
+Incompatible
+
+```text
+It requires exactly one Integrations link in the dashboard body outside the sidebar, which only the deleted section supplied. Like the Slice-09 guard it cannot stay as written; its promise is superseded, not merely relocated.
 ```
 
 ##### Not applicable
@@ -1042,6 +1090,18 @@ Only the offered side is read from the document; the expected side is a hardcode
 
 ```text
 crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53 EVERY_OPERATOR = [Home, Board, Settings, Keyboard shortcuts], built into the owed set at :837 and compared sorted at :877-881: with three members added every scenario calling it fails with offered superset of wanted.
+```
+
+```text
+Integrations and Instance admin were already in the nav with identical gates, so deleting their Quick actions copies changes no oracle.
+```
+
+```text
+Reachability and the offering SURFACE are different promises: an oracle that deliberately excludes the shell sidebar is asserting that the page body itself offers the link, which the nav copy cannot satisfy.
+```
+
+```text
+external-integration-plugins-06-finding-integrations.feature:26-28 and the Priya row at :36 count link_hrefs (support/external_integration_plugins.rs:3833, in_sidebar filtered) and demand exactly one; the host default lane failed both with left 0, right 1. The analogous instance-admin reading at support/instance_integration_setup.rs:969 is NOT affected: it reads /admin/instance/workspaces, whose own body carries that link.
 ```
 
 ##### Claims

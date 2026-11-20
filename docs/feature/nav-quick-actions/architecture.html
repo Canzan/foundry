@@ -331,6 +331,12 @@ scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-icon-rail FOUND
 
 <p>crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs</p>
 
+<p>crates/foundry-acceptance/tests/features/external-integration-plugins-06-finding-integrations.feature</p>
+
+<p>crates/foundry-acceptance/src/support/external_integration_plugins.rs</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_external_integration_plugins.rs</p>
+
 <h4>Public oracle</h4>
 
 <pre><code>Signed in as each of the four rights rows, GET /team/general/project/sandbox and GET / over real HTTP against the running binary; then, in the browser lane, narrow the left nav to its icon rail on the dashboard at desk width and at 320, 390 and 480 px.
@@ -597,6 +603,33 @@ scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-icon-rail FOUND
 <pre><code>EVERY_OPERATOR and its two rights constants are the rail OWED set, compared to the offered set by sorted equality at :877-881 after being built at :837. Three members added to the nav make every scenario calling that helper fail with offered superset of wanted, so the owed set gains Teams, Invite a member and Machine tokens (or is derived from the open nav) before the lane is re-run. This row was missing from the first survey, which stopped at the reading support.
 </code></pre>
 
+<p>acceptance-oracle</p>
+
+<p>crates/foundry-acceptance/tests/features/external-integration-plugins-06-finding-integrations.feature:26</p>
+
+<p>Migrated</p>
+
+<pre><code>Two promises pin the dashboard BODY as the surface that offers Integrations to a workspace admin: the @driving_port scenario at :26-28 (Priya follows &quot;Integrations&quot; on the dashboard) and the Priya row of the outline at :35-44. Their reading excludes the sidebar (support/external_integration_plugins.rs:3833 link_hrefs filters in_sidebar), so the only link they could ever count was the removed Quick actions one. The confirmed owner decision supersedes that promise: a workspace admin now reaches Integrations from the nav on every page, and the dashboard body offers it nowhere. The not-offered rows (Lena, Sam, Marco) read sidebar-inclusively through all_link_hrefs and still hold, because the nav gates Integrations on nav.is_workspace_admin.
+</code></pre>
+
+<p>acceptance-support</p>
+
+<p>crates/foundry-acceptance/src/support/external_integration_plugins.rs:3833</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>link_hrefs stays correct for the question it answers, the page own links excluding the shell sidebar, and all_link_hrefs at :3845 already answers the sidebar-inclusive question a migrated Priya row needs. Declared a support so its owner may extend it without a production change; integrations-wayfinding already owns a sidebar-side Priya step (support/integrations_wayfinding.rs then_sidebar_offered) if the journey is re-pointed rather than retired.
+</code></pre>
+
+<p>acceptance-support</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_external_integration_plugins.rs:1</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It binds the two step regexes the migrated rows use. Declared a support so the acceptance designer can retire or re-point those rows in one place; no production symbol is involved.
+</code></pre>
+
 <h5>Agreement</h5>
 
 <p>rendered sidebar member markup: inside nav#sidebar-nav each member is one a.sidebar__item carrying exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, with no aria-label</p>
@@ -729,6 +762,17 @@ scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-icon-rail FOUND
 <p>Migrated</p>
 
 <pre><code>It is the one consumer that encodes the member LIST rather than the member SHAPE, so it cannot absorb a new destination; its owed set is migrated with the producer.
+</code></pre>
+
+<p>Home Quick actions markup: section.dash__section holding the heading &quot;Quick actions&quot; and ul.actions with one link per action plus the sign-out form</p>
+
+<p>crates/foundry-acceptance/tests/features/external-integration-plugins-06-finding-integrations.feature:26</p>
+
+<p>Consumer</p>
+
+<p>Incompatible</p>
+
+<pre><code>It requires exactly one Integrations link in the dashboard body outside the sidebar, which only the deleted section supplied. Like the Slice-09 guard it cannot stay as written; its promise is superseded, not merely relocated.
 </code></pre>
 
 <h5>Not applicable</h5>
@@ -1074,6 +1118,15 @@ scripts/test-in-lima.sh env FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-icon-rail FOUND
 </code></pre>
 
 <pre><code>crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53 EVERY_OPERATOR = [Home, Board, Settings, Keyboard shortcuts], built into the owed set at :837 and compared sorted at :877-881: with three members added every scenario calling it fails with offered superset of wanted.
+</code></pre>
+
+<pre><code>Integrations and Instance admin were already in the nav with identical gates, so deleting their Quick actions copies changes no oracle.
+</code></pre>
+
+<pre><code>Reachability and the offering SURFACE are different promises: an oracle that deliberately excludes the shell sidebar is asserting that the page body itself offers the link, which the nav copy cannot satisfy.
+</code></pre>
+
+<pre><code>external-integration-plugins-06-finding-integrations.feature:26-28 and the Priya row at :36 count link_hrefs (support/external_integration_plugins.rs:3833, in_sidebar filtered) and demand exactly one; the host default lane failed both with left 0, right 1. The analogous instance-admin reading at support/instance_integration_setup.rs:969 is NOT affected: it reads /admin/instance/workspaces, whose own body carries that link.
 </code></pre>
 
 <h5>Claims</h5>
