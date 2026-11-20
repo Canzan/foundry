@@ -153,10 +153,20 @@ Feature: foundry follows the light the operator's environment asks for
     # restated from the six figures a human typed into the token comments.
     # RED-trigger: rebinding the faint tier back to canzan.net's own value, which
     # measures 3.24:1 light and 3.52:1 dark and fails at label size.
+    #
+    # WHAT IDENTIFIES A CONTROL depends on what the control draws. A control the
+    # operator finds by its own visible word, drawn beside its glyph in the nav,
+    # is read for the legibility of that word; a control she can only find by its
+    # shape - a glyph with no word of its own - still has to be identified by its
+    # own fill or its border. RED-trigger for that split: exempting every quiet
+    # or transparent control instead of a control a word names, which would stop
+    # reading the glyph-only controls of the shell altogether.
     Given a browser session whose device preference is dark
     And the operator opens the "Sandbox" board
     Then every body-size text pair on the board and rail reaches at least 4.5 to 1
-    And every large-text and control-boundary pair reaches at least 3 to 1
+    And every large-text pair reaches at least 3 to 1
+    And every control no visible word names is identified by its own fill or border at 3 to 1
+    And a nav control that draws its own word beside its glyph has that word legible at 4.5 to 1 instead
     And the same holds when the device preference is light
 
   @needs-browser @real-io @slice1 @us-cts-01 @error

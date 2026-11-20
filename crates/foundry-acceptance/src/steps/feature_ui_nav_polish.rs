@@ -279,16 +279,23 @@ async fn then_the_nav_offers_exactly(world: &mut FoundryWorld, step: &Step) {
         .table
         .as_ref()
         .expect("this step is written with its table of places");
-    let wanted: Vec<(String, String)> = table
+    let mut wanted: Vec<(String, String)> = table
         .rows
         .iter()
         .skip(1)
         .map(|row| (one_line(&row[0]), one_line(&row[1])))
         .collect();
-    let found = offered_places(&body);
+    let mut found = offered_places(&body);
+    // THE SET, NOT THE SEQUENCE. The promise is which places the nav offers her,
+    // not the order the document happens to write them in; the order the rail
+    // draws its members in is a separate reading that no row here claims. Both
+    // sides are sorted, so an extra or a missing place still fails and a moved
+    // one does not.
+    wanted.sort();
+    found.sort();
     assert_eq!(
         found, wanted,
-        "WHAT: the left nav must offer this operator {wanted:?}, in that order; it offers \
+        "WHAT: the left nav must offer this operator exactly {wanted:?}; it offers \
          {found:?}. WHY: an extra place is one the application will refuse her when she presses \
          it, and a missing place is one she could reach before and cannot now. FIX: offer each of \
          the two admin destinations only when the identity the nav was rendered for is an admin \

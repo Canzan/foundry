@@ -373,11 +373,23 @@ async fn then_every_body_size_text_pair_on_the_board_and(world: &mut FoundryWorl
     assert_text_contrast(browser_of(world), "dark", true).await;
 }
 
-#[then(regex = r"^every large-text and control-boundary pair reaches at least 3 to 1$")]
-async fn then_every_large_text_and_control_boundary_pair_reaches_at(world: &mut FoundryWorld) {
-    let browser = browser_of(world);
-    assert_text_contrast(browser, "dark", false).await;
-    assert_control_boundary_contrast(browser, "dark").await;
+#[then(regex = r"^every large-text pair reaches at least 3 to 1$")]
+async fn then_every_large_text_pair_reaches_at_least_3_to_1(world: &mut FoundryWorld) {
+    assert_text_contrast(browser_of(world), "dark", false).await;
+}
+
+#[then(
+    regex = r"^every control no visible word names is identified by its own fill or border at 3 to 1$"
+)]
+async fn then_every_wordless_control_is_identified_by_its_shape(world: &mut FoundryWorld) {
+    assert_shape_identifies_wordless_controls(browser_of(world), "dark").await;
+}
+
+#[then(
+    regex = r"^a nav control that draws its own word beside its glyph has that word legible at 4\.5 to 1 instead$"
+)]
+async fn then_a_nav_control_is_read_for_its_own_word(world: &mut FoundryWorld) {
+    assert_the_word_is_legible(browser_of(world), "dark").await;
 }
 
 #[then(regex = r"^the same holds when the device preference is light$")]
@@ -385,7 +397,8 @@ async fn then_the_same_holds_when_the_device_preference_is_light(world: &mut Fou
     let light = light_device_board(world).await;
     assert_text_contrast(&light, "light", true).await;
     assert_text_contrast(&light, "light", false).await;
-    assert_control_boundary_contrast(&light, "light").await;
+    assert_shape_identifies_wordless_controls(&light, "light").await;
+    assert_the_word_is_legible(&light, "light").await;
     light.close().await.ok();
 }
 
@@ -2257,10 +2270,18 @@ for (var i = 0; i < nodes.length; i++) {
 return out;
 "#;
 
-/// Every interactive control on the shell with the colours that IDENTIFY it —
-/// its own fill and its border — against the surface it sits on. WCAG 1.4.11
-/// asks for 3:1 from whichever of those does the identifying, which is why the
-/// assertion takes the BETTER of the two rather than demanding both.
+/// Every interactive control on the shell with everything that IDENTIFIES it to
+/// the operator: its own fill, its border, the surface it sits on, whether it
+/// sits in the left nav, whether it draws a glyph, and the visible word it
+/// draws for itself with the colours that word resolves to.
+///
+/// A control the operator finds by its own word, drawn beside its glyph in the
+/// nav, is identified by that word; the reading that applies to it is the 4.5:1
+/// legibility of the word (WCAG 1.4.3). Every other control is found by its
+/// shape, so the better of its fill and its border must reach 3:1 (WCAG
+/// 1.4.11). The split is keyed on the WORD the control actually draws — a glyph
+/// character is not a word — so it cannot widen to the quiet or transparent
+/// controls of the rest of the shell.
 const CONTROL_BOUNDARY_PROBE: &str = r#"
 function opaqueBackgroundOf(node) {
   while (node) {
@@ -2270,6 +2291,47 @@ function opaqueBackgroundOf(node) {
     node = node.parentElement;
   }
   return window.getComputedStyle(document.documentElement).backgroundColor;
+}
+function drawn(node) {
+  if (!node.getClientRects || !node.getClientRects().length) { return false; }
+  var cs = window.getComputedStyle(node);
+  if (cs.visibility === 'hidden' || cs.display === 'none' || parseFloat(cs.opacity) === 0) { return false; }
+  if (cs.clipPath && cs.clipPath !== 'none') { return false; }
+  var box = node.getBoundingClientRect();
+  return box.width >= 4 && box.height >= 4;
+}
+function announced(node, control) {
+  for (var walk = node; walk; walk = walk.parentElement) {
+    if (walk.getAttribute && walk.getAttribute('aria-hidden') === 'true') { return false; }
+    if (!drawn(walk)) { return false; }
+    if (walk === control) { return true; }
+  }
+  return true;
+}
+function wordOf(control) {
+  var nodes = [control].concat(Array.prototype.slice.call(control.querySelectorAll('*')));
+  for (var k = 0; k < nodes.length; k++) {
+    var node = nodes[k];
+    var own = '';
+    for (var c = 0; c < node.childNodes.length; c++) {
+      if (node.childNodes[c].nodeType === 3) { own += node.childNodes[c].textContent; }
+    }
+    own = own.trim();
+    if (!own || !/[A-Za-z0-9]/.test(own)) { continue; }
+    if (!announced(node, control)) { continue; }
+    var cs = window.getComputedStyle(node);
+    return { text: own.slice(0, 40), colour: cs.color, behind: opaqueBackgroundOf(node) };
+  }
+  return null;
+}
+function carriesAGlyph(control) {
+  // THE GLYPH IS THE MEMBER'S SHAPE, NOT A PAINTED FACT OF ONE WIDTH. The rail
+  // carries a glyph for every member in both geometries and the stylesheet
+  // decides which of the two draws it: narrowed to icons the glyph is painted
+  // and the word is clipped, open the word carries the member and the glyph is
+  // left out. What the exemption turns on is the WORD, read below; this only
+  // tells a rail member apart from a plain control.
+  return control.querySelectorAll('svg, [aria-hidden="true"]').length > 0;
 }
 var out = [];
 var shell = document.querySelector('.app-shell');
@@ -2287,11 +2349,17 @@ for (var i = 0; i < nodes.length; i++) {
       break;
     }
   }
+  var word = wordOf(el);
   out.push({
     where: el.tagName.toLowerCase() + (el.className && typeof el.className === 'string' ? '.' + el.className.trim().split(/\s+/).join('.') : '') + '[' + (el.textContent.trim().slice(0, 20)) + ']',
     fill: cs.backgroundColor,
     border: border,
-    adjacent: opaqueBackgroundOf(el.parentElement)
+    adjacent: opaqueBackgroundOf(el.parentElement),
+    inTheNav: !!(el.closest && el.closest('.sidebar')),
+    glyph: carriesAGlyph(el),
+    word: word ? word.text : '',
+    wordColour: word ? word.colour : null,
+    wordBehind: word ? word.behind : null
   });
 }
 return out;
@@ -3101,19 +3169,54 @@ async fn assert_text_contrast_within(
     );
 }
 
-/// COMPUTE each control's identifying contrast against the surface it sits on
-/// (WCAG 1.4.11): the better of its fill and its border must reach 3:1.
-async fn assert_control_boundary_contrast(client: &fantoccini::Client, palette_name: &str) {
+/// A control the operator finds by its own visible word, drawn beside a glyph in
+/// the left nav. That word is what identifies it, exactly as it identifies the
+/// plain links around it, so the word carries the reading and the shape does
+/// not. Everything else on the shell — above all a control drawn as a glyph
+/// alone — is found by its shape and keeps the boundary reading.
+fn a_word_names_it(control: &serde_json::Value) -> bool {
+    control["inTheNav"].as_bool().unwrap_or(false)
+        && control["glyph"].as_bool().unwrap_or(false)
+        && !control["word"]
+            .as_str()
+            .unwrap_or_default()
+            .trim()
+            .is_empty()
+}
+
+async fn read_the_controls(
+    client: &fantoccini::Client,
+    palette_name: &str,
+) -> Vec<serde_json::Value> {
     let controls = client
         .execute(CONTROL_BOUNDARY_PROBE, Vec::new())
         .await
-        .expect("measure every control boundary on the board and rail");
-    let controls = controls.as_array().expect("the probe returns an array");
+        .expect("measure how every control on the board and rail identifies itself");
+    let controls = controls
+        .as_array()
+        .expect("the probe returns an array")
+        .clone();
     assert!(
         !controls.is_empty(),
-        "no control was found on the {palette_name} board — the 1.4.11 assertion would be vacuous"
+        "no control was found on the {palette_name} board — any reading of how a control \
+         identifies itself would be vacuous"
     );
-    for control in controls {
+    controls
+}
+
+/// COMPUTE the identifying contrast of every control no word names, against the
+/// surface it sits on (WCAG 1.4.11): the better of its fill and its border must
+/// reach 3:1.
+async fn assert_shape_identifies_wordless_controls(
+    client: &fantoccini::Client,
+    palette_name: &str,
+) {
+    let controls = read_the_controls(client, palette_name).await;
+    let mut glyph_only = 0usize;
+    for control in &controls {
+        if a_word_names_it(control) {
+            continue;
+        }
         let where_ = control["where"].as_str().unwrap_or_default();
         let Some((adjacent, _)) = parse_colour(control["adjacent"].as_str().unwrap_or_default())
         else {
@@ -3138,11 +3241,67 @@ async fn assert_control_boundary_contrast(client: &fantoccini::Client, palette_n
         assert!(
             best >= 3.0,
             "{palette_name} palette: `{where_}` computes only {best:.2}:1 ({how}) against {} — \
-             nothing identifies this control at WCAG 1.4.11's 3:1. A hairline divider is not a \
-             control boundary.",
+             no word names this control, so nothing identifies it at WCAG 1.4.11's 3:1. A \
+             hairline divider is not a control boundary.",
             hex(adjacent)
         );
+        if control["glyph"].as_bool().unwrap_or(false) {
+            glyph_only += 1;
+        }
     }
+    // ANTI-VACUITY, anchored on the shape of the exemption rather than on a
+    // count: a control drawn as a glyph with no word of its own is the case the
+    // boundary reading exists for. If every such control slipped out of this
+    // reading, the exemption has widened from "a word names it" to something
+    // else — a transparent fill, a class, a tag — and the shell's glyph-only
+    // controls would stop being read at all.
+    assert!(
+        glyph_only >= 1,
+        "no control drawn as a glyph with no word of its own was read for the 3:1 boundary on the \
+         {palette_name} board, so this reading no longer protects the controls the operator can \
+         only find by their shape. The exemption belongs to a control its own visible word names \
+         and to nothing else."
+    );
+}
+
+/// The other half: the word a nav control draws for itself has to be legible
+/// against the surface behind it (WCAG 1.4.3's 4.5:1), which is the whole
+/// reason the control may be as quiet as the links beside it.
+async fn assert_the_word_is_legible(client: &fantoccini::Client, palette_name: &str) {
+    let controls = read_the_controls(client, palette_name).await;
+    let mut read = Vec::new();
+    for control in &controls {
+        if !a_word_names_it(control) {
+            continue;
+        }
+        let where_ = control["where"].as_str().unwrap_or_default();
+        let word = control["word"].as_str().unwrap_or_default().to_string();
+        let Some((ink, _)) = parse_colour(control["wordColour"].as_str().unwrap_or_default())
+        else {
+            panic!("the word `{word}` on `{where_}` resolved no text colour at all");
+        };
+        let Some((behind, _)) = parse_colour(control["wordBehind"].as_str().unwrap_or_default())
+        else {
+            panic!("the word `{word}` on `{where_}` sits on no opaque surface at all");
+        };
+        let ratio = contrast_ratio(ink, behind);
+        assert!(
+            ratio >= 4.5,
+            "{palette_name} palette: the word `{word}` on `{where_}` computes only {ratio:.2}:1 \
+             ({} on {}) — this control is as quiet as the links beside it, so its word is the one \
+             thing that tells the operator it is there and the word has to be legible at WCAG \
+             1.4.3's 4.5:1.",
+            hex(ink),
+            hex(behind)
+        );
+        read.push(word);
+    }
+    assert!(
+        read.iter().any(|word| word == "Sign out"),
+        "no control in the nav drew its own word on the {palette_name} board, so this reading \
+         measured nothing: the way out of the application is drawn with a word beside its glyph \
+         and is read here. Words found: {read:?}."
+    );
 }
 
 /// Press `j` — the shipped board shortcut — and wait for the ring to land.

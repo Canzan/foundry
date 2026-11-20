@@ -176,10 +176,14 @@ Feature: The left nav says where the operator is and offers only what opens
       | looking at the nav narrowed to icons  |
 
   @needs-browser @real-io @nav-polish-sticky
-  Scenario Outline: A page with nothing to scroll leaves the nav where it has always been
-    # The other half of the law: nothing about a short page changes. RED-trigger:
-    # the rail is pinned by a rule that lifts it out of the shell, and a page
-    # that fits now draws the nav over or beside its own content.
+  Scenario Outline: On a page with nothing to scroll the whole nav fits her window
+    # The other half of the law. A short page does change for her: with the open
+    # nav it measured 0 to 769 px in a 757 px window before, because the rail
+    # stretched to the height of the whole shell and ran past the bottom of what
+    # she could see; held at the height of the window it fits. RED-trigger: the
+    # rail is pinned by a rule that lifts it out of the shell, and a page that
+    # fits now draws the nav over its own content or caps it so a place falls
+    # outside the box.
     Given the operator is <geometry> on a page that fits in her window at desk width
     Then the whole left nav is in view, with every place she can press
 
