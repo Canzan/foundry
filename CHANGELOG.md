@@ -7,6 +7,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.19.0] - 2026-11-19
+
 ### Added
 
 - **The left nav folds away, and stays folded.** A control in the rail's brand row
@@ -30,6 +32,23 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   comes back to at her next sign-in. On a phone the icons wrap inside the top bar at
   480 px and below and the page still never slides sideways. The open nav is unchanged
   and stays text only. The stylesheet is re-hashed to `foundry.fb3aa227.css`.
+
+### Changed
+
+- **A project key can be up to 10 capital letters.** The key prefix on the new project
+  form now takes 2 to 10 capital letters A to Z (it was 2 to 6), so issue keys can carry
+  a longer, clearer prefix such as `PLATFORMOP-1`. A key that is too short, too long or
+  holds any other character is refused with one sentence that states the whole rule —
+  "Project key must be 2 to 10 capital letters A to Z" — and nothing is created. Existing
+  projects keep their keys and their issue keys.
+
+### Migration notes
+
+- Migration `0035_project_key_length` widens the database check on `projects.key_prefix`
+  from `^[A-Z]{2,6}$` to `^[A-Z]{2,10}$` when the new release starts. It only widens the
+  rule, so every stored key stays valid and nothing is rewritten. Replicas apply it one at
+  a time under the existing migration lock; it takes a short exclusive lock on `projects`
+  while it swaps the check.
 
 ### Fixed
 
