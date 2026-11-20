@@ -186,6 +186,8 @@ crates\/foundry\-acceptance\/tests\/features\/canzan\-theme\-system\.feature
 
 crates\/foundry\-acceptance\/src\/steps\/feature\_canzan\_theme\.rs
 
+crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_icon\_rail\.rs
+
 #### Public oracle
 
 ```text
@@ -247,7 +249,7 @@ Placement inside nav#sidebar-nav is load-bearing, not cosmetic: the collapse con
 ```
 
 ```text
-P4 is inherited, not re-oracled. The shipped nav-collapse-icon-rail scenarios quantify over the members they read from the live document, so the enlarged set is covered by RE-RUNNING that lane rather than by a new browser scenario. The slice therefore takes its RED from fast served-markup scenarios, and the close must name the browser lane that actually ran: on a host without Docker that lane observes nothing and P4 stays unverified behind a green gate.
+P4 adds no browser scenario, but its lane is MIGRATED, not inherited unchanged: crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs builds the owed-destination set from the constants at :53-56 and compares it to the offered set by equality (sorted assert_eq at :877-881), so the three new members must join that owed set or every scenario calling it fails with offered superset of wanted. Only the OFFERED side is read from the document (support/rail_reading.rs:74). The acceptance designer migrates that step module; the slice still takes its RED from the fast served-markup scenarios, and P4 completion stays the icon-rail lane run with FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-icon-rail and FOUNDRY_XTASK_INCLUDE_DOCKER=1 - on a host without Docker that lane observes nothing and P4 stays unverified behind a green gate.
 ```
 
 ##### Constraints
@@ -478,6 +480,16 @@ Migrated
 The Then clause names the action controls among the surfaces measured in the dark palette. The project cards and the section labels stay; the action controls clause is removed with its step rows.
 ```
 
+acceptance\-oracle
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_icon\_rail\.rs\:53
+
+Migrated
+
+```text
+EVERY_OPERATOR and its two rights constants are the rail OWED set, compared to the offered set by sorted equality at :877-881 after being built at :837. Three members added to the nav make every scenario calling that helper fail with offered superset of wanted, so the owed set gains Teams, Invite a member and Machine tokens (or is derived from the open nav) before the lane is re-run. This row was missing from the first survey, which stopped at the reading support.
+```
+
 ##### Agreement
 
 rendered sidebar member markup\: inside nav\#sidebar\-nav each member is one a\.sidebar\_\_item carrying exactly one inline svg\.sidebar\_\_icon and exactly one span\.sidebar\_\_label holding its whole word\, with no aria\-label
@@ -610,6 +622,18 @@ Migrated
 
 ```text
 The in-crate test helper constructs the struct and drops the same three initialisers; it keeps the nav field it already builds.
+```
+
+rendered sidebar member markup\: inside nav\#sidebar\-nav each member is one a\.sidebar\_\_item carrying exactly one inline svg\.sidebar\_\_icon and exactly one span\.sidebar\_\_label holding its whole word\, with no aria\-label
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_icon\_rail\.rs\:53
+
+Consumer
+
+Migrated
+
+```text
+It is the one consumer that encodes the member LIST rather than the member SHAPE, so it cannot absorb a new destination; its owed set is migrated with the producer.
 ```
 
 ##### Not applicable
@@ -921,7 +945,7 @@ the four rights rows at desk width, folded
 ```
 
 ```text
-Inherited from the shipped lane, which quantifies over the members it reads from the live document. P4 promises every width at or below 480 px while the lane drives the boundary and two widths under it; the stylesheet declares no further breakpoint below 480 px, so the untested widths are recorded as residue rather than claimed.
+The lane enumerates the offered members from the live document but holds its OWED set in crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53-56 and asserts set equality, so the law reaches the enlarged set only after its owner adds the three names to that owed set. P4 promises every width at or below 480 px while the lane drives the boundary and two widths under it; the stylesheet declares no further breakpoint below 480 px, so the untested widths stay recorded as residue rather than claimed.
 ```
 
 ###### Evidence
@@ -1006,6 +1030,18 @@ The worst case was already shipped; the new words are shorter than it.
 
 ```text
 Keyboard shortcuts, eighteen characters, is already a rail member; Invite a member is fifteen.
+```
+
+```text
+The shipped icon-rail lane quantifies over the members it reads, so an added destination is covered by re-running it unchanged.
+```
+
+```text
+Only the offered side is read from the document; the expected side is a hardcoded constant compared by set equality, so the lane is a closed-list oracle and not a quantified one.
+```
+
+```text
+crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53 EVERY_OPERATOR = [Home, Board, Settings, Keyboard shortcuts], built into the owed set at :837 and compared sorted at :877-881: with three members added every scenario calling it fails with offered superset of wanted.
 ```
 
 ##### Claims

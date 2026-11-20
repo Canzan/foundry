@@ -50,7 +50,22 @@ use std::time::{Duration, Instant};
 /// the two each admin right adds and the one that is always last. This is the
 /// rail's promise, written out: it is what "every destination she had" MEANS, and
 /// it is derived from her rights rather than from the page.
-const EVERY_OPERATOR: [&str; 4] = ["Home", "Board", "Settings", "Keyboard shortcuts"];
+///
+/// Teams, Invite a member and Machine tokens joined the list when the owner moved
+/// them off the landing page into the nav: every signed-in operator is owed them,
+/// with no rights to qualify for, so folded they are hers exactly as Home and
+/// Board are. They are named HERE rather than read back from the nav on purpose —
+/// a rail compared only against the page it is drawn from agrees with itself even
+/// when both lose a destination.
+const EVERY_OPERATOR: [&str; 7] = [
+    "Home",
+    "Board",
+    "Teams",
+    "Invite a member",
+    "Machine tokens",
+    "Settings",
+    "Keyboard shortcuts",
+];
 const FOR_A_WORKSPACE_ADMIN: &str = "Integrations";
 const FOR_AN_INSTANCE_ADMIN: &str = "Instance admin";
 const ALWAYS_LAST: &str = "Sign out";

@@ -89,12 +89,12 @@
 "L5/F109",
 "L5/F110"
 ],
-"still_passes_if": "F224",
-"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature"
+"still_passes_if": "F243",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature, with the owed-destination set of crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs migrated to name the three new destinations"
 },
-"expected": "F222",
-"stimulus": "F221",
-"user_result": "F223"
+"expected": "F241",
+"stimulus": "F240",
+"user_result": "F242"
 },
 {
 "covers": [
@@ -136,7 +136,7 @@
 "B": 2,
 "C": 2,
 "E": 9,
-"F": 232,
+"F": 243,
 "K": 3,
 "L": 6,
 "P": 4,
@@ -270,6 +270,13 @@
 "locator": "crates/foundry-app/src/signin.rs:750",
 "party": "Consumer",
 "reason": "F65"
+},
+{
+"contract": "rendered sidebar member markup: inside nav#sidebar-nav each member is one a.sidebar__item carrying exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, with no aria-label",
+"decision": "Migrated",
+"locator": "crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53",
+"party": "Consumer",
+"reason": "F235"
 }
 ],
 "architectural_tests": [
@@ -379,7 +386,7 @@
 "F27",
 "F28",
 "F29",
-"F30"
+"F233"
 ],
 "equality": [
 {
@@ -471,6 +478,12 @@
 "kind": "acceptance-oracle",
 "locator": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature:203",
 "reason": "F54"
+},
+{
+"decision": "Migrated",
+"kind": "acceptance-oracle",
+"locator": "crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53",
+"reason": "F234"
 }
 ],
 "laws": [
@@ -552,7 +565,7 @@
 "F110"
 ],
 "kind": "Finite",
-"reason": "F111"
+"reason": "F236"
 }
 },
 {
@@ -620,6 +633,11 @@
 "cause": "F125",
 "counterexample": "F126",
 "statement": "F124"
+},
+{
+"cause": "F238",
+"counterexample": "F239",
+"statement": "F237"
 }
 ],
 "reuse": [
@@ -781,7 +799,8 @@
 "crates/foundry-acceptance/src/lib.rs",
 "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature",
 "crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
-"crates/foundry-acceptance/src/steps/feature_canzan_theme.rs"
+"crates/foundry-acceptance/src/steps/feature_canzan_theme.rs",
+"crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs"
 ],
 "targets": [
 {
@@ -922,7 +941,6 @@
 "F109": "390 px folded",
 "F11": "User decision 2026-11-19: Teams, Invite a member and Machine tokens go in the top part of the nav, after Board; Settings, Keyboard shortcuts and Sign out stay in the bottom group.",
 "F110": "480 px folded",
-"F111": "Inherited from the shipped lane, which quantifies over the members it reads from the live document. P4 promises every width at or below 480 px while the lane drives the boundary and two widths under it; the stylesheet declares no further breakpoint below 480 px, so the untested widths are recorded as residue rather than claimed.",
 "F112": "Exactly one primary nav item carries aria-current=\"page\" on every authenticated page; none of the three new members ever carries it.",
 "F113": "Home marked on /",
 "F114": "Board marked on a board page",
@@ -1043,10 +1061,6 @@
 "F219": "The landing page no longer repeats the nav, and she loses nothing else from it",
 "F22": "A plain member loses any of the three (a condition was authored where none existed); any of the three is placed before Board or outside nav#sidebar-nav; an anchor renders a glyph with no span.sidebar__label, or an aria-label beside it; Home still shows Quick actions, or lost its greeting or project list; two primary members are marked current; the folded rail leaves a new member out of the layout or unnamed; the 320 px page slides sideways.",
 "F220": "the quick-actions markup were merely hidden by a stylesheet rule rather than removed, since the reading is of the served page, not of what is painted",
-"F221": "With the left nav folded to its icon rail, the operator opens the landing page at desk width and at 320, 390 and 480 pixels wide, as each of the four kinds of operator",
-"F222": "Every destination the rail holds, the three new ones included, is in the layout, visible, reachable by keyboard and named by its own word, and the page does not slide sideways",
-"F223": "Folded, she still finds and opens her teams, the invite page and her machine tokens, and no narrow page slides sideways",
-"F224": "a destination were unreadable at a width narrower than 320 pixels, which no lane drives",
 "F225": "The operator asks for the landing page, and then for her project board",
 "F226": "The landing page marks Home as the page she is on and the board page marks Board, and in each case nothing else is marked",
 "F227": "The nav still tells her where she is, and the three new destinations never take that marking from Home or Board",
@@ -1056,14 +1070,24 @@
 "F230": "Each member carries exactly one inline icon and exactly one word holding its whole text, and no member carries a second name beside its word; a member that does not is named with the correction",
 "F231": "A destination added later cannot reach her as a silent icon, because the repository refuses it before it ships",
 "F232": "a second template authored its own nav, which this reading never visits",
+"F233": "P4 adds no browser scenario, but its lane is MIGRATED, not inherited unchanged: crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs builds the owed-destination set from the constants at :53-56 and compares it to the offered set by equality (sorted assert_eq at :877-881), so the three new members must join that owed set or every scenario calling it fails with offered superset of wanted. Only the OFFERED side is read from the document (support/rail_reading.rs:74). The acceptance designer migrates that step module; the slice still takes its RED from the fast served-markup scenarios, and P4 completion stays the icon-rail lane run with FOUNDRY_ACCEPTANCE_TAGS=nav-collapse-icon-rail and FOUNDRY_XTASK_INCLUDE_DOCKER=1 - on a host without Docker that lane observes nothing and P4 stays unverified behind a green gate.",
+"F234": "EVERY_OPERATOR and its two rights constants are the rail OWED set, compared to the offered set by sorted equality at :877-881 after being built at :837. Three members added to the nav make every scenario calling that helper fail with offered superset of wanted, so the owed set gains Teams, Invite a member and Machine tokens (or is derived from the open nav) before the lane is re-run. This row was missing from the first survey, which stopped at the reading support.",
+"F235": "It is the one consumer that encodes the member LIST rather than the member SHAPE, so it cannot absorb a new destination; its owed set is migrated with the producer.",
+"F236": "The lane enumerates the offered members from the live document but holds its OWED set in crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53-56 and asserts set equality, so the law reaches the enlarged set only after its owner adds the three names to that owed set. P4 promises every width at or below 480 px while the lane drives the boundary and two widths under it; the stylesheet declares no further breakpoint below 480 px, so the untested widths stay recorded as residue rather than claimed.",
+"F237": "The shipped icon-rail lane quantifies over the members it reads, so an added destination is covered by re-running it unchanged.",
+"F238": "Only the offered side is read from the document; the expected side is a hardcoded constant compared by set equality, so the lane is a closed-list oracle and not a quantified one.",
+"F239": "crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:53 EVERY_OPERATOR = [Home, Board, Settings, Keyboard shortcuts], built into the owed set at :837 and compared sorted at :877-881: with three members added every scenario calling it fails with offered superset of wanted.",
 "F24": "No model for the nav membership, visibility and Home-removal claims: there is no shared state, no multi-step protocol, no concurrency and no crash window - each claim is one synchronous render of one template from one already-resolved NavContext, and the rights domain is the closed four-member set (plain member, workspace admin, instance admin, both) that the shipped icon-rail outline already enumerates. The claims are therefore finite and exhausted by enumerated cases, not by a state model. Quint is installed on this host, so this is a reasoned modelling choice and not a tooling gap; Agda is absent and no claim here needs a proof over types.",
+"F240": "With the left nav folded to its icon rail, the operator opens the landing page at desk width and at 320, 390 and 480 pixels wide, as each of the four kinds of operator, and also walks the page with the Tab key",
+"F241": "The rail announces every destination she is owed - the three new ones among them - each in the layout, visible, able to take the keyboard focus and named by its own word, the Tab walk stops on every one of them, and the page does not slide sideways",
+"F242": "Folded, she still finds and opens her teams, the invite page and her machine tokens, by eye or by keyboard, and no narrow page slides sideways",
+"F243": "the rail dropped a destination at a width narrower than 320 pixels, which no lane drives",
 "F25": "The three new items carry no aria-current and NavSection keeps its two variants (Home, Board). Home therefore stays the single marked section on /teams, /workspace/invites and /admin/tokens exactly as it already is on /account/settings and /keyboard-help, so \"exactly one primary navigation item is marked as the current page\" (navigation-bar-linear-ui, notification-preferences-ui) keeps holding with five primary members instead of two.",
 "F26": "The stylesheet is not touched. The three items reuse .sidebar__item, .sidebar__icon and .sidebar__label, and both the desk collapsed rules and the max-width 480px block already make .sidebar__nav and .sidebar__user wrapping rows bounded by the bar (flex-wrap: wrap with min-width: 0), which is quantified over members and not over a member count. foundry.fb3aa227.css is content-hash named, so any byte change migrates templates/base.html, static/VENDOR.md and three hashed-name assertions in crates/foundry-app/src/lib.rs; spending that for rules that need no change is refused. The .actions rules become unreferenced and stay in place until the next stylesheet change re-fingerprints the file.",
 "F27": "Subtraction the removal makes available: DashboardRoot drops is_instance_admin, is_workspace_admin and csrf. Once the Quick actions list is gone those three fields have no reader, and the same three facts already reach the page through the nav field. The handler keeps computing all three, unchanged and fail-closed, because NavContext::for_page consumes them.",
 "F28": "Glyphs come from the release static/VENDOR.md already pins, lucide-static 1.75.0 (ISC): users for Teams, user-plus for Invite a member, key-round for Machine tokens. The shape children of package/icons/<name>.svg are copied verbatim in upstream order; the svg wrapper is authored like the seven shipped ones (class sidebar__icon, aria-hidden true, focusable false, no title element, stroke currentColor, no fill or colour literal). VENDOR.md gains the three names and its \"all seven\" count becomes ten.",
 "F29": "Placement inside nav#sidebar-nav is load-bearing, not cosmetic: the collapse control reaches the nav by aria-controls=\"sidebar-nav\", the collapsed rules select [data-nav-collapsed] .sidebar__nav, and the browser rail reading enumerates \".sidebar a.sidebar__item\" plus the sign-out button. An item added inside that element is therefore folded, clipped, revealed and read with no change to static/js/nav-collapse.js and no change to crates/foundry-acceptance/src/support/rail_reading.rs.",
 "F3": "On every app page the left nav offers Teams, Invite a member and Machine tokens, placed after Board in the top part of the nav, so the operator opens each of them in one press from wherever she is.",
-"F30": "P4 is inherited, not re-oracled. The shipped nav-collapse-icon-rail scenarios quantify over the members they read from the live document, so the enlarged set is covered by RE-RUNNING that lane rather than by a new browser scenario. The slice therefore takes its RED from fast served-markup scenarios, and the close must name the browser lane that actually ran: on a host without Docker that lane observes nothing and P4 stays unverified behind a green gate.",
 "F31": "No stored or validated input is added: the three destinations are fixed href literals /teams, /workspace/invites and /admin/tokens with no path or query parameter, so no length, range or character bound applies to this change and none is invented. The only authority bound carried is P4 width bound, 480 px and below.",
 "F32": "Visibility bound, read from the authority code and not inferred: the three moved links carry NO condition in dashboard_root.html today (lines 35-37 are plain list items), so every authenticated identity sees them, and the nav items carry no condition either. Integrations keeps nav.is_workspace_admin and Instance admin keeps nav.is_instance_admin, both already in the nav and both untouched. Signed out there is no nav at all: / and the three destinations redirect to /sign-in.",
 "F33": "No route, handler or authorization changes. /teams, /workspace/invites and /admin/tokens keep their own server-side gates, which this change neither reads, copies nor weakens: the nav offers a link, the destination still decides. No new destination page is added.",

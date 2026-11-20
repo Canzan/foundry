@@ -139,25 +139,25 @@ the quick-actions markup were merely hidden by a stylesheet rule rather than rem
 P4
 
 ```text
-With the left nav folded to its icon rail, the operator opens the landing page at desk width and at 320, 390 and 480 pixels wide, as each of the four kinds of operator
+With the left nav folded to its icon rail, the operator opens the landing page at desk width and at 320, 390 and 480 pixels wide, as each of the four kinds of operator, and also walks the page with the Tab key
 ```
 
 ```text
-Every destination the rail holds, the three new ones included, is in the layout, visible, reachable by keyboard and named by its own word, and the page does not slide sideways
+The rail announces every destination she is owed - the three new ones among them - each in the layout, visible, able to take the keyboard focus and named by its own word, the Tab walk stops on every one of them, and the page does not slide sideways
 ```
 
 ```text
-Folded, she still finds and opens her teams, the invite page and her machine tokens, and no narrow page slides sideways
+Folded, she still finds and opens her teams, the invite page and her machine tokens, by eye or by keyboard, and no narrow page slides sideways
 ```
 
 ##### Disposition
 
 Tested
 
-crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature\, with the owed\-destination set of crates\/foundry\-acceptance\/src\/steps\/feature\_nav\_icon\_rail\.rs migrated to name the three new destinations
 
 ```text
-a destination were unreadable at a width narrower than 320 pixels, which no lane drives
+the rail dropped a destination at a width narrower than 320 pixels, which no lane drives
 ```
 
 ###### Obligations
