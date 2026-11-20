@@ -89,9 +89,13 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
     retrieved 2026-11-18; the tarball's own sha256 is
     `5411093d26066ed3eda35f2349ec73c65c9427d64ef3b7bf3282169027899039`.
   - **Icons used,** one per rail member, as `package/icons/<name>.svg`: `house`
-    (Home), `columns-3` (Board), `settings` (Settings), `keyboard` (Keyboard
+    (Home), `columns-3` (Board), `users` (Teams), `user-plus` (Invite a member),
+    `key-round` (Machine tokens), `settings` (Settings), `keyboard` (Keyboard
     shortcuts), `plug` (Integrations), `shield-check` (Instance admin),
-    `log-out` (Sign out).
+    `log-out` (Sign out). `key-round`'s second shape child carries the upstream
+    `fill="currentColor"` that draws the key's pin: it is copied verbatim like
+    every other child, and it is not a colour literal, so the glyph still
+    inherits the rail's own text token in both palettes.
   - **What was copied, and what was not.** The `<path>`, `<rect>` and `<circle>`
     children of each upstream file are copied verbatim, in upstream order. The
     `<svg>` wrapper is NOT: it carries `class="sidebar__icon"`,
@@ -104,7 +108,7 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   - **Verify it, do not assume it:** extract the tarball above and compare the
     shape children of `package/icons/<name>.svg` with the matching `<svg>` in
     `templates/partials/sidebar.html`. The expected result is identical shape
-    elements in identical order for all seven.
+    elements in identical order for all ten.
   - **ISC notice** (upstream `package/LICENSE`): Copyright (c) 2026 Lucide Icons
     and Contributors. Permission to use, copy, modify and/or distribute this
     software for any purpose with or without fee is hereby granted, provided

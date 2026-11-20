@@ -115,6 +115,7 @@ fn source_violations(root: &Path) -> Vec<String> {
     violations.extend(check_publish_workflows_stamp_the_image(root));
     violations.extend(check_static_asset_integrity(root));
     violations.extend(check_pre_paint_scripts_are_render_blocking(root));
+    violations.extend(check_sidebar_rail_members(root));
     violations.extend(check_stylesheet_colour_seam(root));
     violations.extend(check_stylesheet_dark_block_parity(root));
     violations.extend(check_workspace_name_one_source(root));
@@ -177,7 +178,7 @@ pub fn run(args: Vec<String>) -> ExitCode {
     let verdict = verdict(&args);
     match &verdict {
         Verdict::Passed => println!(
-            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, every head script of the document shell whose asset names a browser store and names documentElement is render-blocking — none carries defer, async or type=module — and every other head script of that shell carries defer, so none of them sits on the render-blocking path for nothing (pre-paint-script), no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened and the secrets key unwrapped only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no production src outside foundry-store's integrations instance module names an instance integration table in SQL (integrations-instance-tables), no production src writes a sealed column outside the fenced store functions (integrations-seal-fence), every naming of the worker's claimant seam, the outbound seam or the generated-key seam is gated on test-support, the claimant and generated-key seams carry their unique markers and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying either marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
+            "check-arch: boundary guard PASSED (api≠HTML, api≠ad-hoc-authz, api≠mint, JWT alg pinned to [EdDSA] + OIDC to [RS256], tenant-scoping by resolved ActingWorkspace, single slugify in foundry-core, no static lane list in app/api, the lanes position constraint is still DEFERRABLE, no board-*.js registers a keydown listener, nothing outside migration 0017 UPDATEs users.provisioned_at (D9), both publish workflows stamp every image with its commit and the Dockerfile hands it to build.rs (AC-8), every /static reference resolves, every content-hashed filename is its own sha256 prefix, every VENDOR.md sha256 recomputes, every head script of the document shell whose asset names a browser store and names documentElement is render-blocking — none carries defer, async or type=module — and every other head script of that shell carries defer, so none of them sits on the render-blocking path for nothing (pre-paint-script), every member of the left-nav partial — each sidebar__item and the sign-out button — carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word and no aria-label, enumerated from the file rather than counted (rail-member), no colour literal outside the three stylesheet token regions, the three stylesheet token regions declare the identical colour-token set, the workspace-name refusal copy lives only in foundry-core and no production door calls create_initial_workspace, the project-name refusal copy lives only in foundry-core and no door calls insert_project, no production door calls seed_row_predating_name_rule and no crate but its seam file disables a trigger or sets session_replication_role, the team-name refusal copy lives only in foundry-core, teams and team_lifecycle_events are written only by foundry-store and no door calls create_team_with_lead, rename_team_with_audit or delete_team_if_empty, projects, live_projects and project_lifecycle_events are written only by foundry-store and no door calls rename_project_with_audit, soft_delete_project or restore_deleted_project (project-lifecycle-one-seam), every foundry-store writer of issues, comments, attachments, lanes, change events, integration routes or email choices holds lock_live_project on its transaction before its first write (project-lifecycle-write-guard), foundry-integrations depends only on foundry-core, serde, serde_json, async-trait, uuid, time and ipnet (integrations-pure-core), no integrations file but the two capability seams names foundry_store::Store (integrations-store-capability), a SealedSecret is opened and the secrets key unwrapped only under foundry-app's integrations module and the doctor rotation command (integrations-secret-seam), no production src outside foundry-store's integrations instance module names an instance integration table in SQL (integrations-instance-tables), no production src writes a sealed column outside the fenced store functions (integrations-seal-fence), every naming of the worker's claimant seam, the outbound seam or the generated-key seam is gated on test-support, the claimant and generated-key seams carry their unique markers and the Dockerfile builds exactly -p foundry-app --bin foundry then refuses a binary carrying either marker (integrations-test-seam), no reqwest client is built under foundry-app's integrations module but OutboundHttp's, with redirect(Policy::none()) and no_proxy(), and the fixed-host Slack client's, with redirect(Policy::none()) (integrations-outbound-client-seam), no crate but foundry-store's project_lifecycle module names the projects base table in SQL or as an exact literal outside the four reviewed exempt items (project-lifecycle-live-reads), every foundry-store query filtering on key_prefix, a slug or an issue number also compares workspace_id, team_id or project_id to a bound parameter in the same disjunct (store-natural-key-scoped), the code's /api/v1 routes, path parameters, request bodies and success answers equal crates/foundry-api/openapi.json, with no operation undescribed (api-openapi-operations), every described operation's statuses, body kinds and error codes, derived from the code by fail-closed reachability through status_for, equal the description's (api-openapi-statuses), /docs/api stays put, only its template loads swagger-ui, its initializer reaches only this Foundry, pins url, validatorUrl \"none\", persistAuthorization, queryConfigEnabled and withCredentials and names no other description, storage or eval, its template carries no inline script, handler or style, its script-src is 'self' alone and the vendored swagger-ui.css loads nothing (api-docs-page); the drift check's type-derived layer is the foundry-api tests wire_shapes_match_document, document_is_valid_openapi_3_1 and info_version_is_the_release, dependency direction)"
         ),
         Verdict::UnparseableArguments(message) => eprintln!("check-arch: {message}"),
         Verdict::Violations(violations) => {
@@ -2114,6 +2115,196 @@ fn paints_stored_state_onto_the_document(source: &str) -> bool {
     let names_a_store = code.contains("localStorage") || code.contains("sessionStorage");
     let names_the_document_element = code.contains("documentElement");
     names_a_store && names_the_document_element
+}
+
+/// LAYER 1k — the rail-member law (nav-quick-actions T1 / L4, C2).
+///
+/// Every member of `templates/partials/sidebar.html` — each `a.sidebar__item`
+/// and the sign-out button — carries EXACTLY ONE inline `svg.sidebar__icon` and
+/// EXACTLY ONE `span.sidebar__label` holding its whole word, and carries no
+/// `aria-label`.
+///
+/// WHY A GATE AND NOT A TYPE: the partial is text. A member with no word
+/// compiles, renders and looks right at desk width, where the word is drawn
+/// anyway. Folded, the stylesheet CLIPS the word instead of hiding it precisely
+/// so each member's accessible name is computed from its own text — so a member
+/// with no word is a silent icon for a screen-reader operator and a blank
+/// sliver for a sighted one, and a second name channel (an `aria-label`, a
+/// `<title>`, any text beside the word) drifts from the word the operator and
+/// the oracle both read.
+///
+/// IT ENUMERATES, IT DOES NOT COUNT: the members come from the file, so the law
+/// governs members added after this rule was written — the next destination is
+/// checked without touching this function. An unreadable or memberless partial
+/// is itself the violation: a law that holds over nothing passes for nothing.
+fn check_sidebar_rail_members(root: &Path) -> Vec<String> {
+    let partial = root
+        .join("crates")
+        .join("foundry-app")
+        .join("templates")
+        .join("partials")
+        .join("sidebar.html");
+    let file = rel(root, &partial);
+    let Ok(markup) = std::fs::read_to_string(&partial) else {
+        return vec![format!(
+            "rail-member: {file} cannot be read, so the glyph-and-word law holds over no member \
+             at all. WHY: that is the same green as a rail of silent icons, reached from the \
+             other end — the gate would pass a nav it never looked at. FIX: restore the sidebar \
+             partial at that path, or point this rule at wherever the rail members now live."
+        )];
+    };
+
+    let members = rail_members(&markup);
+    if members.is_empty() {
+        return vec![format!(
+            "rail-member: {file} declares no rail member — no `<a>` carrying `sidebar__item` and \
+             no sign-out `<button>`. WHY: every law below quantifies over the members found here, \
+             so an empty set makes all of them pass while the operator is offered nothing. FIX: \
+             if the rail moved, point this rule at its new owner; if the members were lost, \
+             restore them."
+        )];
+    }
+
+    let mut violations = Vec::new();
+    for member in &members {
+        let name = member_name(member);
+        let glyphs = member.matches("<svg").count();
+        let rail_glyphs = member.matches("class=\"sidebar__icon\"").count();
+        if glyphs != 1 || rail_glyphs != 1 {
+            violations.push(format!(
+                "rail-member: {file} — {name} carries {glyphs} inline <svg>(s), {rail_glyphs} of \
+                 them `class=\"sidebar__icon\"`, not exactly one of each. WHY: folded, the nav \
+                 shows the glyph ALONE, so a member with none is an invisible gap in the rail \
+                 and one with two is a double glyph the stylesheet sizes twice. FIX: give it \
+                 exactly one inline `<svg class=\"sidebar__icon\" aria-hidden=\"true\" \
+                 focusable=\"false\">`; copy the shape children of the Lucide icon verbatim, \
+                 following `static/VENDOR.md`."
+            ));
+        }
+
+        let words = labels(member);
+        if words.len() != 1 || words.first().is_some_and(String::is_empty) {
+            violations.push(format!(
+                "rail-member: {file} — {name} carries {} `span.sidebar__label`(s) holding {words:?}, \
+                 not exactly one non-empty word. WHY: the collapsed stylesheet clips that span \
+                 instead of hiding it, so it is where the member's spoken name comes from in \
+                 BOTH geometries; with none the member announces nothing, with two it announces \
+                 itself twice. FIX: give it exactly one `<span class=\"sidebar__label\">` holding \
+                 its whole word.",
+                words.len()
+            ));
+        }
+
+        if member.contains("aria-label") {
+            violations.push(format!(
+                "rail-member: {file} — {name} carries an `aria-label`. WHY: it is a second name \
+                 channel beside the word, and the two drift — the operator hears one name and \
+                 reads another, and the oracle reads the word. FIX: remove the `aria-label`; the \
+                 word in `span.sidebar__label` is the one owner of the name."
+            ));
+        }
+
+        let whole = collapsed(&strip_tags(member));
+        if let [word] = words.as_slice() {
+            if &whole != word {
+                violations.push(format!(
+                    "rail-member: {file} — {name} reads {whole:?} in total but only {word:?} \
+                     inside its word, so it carries text outside `span.sidebar__label` (a \
+                     `<title>` in the glyph, or a bare text node). WHY: the extra text node \
+                     joins the computed name, and the member announces itself twice (\"Home \
+                     Home\"). FIX: keep the word the member's only text and give the glyph no \
+                     `<title>`."
+                ));
+            }
+        }
+    }
+    violations
+}
+
+/// Every member of the sidebar partial, as its own markup run: the `<a>`
+/// elements carrying `sidebar__item`, then the sign-out `<button>`. Both are
+/// authored unnested, so the first closing tag after an opening one closes it.
+fn rail_members(markup: &str) -> Vec<String> {
+    let mut members: Vec<String> = elements(markup, "<a ", "</a>")
+        .into_iter()
+        .filter(|element| element.contains("class=\"sidebar__item"))
+        .collect();
+    members.extend(elements(markup, "<button", "</button>"));
+    members
+}
+
+/// Each non-overlapping `open ..= close` run of `markup`, in document order.
+fn elements(markup: &str, open: &str, close: &str) -> Vec<String> {
+    let mut found = Vec::new();
+    let mut rest = markup;
+    while let Some(start) = rest.find(open) {
+        let tail = &rest[start..];
+        let Some(end) = tail.find(close) else {
+            break;
+        };
+        found.push(tail[..end + close.len()].to_string());
+        rest = &tail[end + close.len()..];
+    }
+    found
+}
+
+/// What the refusal calls the offending member: its own word when it has one,
+/// else the page it opens, else the sign-out control.
+fn member_name(member: &str) -> String {
+    match labels(member).first() {
+        Some(word) if !word.is_empty() => format!("the {word:?} member"),
+        _ => match attribute(member, "href=\"") {
+            Some(href) => format!("the member linking {href:?}"),
+            None => "the sign-out control".to_string(),
+        },
+    }
+}
+
+/// The text of every `span.sidebar__label` of one member, whitespace collapsed
+/// so a word authored across lines reads as the operator reads it.
+fn labels(member: &str) -> Vec<String> {
+    const OPEN: &str = "class=\"sidebar__label\">";
+    let mut words = Vec::new();
+    let mut rest = member;
+    while let Some(at) = rest.find(OPEN) {
+        let tail = &rest[at + OPEN.len()..];
+        let Some(end) = tail.find("</span>") else {
+            break;
+        };
+        words.push(collapsed(&strip_tags(&tail[..end])));
+        rest = &tail[end..];
+    }
+    words
+}
+
+/// The value of the first `needle` attribute of `markup`, if it carries one.
+fn attribute(markup: &str, needle: &str) -> Option<String> {
+    let at = markup.find(needle)?;
+    let tail = &markup[at + needle.len()..];
+    let end = tail.find('"')?;
+    Some(tail[..end].to_string())
+}
+
+/// `markup` with every tag removed, which also removes the Askama `{% if %}`
+/// conditions the partial writes INSIDE its tags.
+fn strip_tags(markup: &str) -> String {
+    let mut text = String::new();
+    let mut inside_tag = false;
+    for ch in markup.chars() {
+        match ch {
+            '<' => inside_tag = true,
+            '>' => inside_tag = false,
+            _ if !inside_tag => text.push(ch),
+            _ => {}
+        }
+    }
+    text
+}
+
+/// One text run, whitespace collapsed — the text as it is read, not as it is
+/// indented.
+fn collapsed(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 #[cfg(test)]
@@ -5186,7 +5377,7 @@ mod tests {
     /// emits is prefixed with its own name, so a marker absent from the
     /// aggregate's output means that rule is no longer wired into the guard —
     /// the silent-disarm failure this whole block exists for.
-    const LAYER_1_RULE_MARKERS: [&str; 16] = [
+    const LAYER_1_RULE_MARKERS: [&str; 17] = [
         "api≠HTML:",
         "api≠ad-hoc-authz:",
         "api≠mint:",
@@ -5200,6 +5391,7 @@ mod tests {
         "publish-stamp:",
         "asset-reference:",
         "pre-paint-script:",
+        "rail-member:",
         "token-seam S1:",
         "token-seam S2:",
         "store-natural-key-scoped:",
@@ -5402,6 +5594,15 @@ mod tests {
             (
                 "crates/foundry-app/src/integrations/slack.rs",
                 "fn c() { reqwest::Client::builder().redirect(Policy::none()).build(); }\n",
+            ),
+            // `check_sidebar_rail_members` fails closed on a partial it cannot
+            // read and on one with no member at all, so the clean tree carries
+            // one member that satisfies the glyph-and-word law.
+            (
+                "crates/foundry-app/templates/partials/sidebar.html",
+                "<a class=\"sidebar__item\" href=\"/\">\
+                 <svg class=\"sidebar__icon\" aria-hidden=\"true\"></svg>\
+                 <span class=\"sidebar__label\">Home</span></a>\n",
             ),
         ]);
         let clean_args = vec!["--root".to_string(), clean.path().display().to_string()];

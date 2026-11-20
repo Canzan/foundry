@@ -11,6 +11,15 @@
      an inline SVG glyph and its word in `span.sidebar__label`. Read this before
      you add a destination, and give the new one both.
 
+     TEN MEMBERS live in this file today: five primary destinations in
+     `nav#sidebar-nav` (Home, Board, Teams, Invite a member, Machine tokens) and
+     five in `.sidebar__user` (Settings, Keyboard shortcuts, the workspace-admin
+     Integrations, the instance-admin Instance admin, and Sign out). The count is
+     here for the auditor who re-verifies the glyphs against the vendored Lucide
+     release (static/VENDOR.md); nothing in the code counts members, and
+     `cargo xtask check-arch` ENUMERATES whatever members this file holds rather
+     than comparing against a number, so adding one costs no edit there.
+
      THE GLYPH IS SERVER-RENDERED, not injected (D19). `nav-collapse.js` stamps
      the collapsed marker before the first paint, so a glyph appended at
      DOMContentLoaded would paint an empty strip first — the same flash the
@@ -36,6 +45,14 @@
   <nav id="sidebar-nav" class="sidebar__nav" aria-label="Primary">
     <a class="sidebar__item{% if nav.is_home() %} sidebar__item--active{% endif %}" href="/"{% if nav.is_home() %} aria-current="page"{% endif %}><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"/><path d="M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg><span class="sidebar__label">Home</span></a>
     <a class="sidebar__item{% if nav.is_board() %} sidebar__item--active{% endif %}" href="{{ nav.board_href }}"{% if nav.is_board() %} aria-current="page"{% endif %}><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M9 3v18"/><path d="M15 3v18"/></svg><span class="sidebar__label">Board</span></a>
+    {# nav-quick-actions — the three destinations the owner moved off the landing
+       page. No condition: each one was offered to every authenticated identity
+       in the Quick actions list and is offered to exactly those identities here
+       (the destination still decides who may enter). No `aria-current`: none of
+       them marks a section, so Home stays the one marked item on all three. #}
+    <a class="sidebar__item" href="/teams"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><path d="M16 3.128a4 4 0 0 1 0 7.744"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><circle cx="9" cy="7" r="4"/></svg><span class="sidebar__label">Teams</span></a>
+    <a class="sidebar__item" href="/workspace/invites"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" x2="19" y1="8" y2="14"/><line x1="22" x2="16" y1="11" y2="11"/></svg><span class="sidebar__label">Invite a member</span></a>
+    <a class="sidebar__item" href="/admin/tokens"><svg class="sidebar__icon" aria-hidden="true" focusable="false" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.586 17.414A2 2 0 0 0 2 18.828V21a1 1 0 0 0 1 1h3a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h1a1 1 0 0 0 1-1v-1a1 1 0 0 1 1-1h.172a2 2 0 0 0 1.414-.586l.814-.814a6.5 6.5 0 1 0-4-4z"/><circle cx="16.5" cy="7.5" r=".5" fill="currentColor"/></svg><span class="sidebar__label">Machine tokens</span></a>
   </nav>
   <div class="sidebar__user">
     <span class="sidebar__identity">{{ nav.display_name }}</span>

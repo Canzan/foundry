@@ -11,7 +11,9 @@
 
 /// The active primary sidebar item. Exactly one value is chosen per
 /// authenticated page (FR-4 / AC-03.3: never zero, never two). Two variants
-/// only — the rail has exactly two primary destinations.
+/// only, while the rail has FIVE primary destinations: Teams, Invite a member
+/// and Machine tokens (nav-quick-actions) mark no section, so on each of them
+/// `Home` is the marked item, exactly as on `/account/settings` today.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NavSection {
     /// Dashboard `/` AND every non-board authed surface (tokens, invites,

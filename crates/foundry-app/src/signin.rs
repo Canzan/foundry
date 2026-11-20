@@ -438,11 +438,12 @@ pub async fn dashboard_root(
             } else {
                 crate::views::DashboardProjectsSection::Listed
             };
-            // US-03: the instance-admin link renders only for an instance
+            // US-03: the instance-admin item renders only for an instance
             // super-admin, scoped by the SESSION user_id (never a path/query id —
             // ADR-002). Fail-closed: on lookup error we default to `false` so the
-            // link is ABSENT (never surface an admin affordance we could not
+            // item is ABSENT (never surface an admin affordance we could not
             // verify) — same graceful-degradation posture as the loads above.
+            // nav-quick-actions: its one reader is now the `nav` carrier below.
             let is_instance_admin = state
                 .store
                 .is_instance_admin(u.user_id)
@@ -451,9 +452,9 @@ pub async fn dashboard_root(
                     tracing::error!(%err, "dashboard: is_instance_admin failed");
                     false
                 });
-            // external-integration-plugins: the Integrations quick action is
+            // external-integration-plugins: the Integrations nav item is
             // offered only to a workspace admin, the only person the page
-            // answers. Fail-closed like the instance-admin link above.
+            // answers. Fail-closed like the instance-admin item above.
             let is_workspace_admin = state
                 .store
                 .is_workspace_admin(u.workspace_id, u.user_id)
@@ -484,7 +485,7 @@ pub async fn dashboard_root(
                 display_name.clone(),
                 is_instance_admin,
                 is_workspace_admin,
-                csrf.clone(),
+                csrf,
                 crate::nav::NavSection::Home,
                 board_href,
             );
@@ -493,9 +494,6 @@ pub async fn dashboard_root(
                 workspace_name,
                 projects,
                 section,
-                is_instance_admin,
-                is_workspace_admin,
-                csrf,
                 nav,
             }
             .render()
@@ -752,9 +750,6 @@ mod tests {
             workspace_name: "Homelab".to_string(),
             projects: Vec::new(),
             section,
-            is_instance_admin: false,
-            is_workspace_admin: false,
-            csrf: "t".to_string(),
             nav: crate::nav::NavContext::for_page(
                 "Homelab".to_string(),
                 "Priya".to_string(),

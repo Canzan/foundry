@@ -29,23 +29,11 @@
     {% endmatch %}
   </section>
 
-  <section class="dash__section">
-    <h2>Quick actions</h2>
-    <ul class="actions">
-      <li><a href="/teams">Teams</a></li>
-      <li><a href="/workspace/invites">Invite a member</a></li>
-      <li><a href="/admin/tokens">Machine tokens</a></li>
-      {% if is_workspace_admin %}
-      <li><a href="/workspace/integrations">Integrations</a></li>
-      {% endif %}
-      <li><a href="/keyboard-help">Keyboard shortcuts</a></li>
-      {% if is_instance_admin %}
-      <li><a href="/admin/instance/workspaces">Instance admin</a></li>
-      {% endif %}
-      <li>
-        <form method="post" action="/sign-out"><input type="hidden" name="_csrf" value="{{ csrf }}"><button type="submit">Sign out</button></form>
-      </li>
-    </ul>
-  </section>
+  {# nav-quick-actions — the Quick actions section is GONE. Every link it held
+     now lives in the left nav on every page: Teams, Invite a member and Machine
+     tokens in `nav#sidebar-nav`, and Integrations, Keyboard shortcuts, Instance
+     admin and Sign out in `.sidebar__user`, each with the gate it had here. Do
+     not re-add a link list to this page — a second carrier of the same rights
+     facts drifts from the nav and offers what the nav denies. #}
 </main>
 {% endblock %}
