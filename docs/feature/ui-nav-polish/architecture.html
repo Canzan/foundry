@@ -1,0 +1,1850 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>:root{
+  /* The font stack is inlined here because the nwdes renderer injects only
+     this stylesheet; the nwave_ai page builder takes the same stack from
+     manifest.json. Both carriers are pinned by tests. */
+  --nwave-font-stack:"Lato", -apple-system, "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+@media (prefers-color-scheme:dark){
+  :root{
+    --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+    --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+    --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+    --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+    --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+  }
+}
+:root[data-theme="light"]{
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#0f766e; --wip:#1d4ed8; --done:#15803d;
+  --quar:#a16207; --cont:#7e22ce; --guard:#475569; --dsn:#c2410c;
+  --keep:#15803d; --simp:#1d4ed8; --drop:#b91c1c; --unk:#6b7280;
+}
+:root[data-theme="dark"]{
+  --paper:#131316; --ink:#F2F2F2; --muted:#A3A3A8; --rule:#313135;
+  --panel:#181820; --raised:#1F1F24; --accent:#FBCF09; --accent-soft:rgba(251,207,9,0.14);
+  --ready:#5eead4; --wip:#93c5fd; --done:#86efac;
+  --quar:#fcd34d; --cont:#d8b4fe; --guard:#94a3b8; --dsn:#fb923c;
+  --keep:#86efac; --simp:#93c5fd; --drop:#fca5a5; --unk:#9ca3af;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--paper); color:var(--ink);
+  font-family:var(--nwave-font-stack);
+  font-size:15px; line-height:1.62; -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 6rem;
+  display:flex;flex-direction:column;gap:1.1rem}
+.brandbar{background:#131316;border-radius:4px;padding:.7rem 1rem;display:flex;align-items:center}
+.brandbar-logo{height:1.9rem;width:auto;display:block}
+.provenance{
+  display:flex;flex-wrap:wrap;gap:.5rem .9rem;align-items:baseline;
+  background:var(--accent-soft);border-left:3px solid var(--accent);
+  padding:.7rem .95rem;border-radius:0 4px 4px 0;font-size:.8rem;color:var(--muted);
+}
+.provenance strong{color:var(--ink);font-weight:600}
+.provenance code{background:none;padding:0;color:var(--accent)}
+h1,h2,h3,h4{text-wrap:balance;line-height:1.22;margin:0;font-weight:640}
+h1{font-size:1.9rem;letter-spacing:-.018em;margin-top:.6rem}
+h2{font-size:1.28rem;letter-spacing:-.01em;margin-top:2.2rem;
+  padding-bottom:.4rem;border-bottom:1px solid var(--rule)}
+h3{font-size:1.02rem;margin-top:1.5rem;color:var(--accent)}
+h4{font-size:.9rem;margin-top:1.1rem;text-transform:uppercase;
+  letter-spacing:.07em;color:var(--muted)}
+p{margin:0;max-width:74ch}
+ul,ol{margin:0;padding-left:1.3rem;display:flex;flex-direction:column;gap:.35rem;max-width:74ch}
+hr{border:0;border-top:1px solid var(--rule);margin:1.6rem 0;width:100%}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:2px}
+a:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+code{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-size:.86em;
+  background:var(--accent-soft);padding:.1em .34em;border-radius:3px}
+pre{background:var(--panel);border:1px solid var(--rule);border-radius:5px;
+  padding:1rem 1.1rem;overflow-x:auto;margin:0;font-size:.78rem;line-height:1.5}
+pre code{background:none;padding:0;font-size:inherit}
+blockquote{margin:0;padding:.75rem 1rem;background:var(--panel);
+  border-left:3px solid var(--quar);border-radius:0 4px 4px 0;color:var(--muted);max-width:74ch}
+.tablewrap{overflow-x:auto;border:1px solid var(--rule);border-radius:5px;background:var(--panel)}
+table{border-collapse:collapse;width:100%;font-size:.83rem;
+  font-variant-numeric:tabular-nums}
+th{position:sticky;top:0;background:var(--panel);text-align:left;
+  font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;
+  color:var(--muted);font-weight:620;padding:.6rem .75rem;
+  border-bottom:1px solid var(--rule);white-space:nowrap}
+td{padding:.55rem .75rem;border-bottom:1px solid var(--rule);vertical-align:top}
+tbody tr:last-child td{border-bottom:0}
+.chip{display:inline-block;padding:.12em .55em;border-radius:100px;
+  font-size:.7rem;font-weight:650;letter-spacing:.03em;white-space:nowrap;
+  border:1px solid currentColor}
+.s-ready{color:var(--ready)} .s-wip{color:var(--wip)} .s-done{color:var(--done)}
+.s-quar{color:var(--quar)} .s-cont{color:var(--cont)} .s-guard{color:var(--guard)}
+.s-dsn{color:var(--dsn)}
+.v-keep{color:var(--keep)} .v-simp{color:var(--simp)}
+.v-drop{color:var(--drop)} .v-unk{color:var(--unk)}
+/* --- directory tree: connectors drawn with borders, not characters,
+   so the chips stay aligned regardless of name length --- */
+.treewrap{border:1px solid var(--rule);border-radius:5px;background:var(--panel);
+  padding:.9rem 1.1rem;overflow-x:auto}
+ul.tree{list-style:none;margin:0;padding:0;display:block;max-width:none;
+  font-size:.83rem;line-height:1.5}
+ul.tree ul.tree{margin-left:.62rem;padding-left:.95rem;border-left:1px solid var(--rule)}
+ul.tree li{position:relative;padding:.16rem 0 .16rem .95rem;margin:0}
+ul.tree ul.tree>li::before{content:"";position:absolute;left:-.95rem;top:.72rem;
+  width:.82rem;border-top:1px solid var(--rule)}
+ul.tree ul.tree>li:last-child::after{content:"";position:absolute;left:-1.02rem;
+  top:.75rem;bottom:0;width:1px;background:var(--panel)}
+ul.tree summary{cursor:pointer;list-style:none;padding:.16rem 0;margin-left:-.95rem;
+  padding-left:.95rem;border-radius:3px}
+ul.tree summary::-webkit-details-marker{display:none}
+ul.tree summary::before{content:"▾";position:absolute;left:-.15rem;color:var(--muted);
+  font-size:.7rem;transition:transform .12s ease}
+ul.tree details:not([open])>summary::before{content:"▸"}
+ul.tree summary:hover{background:var(--accent-soft)}
+ul.tree summary:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.t-id{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace;font-weight:650;
+  color:var(--accent);margin-right:.55rem;white-space:nowrap}
+.t-name{color:var(--ink);margin-right:.55rem}
+.t-badge{display:inline-block;font-size:.7rem;color:var(--muted);
+  border:1px solid var(--rule);border-radius:3px;padding:.02em .4em;
+  margin-right:.35rem;white-space:nowrap}
+li.t-branch>details>summary .t-id{font-size:.86rem;letter-spacing:.01em}
+/* --- colore del TESTO per stato: si legge la riga intera, non solo la chip --- */
+li.row-s-done>.t-name,li.row-s-done>details>summary .t-name{color:var(--done);
+  text-decoration:line-through;text-decoration-thickness:1px;opacity:.82}
+li.row-s-done>.t-id,li.row-s-done>details>summary .t-id{color:var(--done)}
+li.row-s-wip>.t-name,li.row-s-wip>details>summary .t-name{color:var(--wip);font-weight:560}
+li.row-s-wip>.t-id,li.row-s-wip>details>summary .t-id{color:var(--wip)}
+li.row-s-wip>details>summary{background:color-mix(in srgb,var(--wip) 9%,transparent);
+  border-left:2px solid var(--wip);margin-left:-1.15rem;padding-left:1.1rem}
+li.row-s-quar>.t-name,li.row-s-quar>details>summary .t-name{color:var(--muted);opacity:.72}
+li.row-s-cont>.t-name,li.row-s-cont>details>summary .t-name{color:var(--cont)}
+li.row-s-dsn>.t-name,li.row-s-dsn>details>summary .t-name{color:var(--dsn)}
+li.row-s-dsn>.t-id,li.row-s-dsn>details>summary .t-id{color:var(--dsn)}
+/* leaf with detail: closed by default, so the tree stays scannable
+   and the full row is a click away instead of a table to search */
+li.t-has-detail>details>summary::before{content:"›";font-size:.85rem}
+li.t-has-detail>details[open]>summary::before{content:"⌄";font-size:.7rem}
+li.t-has-detail>details[open]>summary{background:var(--accent-soft)}
+dl.t-detail{display:grid;grid-template-columns:auto 1fr;gap:.28rem .9rem;
+  margin:.45rem 0 .6rem .3rem;padding:.6rem .8rem;font-size:.78rem;
+  background:var(--paper);border:1px solid var(--rule);border-radius:4px}
+dl.t-detail dt{color:var(--muted);font-size:.7rem;text-transform:uppercase;
+  letter-spacing:.05em;font-weight:620;white-space:nowrap;padding-top:.06rem}
+dl.t-detail dd{margin:0;color:var(--ink)}
+@media (max-width:640px){.wrap{padding:1.5rem 1rem 4rem}h1{font-size:1.5rem}}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style></head><body><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200.0001 281.99999" width="1200" height="282">
+  <!-- nWave wordmark (nWave-logo-tYW) — yellow n + white Wave, for dark backgrounds -->
+  <g transform="matrix(1.4449288,0,0,1.4449288,-451.84019,-521.62622)">
+    <path
+      d="m 452.34925,552.58492 q -15.46668,0 -25.60003,-10.13335 -10.13334,-10.13334 -10.13334,-26.40003 0,-8.00001 2.13333,-18.66669 2.13334,-10.93335 4.80001,-21.86669 2.93334,-10.93335 5.60001,-19.46669 2.93333,-8.80001 4,-12.80002 3.46667,-11.20001 2.93334,-16.53335 -0.53334,-5.60001 -3.73334,-7.46668 -3.2,-1.86667 -7.73334,-1.86667 -5.86668,0 -13.06669,4.80001 -7.2,4.8 -15.73335,18.13335 -2.66667,4.26668 -8.00001,13.86669 -5.33334,9.33334 -12.00001,21.60002 -6.40001,12.00002 -13.33335,25.33337 -6.93334,13.06668 -13.06668,25.33336 -6.13335,12.00002 -10.66668,21.06669 -2.93334,5.86668 -8.80001,6.40001 -5.86668,0.8 -10.66668,-2.66667 -4.53334,-3.73334 -4.26668,-10.13334 2.13334,-29.86671 6.40001,-60.00008 4.53334,-30.13337 11.73335,-60.00007 1.6,-6.13334 5.86667,-8.26668 4.53334,-2.13333 9.33335,-0.8 5.06667,1.33334 8.00001,5.33334 3.2,3.73334 1.86667,9.60001 -2.66667,11.46668 -5.33334,23.4667 -2.40001,11.73335 -4.53334,23.46669 8.26667,-15.46668 15.20002,-28.2667 7.20001,-12.80001 10.93334,-18.66669 9.86668,-15.46668 22.13336,-25.06669 12.53335,-9.60001 28.00004,-9.60001 15.73335,0 24.53336,8.53334 8.80001,8.26668 10.93335,21.60003 2.13333,13.33334 -2.40001,28.2667 -1.06666,3.73333 -3.73333,12.53335 -2.40001,8.53334 -5.06668,19.20002 -2.66667,10.40001 -4.8,19.73336 -1.86667,9.06667 -1.86667,13.86668 0,4.26667 1.6,8.00001 1.86667,3.46667 8.53334,3.46667 5.06668,0 11.20002,-2.93334 6.40001,-3.2 13.06668,-9.33334 4.53334,-4.26667 9.33335,-3.46667 4.8,0.8 8.00001,4.53334 3.46667,3.73333 3.73333,8.80001 0.53334,4.8 -4,8.80001 -9.06668,8.26667 -19.46669,13.60001 -10.13335,5.06668 -21.8667,5.06668 z"
+      fill="#fbcf09" aria-label="n" />
+    <path
+      fill="#ffffff"
+      d="m 491.73113,362.45678 h 29.19637 q 4.52157,0 7.49288,2.19618 3.1005,2.067 4.134,5.68425 L 564.3345,482.0844 q 1.16269,4.134 2.067,9.04313 1.0335,4.77993 1.93782,10.20581 1.0335,-5.42588 2.19618,-10.20581 1.29188,-4.90913 2.71294,-9.04313 l 36.68925,-111.74719 q 1.0335,-2.97131 4.00481,-5.42587 3.1005,-2.45456 7.49288,-2.45456 h 10.20581 q 4.52156,0 7.49288,2.19618 2.97131,2.067 4.134,5.68425 l 36.43087,111.74719 q 2.84213,8.268 4.90913,18.34463 0.90431,-5.03832 1.80862,-9.68907 1.0335,-4.65075 2.067,-8.65556 l 31.78013,-111.74719 q 0.90431,-3.22968 4.00481,-5.55506 3.1005,-2.32537 7.49287,-2.32537 h 27.25857 L 701.01488,549.2619 H 669.62232 L 628.79907,421.62465 q -0.77513,-2.45456 -1.67944,-5.29669 -0.77513,-2.84212 -1.55025,-6.07181 -0.77513,3.22969 -1.67944,6.07181 -0.77512,2.84213 -1.55025,5.29669 L 581.12888,549.2619 H 549.73632 Z M 868.7002,549.2619 h -14.33981 q -4.52156,0 -7.10531,-1.29187 -2.58375,-1.42107 -3.87563,-5.55507 l -2.84212,-9.43068 q -5.03832,4.52156 -9.94744,8.00962 -4.77994,3.35888 -9.94744,5.68425 -5.1675,2.32538 -10.98094,3.48806 -5.81343,1.16269 -12.91875,1.16269 -8.39718,0 -15.5025,-2.19619 -7.10531,-2.32537 -12.27281,-6.84693 -5.03831,-4.52157 -7.88044,-11.23932 -2.84212,-6.71775 -2.84212,-15.63168 0,-7.49288 3.87562,-14.72738 4.00482,-7.36369 13.17713,-13.17712 9.17231,-5.94263 24.41644,-9.81825 15.24412,-3.87563 37.85193,-4.39238 v -7.75125 q 0,-13.30631 -5.68425,-19.6365 -5.55506,-6.45937 -16.27762,-6.45937 -7.75125,0 -12.91875,1.80862 -5.1675,1.80863 -9.04313,4.134 -3.74643,2.19619 -6.97612,4.00481 -3.22969,1.80863 -7.10531,1.80863 -3.22969,0 -5.55507,-1.67944 -2.32537,-1.67944 -3.74643,-4.134 l -5.81344,-10.20581 q 22.86619,-20.92838 55.16306,-20.92838 11.62688,0 20.67,3.87563 9.17231,3.74644 15.5025,10.59337 6.33019,6.71775 9.55988,16.14844 3.35887,9.43069 3.35887,20.67 z m -62.01,-19.89487 q 4.90913,0 9.04313,-0.90432 4.134,-0.90431 7.75125,-2.71293 3.74643,-1.80863 7.10531,-4.39238 3.48806,-2.71294 6.97612,-6.33019 v -22.34943 q -13.95225,0.64593 -23.38293,2.45456 -9.3015,1.67944 -14.98575,4.39237 -5.68425,2.71294 -8.13882,6.33019 -2.32537,3.61725 -2.32537,7.88044 0,8.39719 4.90912,12.01444 5.03832,3.61725 13.04794,3.61725 z m 155.15439,19.89487 h -28.938 l -52.7085,-132.54637 h 26.48344 q 3.48806,0 5.81344,1.67943 2.45456,1.67944 3.35887,4.26319 l 25.57913,70.79475 q 2.19618,6.201 3.61725,12.14363 1.55025,5.94262 2.71293,11.88525 1.16269,-5.94263 2.58375,-11.88525 1.55025,-5.94263 3.87563,-12.14363 l 26.22506,-70.79475 q 0.90431,-2.58375 3.22969,-4.26319 2.32537,-1.67943 5.55506,-1.67943 h 25.19156 z M 1083.7976,414.64853 q 12.5312,0 22.9954,4.00481 10.5934,4.00481 18.2155,11.75606 7.622,7.62206 11.8852,18.86138 4.2632,11.11012 4.2632,25.44993 0,3.61725 -0.3876,6.07182 -0.2583,2.32537 -1.1627,3.74643 -0.7751,1.29188 -2.1961,1.93782 -1.4211,0.51675 -3.6173,0.51675 h -81.9049 q 1.4211,20.41162 10.981,29.9715 9.5598,9.55987 25.3207,9.55987 7.7513,0 13.3063,-1.80862 5.6843,-1.80863 9.8183,-4.00482 4.2632,-2.19618 7.3637,-4.00481 3.2297,-1.80862 6.201,-1.80862 1.9378,0 3.3588,0.77512 1.4211,0.77513 2.4546,2.19619 l 9.3015,11.62687 q -5.2967,6.201 -11.8852,10.46419 -6.5886,4.134 -13.8231,6.71775 -7.1053,2.45456 -14.5982,3.48806 -7.3637,1.0335 -14.3398,1.0335 -13.8231,0 -25.7083,-4.52156 -11.8853,-4.65075 -20.67,-13.56469 -8.7848,-9.04312 -13.8231,-22.22025 -5.0383,-13.30631 -5.0383,-30.74662 0,-13.56469 4.3924,-25.44994 4.3924,-12.01444 12.5312,-20.79919 8.268,-8.91393 20.024,-14.08143 11.8853,-5.1675 26.7418,-5.1675 z m 0.646,22.86618 q -13.9523,0 -21.8327,7.88044 -7.8804,7.88044 -10.0766,22.34944 h 59.943 q 0,-6.201 -1.6795,-11.62688 -1.6794,-5.55506 -5.1675,-9.68906 -3.488,-4.134 -8.7847,-6.45937 -5.2967,-2.45457 -12.402,-2.45457 z"
+      aria-label="Wave" />
+  </g>
+</svg>
+
+<h1>Architecture brief: ui-nav-polish</h1>
+
+<h2>Paradigm</h2>
+
+<p>procedural</p>
+
+<h2>Shared records</h2>
+
+<h3>Decisions</h3>
+
+<p>None.</p>
+
+<h3>Constraints</h3>
+
+<h4>K1</h4>
+
+<pre><code>User decision 2026-11-20: fix the current-page mark for the three moved items in the UI clean-up.
+</code></pre>
+
+<h4>K2</h4>
+
+<pre><code>User decision 2026-11-20: hide Invite a member and Machine tokens from operators those pages refuse.
+</code></pre>
+
+<h4>K3</h4>
+
+<pre><code>User decision 2026-11-20: the UI clean-up covers groups A to D, delivered as three Requests; this one is group C.
+</code></pre>
+
+<h3>Reuse</h3>
+
+<p>None.</p>
+
+<h3>Impact</h3>
+
+<p>None.</p>
+
+<h3>Agreement</h3>
+
+<p>None.</p>
+
+<h3>Not applicable</h3>
+
+<p>None.</p>
+
+<h3>Boundaries</h3>
+
+<p>None.</p>
+
+<h3>Observations</h3>
+
+<p>None.</p>
+
+<h3>Equality</h3>
+
+<p>None.</p>
+
+<h3>Constructors</h3>
+
+<p>None.</p>
+
+<h3>Laws</h3>
+
+<p>None.</p>
+
+<h3>Refuted</h3>
+
+<p>None.</p>
+
+<h3>Claims</h3>
+
+<p>None.</p>
+
+<h3>States</h3>
+
+<p>None.</p>
+
+<h3>Models</h3>
+
+<p>None.</p>
+
+<h3>Closure</h3>
+
+<p>None.</p>
+
+<h3>Risks</h3>
+
+<p>None.</p>
+
+<h3>Architectural tests</h3>
+
+<p>None.</p>
+
+<h3>Contract tests</h3>
+
+<p>None.</p>
+
+<h2>Slices</h2>
+
+<h3>S1</h3>
+
+<h4>Targets</h4>
+
+<p>crates/foundry-app/src/nav.rs</p>
+
+<p>Extend</p>
+
+<pre><code>Three NavSection variants with their predicates and constructors, and the totality unit test extended over every variant.
+</code></pre>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>Extend</p>
+
+<pre><code>Mark conditions on the three moved members, the workspace-admin condition on two of them, and the sign-out submit joins the item presentation.
+</code></pre>
+
+<p>crates/foundry-app/static/css/foundry.fb3aa227.css</p>
+
+<p>Extend</p>
+
+<pre><code>Sticky rail, phone glyph geometry, quiet lower group; the file is then renamed to the sha256 prefix of its new bytes and the old name removed.
+</code></pre>
+
+<p>crates/foundry-app/templates/base.html</p>
+
+<p>Extend</p>
+
+<pre><code>The stylesheet link takes the new hash.
+</code></pre>
+
+<p>crates/foundry-app/static/VENDOR.md</p>
+
+<p>Extend</p>
+
+<pre><code>The stylesheet row name and its recomputed sha256.
+</code></pre>
+
+<p>crates/foundry-app/src/lib.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The three cache-policy assertions that name the stylesheet path literally.
+</code></pre>
+
+<p>crates/foundry-app/src/teams.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The one teams nav assembly marks Teams.
+</code></pre>
+
+<p>crates/foundry-app/src/member_invites.rs</p>
+
+<p>Extend</p>
+
+<pre><code>Both invite renders mark Invite a member.
+</code></pre>
+
+<p>crates/foundry-app/src/admin_tokens.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The prefactoring extraction, then the single site marks Machine tokens.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<p>Extend</p>
+
+<pre><code>The new mark-comes-from-the-carrier obligation beside the shipped rail-member law.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/ui-nav-polish.feature</p>
+
+<h4>Verification</h4>
+
+<pre><code>scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 cargo test -p foundry-app nav&quot;
+scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 cargo xtask check-arch&quot;
+scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=ui-nav-polish cargo test -p foundry-acceptance&quot;
+scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=all cargo test -p foundry-acceptance&quot;
+</code></pre>
+
+<h4>Supports</h4>
+
+<p>crates/foundry-acceptance/src/steps/feature_ui_nav_polish.rs</p>
+
+<p>crates/foundry-acceptance/src/steps/mod.rs</p>
+
+<p>crates/foundry-acceptance/src/support/rail_reading.rs</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-quick-actions.feature</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_quick_actions.rs</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs</p>
+
+<h4>Public oracle</h4>
+
+<pre><code>Through the real public driving port, with a real session cookie: a workspace admin opens /teams, /workspace/invites, /admin/tokens, a team page under /teams, the dashboard and a board; a member with no rights beyond her workspace opens /teams and a board; an instance super-admin who administers no workspace opens the dashboard. For each rendered rail, every href it offered is then opened with the SAME cookie. In the browser lane the same GETs are rendered at the harness desk viewport, scrolled to the bottom of a page taller than the window in both rail geometries, and at the emulated 390x844 phone device; one press of Sign out and one press of the theme control are taken.
+</code></pre>
+
+<pre><code>On each page the one member carrying aria-current=page is the member that owns it - Teams on /teams and its team page, Invite a member on /workspace/invites, Machine tokens on /admin/tokens, Home on the dashboard, Board on the board - and never a second member. The member with no rights and the instance-only super-admin are offered Home, Board and Teams and neither admin link; the workspace admin is offered all five. Every offered href answers her own cookie with a page, never the refusal 404. At desk width the whole rail box lies inside the viewport after the scroll in both geometries, with every member visible. At the phone device the bar is at most 168.8 px high with every member visible, activatable and at least 44 px. The sign-out submit and the theme control resolve to the rail surface fill, no border their neighbour links lack and the same text tier and weight; Sign out still ends the session and the theme control still changes the palette.
+</code></pre>
+
+<pre><code>The shipped build fails it today on every count: /teams, /workspace/invites and /admin/tokens mark Home, the two admin links are offered to a plain member and answer her 404, the rail scrolls away with a long page, the phone bar takes about 320 of 844 px, and the sign-out submit is a filled black slab beside bordered neighbours. Each law also fails on its own plausible wrong implementation: marking the owner member on /teams but leaving Home marked too is caught by exactly-one; hiding the two links from everyone is caught by the workspace-admin row; hiding them by clip instead of by condition is caught by the visible-and-activatable reading; and capping the phone bar height with overflow is caught by the invisible-and-focusable reading.
+</code></pre>
+
+<h5>Promises</h5>
+
+<p>P1</p>
+
+<p>P2</p>
+
+<p>P3</p>
+
+<p>P4</p>
+
+<p>P5</p>
+
+<h4>Prefactoring</h4>
+
+<pre><code>L1 to L2, in crates/foundry-app/src/admin_tokens.rs: the four renders at 70, 107, 170 and 393 each assemble the rail with the same five arguments. Extract one private async helper that assembles it once, and have the four call sites use it, with no behaviour change (still NavContext::home_for, still Home current). Then the follow-up change names the new section ONCE instead of four times, so three of the four sites cannot be forgotten.
+</code></pre>
+
+<pre><code>Every token page keeps the same rail: the same identity, the same lower-group items, the same Home mark and the same cookie-matched CSRF token in the sign-out form.
+</code></pre>
+
+<p>crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature</p>
+
+<h5>Verification</h5>
+
+<pre><code>scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=navigation-bar cargo test -p foundry-acceptance&quot;
+</code></pre>
+
+<h4>Records</h4>
+
+<h5>Decisions</h5>
+
+<pre><code>Current-page mark: enum NavSection in crates/foundry-app/src/nav.rs gains Teams, Invites and Tokens beside Home and Board. The carrier stays ONE field, NavContext.active, so the marked member is derived by equality on a sum and a rail with two marks is unrepresentable in Rust. Layers. Domain: none, this is presentation only. Application: each authed handler names exactly one section for its own page family, through new NavContext::teams_for, invites_for and tokens_for siblings over the existing private resolved() so the neutral fail-closed identity stays decided in one place. Adapter: partials/sidebar.html reads one predicate per item (is_teams, is_invites, is_tokens beside is_home, is_board) and emits the sidebar__item--active class and aria-current=page together. Carriers: decision = NavSection (nav.rs); per-request state = NavContext (nav.rs); effects = none; errors = none new.
+</code></pre>
+
+<pre><code>Rights-based visibility: the two admin destinations are wrapped in the same {% if nav.is_workspace_admin %} condition the shipped Integrations item already uses. No new lookup and no new authorization decision: the fact is the one is_workspace_admin value NavContext already carries from the single nav_identity read (ADR-IW-002), which is the same fact member_invites show_invite_form and the admin_tokens require_admin gate read. Teams keeps no condition because GET /teams needs only a session. Application layer supplies the fact, Adapter layer decides presence. On identity-lookup failure the neutral identity reports false, so the rail fails closed and offers only links that open.
+</code></pre>
+
+<pre><code>Sticky rail: the bare .sidebar rule takes position: sticky, top: 0, align-self: flex-start, height: 100vh and overflow-y: auto, so the rail stops stretching to the whole document height inside the 100vh-min .app-shell flex row, and both geometries, open and folded, inherit it from one declaration. A rail taller than the window then scrolls inside itself, so no member becomes unreachable. The phone block resets position: static and height: auto, because there the rail is a top bar in a stacked shell. Adapter layer only: no Rust, no template and no class-name change.
+</code></pre>
+
+<pre><code>Phone bar height: below the 480 px breakpoint the bar draws the GLYPH geometry instead of the word geometry, reusing the shipped folded-rail mechanism - .sidebar__icon becomes visible and .sidebar__label is clipped, never display:none, so each word stays in the accessibility tree and each member is a 44 px thumb square. The two wrapping groups then take about two rows instead of about four, and the workspace name leaves the layout exactly as it already does when the rail is folded. Every destination stays inside the bar and nothing is hidden by a height cap or by overflow.
+</code></pre>
+
+<pre><code>Quiet lower group: the sign-out submit and the JS-built .theme-toggle take the presentation of their neighbour links, .sidebar__user a - transparent fill over the rail surface, --cz-muted text, 5 px radius, no border, no bold - so the global black button fill no longer reaches the rail and no fill or border identifies either control as the heaviest thing in the nav. The border .theme-toggle carried for WCAG 1.4.11 goes because the control becomes text-plus-glyph like its neighbours, the same reason .sidebar__user a never needed one; its button role, aria-label, title and click behaviour are untouched. The shared .sidebar__user :focus-visible rule is untouched, so the selection ring still reads as a shape.
+</code></pre>
+
+<pre><code>One content-hash migration: the stylesheet is the only file whose name changes, and the rename travels to its four readers in the same commit - the link in templates/base.html, the row and sha256 in static/VENDOR.md, and the three cache-policy assertions in crates/foundry-app/src/lib.rs. check-arch already refuses a /static reference that does not resolve and a content-hashed filename that is not its own sha256 prefix, so a half-done rename is caught by the shipped gate.
+</code></pre>
+
+<pre><code>Claim-to-checker: the mark-and-offer algebra is a finite state model over the closed product of six page families and the four-member rights set, so Quint carries it and TLA+ is not needed - there is no temporal or fairness claim - and Agda is not needed because no proof over an open domain is claimed. The three geometry promises P3, P4 and P5 are real-browser layout facts with no state machine to model, so NO checker covers them: their evidence is the browser-measured acceptance reading, and that limit is recorded on their closure rows rather than hidden behind a model.
+</code></pre>
+
+<h5>Constraints</h5>
+
+<pre><code>P4 bounds the phone bar at a fifth of the screen height at 480 px and below. The browser lane drives ONE emulated phone device, 390 x 844 CSS px, so the measured bound is a bar height at or under 168.8 px there. No authority bounds any other phone width, and no authority bounds the desk width either: the desk reading uses the harness fixed viewport. A reading at a third width is outside the recorded bound and would be a new product question.
+</code></pre>
+
+<pre><code>Who may open a page does not change: GET /workspace/invites and GET /admin/tokens keep the shipped workspace-admin gate and their non-enumerable uniform 404, and GET /teams keeps its session-only gate. This Request only changes what the nav OFFERS and MARKS.
+</code></pre>
+
+<pre><code>The shipped rail law holds unchanged: nothing in the rail may be invisible AND focusable. A destination removed for rights leaves the document entirely - no clip, no zero width, no opacity, no height cap with overflow - and a destination that stays is drawn, reachable and activatable in every geometry.
+</code></pre>
+
+<pre><code>Shipped promises this Request must not break: every rail member carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word and no aria-label (check-arch rail-member); every primary control is at least 44 px high at phone width (pwa-mobile-rendering); no colour literal outside the three stylesheet token regions and the three regions declare the identical token set (check-arch token seam); exactly one primary nav item is current on every authenticated page (navigation-bar-linear-ui).
+</code></pre>
+
+<pre><code>The theme control is built by static/js/theme.js and appended into .sidebar__user, so its quiet presentation has to come from the stylesheet alone. With scripting off there is no theme control at all, and P5 is then satisfied by the sign-out submit alone.
+</code></pre>
+
+<h5>Reuse</h5>
+
+<p>NavSection</p>
+
+<p>crates/foundry-app/src/nav.rs:18</p>
+
+<p>Extend</p>
+
+<pre><code>The one carrier that already decides which primary item is marked, by equality on a sum. Three variants are added beside Home and Board; a parallel marker field or a per-item bool set would make two marks representable.
+</code></pre>
+
+<p>resolved</p>
+
+<p>crates/foundry-app/src/nav.rs:136</p>
+
+<p>Reuse</p>
+
+<pre><code>Already resolves the identity, the neutral fail-closed fallback and board_href for any section; the three new constructors are thin siblings over it, so the fallback stays decided in one place.
+</code></pre>
+
+<p>NavContext::home_for</p>
+
+<p>crates/foundry-app/src/nav.rs:92</p>
+
+<p>Extend</p>
+
+<pre><code>Three siblings teams_for, invites_for and tokens_for join it with the same signature; home_for stays for the pages that own no primary item (settings, project create, instance admin, unsubscribe).
+</code></pre>
+
+<p>is_workspace_admin</p>
+
+<p>crates/foundry-app/src/nav.rs:42</p>
+
+<p>Reuse</p>
+
+<pre><code>The fact the two destinations gate on is already on the carrier from the single nav_identity read (ADR-IW-002) and already gates the Integrations item, so P2 needs no new lookup, no new field and no second reader of the same fact.
+</code></pre>
+
+<p>sidebar__item</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html:53</p>
+
+<p>Extend</p>
+
+<pre><code>The one owner of every rail member. The three moved destinations gain the mark conditions, two of them gain the rights condition; no member is renamed or moved and the glyph-and-word shape of each one is kept.
+</code></pre>
+
+<p>sidebar__label</p>
+
+<p>crates/foundry-app/static/css/foundry.fb3aa227.css:1094</p>
+
+<p>Reuse</p>
+
+<pre><code>The folded geometry already clips the word rather than removing it, which is exactly what the phone bar needs; reusing the mechanism keeps one answer to how a glyph-only member keeps its accessible name.
+</code></pre>
+
+<p>home_for</p>
+
+<p>crates/foundry-app/src/teams.rs:1203</p>
+
+<p>Extend</p>
+
+<pre><code>The single nav assembly for every /teams page and its descendants, so one edit marks Teams on all of them.
+</code></pre>
+
+<p>home_for</p>
+
+<p>crates/foundry-app/src/member_invites.rs:100</p>
+
+<p>Extend</p>
+
+<pre><code>Both invite renders (form at 100 and sent fragment at 140) assemble the rail here; both become invites_for.
+</code></pre>
+
+<p>home_for</p>
+
+<p>crates/foundry-app/src/admin_tokens.rs:70</p>
+
+<p>Extend</p>
+
+<pre><code>Four renders in this module assemble the rail (70, 107, 170, 393); all four become tokens_for, which is why the prefactoring move pulls them into one private helper first.
+</code></pre>
+
+<p>NAV_PROBE</p>
+
+<p>crates/foundry-acceptance/src/support/rail_reading.rs:85</p>
+
+<p>Extend</p>
+
+<pre><code>The one live reading of the rail already returns each member box, its visibility, its accessible name and which member is marked; the sticky and phone-height readings are two more fields of the SAME probe, so a geometry fact and a mark fact cannot come from two moments. Acceptance support, owned by the acceptance designer.
+</code></pre>
+
+<p>foundry.fb3aa227.css</p>
+
+<p>crates/foundry-app/templates/base.html:6</p>
+
+<p>Extend</p>
+
+<pre><code>The serving reader of the stylesheet name; the link takes the new hash, no new head member and no second stylesheet.
+</code></pre>
+
+<p>foundry.fb3aa227.css</p>
+
+<p>crates/foundry-app/static/VENDOR.md:33</p>
+
+<p>Extend</p>
+
+<pre><code>The auditor row for the hand-authored stylesheet; its name and sha256 are recomputed in place.
+</code></pre>
+
+<p>static_cache_control_value</p>
+
+<p>crates/foundry-app/src/lib.rs:344</p>
+
+<p>Extend</p>
+
+<pre><code>The three shipped cache-policy assertions name the stylesheet path literally (344, 361, 380); they are re-pointed, not replaced.
+</code></pre>
+
+<p>check_sidebar_rail_members</p>
+
+<p>xtask/src/check_arch.rs:2140</p>
+
+<p>Extend</p>
+
+<pre><code>The shipped rail-member law already enumerates members from the partial; the new mark-comes-from-the-carrier obligation joins it as a sibling rule rather than a second gate over the same file.
+</code></pre>
+
+<h5>Impact</h5>
+
+<p>rust-module</p>
+
+<p>crates/foundry-app/src/nav.rs:18</p>
+
+<p>Changed</p>
+
+<pre><code>Three NavSection variants, three predicates, three constructors, and the existing totality unit test extended over every variant.
+</code></pre>
+
+<p>template-partial</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html:48</p>
+
+<p>Changed</p>
+
+<pre><code>Mark conditions on three members, the workspace-admin condition on two of them, and the sign-out button joins the item presentation.
+</code></pre>
+
+<p>stylesheet</p>
+
+<p>crates/foundry-app/static/css/foundry.fb3aa227.css:984</p>
+
+<p>Migrated</p>
+
+<pre><code>Sticky rail, phone glyph geometry and the quiet lower group change the bytes, so the content-hashed name changes with them; the old name is removed in the same change.
+</code></pre>
+
+<p>template-head</p>
+
+<p>crates/foundry-app/templates/base.html:6</p>
+
+<p>Migrated</p>
+
+<pre><code>The stylesheet link carries the new hash.
+</code></pre>
+
+<p>vendor-manifest</p>
+
+<p>crates/foundry-app/static/VENDOR.md:33</p>
+
+<p>Migrated</p>
+
+<pre><code>The row name and the sha256 of the hand-authored stylesheet are recomputed; check-arch refuses a mismatch.
+</code></pre>
+
+<p>cache-policy-assertions</p>
+
+<p>crates/foundry-app/src/lib.rs:344</p>
+
+<p>Migrated</p>
+
+<pre><code>The three immutable-cache assertions name the stylesheet path literally at 344, 361 and 380.
+</code></pre>
+
+<p>rust-handler</p>
+
+<p>crates/foundry-app/src/teams.rs:1203</p>
+
+<p>Changed</p>
+
+<pre><code>Assembles the rail with Teams current for every teams page and its descendants.
+</code></pre>
+
+<p>rust-handler</p>
+
+<p>crates/foundry-app/src/member_invites.rs:100</p>
+
+<p>Changed</p>
+
+<pre><code>Both invite renders (100 and 140) assemble the rail with Invite a member current.
+</code></pre>
+
+<p>rust-handler</p>
+
+<p>crates/foundry-app/src/admin_tokens.rs:70</p>
+
+<p>Changed</p>
+
+<pre><code>All four token renders (70, 107, 170, 393) assemble the rail with Machine tokens current.
+</code></pre>
+
+<p>rust-handler</p>
+
+<p>crates/foundry-app/src/projects.rs:94</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Project create and the board family own no moved destination: Home and Board stay the sections they name (94, 143, 320, 437).
+</code></pre>
+
+<p>rust-handler</p>
+
+<p>crates/foundry-app/src/instance_admin.rs:154</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Instance admin, account settings, unsubscribe and comments keep home_for or board_for; they own no primary item, so Home stays marked there exactly as today.
+</code></pre>
+
+<p>architecture-gate</p>
+
+<p>xtask/src/check_arch.rs:2140</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The rail-member law ENUMERATES whatever members the partial holds and already covers the two conditionally rendered members (Integrations, Instance admin), so wrapping two more in a condition costs no edit; one new obligation is added beside it rather than inside it.
+</code></pre>
+
+<p>acceptance-oracle</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-quick-actions.feature:37</p>
+
+<p>Migrated</p>
+
+<pre><code>This lane asserts the opposite of both promises: it offers Invite a member and Machine tokens to a member with no rights (two scenarios) and it asserts Home is marked on /teams (the final outline). Both laws are replaced by this Request, so the acceptance designer migrates the rows rather than leaving two authorities.
+</code></pre>
+
+<p>acceptance-steps</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_quick_actions.rs:1</p>
+
+<p>Migrated</p>
+
+<pre><code>Its step bodies carry the destination table and the Home-is-marked reading the migrated feature rows use.
+</code></pre>
+
+<p>acceptance-oracle</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature:53</p>
+
+<p>Migrated</p>
+
+<pre><code>Its Background signs in Mei, a member with no rights, and EVERY_OPERATOR in the step module owes her Invite a member and Machine tokens; under P2 those two are no longer hers, so the owed set splits into the every-operator set and the workspace-admin set. Its phone scenario also reads the same bar this Request shortens.
+</code></pre>
+
+<p>acceptance-steps</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_nav_icon_rail.rs:60</p>
+
+<p>Migrated</p>
+
+<pre><code>EVERY_OPERATOR is the named list the lane compares the live rail against; two of its seven members become rights-qualified.
+</code></pre>
+
+<p>acceptance-oracle</p>
+
+<p>crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature:75</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>Its laws are exactly-one-current, the rail is present on every authed page, Board is current on a board and Home on the dashboard, plus CSRF and identity rows. All stay true: this Request only moves WHICH item is the one current member on three page families.
+</code></pre>
+
+<p>acceptance-oracle</p>
+
+<p>crates/foundry-acceptance/tests/features/pwa-mobile-rendering.feature:81</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>No horizontal overflow, the 44 px thumb target, the rail not at full width on a phone and the css-hash consistency check all stay true under the shorter bar and the renamed stylesheet.
+</code></pre>
+
+<p>acceptance-oracle</p>
+
+<p>crates/foundry-acceptance/tests/features/canzan-theme-system.feature:140</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It pins the focus ring as a shape, rail and board legibility in both palettes and the token seam. The quiet lower group keeps the focus rule, names only tokens and keeps --cz-muted text, which is the tier it already walks.
+</code></pre>
+
+<p>acceptance-oracle</p>
+
+<p>crates/foundry-acceptance/tests/features/integrations-wayfinding.feature:1</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>It asserts the Integrations item for a workspace admin and its absence otherwise, on the same fact and the same condition this Request reuses; nothing it reads changes.
+</code></pre>
+
+<h5>Agreement</h5>
+
+<p>The workspace-admin fact decides BOTH who may open /workspace/invites and /admin/tokens AND whether the left nav offers those two links.</p>
+
+<p>crates/foundry-app/src/member_invites.rs:100</p>
+
+<p>Producer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The shipped gate on GET /workspace/invites: workspace admin, every other caller the uniform 404. It keeps deciding admission; this Request adds no caller and changes no gate.
+</code></pre>
+
+<p>The workspace-admin fact decides BOTH who may open /workspace/invites and /admin/tokens AND whether the left nav offers those two links.</p>
+
+<p>crates/foundry-app/src/admin_tokens.rs:294</p>
+
+<p>Producer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The shipped require_admin gate on /admin/tokens, fail-closed to the same non-enumerable 404; unchanged.
+</code></pre>
+
+<p>The workspace-admin fact decides BOTH who may open /workspace/invites and /admin/tokens AND whether the left nav offers those two links.</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html:54</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The nav becomes a reader of the same fact for these two members instead of offering them unconditionally. It reads the value NavContext already carries from the single nav_identity read, so the two parties cannot read two different facts.
+</code></pre>
+
+<p>The workspace-admin fact decides BOTH who may open /workspace/invites and /admin/tokens AND whether the left nav offers those two links.</p>
+
+<p>crates/foundry-app/src/nav.rs:42</p>
+
+<p>Producer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>NavContext.is_workspace_admin is the one presentation projection of that fact, already shipped for the Integrations item and already fail-closed on lookup failure.
+</code></pre>
+
+<p>The served stylesheet filename carries the sha256 prefix of its own bytes, and every reader names the same filename.</p>
+
+<p>crates/foundry-app/static/css/foundry.fb3aa227.css:1</p>
+
+<p>Producer</p>
+
+<p>Migrated</p>
+
+<pre><code>The bytes change, so the name changes.
+</code></pre>
+
+<p>The served stylesheet filename carries the sha256 prefix of its own bytes, and every reader names the same filename.</p>
+
+<p>crates/foundry-app/templates/base.html:6</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The document head is the serving reader; a stale hash serves a 404 stylesheet.
+</code></pre>
+
+<p>The served stylesheet filename carries the sha256 prefix of its own bytes, and every reader names the same filename.</p>
+
+<p>crates/foundry-app/src/lib.rs:344</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>Three cache-policy assertions name the path literally (344, 361, 380).
+</code></pre>
+
+<p>The served stylesheet filename carries the sha256 prefix of its own bytes, and every reader names the same filename.</p>
+
+<p>crates/foundry-app/static/VENDOR.md:33</p>
+
+<p>Consumer</p>
+
+<p>Migrated</p>
+
+<pre><code>The auditor row and its recomputed sha256; check-arch refuses a mismatch.
+</code></pre>
+
+<p>Every member of the left-nav partial carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word and no aria-label.</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html:53</p>
+
+<p>Producer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The three moved members keep their glyph and word; only conditions and classes around them change.
+</code></pre>
+
+<p>Every member of the left-nav partial carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word and no aria-label.</p>
+
+<p>xtask/src/check_arch.rs:2140</p>
+
+<p>Consumer</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The gate enumerates members from the file and already reads conditionally rendered ones, so it needs no edit.
+</code></pre>
+
+<h5>Not applicable</h5>
+
+<p>contract_tests</p>
+
+<pre><code>The two parties of the workspace-admin agreement - the route gates and the nav template - live in one deployable, are released together and change in one commit, and no persisted or wire data outlives a version. The primary oracle already runs the real producer against the real consumer: it opens every href the rail offered under the same session cookie and reads the status the shipped gate answers, which is stronger than a recorded pact.
+</code></pre>
+
+<h5>Boundaries</h5>
+
+<pre><code>HTTP GET on the authenticated routes of the running application carrying a real session cookie (/, /team/{team}/project/{project}, /teams, /workspace/invites, /admin/tokens, /account/settings), and for the three geometry promises the same GET rendered in the real browser the @needs-browser lane drives, read at the harness desk viewport and at the emulated 390x844 phone device.
+</code></pre>
+
+<h6>Driven ports</h6>
+
+<pre><code>Postgres through the shipped fail-closed nav_identity and is_instance_admin lookups (no new query, no new authorization).
+</code></pre>
+
+<pre><code>The served static stylesheet and static/js/theme.js, read by the browser as the application serves them.
+</code></pre>
+
+<pre><code>Inward: the template and the stylesheet read the NavContext projection; NavContext reads the already-resolved session identity; nothing in the rail reaches back into a store, a route table or an authorization decision.
+</code></pre>
+
+<h6>Failures</h6>
+
+<p>####### B1</p>
+
+<pre><code>The nav_identity lookup fails for this render.
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>The page still answers 200 with a neutral rail that marks the page family it is on and offers neither admin link; the error is logged, nothing is offered that would refuse her.
+</code></pre>
+
+<p>####### B2</p>
+
+<pre><code>A plain member asks for /workspace/invites or /admin/tokens directly, by typed URL or a stale bookmark, where the nav no longer offers the link.
+</code></pre>
+
+<p>Refusal</p>
+
+<pre><code>The shipped non-enumerable uniform 404, unchanged: the nav hiding the link neither adds nor removes an admission decision.
+</code></pre>
+
+<h5>Observations</h5>
+
+<pre><code>The set of primary nav members the served document offers, each read by its own word and the href it opens.
+</code></pre>
+
+<p>Set[(word, href)]</p>
+
+<pre><code>Which identity fact caused an absence, and the order the stylesheet draws them in.
+</code></pre>
+
+<pre><code>Which nav members carry aria-current=page together with the sidebar__item--active class.
+</code></pre>
+
+<p>Set[word]</p>
+
+<pre><code>The tint, the weight and anything else about how current is drawn.
+</code></pre>
+
+<pre><code>The HTTP status the application answers for each offered href under the SAME session cookie the rail was rendered for.
+</code></pre>
+
+<p>Map[href, status]</p>
+
+<pre><code>A 404 for a page that does not exist from a 404 for a page that refuses her - that non-enumerability is the shipped promise.
+</code></pre>
+
+<pre><code>The rail bounding box relative to the viewport at desk width after the page is scrolled to its bottom, with each member box and its visibility.
+</code></pre>
+
+<p>(top, bottom, height, Set[(word, visible)])</p>
+
+<pre><code>Whether the rail is held by sticky positioning, by a fixed box or by a scroll container.
+</code></pre>
+
+<pre><code>The rail height as a fraction of the viewport height at the emulated phone device, with every member visible and activatable inside the bar.
+</code></pre>
+
+<p>(fraction, Set[(word, visible, activatable)])</p>
+
+<pre><code>How many rows the members wrapped into, and which glyph each one draws.
+</code></pre>
+
+<pre><code>The resolved fill, border width and text colour of the sign-out submit and of the theme control, each beside the same reading of a neighbour link in the lower group.
+</code></pre>
+
+<p>Map[member, (fill, borderWidth, colour, fontWeight)]</p>
+
+<pre><code>Which token produced a colour, and any difference below the resolved value.
+</code></pre>
+
+<pre><code>That one press of the sign-out submit ends the session, and one press of the theme control still changes the palette.
+</code></pre>
+
+<p>(signedOut, paletteChanged)</p>
+
+<pre><code>How the palette travels, which the theme lane owns.
+</code></pre>
+
+<h5>Equality</h5>
+
+<p>the seven observations above</p>
+
+<pre><code>Two rendered rails are the same rail when they offer the same set of word-and-href pairs, mark the same set, answer the same statuses for those hrefs, hold the same geometry predicates (whole box inside the viewport after the scroll at desk width, height at or under a fifth of the viewport at the phone device) and give the sign-out submit and the theme control the same resolved fill, border and text tier as their neighbour links. Two rails that differ only in row wrapping, tint, glyph, token name or source order are equal.
+</code></pre>
+
+<h5>Constructors</h5>
+
+<p>NavSection::Teams</p>
+
+<p>NavSection</p>
+
+<p>NavSection::Invites</p>
+
+<p>NavSection</p>
+
+<p>NavSection::Tokens</p>
+
+<p>NavSection</p>
+
+<p>NavContext::teams_for</p>
+
+<p>async fn(&amp;AppState, Uuid, Uuid, bool, String) -&gt; NavContext</p>
+
+<p>NavContext::invites_for</p>
+
+<p>async fn(&amp;AppState, Uuid, Uuid, bool, String) -&gt; NavContext</p>
+
+<p>NavContext::tokens_for</p>
+
+<p>async fn(&amp;AppState, Uuid, Uuid, bool, String) -&gt; NavContext</p>
+
+<h5>Laws</h5>
+
+<h6>L1</h6>
+
+<pre><code>On every authenticated page a signed-in operator can open, exactly one primary nav member carries aria-current=page, and it is the member that owns that page family: Home on the dashboard and on every page no primary member owns, Board on the board family, Teams on /teams and its descendants, Invite a member on /workspace/invites, Machine tokens on /admin/tokens.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Adapter</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>dashboard, any rights: Home
+</code></pre>
+
+<pre><code>board family, any rights: Board
+</code></pre>
+
+<pre><code>teams and a team page, any rights: Teams
+</code></pre>
+
+<pre><code>invites, workspace admin: Invite a member
+</code></pre>
+
+<pre><code>tokens, workspace admin: Machine tokens
+</code></pre>
+
+<pre><code>account settings, any rights: Home
+</code></pre>
+
+<pre><code>The domain is the closed product of six page families and the four-member rights set; every reachable row is enumerated, so a generator would only re-draw the same table.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt</p>
+
+<h6>L2</h6>
+
+<pre><code>The nav never marks a member it does not offer: the marked set is a subset of the offered set in every render.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Adapter</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>invites page, workspace admin: Invite a member is both offered and marked
+</code></pre>
+
+<pre><code>any page, plain member: the marked member is one of the three she is offered
+</code></pre>
+
+<pre><code>Same closed domain as the mark law.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt</p>
+
+<h6>L3</h6>
+
+<pre><code>Every link the nav offers answers the SAME session cookie with a page, never the refusal 404: Invite a member and Machine tokens are present exactly when the identity the rail was rendered for is a workspace admin, and absent otherwise.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Application</p>
+
+<p>crates/foundry-app/src/nav.rs</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>plain member: neither link offered
+</code></pre>
+
+<pre><code>workspace admin: both offered, both answer 200
+</code></pre>
+
+<pre><code>instance super-admin who administers no workspace: neither link offered, because /admin/tokens and /workspace/invites refuse her
+</code></pre>
+
+<pre><code>both admin kinds: both offered, both answer 200
+</code></pre>
+
+<pre><code>The rights domain is the closed four-member set the shipped lookups can report, so the four rows exhaust it.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt</p>
+
+<h6>L4</h6>
+
+<pre><code>No operator loses a destination her rights already open: every primary destination that admits her is still offered to her.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Adapter</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>plain member: Home, Board and Teams all still offered
+</code></pre>
+
+<pre><code>workspace admin: all five offered
+</code></pre>
+
+<pre><code>Same closed rights set.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt</p>
+
+<h6>L5</h6>
+
+<pre><code>At desk width, on a page taller than the window, the whole rail box lies inside the viewport after the page is scrolled to its bottom (top at or above 0, bottom at or below the viewport height) and every rail member stays visible and activatable - in the open geometry and in the folded one.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Adapter</p>
+
+<p>crates/foundry-app/static/css</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>long page, open rail, scrolled to the bottom
+</code></pre>
+
+<pre><code>long page, folded rail, scrolled to the bottom
+</code></pre>
+
+<pre><code>short page, open rail: the rail is unmoved from what it shipped
+</code></pre>
+
+<pre><code>short page, folded rail: unmoved
+</code></pre>
+
+<pre><code>Two geometries at one harness viewport on one page known to be taller than the window: four enumerated readings, no generated domain.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h6>L6</h6>
+
+<pre><code>At the emulated 390x844 phone device the rail bar height is at most a fifth of the viewport height (168.8 px), and every destination the operator is offered plus every lower-group member is visible and activatable inside the bar, with no member below 44 px and no horizontal overflow of the document.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Adapter</p>
+
+<p>crates/foundry-app/static/css</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>plain member, bar as served
+</code></pre>
+
+<pre><code>workspace admin and instance admin, ten members
+</code></pre>
+
+<pre><code>folded choice stored, same device
+</code></pre>
+
+<pre><code>scripting off, same device
+</code></pre>
+
+<pre><code>One device, two rights rows (the plain member with eight members, the admin with ten) and the two geometries: four enumerated readings.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h6>L7</h6>
+
+<pre><code>In the lower group the sign-out submit and the theme control resolve to the same fill as the rail surface, no border their neighbour links lack and the same text tier and weight as those links; and both still act - one press of Sign out ends the session, one press of the theme control changes the palette.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Adapter</p>
+
+<p>crates/foundry-app/static/css</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>light palette: sign-out fill equals the rail surface, border width 0, colour and weight equal a neighbour link
+</code></pre>
+
+<pre><code>dark palette: the same, through the re-bound tokens
+</code></pre>
+
+<pre><code>one press of Sign out still ends the session
+</code></pre>
+
+<pre><code>one press of the theme control still changes the palette
+</code></pre>
+
+<pre><code>scripting off: no theme control exists and the sign-out submit alone carries the law
+</code></pre>
+
+<pre><code>Two controls, two palettes and one with-scripting / without-scripting split: a closed enumeration of readings on one document.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h5>Refuted</h5>
+
+<pre><code>Bounding the phone bar with max-height plus overflow satisfies P4.
+</code></pre>
+
+<pre><code>The carrier cannot express the promise: a height cap keeps every member in the layout and in the focus order while painting only the rows that fit, which is exactly the invisible-and-focusable state the shipped rail law forbids, and it also breaks every destination stays one press away.
+</code></pre>
+
+<pre><code>A 320 px wide phone with ten members: the last wrapped row falls outside the capped box, the member keeps its box and its tab stop, and the keyboard walk arrives at a destination the operator cannot see.
+</code></pre>
+
+<pre><code>The template can mark the current page by comparing the request path, so no new NavSection variant is needed.
+</code></pre>
+
+<pre><code>The rail carrier holds no request path and the template is given none; adding one would put a second, path-shaped authority beside NavContext.active and make two marks representable.
+</code></pre>
+
+<pre><code>A team page /team/general/members has a path no primary member equals, so a path comparison marks nothing there while the owner-family rule marks Teams.
+</code></pre>
+
+<h5>Claims</h5>
+
+<h6>C1</h6>
+
+<pre><code>A rail that marks two primary members, or none, is unrepresentable in the server carrier.
+</code></pre>
+
+<pre><code>The operator cannot tell where she is, or believes she is somewhere she is not.
+</code></pre>
+
+<p>crates/foundry-app/src/nav.rs</p>
+
+<pre><code>One NavSection variant chosen by the handler for the page it renders.
+</code></pre>
+
+<p>NavContext::for_page</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<pre><code>The set of members carrying aria-current=page in the served document.
+</code></pre>
+
+<pre><code>Rust excludes two marks in the carrier, not in the template: a predicate applied to the wrong member, or a hard-coded aria-current in the partial, still emits a wrong or second mark. The new check-arch obligation and the per-family acceptance rows cover that, and the nav.rs totality test covers a future variant.
+</code></pre>
+
+<h6>C2</h6>
+
+<pre><code>The nav offers a link only when the destination admits the identity the rail was rendered for.
+</code></pre>
+
+<pre><code>A link that answers her own session with a refusal 404 teaches her the app is broken, and it advertises a surface she may not use.
+</code></pre>
+
+<p>crates/foundry-app/src/nav.rs</p>
+
+<pre><code>The one is_workspace_admin value resolved with the identity for this render.
+</code></pre>
+
+<p>NavContext::resolved</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<pre><code>The offered set, and the status each offered href answers under the same cookie.
+</code></pre>
+
+<pre><code>Rust cannot tie a template condition to a route gate: a future change to either gate, or a new admin-gated destination added with no condition, re-opens it. The acceptance law that walks every offered href and reads its status is the standing check, not the type.
+</code></pre>
+
+<h5>States</h5>
+
+<p>Admitted</p>
+
+<pre><code>Plain member on /teams: Teams marked, Invite a member and Machine tokens absent, three destinations offered and all three answer her.
+</code></pre>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>Admitted</p>
+
+<pre><code>Workspace admin on /admin/tokens: Machine tokens marked, five destinations offered, all five answer her.
+</code></pre>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>Admitted</p>
+
+<pre><code>Identity lookup failed: the neutral identity reports no workspace admin, the two links are absent and the page still renders 200 with Home marked.
+</code></pre>
+
+<p>crates/foundry-app/src/nav.rs</p>
+
+<p>Excluded</p>
+
+<pre><code>A rail with zero or two primary members carrying aria-current=page.
+</code></pre>
+
+<p>crates/foundry-app/src/nav.rs</p>
+
+<p>Excluded</p>
+
+<pre><code>A rail that offers Invite a member or Machine tokens to an identity those pages refuse.
+</code></pre>
+
+<p>crates/foundry-app/templates/partials/sidebar.html</p>
+
+<p>Excluded</p>
+
+<pre><code>A rail member that is invisible and still focusable, by clip, by zero size, by opacity or by a height cap with overflow.
+</code></pre>
+
+<p>crates/foundry-app/static/css</p>
+
+<p>Unknown</p>
+
+<pre><code>The measured bar height at phone widths other than the lane device 390x844, for instance 320x568, where ten members at 44 px may exceed a fifth of a shorter screen.
+</code></pre>
+
+<p>product-owner</p>
+
+<p>Unknown</p>
+
+<pre><code>Whether a future primary destination with its own gate is added without a nav condition; no type and no gate prevents it.
+</code></pre>
+
+<p>solution-architect</p>
+
+<h5>Models</h5>
+
+<p>Quint</p>
+
+<p>docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt</p>
+
+<h6>Properties</h6>
+
+<p>exactlyOneMarked</p>
+
+<p>Invariant</p>
+
+<pre><code>On a page she can open, the marked set has exactly one member.
+</code></pre>
+
+<p>NavContext.active</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html:46</p>
+
+<p>markedIsOwnPage</p>
+
+<p>Invariant</p>
+
+<pre><code>The marked member is the one that owns the page family, and Home for a family no member owns.
+</code></pre>
+
+<p>NavSection</p>
+
+<p>crates/foundry-app/src/nav.rs:18</p>
+
+<p>markedIsOffered</p>
+
+<p>Invariant</p>
+
+<pre><code>The marked set is a subset of the offered set.
+</code></pre>
+
+<p>NavContext.is_workspace_admin</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html:54</p>
+
+<p>offeredImpliesAdmitted</p>
+
+<p>Invariant</p>
+
+<pre><code>Every offered member is admitted by its destination for this identity.
+</code></pre>
+
+<p>NavContext.is_workspace_admin</p>
+
+<p>crates/foundry-app/src/nav.rs:42</p>
+
+<p>admittedIsOffered</p>
+
+<p>Invariant</p>
+
+<pre><code>Every member her rights admit is still offered.
+</code></pre>
+
+<p>NavContext.is_workspace_admin</p>
+
+<p>crates/foundry-app/templates/partials/sidebar.html:53</p>
+
+<h6>Atoms</h6>
+
+<p>State</p>
+
+<p>page</p>
+
+<p>the route family of the handler that renders the rail</p>
+
+<p>crates/foundry-app/src/lib.rs:800</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>rights</p>
+
+<p>is_workspace_admin and is_instance_admin on NavContext</p>
+
+<p>crates/foundry-app/src/nav.rs:38</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>mark</p>
+
+<p>NavContext.active</p>
+
+<p>crates/foundry-app/src/nav.rs:44</p>
+
+<p>None.</p>
+
+<p>Action</p>
+
+<p>openAnotherPage</p>
+
+<p>one authenticated GET that assembles a fresh NavContext</p>
+
+<p>crates/foundry-app/src/nav.rs:136</p>
+
+<pre><code>One render per request: the whole rail is assembled and served in one step, so no interleaving is modelled.
+</code></pre>
+
+<p>Constant</p>
+
+<p>admits</p>
+
+<p>the shipped route gates: workspace admin for /workspace/invites and /admin/tokens, session only for the rest</p>
+
+<p>crates/foundry-app/src/admin_tokens.rs:294</p>
+
+<p>None.</p>
+
+<h6>Assumptions</h6>
+
+<pre><code>The rights domain is the closed four-member set the shipped lookups can report.
+</code></pre>
+
+<pre><code>Six page families, five of which own a primary member.
+</code></pre>
+
+<pre><code>One render per request: the operator opens another page with the same identity; no temporal or fairness claim.
+</code></pre>
+
+<pre><code>The shipped gates are the admit function and do not change in this Request.
+</code></pre>
+
+<h6>Mutants</h6>
+
+<p>######## N1</p>
+
+<pre><code>offer=all: the two admin links are offered to every signed-in operator (the shipped behaviour this Request replaces).
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>noRefusedLinkOffered</p>
+
+<p>######## N2</p>
+
+<pre><code>mark=home: Teams, Invite a member and Machine tokens mark nothing and Home stays marked there (the shipped behaviour this Request replaces).
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>ownPageIsMarked</p>
+
+<h5>Closure</h5>
+
+<pre><code>the current-page mark (P1)
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Quint checked exactlyOneMarked, markedIsOwnPage and markedIsOffered over the closed six-family by four-rights space, and the unguarded form fails on the shipped mark=home variant, so the check can tell the two designs apart. The runtime still marks Home on the three pages.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt</p>
+
+<pre><code>the current-page mark (P1)
+</code></pre>
+
+<p>Inhabitation</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Each of the three new sections is built by its own constructor from the identity the handler already holds, and the model exhibits a marked state for every page family.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt</p>
+
+<pre><code>the current-page mark (P1)
+</code></pre>
+
+<p>PublicReachability</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>handler chooses NavSection (teams.rs:1203, member_invites.rs:100, admin_tokens.rs:70) to NavContext::teams_for/invites_for/tokens_for to partials/sidebar.html to aria-current in the body of an authenticated GET, which is the oracle stimulus.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<pre><code>the rights-based visibility of the two links (P2)
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Quint checked offeredImpliesAdmitted and admittedIsOffered over the four-member rights set, and the unguarded form fails on the shipped offer=all variant with a plain member.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt</p>
+
+<pre><code>the rights-based visibility of the two links (P2)
+</code></pre>
+
+<p>Inhabitation</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>A workspace admin renders a rail with both links; the already-shipped Integrations item proves the same condition over the same fact builds.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<pre><code>the rights-based visibility of the two links (P2)
+</code></pre>
+
+<p>PublicReachability</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>nav_identity read to NavContext.is_workspace_admin (nav.rs:42) to the template condition to the offered set of an authenticated GET, and each offered href is then opened through the same public port.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<pre><code>the sticky rail, the short phone bar and the quiet lower group (P3, P4, P5)
+</code></pre>
+
+<p>Safety</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>No checker covers these: they are real-browser layout facts with no state machine. Each has one declared executable observation through the browser lane (rail box after a scroll, bar height over viewport height at the 390x844 device, resolved fill border colour and weight beside a neighbour link) and a falsifier that the shipped stylesheet fails today. That is design evidence, not proof.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<pre><code>the sticky rail, the short phone bar and the quiet lower group (P3, P4, P5)
+</code></pre>
+
+<p>Inhabitation</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Every mechanism is already in the stylesheet: the folded geometry clips the word and shows the glyph, and .sidebar__user a already carries the quiet presentation the two controls take.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<pre><code>the sticky rail, the short phone bar and the quiet lower group (P3, P4, P5)
+</code></pre>
+
+<p>PublicReachability</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>stylesheet bytes to the content-hashed name to the link in base.html to the served document the browser lays out and the lane measures.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<pre><code>the whole value
+</code></pre>
+
+<p>Liveness</p>
+
+<p>Pass</p>
+
+<p>DesignedNotBuilt</p>
+
+<pre><code>Not applicable, with a concrete reason: one authenticated GET assembles and serves the whole rail in one synchronous render, there is no queue, retry, background step or eventual state, and no promise claims progress over time. There is therefore no temporal or fairness property to check and no TLC run is owed.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
+<h5>Risks</h5>
+
+<h6>Y1</h6>
+
+<p>Stressor</p>
+
+<pre><code>Negate the phone device assumption: the operator holds a 320x568 phone instead of the 390x844 the lane drives.
+</code></pre>
+
+<pre><code>Every destination stays in the bar, visible, 44 px and activatable; the document never widens sideways.
+</code></pre>
+
+<pre><code>The bar takes more than a fifth of that shorter screen because the glyph rows wrap once more.
+</code></pre>
+
+<pre><code>A destination clipped out of the bar, a member below 44 px, or horizontal overflow.
+</code></pre>
+
+<pre><code>The wrapping glyph bar with 44 px targets, which degrades by growing rather than by hiding.
+</code></pre>
+
+<p>product-owner</p>
+
+<h6>Y2</h6>
+
+<p>Stressor</p>
+
+<pre><code>Negate the identity assumption: nav_identity fails for this render.
+</code></pre>
+
+<pre><code>The page renders 200 and the nav offers only links that open.
+</code></pre>
+
+<pre><code>A real workspace admin loses Invite a member and Machine tokens on that render.
+</code></pre>
+
+<pre><code>Offering a link that answers her own session with the refusal 404, or a 500 in place of the page.
+</code></pre>
+
+<pre><code>The shipped neutral fail-closed identity, which already reports no workspace admin.
+</code></pre>
+
+<p>solution-architect</p>
+
+<h6>Y3</h6>
+
+<p>Stressor</p>
+
+<pre><code>Negate the scripting assumption: scripting is off, so theme.js builds no control and nav-collapse.js stamps no mark.
+</code></pre>
+
+<pre><code>The sticky rail, the short phone bar and the quiet sign-out submit, all of which are stylesheet-only.
+</code></pre>
+
+<pre><code>No theme control exists at all, so P5 rests on the sign-out submit alone.
+</code></pre>
+
+<pre><code>A rail whose sign-out is unreachable, or a lower group where the submit is still the heaviest thing in the nav.
+</code></pre>
+
+<pre><code>The server-rendered rail: every mark, every condition and every geometry rule is in the document and the stylesheet.
+</code></pre>
+
+<p>crafter</p>
+
+<h6>Y4</h6>
+
+<p>Stressor</p>
+
+<pre><code>Second, independent stressor set walked over the finished design. Negate the assumption that a workspace admin is the only identity with elevated rights: an instance super-admin who administers no workspace opens the rail.
+</code></pre>
+
+<pre><code>She is offered Home, Board and Teams, which admit her, and Instance admin in the lower group.
+</code></pre>
+
+<pre><code>She is not offered Invite a member or Machine tokens, because the shipped gates on both pages require workspace admin and would refuse her.
+</code></pre>
+
+<pre><code>Offering her either link because she is an admin of some kind, which would conflate two independent facts.
+</code></pre>
+
+<pre><code>The design reads only is_workspace_admin for these two members; the model row rights=instance admin shows the hidden case, so the walk found no gap.
+</code></pre>
+
+<p>solution-architect</p>
+
+<h6>Y5</h6>
+
+<p>Stressor</p>
+
+<pre><code>Second set, continued. Negate the assumption that the rail is shorter than the window at desk width: a short window or a large text size makes the rail taller than the viewport while the page is also long.
+</code></pre>
+
+<pre><code>Every rail member stays reachable, because the sticky rail scrolls inside itself.
+</code></pre>
+
+<pre><code>The operator scrolls within the rail to reach its last member.
+</code></pre>
+
+<pre><code>A member clipped by the 100vh box with no way to reach it, which is what a height cap without overflow would cause.
+</code></pre>
+
+<pre><code>overflow-y: auto on the sticky rail.
+</code></pre>
+
+<p>crafter</p>
+
+<h6>Y6</h6>
+
+<p>SinglePointOfFailure</p>
+
+<pre><code>The content-hashed stylesheet name: one rename, four readers (base.html, VENDOR.md, three lib.rs assertions).
+</code></pre>
+
+<pre><code>Every /static reference resolves and every content-hashed filename is its own sha256 prefix.
+</code></pre>
+
+<pre><code>Nothing.
+</code></pre>
+
+<pre><code>A served document linking a stylesheet that 404s, or a VENDOR row whose sha256 does not recompute.
+</code></pre>
+
+<pre><code>The shipped check-arch static-reference and sha256 gates, plus the pwa css-hash scenario.
+</code></pre>
+
+<p>crafter</p>
+
+<h6>Y7</h6>
+
+<p>Bypass</p>
+
+<pre><code>The template is outside the Rust carrier: a predicate applied to the wrong member, a hard-coded aria-current, or a future authed handler that passes NavSection::Home on a page that owns a member. Devtools or an extension can also add a second aria-current in the browser.
+</code></pre>
+
+<pre><code>The server carrier still holds exactly one section per render.
+</code></pre>
+
+<pre><code>A mark wrong in the document that no Rust type can refuse.
+</code></pre>
+
+<pre><code>The server emitting two marks or none.
+</code></pre>
+
+<pre><code>The new check-arch obligation that no rail member carries aria-current outside a nav.is_ condition, the per-family acceptance rows, and the nav.rs totality test over every variant.
+</code></pre>
+
+<p>crafter</p>
+
+<h5>Architectural tests</h5>
+
+<h6>T1</h6>
+
+<pre><code>In templates/partials/sidebar.html the current-page mark comes from the carrier and nowhere else: every aria-current and every sidebar__item--active occurrence sits inside an {% if nav.is_... %} condition over NavContext.active, none is written literally, and no two members share one condition. The shipped rail-member law keeps holding over every member, conditionally rendered ones included.
+</code></pre>
+
+<p>xtask/src/check_arch.rs</p>
+
+<pre><code>scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 cargo xtask check-arch&quot;
+</code></pre>
+
+<h5>Contract tests</h5>
+
+<p>None.</p>
+
+<h2>ADRs</h2>
+
+<p>- NAV-POLISH-001 Nav marks its own page and offers only what opens — Accepted</p>
+
+</body></html>
