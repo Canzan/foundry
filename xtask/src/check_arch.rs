@@ -2253,7 +2253,7 @@ fn elements(markup: &str, open: &str, close: &str) -> Vec<String> {
 fn member_name(member: &str) -> String {
     match labels(member).first() {
         Some(word) if !word.is_empty() => format!("the {word:?} member"),
-        _ => match attribute(member, "href=\"") {
+        _ => match tag_attribute(member, "href") {
             Some(href) => format!("the member linking {href:?}"),
             None => "the sign-out control".to_string(),
         },
@@ -2275,14 +2275,6 @@ fn labels(member: &str) -> Vec<String> {
         rest = &tail[end..];
     }
     words
-}
-
-/// The value of the first `needle` attribute of `markup`, if it carries one.
-fn attribute(markup: &str, needle: &str) -> Option<String> {
-    let at = markup.find(needle)?;
-    let tail = &markup[at + needle.len()..];
-    let end = tail.find('"')?;
-    Some(tail[..end].to_string())
 }
 
 /// `markup` with every tag removed, which also removes the Askama `{% if %}`
