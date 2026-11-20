@@ -845,15 +845,11 @@ CreateOn, the create-first-project empty state
 ```
 
 ```text
-CreateUnlinked
-```
-
-```text
 NoTeam
 ```
 
 ```text
-DashboardProjectsSection is a closed four-variant enum and the removal is one section, so the four variants are the whole domain.
+Three of the four DashboardProjectsSection variants are the whole publicly constructible domain. CreateUnlinked is reachable only from the Err arm of the team-slug lookup (crates/foundry-app/src/signin.rs:546), which no request an operator can make produces, so the declared public port cannot construct it and it is not enumerated here. The removal is also independent of the variant: the deleted section sits ahead of the match in the template, so no arm is a parameter of it. That arm stays pinned by the in-crate test at crates/foundry-app/src/signin.rs:705, whose own comment records that an acceptance scenario cannot force the read to fail.
 ```
 
 ###### Evidence
@@ -1083,7 +1079,7 @@ crates\/foundry\-app\/templates\/partials\/sidebar\.html
 Admitted
 
 ```text
-The four Home project-section states, each with no Quick actions section
+The three publicly constructible Home project-section states (Listed, CreateOn, NoTeam), each with no Quick actions section
 ```
 
 crates\/foundry\-app\/templates\/dashboard\_root\.html
@@ -1135,6 +1131,14 @@ Desk viewports shorter than the ten-member rail, and phone widths below 320 px
 ```
 
 architect
+
+Unknown
+
+```text
+CreateUnlinked: reachable only when the team-slug lookup errors, so no public stimulus constructs it. It stays observed in-crate by the existing test at crates/foundry-app/src/signin.rs:705, which must keep compiling after the DashboardRoot fields are dropped from the dashboard_with helper at signin.rs:750.
+```
+
+crafter
 
 ##### Models
 

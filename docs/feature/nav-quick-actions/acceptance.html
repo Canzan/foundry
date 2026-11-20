@@ -156,7 +156,202 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h2>Slices</h2>
 
-<p>None.</p>
+<h3>S1</h3>
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<p>P3</p>
+
+<pre><code>Signed in on her project board, each of the four kinds of operator in turn - one with no rights beyond her workspace, a workspace admin, an instance super-admin who administers no workspace, and one who administers both - asks for the board page
+</code></pre>
+
+<pre><code>The left nav offers Home, Board, Teams, Invite a member and Machine tokens, in that order, opening the landing page, her board, her teams, the invite page and her machine tokens; the workspace-admin entry and the instance-admin entry each appear only for the operator those rights belong to
+</code></pre>
+
+<pre><code>From her board she opens her teams, the invite page or her machine tokens in one press, and nobody gained or lost a destination by the move
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-quick-actions.feature</p>
+
+<pre><code>the three destinations were authored before Board instead of after it, if the ordered reading were relaxed to a containment check
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+
+
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<pre><code>Before she has created any project, the operator asks for the landing page, and then asks for her teams page and her account settings
+</code></pre>
+
+<pre><code>The left nav still offers the three new destinations with Board falling back to the landing page; on the teams page and in account settings exactly one destination is marked as the page she is on, and it is Home
+</code></pre>
+
+<pre><code>A brand-new operator reaches the same three destinations, and no destination ever claims to be the page she is on when it is not
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-quick-actions.feature</p>
+
+<pre><code>a new destination carried the current-page marker on a page that marks nothing else, which only the exactly-one reading refuses
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<p>P4</p>
+
+<pre><code>Reading every destination the left nav offers on a served page
+</code></pre>
+
+<pre><code>Each destination carries exactly one icon and exactly one word, the word is its whole text, no icon carries a title, and no destination carries a second name beside its word
+</code></pre>
+
+<pre><code>Folded to its icons the nav still tells her, and tells her screen reader, what each icon opens
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-quick-actions.feature</p>
+
+<pre><code>a destination were added to another template that renders its own nav, which this reading never visits
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+<h5>Covers</h5>
+
+<p>P2</p>
+
+<pre><code>The operator asks for the landing page, once with a project of her own, once before she has created any, and once as someone on no team at all
+</code></pre>
+
+<pre><code>No section is headed Quick actions and no quick-actions list is present, while the page still greets her by name, still names her workspace, still shows the Your projects section, and still lists her project card where she has one
+</code></pre>
+
+<pre><code>The landing page no longer repeats the nav, and she loses nothing else from it
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-quick-actions.feature</p>
+
+<pre><code>the quick-actions markup were merely hidden by a stylesheet rule rather than removed, since the reading is of the served page, not of what is painted
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+<h5>Covers</h5>
+
+<p>P4</p>
+
+<pre><code>With the left nav folded to its icon rail, the operator opens the landing page at desk width and at 320, 390 and 480 pixels wide, as each of the four kinds of operator
+</code></pre>
+
+<pre><code>Every destination the rail holds, the three new ones included, is in the layout, visible, reachable by keyboard and named by its own word, and the page does not slide sideways
+</code></pre>
+
+<pre><code>Folded, she still finds and opens her teams, the invite page and her machine tokens, and no narrow page slides sideways
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature</p>
+
+<pre><code>a destination were unreadable at a width narrower than 320 pixels, which no lane drives
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<pre><code>The operator asks for the landing page, and then for her project board
+</code></pre>
+
+<pre><code>The landing page marks Home as the page she is on and the board page marks Board, and in each case nothing else is marked
+</code></pre>
+
+<pre><code>The nav still tells her where she is, and the three new destinations never take that marking from Home or Board
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature</p>
+
+<pre><code>a new destination were marked on a page where the marking is already taken, which only the exactly-one reading refuses
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<p>P4</p>
+
+<pre><code>Reading the one place the nav destinations are authored, every member it holds, however many that becomes
+</code></pre>
+
+<pre><code>Each member carries exactly one inline icon and exactly one word holding its whole text, and no member carries a second name beside its word; a member that does not is named with the correction
+</code></pre>
+
+<pre><code>A destination added later cannot reach her as a silent icon, because the repository refuses it before it ships
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>cargo xtask check-arch (xtask/src/check_arch.rs rail-member layer)</p>
+
+<pre><code>a second template authored its own nav, which this reading never visits
+</code></pre>
+
+<h6>Obligations</h6>
+
 
 <h2>Expectations</h2>
 

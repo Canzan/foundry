@@ -2,7 +2,230 @@
 
 ## Slices
 
-None.
+### S1
+
+##### Covers
+
+P1
+
+P3
+
+```text
+Signed in on her project board, each of the four kinds of operator in turn - one with no rights beyond her workspace, a workspace admin, an instance super-admin who administers no workspace, and one who administers both - asks for the board page
+```
+
+```text
+The left nav offers Home, Board, Teams, Invite a member and Machine tokens, in that order, opening the landing page, her board, her teams, the invite page and her machine tokens; the workspace-admin entry and the instance-admin entry each appear only for the operator those rights belong to
+```
+
+```text
+From her board she opens her teams, the invite page or her machine tokens in one press, and nobody gained or lost a destination by the move
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-quick\-actions\.feature
+
+```text
+the three destinations were authored before Board instead of after it, if the ordered reading were relaxed to a containment check
+```
+
+###### Obligations
+
+
+
+
+
+
+
+
+##### Covers
+
+P1
+
+```text
+Before she has created any project, the operator asks for the landing page, and then asks for her teams page and her account settings
+```
+
+```text
+The left nav still offers the three new destinations with Board falling back to the landing page; on the teams page and in account settings exactly one destination is marked as the page she is on, and it is Home
+```
+
+```text
+A brand-new operator reaches the same three destinations, and no destination ever claims to be the page she is on when it is not
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-quick\-actions\.feature
+
+```text
+a new destination carried the current-page marker on a page that marks nothing else, which only the exactly-one reading refuses
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P1
+
+P4
+
+```text
+Reading every destination the left nav offers on a served page
+```
+
+```text
+Each destination carries exactly one icon and exactly one word, the word is its whole text, no icon carries a title, and no destination carries a second name beside its word
+```
+
+```text
+Folded to its icons the nav still tells her, and tells her screen reader, what each icon opens
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-quick\-actions\.feature
+
+```text
+a destination were added to another template that renders its own nav, which this reading never visits
+```
+
+###### Obligations
+
+
+##### Covers
+
+P2
+
+```text
+The operator asks for the landing page, once with a project of her own, once before she has created any, and once as someone on no team at all
+```
+
+```text
+No section is headed Quick actions and no quick-actions list is present, while the page still greets her by name, still names her workspace, still shows the Your projects section, and still lists her project card where she has one
+```
+
+```text
+The landing page no longer repeats the nav, and she loses nothing else from it
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-quick\-actions\.feature
+
+```text
+the quick-actions markup were merely hidden by a stylesheet rule rather than removed, since the reading is of the served page, not of what is painted
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P4
+
+```text
+With the left nav folded to its icon rail, the operator opens the landing page at desk width and at 320, 390 and 480 pixels wide, as each of the four kinds of operator
+```
+
+```text
+Every destination the rail holds, the three new ones included, is in the layout, visible, reachable by keyboard and named by its own word, and the page does not slide sideways
+```
+
+```text
+Folded, she still finds and opens her teams, the invite page and her machine tokens, and no narrow page slides sideways
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/nav\-collapse\-icon\-rail\.feature
+
+```text
+a destination were unreadable at a width narrower than 320 pixels, which no lane drives
+```
+
+###### Obligations
+
+
+
+
+
+##### Covers
+
+P1
+
+```text
+The operator asks for the landing page, and then for her project board
+```
+
+```text
+The landing page marks Home as the page she is on and the board page marks Board, and in each case nothing else is marked
+```
+
+```text
+The nav still tells her where she is, and the three new destinations never take that marking from Home or Board
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/navigation\-bar\-linear\-ui\.feature
+
+```text
+a new destination were marked on a page where the marking is already taken, which only the exactly-one reading refuses
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P1
+
+P4
+
+```text
+Reading the one place the nav destinations are authored, every member it holds, however many that becomes
+```
+
+```text
+Each member carries exactly one inline icon and exactly one word holding its whole text, and no member carries a second name beside its word; a member that does not is named with the correction
+```
+
+```text
+A destination added later cannot reach her as a silent icon, because the repository refuses it before it ships
+```
+
+##### Disposition
+
+Tested
+
+cargo xtask check\-arch \(xtask\/src\/check\_arch\.rs rail\-member layer\)
+
+```text
+a second template authored its own nav, which this reading never visits
+```
+
+###### Obligations
+
 
 ## Expectations
 

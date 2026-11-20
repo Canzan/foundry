@@ -772,10 +772,8 @@ async fn when_the_operator_opens_the_dashboard(world: &mut FoundryWorld) {
     world.browser = Some(browser);
 }
 
-#[then(
-    regex = r"^the project cards, the section labels and the action controls render in the dark palette$"
-)]
-async fn then_the_project_cards_the_section_labels_and_the_action(world: &mut FoundryWorld) {
+#[then(regex = r"^the project cards and the section labels render in the dark palette$")]
+async fn then_the_project_cards_and_the_section_labels(world: &mut FoundryWorld) {
     assert_resolved_colours(
         browser_of(world),
         DARK,
@@ -787,12 +785,6 @@ async fn then_the_project_cards_the_section_labels_and_the_action(world: &mut Fo
             (".card a", "background-color", DARK.surface),
             (".card a", "border-top-color", DARK.line),
             (".card a", "color", DARK.text),
-            (".actions a", "background-color", DARK.surface),
-            (".actions a", "border-top-color", DARK.muted),
-            (".actions a", "color", DARK.text),
-            (".actions button", "background-color", DARK.surface),
-            (".actions button", "border-top-color", DARK.muted),
-            (".actions button", "color", DARK.text),
         ],
     )
     .await;

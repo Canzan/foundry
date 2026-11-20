@@ -51,6 +51,7 @@ pub mod steps {
     pub mod feature_name_db_checks;
     pub mod feature_nav_collapse;
     pub mod feature_nav_icon_rail;
+    pub mod feature_nav_quick_actions;
     pub mod feature_navigation_bar;
     pub mod feature_new_issue_dialog_description;
     pub mod feature_notification_delivery_providers;

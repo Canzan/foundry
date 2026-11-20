@@ -200,7 +200,7 @@ Feature: foundry follows the light the operator's environment asks for
     # reads as a failure to any contrast measurement that walks up for a background.
     Given a browser session whose device preference is dark
     When the operator opens the dashboard
-    Then the project cards, the section labels and the action controls render in the dark palette
+    Then the project cards and the section labels render in the dark palette
     And the project key chip sits on an opaque surface, not a translucent one
 
   @needs-browser @real-io @slice2 @us-cts-02

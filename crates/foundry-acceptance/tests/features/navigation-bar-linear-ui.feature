@@ -189,11 +189,15 @@ Feature: A signed-in member navigates every authenticated page from one shared s
     When Ada visits "/"
     Then the sidebar links "Board" to "/"
 
-  # ── Slice 09 — US-05 scoping guard: Quick actions preserved, not promoted ───
+  # ── Slice 09 — US-05 reachability guard ─────────────────────────────────────
+  # This guard once ALSO asserted that the invites and machine-token links stayed
+  # OUT of the rail. That scope is superseded: the owner moved both destinations
+  # into the rail (nav-quick-actions), where their membership, their order and
+  # who may see them are oracled. What survives, and is asserted here, is the
+  # guard the move must not break — from the signed-in landing page the operator
+  # still reaches both destinations, wherever the page offers them.
   @us-05 @real-io
-  Scenario: Invites and machine tokens stay in Quick actions and are not promoted
+  Scenario: Invites and machine tokens stay reachable from the signed-in landing page
     When Ada visits "/"
     Then the response body contains a link to "/workspace/invites"
     And the response body contains a link to "/admin/tokens"
-    And the sidebar does not contain a "Invite a member" item
-    And the sidebar does not contain a "Machine tokens" item

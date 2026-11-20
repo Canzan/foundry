@@ -1,9 +1,142 @@
 {
+"acceptance": {
+"S1": [
+{
+"covers": [
+"P1",
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F86",
+"L1/F87",
+"L1/F88",
+"L2/F92",
+"L2/F93",
+"L2/F94",
+"L2/F95"
+],
+"still_passes_if": "F208",
+"test": "crates/foundry-acceptance/tests/features/nav-quick-actions.feature"
+},
+"expected": "F206",
+"stimulus": "F205",
+"user_result": "F207"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F89",
+"L6/F115",
+"L6/F116"
+],
+"still_passes_if": "F212",
+"test": "crates/foundry-acceptance/tests/features/nav-quick-actions.feature"
+},
+"expected": "F210",
+"stimulus": "F209",
+"user_result": "F211"
+},
+{
+"covers": [
+"P1",
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F104"
+],
+"still_passes_if": "F216",
+"test": "crates/foundry-acceptance/tests/features/nav-quick-actions.feature"
+},
+"expected": "F214",
+"stimulus": "F213",
+"user_result": "F215"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3/F98",
+"L3/F99",
+"L3/F101"
+],
+"still_passes_if": "F220",
+"test": "crates/foundry-acceptance/tests/features/nav-quick-actions.feature"
+},
+"expected": "F218",
+"stimulus": "F217",
+"user_result": "F219"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F107",
+"L5/F108",
+"L5/F109",
+"L5/F110"
+],
+"still_passes_if": "F224",
+"test": "crates/foundry-acceptance/tests/features/nav-collapse-icon-rail.feature"
+},
+"expected": "F222",
+"stimulus": "F221",
+"user_result": "F223"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F113",
+"L6/F114"
+],
+"still_passes_if": "F228",
+"test": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature"
+},
+"expected": "F226",
+"stimulus": "F225",
+"user_result": "F227"
+},
+{
+"covers": [
+"P1",
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T1"
+],
+"still_passes_if": "F232",
+"test": "cargo xtask check-arch (xtask/src/check_arch.rs rail-member layer)"
+},
+"expected": "F230",
+"stimulus": "F229",
+"user_result": "F231"
+}
+]
+},
 "counters": {
 "B": 2,
 "C": 2,
 "E": 9,
-"F": 201,
+"F": 232,
 "K": 3,
 "L": 6,
 "P": 4,
@@ -385,11 +518,10 @@
 "cases": [
 "F98",
 "F99",
-"F100",
 "F101"
 ],
 "kind": "Finite",
-"reason": "F102"
+"reason": "F202"
 }
 },
 {
@@ -605,7 +737,7 @@
 {
 "kind": "Admitted",
 "owner": "crates/foundry-app/templates/dashboard_root.html",
-"state": "F138"
+"state": "F203"
 },
 {
 "kind": "Admitted",
@@ -636,6 +768,11 @@
 "kind": "Unknown",
 "owner": "architect",
 "state": "F144"
+},
+{
+"kind": "Unknown",
+"owner": "crafter",
+"state": "F204"
 }
 ]
 },
@@ -775,9 +912,7 @@
 "facts": {
 "F1": "Move the quick actions to the left nav and make the left nav collapsible.",
 "F10": "User decision 2026-11-19: remove Home's Quick actions section once its links are in the nav.",
-"F100": "CreateUnlinked",
 "F101": "NoTeam",
-"F102": "DashboardProjectsSection is a closed four-variant enum and the removal is one section, so the four variants are the whole domain.",
 "F103": "Every member of the shipped sidebar partial carries exactly one inline svg.sidebar__icon and exactly one span.sidebar__label holding its whole word, and no member carries an aria-label.",
 "F104": "every a.sidebar__item and the sign-out button enumerated from templates/partials/sidebar.html, whatever their number",
 "F105": "The population is the file own member list, which the check enumerates rather than assumes, so the law is exhaustive over present and future members without a generator.",
@@ -816,7 +951,6 @@
 "F135": "the browser-computed name of every folded rail member is non-empty and equals its own word",
 "F136": "Rust types exclude nothing here: the template is text and a missing span compiles. The exclusion is a build-time gate plus the browser lane, so the open bypasses are a commit that skips cargo xtask smoke, an htmx fragment response that does not include the partial, and a host with no Docker where the browser lane observes nothing.",
 "F137": "The four rights rows (plain member, workspace admin, instance admin, both) crossed with the open nav and the folded rail, at desk width and at 320, 390 and 480 px",
-"F138": "The four Home project-section states, each with no Quick actions section",
 "F139": "Signed out: every one of the five nav destinations redirects to /sign-in and no nav is rendered",
 "F14": "Delete the Quick actions section (heading plus ul.actions). Leave the greeting, the workspace line and the Your projects section untouched.",
 "F140": "A nav member with a glyph and no word, or with an aria-label beside its word",
@@ -888,9 +1022,40 @@
 "F20": "Signed in as each of the four rights rows, GET /team/general/project/sandbox and GET / over real HTTP against the running binary; then, in the browser lane, narrow the left nav to its icon rail on the dashboard at desk width and at 320, 390 and 480 px.",
 "F200": "An observation taken at exactly 480 px on sampled pages does not see narrower widths (the contract sets no lower bound), other pages, wide content such as long project, team or token names, or sideways scroll that appears only after an interaction such as opening the nav or a menu.",
 "F201": "Viewport width control at 480 px and below on each observed page.",
+"F202": "Three of the four DashboardProjectsSection variants are the whole publicly constructible domain. CreateUnlinked is reachable only from the Err arm of the team-slug lookup (crates/foundry-app/src/signin.rs:546), which no request an operator can make produces, so the declared public port cannot construct it and it is not enumerated here. The removal is also independent of the variant: the deleted section sits ahead of the match in the template, so no arm is a parameter of it. That arm stays pinned by the in-crate test at crates/foundry-app/src/signin.rs:705, whose own comment records that an acceptance scenario cannot force the read to fail.",
+"F203": "The three publicly constructible Home project-section states (Listed, CreateOn, NoTeam), each with no Quick actions section",
+"F204": "CreateUnlinked: reachable only when the team-slug lookup errors, so no public stimulus constructs it. It stays observed in-crate by the existing test at crates/foundry-app/src/signin.rs:705, which must keep compiling after the DashboardRoot fields are dropped from the dashboard_with helper at signin.rs:750.",
+"F205": "Signed in on her project board, each of the four kinds of operator in turn - one with no rights beyond her workspace, a workspace admin, an instance super-admin who administers no workspace, and one who administers both - asks for the board page",
+"F206": "The left nav offers Home, Board, Teams, Invite a member and Machine tokens, in that order, opening the landing page, her board, her teams, the invite page and her machine tokens; the workspace-admin entry and the instance-admin entry each appear only for the operator those rights belong to",
+"F207": "From her board she opens her teams, the invite page or her machine tokens in one press, and nobody gained or lost a destination by the move",
+"F208": "the three destinations were authored before Board instead of after it, if the ordered reading were relaxed to a containment check",
+"F209": "Before she has created any project, the operator asks for the landing page, and then asks for her teams page and her account settings",
 "F21": "Each board page nav offers Home, Board, Teams, Invite a member and Machine tokens in that order, linking to /, the first-project board, /teams, /workspace/invites and /admin/tokens, each with one inline icon and its own word, with Home the only member marked current; Integrations and Instance admin appear only for the rights that already gated them. Home carries no Quick actions heading and no ul.actions, and still greets the operator and lists her projects. In the folded rail every member, the three new ones included, is in the layout, visible, focusable and named by its own word, and no page slides sideways.",
+"F210": "The left nav still offers the three new destinations with Board falling back to the landing page; on the teams page and in account settings exactly one destination is marked as the page she is on, and it is Home",
+"F211": "A brand-new operator reaches the same three destinations, and no destination ever claims to be the page she is on when it is not",
+"F212": "a new destination carried the current-page marker on a page that marks nothing else, which only the exactly-one reading refuses",
+"F213": "Reading every destination the left nav offers on a served page",
+"F214": "Each destination carries exactly one icon and exactly one word, the word is its whole text, no icon carries a title, and no destination carries a second name beside its word",
+"F215": "Folded to its icons the nav still tells her, and tells her screen reader, what each icon opens",
+"F216": "a destination were added to another template that renders its own nav, which this reading never visits",
+"F217": "The operator asks for the landing page, once with a project of her own, once before she has created any, and once as someone on no team at all",
+"F218": "No section is headed Quick actions and no quick-actions list is present, while the page still greets her by name, still names her workspace, still shows the Your projects section, and still lists her project card where she has one",
+"F219": "The landing page no longer repeats the nav, and she loses nothing else from it",
 "F22": "A plain member loses any of the three (a condition was authored where none existed); any of the three is placed before Board or outside nav#sidebar-nav; an anchor renders a glyph with no span.sidebar__label, or an aria-label beside it; Home still shows Quick actions, or lost its greeting or project list; two primary members are marked current; the folded rail leaves a new member out of the layout or unnamed; the 320 px page slides sideways.",
+"F220": "the quick-actions markup were merely hidden by a stylesheet rule rather than removed, since the reading is of the served page, not of what is painted",
+"F221": "With the left nav folded to its icon rail, the operator opens the landing page at desk width and at 320, 390 and 480 pixels wide, as each of the four kinds of operator",
+"F222": "Every destination the rail holds, the three new ones included, is in the layout, visible, reachable by keyboard and named by its own word, and the page does not slide sideways",
+"F223": "Folded, she still finds and opens her teams, the invite page and her machine tokens, and no narrow page slides sideways",
+"F224": "a destination were unreadable at a width narrower than 320 pixels, which no lane drives",
+"F225": "The operator asks for the landing page, and then for her project board",
+"F226": "The landing page marks Home as the page she is on and the board page marks Board, and in each case nothing else is marked",
+"F227": "The nav still tells her where she is, and the three new destinations never take that marking from Home or Board",
+"F228": "a new destination were marked on a page where the marking is already taken, which only the exactly-one reading refuses",
+"F229": "Reading the one place the nav destinations are authored, every member it holds, however many that becomes",
 "F23": "CONFIRMED, all three FIXED owner decisions unchanged: Teams, Invite a member and Machine tokens become three unconditional anchors inside nav#sidebar-nav.sidebar__nav, placed after the Board anchor; Home loses its whole Quick actions section; no visibility gate is added or removed. templates/partials/sidebar.html stays the single owner of the rail member list and NavContext (crates/foundry-app/src/nav.rs) gains no field, because each of the three destinations is a fixed href with no per-identity decision and no active-section marking to carry.",
+"F230": "Each member carries exactly one inline icon and exactly one word holding its whole text, and no member carries a second name beside its word; a member that does not is named with the correction",
+"F231": "A destination added later cannot reach her as a silent icon, because the repository refuses it before it ships",
+"F232": "a second template authored its own nav, which this reading never visits",
 "F24": "No model for the nav membership, visibility and Home-removal claims: there is no shared state, no multi-step protocol, no concurrency and no crash window - each claim is one synchronous render of one template from one already-resolved NavContext, and the rights domain is the closed four-member set (plain member, workspace admin, instance admin, both) that the shipped icon-rail outline already enumerates. The claims are therefore finite and exhausted by enumerated cases, not by a state model. Quint is installed on this host, so this is a reasoned modelling choice and not a tooling gap; Agda is absent and no claim here needs a proof over types.",
 "F25": "The three new items carry no aria-current and NavSection keeps its two variants (Home, Board). Home therefore stays the single marked section on /teams, /workspace/invites and /admin/tokens exactly as it already is on /account/settings and /keyboard-help, so \"exactly one primary navigation item is marked as the current page\" (navigation-bar-linear-ui, notification-preferences-ui) keeps holding with five primary members instead of two.",
 "F26": "The stylesheet is not touched. The three items reuse .sidebar__item, .sidebar__icon and .sidebar__label, and both the desk collapsed rules and the max-width 480px block already make .sidebar__nav and .sidebar__user wrapping rows bounded by the bar (flex-wrap: wrap with min-width: 0), which is quantified over members and not over a member count. foundry.fb3aa227.css is content-hash named, so any byte change migrates templates/base.html, static/VENDOR.md and three hashed-name assertions in crates/foundry-app/src/lib.rs; spending that for rules that need no change is refused. The .actions rules become unreferenced and stay in place until the next stylesheet change re-fingerprints the file.",
