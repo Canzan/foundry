@@ -51,11 +51,9 @@ sqlx = { version = "0.8", default-features = false, features = [
     "uuid",
     "time",
     "json",
-    "chrono",
 ] }
 uuid = { version = "1", features = ["v4", "v7", "serde"] }
 time = { version = "0.3", features = ["serde", "macros", "formatting", "parsing"] }
-chrono = { version = "0.4", features = ["serde"] }
 
 # Auth
 tower-sessions = { version = "0.14" }
