@@ -754,6 +754,127 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h2>Examination</h2>
 
-<p>None.</p>
+<h3>E1</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Ten-letter key accepted: POST /team/backend/projects as Lena with name=Platform Operations and key_prefix=PLATFORMOP answered HTTP/1.1 200 OK, final-url /team/backend/project/platform-operations, title &quot;Platform Operations - Backend&quot;, and the page body line &quot;Key prefix: PLATFORMOP&quot; - ten letters, untruncated and unchanged.
+</code></pre>
+
+<pre><code>The ten-letter key stayed exact on three later separate requests for that project page (after the first issue was filed, after the second, and on a fresh GET team/backend/project/platform-operations): each answered 200 OK and showed &quot;Key prefix: PLATFORMOP&quot;.
+</code></pre>
+
+<pre><code>Issue keys in the ten-letter project: the first issue filed is listed on the project board as &quot;PLATFORMOP-1 Rotate the platform credentials&quot; and the second as &quot;PLATFORMOP-2 Second platform task&quot;; a later independent GET of that project page lists both lines with the full ten-letter prefix, so the prefix is kept for the later issue and after a fresh page load.
+</code></pre>
+
+<pre><code>Capture limitation: no page that lists a team or workspace project set was reachable from the public surface of this build. GET team/backend answered 404 Not Found, GET team/backend/projects answered 405 Method Not Allowed (the path takes the create POST only), and the workspace dashboard body held only &quot;Workspace dashboard&quot;, &quot;Signed in: true&quot; and an invite line. Presence and absence of a project were therefore observed by opening its own project page (200 with its key, or 404), not from a list. Observed issue numbers reach 3 only, and one installation was observed.
+</code></pre>
+
+<h3>E2</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Two-letter key still accepted: POST /team/backend/projects with name=Planning Board and key_prefix=PL answered 200 OK, final-url /team/backend/project/planning-board, title &quot;Planning Board - Backend&quot;, body &quot;Key prefix: PL&quot;; a later GET of that project page again answered 200 OK with &quot;Key prefix: PL&quot;.
+</code></pre>
+
+<h3>E3</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Issue keys in the ten-letter project: the first issue filed is listed on the project board as &quot;PLATFORMOP-1 Rotate the platform credentials&quot; and the second as &quot;PLATFORMOP-2 Second platform task&quot;; a later independent GET of that project page lists both lines with the full ten-letter prefix, so the prefix is kept for the later issue and after a fresh page load.
+</code></pre>
+
+<pre><code>The ten-letter key stayed exact on three later separate requests for that project page (after the first issue was filed, after the second, and on a fresh GET team/backend/project/platform-operations): each answered 200 OK and showed &quot;Key prefix: PLATFORMOP&quot;.
+</code></pre>
+
+<h3>E4</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Eleven-letter key refused: POST /team/backend/projects with key_prefix=PLATFORMOPSX answered HTTP/1.1 422 Unprocessable Entity, title &quot;New project - Backend&quot;, and the page states &quot;Project key must be 2 to 10 capital letters A to Z&quot;; the create form is redisplayed with the typed key and no project page is reached.
+</code></pre>
+
+<pre><code>Nothing was created by the nine refused submissions: a GET of the project page of each refused name (team/backend/project/eleven-letters, one-letter, empty-key, lower-case, with-digit, with-space, with-hyphen, with-underscore, with-accent) and of team/backend/project/platformopsx each answered HTTP/1.1 404 Not Found with the page &quot;Not found - The requested resource does not exist or is not available.&quot; So no project exists afterwards, and no key was quietly corrected (upper-cased or stripped) and then created.
+</code></pre>
+
+<pre><code>Capture limitation: no page that lists a team or workspace project set was reachable from the public surface of this build. GET team/backend answered 404 Not Found, GET team/backend/projects answered 405 Method Not Allowed (the path takes the create POST only), and the workspace dashboard body held only &quot;Workspace dashboard&quot;, &quot;Signed in: true&quot; and an invite line. Presence and absence of a project were therefore observed by opening its own project page (200 with its key, or 404), not from a list. Observed issue numbers reach 3 only, and one installation was observed.
+</code></pre>
+
+<h3>E5</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Too-short and empty keys refused with the same rule message: key_prefix=P answered 422 with &quot;Project key must be 2 to 10 capital letters A to Z&quot;, and an empty key_prefix= answered 422 with that same message - not a separate generic required-field message.
+</code></pre>
+
+<pre><code>Nothing was created by the nine refused submissions: a GET of the project page of each refused name (team/backend/project/eleven-letters, one-letter, empty-key, lower-case, with-digit, with-space, with-hyphen, with-underscore, with-accent) and of team/backend/project/platformopsx each answered HTTP/1.1 404 Not Found with the page &quot;Not found - The requested resource does not exist or is not available.&quot; So no project exists afterwards, and no key was quietly corrected (upper-cased or stripped) and then created.
+</code></pre>
+
+<h3>E6</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Every non A-Z class refused with the same rule message, each answering 422 with &quot;Project key must be 2 to 10 capital letters A to Z&quot; and no project page: platformop (lower case), AUTH1 (digit), &quot;AU TH&quot; (space), AU-TH (hyphen), AU_TH (underscore), and an accented capital E.
+</code></pre>
+
+<pre><code>Nothing was created by the nine refused submissions: a GET of the project page of each refused name (team/backend/project/eleven-letters, one-letter, empty-key, lower-case, with-digit, with-space, with-hyphen, with-underscore, with-accent) and of team/backend/project/platformopsx each answered HTTP/1.1 404 Not Found with the page &quot;Not found - The requested resource does not exist or is not available.&quot; So no project exists afterwards, and no key was quietly corrected (upper-cased or stripped) and then created.
+</code></pre>
+
+<pre><code>Capture limitation: no page that lists a team or workspace project set was reachable from the public surface of this build. GET team/backend answered 404 Not Found, GET team/backend/projects answered 405 Method Not Allowed (the path takes the create POST only), and the workspace dashboard body held only &quot;Workspace dashboard&quot;, &quot;Signed in: true&quot; and an invite line. Presence and absence of a project were therefore observed by opening its own project page (200 with its key, or 404), not from a list. Observed issue numbers reach 3 only, and one installation was observed.
+</code></pre>
+
+<h3>E7</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Provenance: examine-foundry start slack-connected --before started the pre-change release of Foundry with the state that holds workspace Canzan Labs, team Backend, project Identity Platform and one issue filed in it. examine-foundry upgrade then upgraded that same running release in place to the candidate build, keeping the database and data directory and applying new migrations as it started. Every observation below was taken against that upgraded instance and its pre-change data.
+</code></pre>
+
+<pre><code>Pre-change project after the in-place upgrade: GET team/backend/project/identity-platform answered 200 OK, title &quot;Identity Platform - Backend&quot;, and shows &quot;Key prefix: AUTH&quot; - the original four-letter key, unchanged - with the issue filed before the change still listed as &quot;AUTH-1 Rotate the signing key&quot;.
+</code></pre>
+
+<h3>E8</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Provenance: examine-foundry start slack-connected --before started the pre-change release of Foundry with the state that holds workspace Canzan Labs, team Backend, project Identity Platform and one issue filed in it. examine-foundry upgrade then upgraded that same running release in place to the candidate build, keeping the database and data directory and applying new migrations as it started. Every observation below was taken against that upgraded instance and its pre-change data.
+</code></pre>
+
+<pre><code>Pre-change project after the in-place upgrade: GET team/backend/project/identity-platform answered 200 OK, title &quot;Identity Platform - Backend&quot;, and shows &quot;Key prefix: AUTH&quot; - the original four-letter key, unchanged - with the issue filed before the change still listed as &quot;AUTH-1 Rotate the signing key&quot;.
+</code></pre>
+
+<pre><code>Ordinary work still runs in the pre-change project after the upgrade: filing a new issue answered 200 and the board then lists &quot;AUTH-3 Expire the stale sessions&quot;, &quot;AUTH-2 Rotate the signing key&quot; and &quot;AUTH-1 Rotate the signing key&quot;, so new issues take the next number under the unchanged AUTH key. In the browser probe, go team/backend/project/identity-platform then click-card AUTH-1 clicked that pre-change card and its issue panel opened (banner, focused Title textbox, Save, Close and Delete buttons).
+</code></pre>
+
+<h3>E9</h3>
+
+<p>met</p>
+
+<h4>Observations</h4>
+
+<pre><code>Coexistence: with both kinds of project present at the same time, GET team/backend/project/identity-platform lists AUTH-1, AUTH-2 and AUTH-3 only, and GET team/backend/project/platform-operations lists PLATFORMOP-2 and PLATFORMOP-1 only. No issue appears under the other project prefix and no key is shared between them.
+</code></pre>
+
+<pre><code>Provenance: examine-foundry start slack-connected --before started the pre-change release of Foundry with the state that holds workspace Canzan Labs, team Backend, project Identity Platform and one issue filed in it. examine-foundry upgrade then upgraded that same running release in place to the candidate build, keeping the database and data directory and applying new migrations as it started. Every observation below was taken against that upgraded instance and its pre-change data.
+</code></pre>
+
+<pre><code>Capture limitation: no page that lists a team or workspace project set was reachable from the public surface of this build. GET team/backend answered 404 Not Found, GET team/backend/projects answered 405 Method Not Allowed (the path takes the create POST only), and the workspace dashboard body held only &quot;Workspace dashboard&quot;, &quot;Signed in: true&quot; and an invite line. Presence and absence of a project were therefore observed by opening its own project page (200 with its key, or 404), not from a list. Observed issue numbers reach 3 only, and one installation was observed.
+</code></pre>
 
 </body></html>

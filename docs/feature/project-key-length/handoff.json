@@ -292,7 +292,7 @@
 "B": 3,
 "C": 1,
 "E": 9,
-"F": 297,
+"F": 310,
 "L": 7,
 "P": 3,
 "S": 1,
@@ -1069,6 +1069,76 @@
 }
 }
 },
+"examination": {
+"E1": {
+"observations": [
+"F298",
+"F299",
+"F300",
+"F301"
+],
+"verdict": "met"
+},
+"E2": {
+"observations": [
+"F302"
+],
+"verdict": "met"
+},
+"E3": {
+"observations": [
+"F300",
+"F299"
+],
+"verdict": "met"
+},
+"E4": {
+"observations": [
+"F303",
+"F304",
+"F301"
+],
+"verdict": "met"
+},
+"E5": {
+"observations": [
+"F305",
+"F304"
+],
+"verdict": "met"
+},
+"E6": {
+"observations": [
+"F306",
+"F304",
+"F301"
+],
+"verdict": "met"
+},
+"E7": {
+"observations": [
+"F307",
+"F308"
+],
+"verdict": "met"
+},
+"E8": {
+"observations": [
+"F307",
+"F308",
+"F309"
+],
+"verdict": "met"
+},
+"E9": {
+"observations": [
+"F310",
+"F307",
+"F301"
+],
+"verdict": "met"
+}
+},
 "expectations": {
 "rows": [
 {
@@ -1365,9 +1435,22 @@
 "F294": "The rule the operator reads cannot drift from the rule the product enforces, because a second copy of that sentence cannot be added unnoticed.",
 "F296": "A throwaway copy of the codebase is given a second copy of the very sentence the product gives an operator whose key is refused, once in the web code, once in the services code and once in the store code; the architecture gate is then run over each copy, and over an untouched copy.",
 "F297": "A gate that bites a second copy only in the one file each row plants, or only in the three crates these rows reach, since the law covers every file those crates hold now or gain later and these rows plant one file per crate.",
+"F298": "Ten-letter key accepted: POST /team/backend/projects as Lena with name=Platform Operations and key_prefix=PLATFORMOP answered HTTP/1.1 200 OK, final-url /team/backend/project/platform-operations, title \"Platform Operations - Backend\", and the page body line \"Key prefix: PLATFORMOP\" - ten letters, untruncated and unchanged.",
+"F299": "The ten-letter key stayed exact on three later separate requests for that project page (after the first issue was filed, after the second, and on a fresh GET team/backend/project/platform-operations): each answered 200 OK and showed \"Key prefix: PLATFORMOP\".",
 "F3": "An operator creates a project whose key is 2 to 10 capital letters A-Z, such as PLATFORMOP, and every issue of that project carries that key as its prefix, such as PLATFORMOP-1.",
 "F30": "Out of scope: renaming the key of an existing project, lower-case or digit keys, and any change to the 2-character minimum.",
+"F300": "Issue keys in the ten-letter project: the first issue filed is listed on the project board as \"PLATFORMOP-1 Rotate the platform credentials\" and the second as \"PLATFORMOP-2 Second platform task\"; a later independent GET of that project page lists both lines with the full ten-letter prefix, so the prefix is kept for the later issue and after a fresh page load.",
+"F301": "Capture limitation: no page that lists a team or workspace project set was reachable from the public surface of this build. GET team/backend answered 404 Not Found, GET team/backend/projects answered 405 Method Not Allowed (the path takes the create POST only), and the workspace dashboard body held only \"Workspace dashboard\", \"Signed in: true\" and an invite line. Presence and absence of a project were therefore observed by opening its own project page (200 with its key, or 404), not from a list. Observed issue numbers reach 3 only, and one installation was observed.",
+"F302": "Two-letter key still accepted: POST /team/backend/projects with name=Planning Board and key_prefix=PL answered 200 OK, final-url /team/backend/project/planning-board, title \"Planning Board - Backend\", body \"Key prefix: PL\"; a later GET of that project page again answered 200 OK with \"Key prefix: PL\".",
+"F303": "Eleven-letter key refused: POST /team/backend/projects with key_prefix=PLATFORMOPSX answered HTTP/1.1 422 Unprocessable Entity, title \"New project - Backend\", and the page states \"Project key must be 2 to 10 capital letters A to Z\"; the create form is redisplayed with the typed key and no project page is reached.",
+"F304": "Nothing was created by the nine refused submissions: a GET of the project page of each refused name (team/backend/project/eleven-letters, one-letter, empty-key, lower-case, with-digit, with-space, with-hyphen, with-underscore, with-accent) and of team/backend/project/platformopsx each answered HTTP/1.1 404 Not Found with the page \"Not found - The requested resource does not exist or is not available.\" So no project exists afterwards, and no key was quietly corrected (upper-cased or stripped) and then created.",
+"F305": "Too-short and empty keys refused with the same rule message: key_prefix=P answered 422 with \"Project key must be 2 to 10 capital letters A to Z\", and an empty key_prefix= answered 422 with that same message - not a separate generic required-field message.",
+"F306": "Every non A-Z class refused with the same rule message, each answering 422 with \"Project key must be 2 to 10 capital letters A to Z\" and no project page: platformop (lower case), AUTH1 (digit), \"AU TH\" (space), AU-TH (hyphen), AU_TH (underscore), and an accented capital E.",
+"F307": "Provenance: examine-foundry start slack-connected --before started the pre-change release of Foundry with the state that holds workspace Canzan Labs, team Backend, project Identity Platform and one issue filed in it. examine-foundry upgrade then upgraded that same running release in place to the candidate build, keeping the database and data directory and applying new migrations as it started. Every observation below was taken against that upgraded instance and its pre-change data.",
+"F308": "Pre-change project after the in-place upgrade: GET team/backend/project/identity-platform answered 200 OK, title \"Identity Platform - Backend\", and shows \"Key prefix: AUTH\" - the original four-letter key, unchanged - with the issue filed before the change still listed as \"AUTH-1 Rotate the signing key\".",
+"F309": "Ordinary work still runs in the pre-change project after the upgrade: filing a new issue answered 200 and the board then lists \"AUTH-3 Expire the stale sessions\", \"AUTH-2 Rotate the signing key\" and \"AUTH-1 Rotate the signing key\", so new issues take the next number under the unchanged AUTH key. In the browser probe, go team/backend/project/identity-platform then click-card AUTH-1 clicked that pre-change card and its issue panel opened (banner, focused Title textbox, Save, Close and Delete buttons).",
 "F31": "crates/foundry-store/migrations/0001_init.sql is shipped and must not be edited; the database rule changes only through a new migration file.",
+"F310": "Coexistence: with both kinds of project present at the same time, GET team/backend/project/identity-platform lists AUTH-1, AUTH-2 and AUTH-3 only, and GET team/backend/project/platform-operations lists PLATFORMOP-2 and PLATFORMOP-1 only. No issue appears under the other project prefix and no key is shared between them.",
 "F32": "Every project that exists before the change keeps its key, its issue keys and its board; no row is rewritten and no key is re-minted.",
 "F33": "The widening is monotone: every key the 2 to 6 rule accepted the 2 to 10 rule accepts, so an old replica serving next to a new one can never offer the database a key the database refuses.",
 "F34": "A replica applies migrations at start-up under the existing advisory lock before it serves, so the serving code never enforces a rule wider than the database rule.",
