@@ -7,6 +7,15 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Changed
+
+- **Teams, Invite a member and Machine tokens live in the left nav.** They sit after
+  Board on every app page, and in the folded nav each is an icon that names where it
+  goes, like every other rail item. The Home page no longer has a Quick actions section:
+  each of its links is now in the nav (Integrations, Keyboard shortcuts and Sign out were
+  there already), and Home keeps its greeting and Your projects. Who sees each link has
+  not changed.
+
 ## [v0.19.0] - 2026-11-19
 
 ### Added
