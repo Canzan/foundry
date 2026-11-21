@@ -21,8 +21,10 @@
 //! WHAT IS OBSERVED, AND WHAT IS DELIBERATELY NOT. Observed: that a member is in
 //! the layout, that it can be seen, that it can take the keyboard focus, the
 //! name the BROWSER computes for it, which member is marked as the page the
-//! operator is on, the box each one occupies, and the box of the label the
-//! focused member shows. Not observed: the strip's width in pixels, the glyph an
+//! operator is on, the box each one occupies, the box of the label the focused
+//! member shows, what is painted at the centre of that box and of the rail's
+//! own box, and which lanes or cards of the page the label's box lies over. Not
+//! observed: the strip's width in pixels, the glyph an
 //! icon draws, the order of the members, the colour of the active tint and the
 //! styling of the label — those are design values, not promises, so two strips
 //! of different widths read as the same rail here.
@@ -96,6 +98,18 @@ var items = Array.prototype.slice.call(document.querySelectorAll('.sidebar__nav 
 var members = Array.prototype.slice.call(document.querySelectorAll(memberSelector));
 function width(el) { return el ? el.getBoundingClientRect().width : null; }
 function display(el) { return el ? getComputedStyle(el).display : null; }
+// WHAT A HIT TEST ANSWERED, in words a failure can be read in: the element, its
+// classes and the first of its own text. Never a verdict — the verdict is drawn
+// by comparing the answer with the element the reading asked about.
+function describeNode(el) {
+  if (!el) { return 'nothing at all'; }
+  var described = el.tagName.toLowerCase();
+  if (el.className && typeof el.className === 'string' && el.className.trim()) {
+    described += '.' + el.className.trim().split(/\s+/).join('.');
+  }
+  var own = (el.textContent || '').trim().slice(0, 30);
+  return own ? described + ' [' + own + ']' : described;
+}
 function shown(el) {
   return !!el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
 }
@@ -232,6 +246,24 @@ function readMember(el) {
   };
 }
 var read = members.map(readMember);
+// WHAT IS PAINTED WHERE THE RAIL IS, read at the centre of the rail's own box.
+// A rail held in view can still be COVERED by something the page draws later,
+// and an overlay the operator opened is MEANT to cover it. Both are the same
+// reading; which one is owed is the assertion's business, not the probe's.
+var railCentreHit = null;
+var railCentreHitsTheRail = null;
+if (rail) {
+  var railRect = rail.getBoundingClientRect();
+  var railX = railRect.left + railRect.width / 2;
+  var railY = railRect.top + railRect.height / 2;
+  if (railRect.width >= 1 && railRect.height >= 1 && railX >= 0 && railY >= 0 &&
+      railX <= document.documentElement.clientWidth &&
+      railY <= document.documentElement.clientHeight) {
+    var railHit = document.elementFromPoint(railX, railY);
+    railCentreHit = describeNode(railHit);
+    railCentreHitsTheRail = !!railHit && (railHit === rail || rail.contains(railHit));
+  }
+}
 var controlled = null;
 if (control && control.getAttribute('aria-controls')) {
   controlled = document.getElementById(control.getAttribute('aria-controls'));
@@ -264,6 +296,8 @@ return {
   identityDisplay: display(document.querySelector('.sidebar__identity')),
   monogramDisplay: display(document.querySelector('.sidebar__monogram')),
   railBox: box(rail),
+  railCentreHit: railCentreHit,
+  railCentreHitsTheRail: railCentreHitsTheRail,
   itemCount: items.length,
   itemsShown: items.filter(shown).length,
   itemsFocusable: items.filter(function (el) {
@@ -410,6 +444,7 @@ pub fn members(reading: &serde_json::Value) -> &[serde_json::Value] {
 
 const FOCUS_PROBE: &str = r#"
 var memberSelector = arguments[0];
+var rail = document.querySelector('.sidebar');
 var el = document.activeElement;
 if (!el) {
   return { description: 'nothing', isNavControl: false, isRailMember: false, isBody: false };
@@ -472,12 +507,46 @@ var labelRect = label ? label.getBoundingClientRect() : null;
 // it as corroboration and is never the whole reading, because the painted sliver
 // of a clipped label can answer a hit test too.
 var labelHit = null;
+// WHAT ANSWERED THAT POINT, and WHAT THE WORD LIES OVER. A word clipped out of
+// view and a word something else paints over look identical in the layout box,
+// and both answer the point with another element: the page content column, a
+// card, or whatever encloses the word. Naming the answer is what tells those
+// causes apart in a failure, and naming what the word's box lies over is what
+// stops the reading being taken where nothing could cover it at all.
+var labelHitDescription = null;
+var labelLiesOver = [];
+var labelCentreIsBesideTheRail = null;
+var labelIsInsideTheRail = null;
 if (labelRect && labelRect.width >= 1 && labelRect.height >= 1) {
-  var hit = document.elementFromPoint(
-    labelRect.left + labelRect.width / 2,
-    labelRect.top + labelRect.height / 2
-  );
+  var labelX = labelRect.left + labelRect.width / 2;
+  var labelY = labelRect.top + labelRect.height / 2;
+  var hit = document.elementFromPoint(labelX, labelY);
   labelHit = !!hit && (hit === label || label.contains(hit));
+  labelHitDescription = describeNode(hit);
+  var pageContent = Array.prototype.slice.call(
+    document.querySelectorAll('.app-shell__content .column, .app-shell__content .issue-card')
+  );
+  labelLiesOver = pageContent.filter(function (node) {
+    var b = node.getBoundingClientRect();
+    return b.width >= 1 && b.height >= 1 &&
+           labelRect.left < b.right && b.left < labelRect.right &&
+           labelRect.top < b.bottom && b.top < labelRect.bottom;
+  }).map(describeNode);
+  if (rail) {
+    var railRect = rail.getBoundingClientRect();
+    labelCentreIsBesideTheRail = labelX > railRect.right;
+    labelIsInsideTheRail = labelRect.left >= railRect.left - 1 &&
+                           labelRect.right <= railRect.right + 1;
+  }
+}
+function describeNode(el) {
+  if (!el) { return 'nothing at all'; }
+  var described = el.tagName.toLowerCase();
+  if (el.className && typeof el.className === 'string' && el.className.trim()) {
+    described += '.' + el.className.trim().split(/\s+/).join('.');
+  }
+  var own = (el.textContent || '').trim().slice(0, 30);
+  return own ? described + ' [' + own + ']' : described;
 }
 return {
   description: description + (text ? ' [' + text + ']' : ''),
@@ -493,6 +562,10 @@ return {
   } : null,
   labelInTheLayout: !!label && inTheFocusOrder(label) && !faded(label),
   labelCentreHitsTheLabel: labelHit,
+  labelCentreAnswered: labelHitDescription,
+  labelLiesOver: labelLiesOver,
+  labelCentreIsBesideTheRail: labelCentreIsBesideTheRail,
+  labelIsInsideTheRail: labelIsInsideTheRail,
   outlineStyle: style.outlineStyle,
   outlineWidth: parseFloat(style.outlineWidth) || 0,
   isBody: el === document.body
@@ -545,6 +618,42 @@ pub async fn tab_until_the_control_holds_focus(client: &fantoccini::Client) -> V
         "the nav control was never reached in {MAX_TAB_STOPS} Tab presses, so it is not in the \
          reading order and an operator working from the keyboard cannot fold the nav at all. The \
          walk stopped at: {walked:?}"
+    );
+}
+
+/// Tab from a cleared focus until the rail member the operator named holds it,
+/// and answer with that stop's whole reading.
+///
+/// THE KEYBOARD, NOT A SCRIPTED FOCUS. The word a narrowed member reveals is
+/// revealed on `:focus-visible`, which a focus moved by script does not
+/// necessarily satisfy, so a scripted focus could read a word the operator
+/// working from the keyboard never gets — or miss one she does. The walk is what
+/// she actually does.
+pub async fn tab_until_this_member_holds_focus(
+    client: &fantoccini::Client,
+    word: &str,
+) -> serde_json::Value {
+    clear_focus(client).await;
+    let mut walked = Vec::new();
+    for _ in 0..MAX_TAB_STOPS {
+        browser_harness::press_key(client, "Tab").await;
+        let focus = read_focus(client).await;
+        if focus["isRailMember"].as_bool().unwrap_or(false)
+            && focus["text"].as_str().unwrap_or_default().trim() == word
+        {
+            return focus;
+        }
+        walked.push(
+            focus["description"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string(),
+        );
+    }
+    panic!(
+        "the keyboard never arrived at {word:?} in the left nav in {MAX_TAB_STOPS} presses of Tab, \
+         so nothing below could be read of the word that place reveals. The walk stopped at: \
+         {walked:?}"
     );
 }
 

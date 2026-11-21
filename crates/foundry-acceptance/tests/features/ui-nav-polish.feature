@@ -193,6 +193,54 @@ Feature: The left nav says where the operator is and offers only what opens
       | looking at the nav narrowed to icons  |
 
   # ==========================================================================
+  # The narrowed nav over her board
+  # ==========================================================================
+  # Holding the nav in view must not cost the operator the one thing the narrow
+  # nav gives her: the word each glyph stands for, shown beside the strip while
+  # she walks it from the keyboard. Over her board that word is drawn across a
+  # lane, so it is read WHERE IT IS PAINTED and not where its box says it is:
+  # the box is untouched both by an ancestor that clips the word out of view and
+  # by page content drawn on top of it, so a reading of the box alone is green
+  # over a word the operator cannot see at all.
+
+  @needs-browser @real-io @nav-polish-flyout
+  Scenario Outline: The word the narrowed nav reveals can be read over her board
+    # RED-trigger, two causes and one reading: the narrowed strip scrolls its own
+    # content, which clips the word out of view sideways with nothing to scroll it
+    # back; and the nav takes no paint level of its own, so a lane of the board
+    # drawn later covers the word even where it is not clipped. Either way she
+    # walks a strip of glyphs she cannot name.
+    Given the operator has narrowed the nav to icons on her board, taller than her window and scrolled to its bottom
+    When she walks the keyboard onto "<place>" in the nav
+    Then the word that place shows her lies over a lane of her board and can be read there
+
+    Examples: one place from the nav's main group, one from the group at its foot
+      | place              |
+      | Invite a member    |
+      | Keyboard shortcuts |
+
+  @needs-browser @real-io @nav-polish-flyout
+  Scenario: The shortcut list she opens covers the narrowed nav
+    # The other end of the band: the nav is drawn above the board and below
+    # everything the operator opens over the page. RED-trigger: the nav is lifted
+    # over the board by a level above the overlays, so the list she asked for is
+    # cut in half by a strip of glyphs.
+    Given the operator has narrowed the nav to icons on her board, taller than her window and scrolled to its bottom
+    When she opens the list of keyboard shortcuts
+    Then the list she opened is drawn over the nav
+
+  @needs-browser @real-io @nav-polish-flyout
+  Scenario: With the nav open no word hangs over her board
+    # The bound on the law, asserted rather than assumed: the open nav shows every
+    # word in its own column, so there is no revealed word to read beside it and
+    # the nav is free to scroll its own content. RED-trigger: the open nav starts
+    # drawing a flyout as well, and then a word the operator never asked for hangs
+    # over her work.
+    Given the operator has the nav open on her board, taller than her window and scrolled to its bottom
+    When she walks the keyboard onto "Invite a member" in the nav
+    Then that place shows its word inside the nav itself, with nothing of it over her board
+
+  # ==========================================================================
   # A phone
   # ==========================================================================
 

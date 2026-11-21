@@ -13,7 +13,12 @@
 //!     screen, and whether each member can be seen and pressed;
 //!   * the fill, border, colour and weight the browser RESOLVES for the two
 //!     controls at the foot of the nav, each beside the same reading of a
-//!     neighbour link.
+//!     neighbour link;
+//!   * what is actually PAINTED where the narrowed nav draws the word of the
+//!     place holding the keyboard, and where the nav itself is drawn — read at
+//!     the middle of each box, because the box of a word is left untouched both
+//!     by an ancestor that clips it out of view and by page content drawn on
+//!     top of it.
 //!
 //! THE EXPECTED SET IS WRITTEN OUT, never read back off the rail. A rail
 //! compared against the rail agrees with itself even when both lose a
@@ -572,6 +577,191 @@ fn describe_member(member: &serde_json::Value) -> String {
         member["focusable"],
         member["box"]["height"]
     )
+}
+
+// ----- the word the narrowed nav reveals, over her board ---------------------
+
+/// The one board page these rows are read on, left at the bottom of its own
+/// scroll: the surface whose OWN content is positioned beside the rail, which is
+/// what makes a paint order observable at all. A dashboard cannot show it.
+#[given(
+    regex = r"^the operator has (narrowed the nav to icons|the nav open) on her board, taller than her window and scrolled to its bottom$"
+)]
+async fn given_her_board_under_the_nav(world: &mut FoundryWorld, geometry: String) {
+    grant(world, "both a workspace and an instance admin").await;
+    seed_a_long_board(world).await;
+    let browser = browser_harness::new_session().await;
+    sign_in(&browser, world).await;
+    goto(
+        &browser,
+        world,
+        BOARD_PATH,
+        browser_harness::BOARD_READY_SELECTOR,
+    )
+    .await;
+    if geometry == "narrowed the nav to icons" {
+        narrow_the_nav(&browser).await;
+    }
+    browser
+        .execute(
+            "window.scrollTo(0, document.documentElement.scrollHeight); return window.scrollY;",
+            Vec::new(),
+        )
+        .await
+        .expect("leave her board at its bottom");
+    let reading = read_nav(&browser).await;
+    let (document, window) = (px(&reading, "docHeight"), px(&reading, "viewportHeight"));
+    assert!(
+        document > window + window / 2.0,
+        "her board is {document:.0} px tall in a {window:.0} px window, so it is not the long page \
+         these rows are about and the nav would be read where it never had to be held in view"
+    );
+    assert!(
+        px(&reading, "scrolledTo") > 0.0,
+        "her board did not move when it was scrolled to its bottom, so nothing below would be read \
+         where the operator actually works"
+    );
+    let lanes = browser
+        .find_all(Locator::Css(".app-shell__content .column"))
+        .await
+        .expect("look for the lanes of her board");
+    assert!(
+        !lanes.is_empty(),
+        "her board draws no lane at all, so no word of the nav could lie over one and these rows \
+         would hold over an empty page"
+    );
+    world.browser = Some(browser);
+}
+
+/// The stimulus: the keyboard arrives on ONE named place of the nav, and what
+/// that place then shows her is kept for the assertion. The walk is the
+/// operator's own — the word is revealed to the keyboard, so a focus moved by
+/// script could read a word she never gets.
+#[when(regex = r#"^she walks the keyboard onto "([^"]+)" in the nav$"#)]
+async fn when_she_walks_the_keyboard_onto(world: &mut FoundryWorld, place: String) {
+    let browser = browser_of(world);
+    let focus = rail_reading::tab_until_this_member_holds_focus(browser, &place).await;
+    world.last_body = Some(focus.to_string());
+}
+
+#[when(regex = r"^she opens the list of keyboard shortcuts$")]
+async fn when_she_opens_the_shortcut_list(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    browser_harness::wait_for_kb_ready(browser).await;
+    browser_harness::press_key(browser, "?").await;
+    wait_for(
+        browser,
+        "#kb-overlay-root .keyboard-help",
+        "the list of keyboard shortcuts she asked for",
+    )
+    .await;
+}
+
+/// What the focused place showed her, as the stimulus recorded it.
+fn what_that_place_showed(world: &FoundryWorld) -> serde_json::Value {
+    let recorded = world
+        .last_body
+        .clone()
+        .expect("the keyboard walk recorded what the place it stopped on showed her");
+    serde_json::from_str(&recorded).expect("the recorded reading is the one the walk took")
+}
+
+fn the_word(showed: &serde_json::Value) -> String {
+    showed["labelText"]
+        .as_str()
+        .unwrap_or("nothing at all")
+        .to_string()
+}
+
+#[then(
+    regex = r"^the word that place shows her lies over a lane of her board and can be read there$"
+)]
+async fn then_the_revealed_word_can_be_read(world: &mut FoundryWorld) {
+    let showed = what_that_place_showed(world);
+    let word = the_word(&showed);
+    let (width, height) = (
+        showed["labelBox"]["width"].as_f64().unwrap_or(0.0),
+        showed["labelBox"]["height"].as_f64().unwrap_or(0.0),
+    );
+    assert!(
+        showed["labelPresent"].as_bool().unwrap_or(false)
+            && showed["labelInTheLayout"].as_bool().unwrap_or(false)
+            && width >= 4.0
+            && height >= 4.0,
+        "WHAT: the place the keyboard stopped on shows her no word at all — {word:?} in a box \
+         {width:.1} by {height:.1} px, in the layout: {}. WHY: a strip of glyphs she cannot name \
+         is a nav she has to press to read. FIX: reveal the word of the place that holds the \
+         keyboard, beside the strip. Reading: {showed}",
+        showed["labelInTheLayout"]
+    );
+    // WHERE THE READING IS TAKEN, asserted first. The word has to be drawn
+    // somewhere something else could cover it, or the law below holds over a word
+    // nothing was ever going to hide: beside the strip, across a lane of her
+    // board.
+    let lies_over = showed["labelLiesOver"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        showed["labelCentreIsBesideTheRail"]
+            .as_bool()
+            .unwrap_or(false)
+            && !lies_over.is_empty(),
+        "WHAT: the word {word:?} is not drawn across her board at all — beside the nav: {}, over \
+         {lies_over:?}. WHY: this row reads whether the board can hide that word, so a word drawn \
+         where no lane and no card reaches would make it pass over any paint order whatsoever. \
+         FIX: this is a defect of the row, not of the application: read it where the narrowed nav \
+         puts the word, over the lanes of a board. Reading: {showed}",
+        showed["labelCentreIsBesideTheRail"]
+    );
+    assert!(
+        showed["labelCentreHitsTheLabel"].as_bool().unwrap_or(false),
+        "WHAT: the word {word:?} is not what is painted where it is drawn: the middle of its box \
+         answers {} instead, while the word lies over {lies_over:?}. WHY: the box of a word is \
+         left untouched both by an ancestor that clips it out of view and by page content drawn on \
+         top of it, so this is the only reading that tells the operator what she can SEE — and \
+         either way she walks a strip of glyphs she cannot name. FIX: let the narrowed strip keep \
+         its overflow visible so the word is not clipped sideways, and give the nav a paint level \
+         of its own above the positioned content of the page and below every overlay. \
+         Reading: {showed}",
+        showed["labelCentreAnswered"]
+    );
+}
+
+#[then(regex = r"^the list she opened is drawn over the nav$")]
+async fn then_the_list_covers_the_nav(world: &mut FoundryWorld) {
+    let browser = browser_of(world);
+    let reading = read_nav(browser).await;
+    assert_eq!(
+        reading["railCentreHitsTheRail"].as_bool(),
+        Some(false),
+        "WHAT: with the list of keyboard shortcuts open, what is painted in the middle of the nav \
+         is {} — the nav itself. WHY: the nav is drawn above her board so its words are not \
+         covered, and BELOW everything she opens over the page; a nav above the list cuts in half \
+         the very thing she asked for. FIX: keep the nav's paint level above the positioned \
+         content of the page and under every overlay. Reading: {}",
+        reading["railCentreHit"],
+        reading["railBox"]
+    );
+}
+
+#[then(
+    regex = r"^that place shows its word inside the nav itself, with nothing of it over her board$"
+)]
+async fn then_the_word_stays_inside_the_open_nav(world: &mut FoundryWorld) {
+    let showed = what_that_place_showed(world);
+    let word = the_word(&showed);
+    let lies_over = showed["labelLiesOver"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(
+        showed["labelIsInsideTheRail"].as_bool().unwrap_or(false) && lies_over.is_empty(),
+        "WHAT: with the nav open, the word {word:?} of the place holding the keyboard is drawn \
+         outside the nav, over {lies_over:?}. WHY: the open nav shows every word in its own \
+         column, so a word that hangs over her board is one she never asked for, sitting on her \
+         work. FIX: reveal a word beside the nav in the narrowed geometry alone. Reading: {showed}"
+    );
 }
 
 // ----- her phone -------------------------------------------------------------

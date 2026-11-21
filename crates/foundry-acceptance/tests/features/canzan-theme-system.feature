@@ -166,7 +166,7 @@ Feature: foundry follows the light the operator's environment asks for
     Then every body-size text pair on the board and rail reaches at least 4.5 to 1
     And every large-text pair reaches at least 3 to 1
     And every control no visible word names is identified by its own fill or border at 3 to 1
-    And a nav control that draws its own word beside its glyph has that word legible at 4.5 to 1 instead
+    And a nav control the operator finds by its own visible word has that word legible at 4.5 to 1 instead
     And the same holds when the device preference is light
 
   @needs-browser @real-io @slice1 @us-cts-01 @error

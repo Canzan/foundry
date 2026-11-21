@@ -386,7 +386,7 @@ async fn then_every_wordless_control_is_identified_by_its_shape(world: &mut Foun
 }
 
 #[then(
-    regex = r"^a nav control that draws its own word beside its glyph has that word legible at 4\.5 to 1 instead$"
+    regex = r"^a nav control the operator finds by its own visible word has that word legible at 4\.5 to 1 instead$"
 )]
 async fn then_a_nav_control_is_read_for_its_own_word(world: &mut FoundryWorld) {
     assert_the_word_is_legible(browser_of(world), "dark").await;
@@ -2400,6 +2400,20 @@ fn relative_luminance(colour: Rgb) -> f64 {
     0.2126 * channel(colour.0) + 0.7152 * channel(colour.1) + 0.0722 * channel(colour.2)
 }
 
+/// A translucent ink as it is actually painted: blended over the opaque surface
+/// behind it. An alpha of 1 answers the ink itself.
+pub(crate) fn blend_over(ink: Rgb, behind: Rgb, alpha: f64) -> Rgb {
+    let alpha = alpha.clamp(0.0, 1.0);
+    let channel = |over: u8, under: u8| {
+        (f64::from(over) * alpha + f64::from(under) * (1.0 - alpha)).round() as u8
+    };
+    (
+        channel(ink.0, behind.0),
+        channel(ink.1, behind.1),
+        channel(ink.2, behind.2),
+    )
+}
+
 pub(crate) fn contrast_ratio(one: Rgb, other: Rgb) -> f64 {
     let (first, second) = (relative_luminance(one), relative_luminance(other));
     let (lighter, darker) = if first >= second {
@@ -3245,7 +3259,18 @@ async fn assert_shape_identifies_wordless_controls(
              hairline divider is not a control boundary.",
             hex(adjacent)
         );
-        if control["glyph"].as_bool().unwrap_or(false) {
+        // ONLY A CONTROL WITH NO WORD OF ITS OWN counts here. A control that
+        // draws a glyph AND a word, outside the nav, is read for the boundary
+        // too — but it is not the shape this anti-vacuity check is anchored on,
+        // and counting it would let the glyph-only controls slip out of the
+        // reading unnoticed.
+        if control["glyph"].as_bool().unwrap_or(false)
+            && control["word"]
+                .as_str()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+        {
             glyph_only += 1;
         }
     }
@@ -3276,7 +3301,8 @@ async fn assert_the_word_is_legible(client: &fantoccini::Client, palette_name: &
         }
         let where_ = control["where"].as_str().unwrap_or_default();
         let word = control["word"].as_str().unwrap_or_default().to_string();
-        let Some((ink, _)) = parse_colour(control["wordColour"].as_str().unwrap_or_default())
+        let Some((declared, alpha)) =
+            parse_colour(control["wordColour"].as_str().unwrap_or_default())
         else {
             panic!("the word `{word}` on `{where_}` resolved no text colour at all");
         };
@@ -3284,6 +3310,11 @@ async fn assert_the_word_is_legible(client: &fantoccini::Client, palette_name: &
         else {
             panic!("the word `{word}` on `{where_}` sits on no opaque surface at all");
         };
+        // THE INK THE OPERATOR SEES, not the one declared. A translucent text
+        // colour is painted thinner than its own value — partly the surface
+        // behind it — so measuring the declared value would call a word legible
+        // that she can barely read. It is blended over that surface first.
+        let ink = blend_over(declared, behind, alpha);
         let ratio = contrast_ratio(ink, behind);
         assert!(
             ratio >= 4.5,
