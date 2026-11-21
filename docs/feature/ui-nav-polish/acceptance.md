@@ -232,16 +232,18 @@ The palette changes to a third choice rather than the other one; the reading is 
 
 P2
 
+P1
+
 ```text
-The rights lookup fails part way through rendering a page, so the nav is built from the neutral identity the application falls back to.
+The rights lookup fails part way through rendering the invite page or the machine tokens page, so the nav is built from the neutral identity the application falls back to for an operator the page itself let in.
 ```
 
 ```text
-The page still answers her with her page, the nav marks the page she is on, and neither admin link is offered - so nothing is shown that would refuse her.
+The page still answers her with her page, neither admin link is offered - so nothing is shown that would refuse her - and the nav marks Home, the one place the neutral nav still offers her, rather than the place she is on or nothing at all.
 ```
 
 ```text
-An operator whose rights could not be read still gets her page and is offered only places that open.
+An operator whose rights could not be read still gets her page, still reads one place off the nav, and is offered only places that open.
 ```
 
 ##### Disposition
@@ -249,7 +251,7 @@ An operator whose rights could not be read still gets her page and is offered on
 NotTested
 
 ```text
-No public surface of the running application makes that lookup fail, and the design declares no seam for it at the acceptance boundary. The browser and HTTP supports named for this oracle cannot inject a store failure, and inventing one would be a fixture fact no authority declares. The observable consequence - an identity that is not a workspace admin is offered neither link - is covered by the rights rows above; what is not observed is the failing lookup as the cause.
+No public surface and no declared seam makes that lookup fail: the two pages admit a workspace admin only, so every operator they admit is offered her own place there and every operator they refuse is answered nowhere, and the nav rights read carries no public fault injection. The browser and HTTP supports named for this oracle cannot inject a store failure, and inventing one would be a fixture fact no authority declares. The design carries this branch as its own law, closed by the model invariant that no render marks nothing together with a unit test of the nav carrier, so no acceptance row is owed for it. The publicly reachable consequence - an identity that is not an admin of this workspace is offered neither link - stays covered by the rights rows above.
 ```
 
 solution\-architect
@@ -310,6 +312,38 @@ The two quiet controls keep some fill or outline of their own as well; the row r
 ```
 
 ###### Obligations
+
+
+
+##### Covers
+
+P3
+
+```text
+In a real browser at desk width the operator narrows the nav to icons on a board holding more work than fits her window, scrolls it to its bottom, and walks the keyboard onto one place in the nav's main group and then one in the group at its foot; over that same board she opens the list of keyboard shortcuts; and in a last reading she takes the same walk with the nav open.
+```
+
+```text
+The word each narrowed place shows her is drawn across a lane of her board and is what is actually painted there: the middle of its box answers that word, never the lane, a card of work or whatever encloses it. The list of keyboard shortcuts she opens is drawn over the nav. With the nav open the word of the place holding the keyboard stays inside the nav, with nothing of it over her board.
+```
+
+```text
+On her board the operator reads the name of each glyph she walks onto, instead of a word clipped out of view or painted under her work - and what she opens over the page still covers the nav.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-nav\-polish\.feature\: The word the narrowed nav reveals can be read over her board\; The shortcut list she opens covers the narrowed nav\; With the nav open no word hangs over her board
+
+```text
+The word is kept readable over the board by some other means than the two the design names; the reading is of what is painted where the word is drawn, so any means that leaves it readable there passes. It also still passes if the word moves a few pixels further from the strip, which no promise fixes.
+```
+
+###### Obligations
+
+
 
 
 

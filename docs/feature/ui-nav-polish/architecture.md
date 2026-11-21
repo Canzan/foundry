@@ -1039,11 +1039,7 @@ account settings, any rights: Home
 ```
 
 ```text
-invites or tokens, the route gate admitted a workspace admin but the rail identity read failed for this render: Home, the member the rail still offers; the rail carries one mark, not zero
-```
-
-```text
-The domain is the closed product of six page families, the four-member rights set and the two outcomes of the rail own identity read; every reachable row is enumerated, so a generator would only re-draw the same table.
+The domain is the closed product of six page families and the four-member rights set, with the rail own identity read RESOLVED; every reachable row is enumerated, so a generator would only re-draw the same table. The branch where that read fails is not a row here: no public surface and no declared seam can produce it, so it owes no acceptance row and is stated as its own NoTest law.
 ```
 
 ###### Evidence
@@ -1077,11 +1073,7 @@ any page, plain member: the marked member is one of the three she is offered
 ```
 
 ```text
-invites or tokens, the rail identity read failed: the owning member is not offered, so the section is reconciled to Home and Home is both offered and marked
-```
-
-```text
-Same closed domain as the mark law, the two outcomes of the rail own identity read included.
+Same closed domain as the mark law, with the rail own identity read RESOLVED. The failed-read branch is stated as its own NoTest law, because no public surface can produce it.
 ```
 
 ###### Evidence
@@ -1343,6 +1335,30 @@ Two revealed words in one geometry at one harness viewport, read on the board pa
 ###### Evidence
 
 None.
+
+###### L9
+
+```text
+When the rail own identity read fails for a render the route gate has already admitted, resolved() reconciles the section the page named to Home before the rail is built, so the served rail offers neither admin link and marks Home - one mark, never zero - on /workspace/invites and /admin/tokens as on every other page.
+```
+
+Invariant
+
+Application
+
+crates\/foundry\-app\/src\/nav\.rs
+
+###### Treatment
+
+NoTest
+
+```text
+No public surface and no declared seam can make that read fail: resolve_admin at crates/foundry-app/src/admin_tokens.rs:293 admits only a workspace admin, and the nav_identity read carries no public fault injection, so no acceptance row can drive this branch and none is owed. The DESIGN claim is closed by the Quint invariant markNeverEmpty, whose resolve=none mutant reproduces the zero-mark defect with a trace. The crafter totality unit test over every section-by-rights pair of NavSection::offered_mark is the craft evidence that the code matches the model; the runtime branch stays unobserved.
+```
+
+###### Evidence
+
+docs\/feature\/ui\-nav\-polish\/design\/nav\_mark\_and\_offer\.qnt
 
 ##### Refuted
 
@@ -1900,6 +1916,42 @@ Not applicable, with a concrete reason: one authenticated GET assembles and serv
 
 None.
 
+```text
+the mark on a page whose own member the rail will not offer (P1, failure B1)
+```
+
+Safety
+
+Pass
+
+DesignedNotBuilt
+
+```text
+The Quint invariant markNeverEmpty holds over the closed space with the rail own read failing, and its resolve=none mutant refutes the unreconciled composition with a trace that marks NOTHING on /admin/tokens for an operator the route gate admitted. The crafter totality unit test over every section-by-rights pair of NavSection::offered_mark is the craft evidence that the code matches the model. No acceptance row is owed.
+```
+
+###### Evidence
+
+docs\/feature\/ui\-nav\-polish\/design\/nav\_mark\_and\_offer\.qnt
+
+```text
+the mark on a page whose own member the rail will not offer (P1, failure B1)
+```
+
+PublicReachability
+
+Blocked
+
+Indeterminate
+
+```text
+No public surface and no declared seam reaches this branch: resolve_admin at crates/foundry-app/src/admin_tokens.rs:293 admits only a workspace admin and the nav_identity read carries no public fault injection, so no lane can drive it and none is asked to. The claim is therefore unchecked at the public port and stays BLOCKED with an indeterminate runtime, never PASS; the model and the unit test carry it instead.
+```
+
+###### Evidence
+
+None.
+
 ##### Risks
 
 ###### Y1
@@ -2186,3 +2238,4 @@ None.
 - NAV\-POLISH\-002 Rail text\-plus\-glyph controls owe text contrast\, not a boundary — Accepted
 - NAV\-POLISH\-003 Nav marks an offered member and the rail keeps its flyout — Superseded by NAV-POLISH-004
 - NAV\-POLISH\-004 The rail carries its own paint level above page content — Accepted
+- NAV\-POLISH\-005 Unobservable rail\-identity failure is closed by model and unit test — Accepted

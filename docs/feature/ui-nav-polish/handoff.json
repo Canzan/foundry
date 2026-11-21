@@ -11,10 +11,10 @@
 "L1/F110",
 "L1/F111",
 "L1/F112",
-"L1/F113",
-"L1/F114",
+"L1/F359",
+"L1/F360",
 "L1/F115",
-"L2/F118",
+"L2/F364",
 "L2/F119"
 ],
 "still_passes_if": "F267",
@@ -136,16 +136,17 @@
 },
 {
 "covers": [
-"P2"
+"P2",
+"P1"
 ],
 "disposition": {
 "kind": "NotTested",
 "owner": "solution-architect",
-"reason": "F295"
+"reason": "F420"
 },
-"expected": "F293",
-"stimulus": "F292",
-"user_result": "F294"
+"expected": "F418",
+"stimulus": "F417",
+"user_result": "F419"
 },
 {
 "covers": [
@@ -179,6 +180,25 @@
 "expected": "F339",
 "stimulus": "F338",
 "user_result": "F340"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L8/F403",
+"L8/F404",
+"L8/F405",
+"L8/F370"
+],
+"still_passes_if": "F424",
+"test": "crates/foundry-acceptance/tests/features/ui-nav-polish.feature: The word the narrowed nav reveals can be read over her board; The shortcut list she opens covers the narrowed nav; With the nav open no word hangs over her board"
+},
+"expected": "F422",
+"stimulus": "F421",
+"user_result": "F423"
 }
 ]
 },
@@ -186,9 +206,9 @@
 "B": 2,
 "C": 2,
 "E": 9,
-"F": 409,
+"F": 424,
 "K": 5,
-"L": 8,
+"L": 9,
 "N": 5,
 "P": 5,
 "S": 1,
@@ -216,6 +236,11 @@
 "key": "NAV-POLISH-004",
 "status": "Accepted",
 "title": "The rail carries its own paint level above page content"
+},
+{
+"key": "NAV-POLISH-005",
+"status": "Accepted",
+"title": "Unobservable rail-identity failure is closed by model and unit test"
 }
 ],
 "paradigm": "procedural",
@@ -472,6 +497,23 @@
 "design": "Pass",
 "runtime": "DesignedNotBuilt",
 "subject": "F198"
+},
+{
+"axis": "Safety",
+"basis": "F415",
+"design": "Pass",
+"evidence": [
+"docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt"
+],
+"runtime": "DesignedNotBuilt",
+"subject": "F414"
+},
+{
+"axis": "PublicReachability",
+"basis": "F416",
+"design": "Blocked",
+"runtime": "Indeterminate",
+"subject": "F414"
 }
 ],
 "constraints": [
@@ -679,11 +721,10 @@
 "F112",
 "F359",
 "F360",
-"F115",
-"F361"
+"F115"
 ],
 "kind": "Finite",
-"reason": "F362"
+"reason": "F410"
 }
 },
 {
@@ -698,11 +739,10 @@
 "treatment": {
 "cases": [
 "F364",
-"F119",
-"F365"
+"F119"
 ],
 "kind": "Finite",
-"reason": "F366"
+"reason": "F411"
 }
 },
 {
@@ -812,6 +852,20 @@
 ],
 "kind": "Finite",
 "reason": "F406"
+}
+},
+{
+"evidence": [
+"docs/feature/ui-nav-polish/design/nav_mark_and_offer.qnt"
+],
+"id": "L9",
+"kind": "Invariant",
+"layer": "Application",
+"owner": "crates/foundry-app/src/nav.rs",
+"statement": "F412",
+"treatment": {
+"kind": "NoTest",
+"reason": "F413"
 }
 }
 ],
@@ -1573,10 +1627,6 @@
 "F289": "The press of Sign out ends her session and the application asks her to sign in again before it opens any page of hers; the press of the theme control leaves the application in a different palette than it was in.",
 "F290": "The quieter controls still do exactly what they did: she leaves in one press, and the palette still changes when she asks.",
 "F291": "The palette changes to a third choice rather than the other one; the reading is that the application is in a different palette after the press, which is what she asked for.",
-"F292": "The rights lookup fails part way through rendering a page, so the nav is built from the neutral identity the application falls back to.",
-"F293": "The page still answers her with her page, the nav marks the page she is on, and neither admin link is offered - so nothing is shown that would refuse her.",
-"F294": "An operator whose rights could not be read still gets her page and is offered only places that open.",
-"F295": "No public surface of the running application makes that lookup fail, and the design declares no seam for it at the acceptance boundary. The browser and HTTP supports named for this oracle cannot inject a store failure, and inventing one would be a fixture fact no authority declares. The observable consequence - an identity that is not a workspace admin is offered neither link - is covered by the rights rows above; what is not observed is the failing lookup as the cause.",
 "F296": "The repository's own architecture check is run over the left-nav template.",
 "F297": "Every place where the template says this item is the page she is on sits inside a condition over the one carrier that decides it, none is written into the markup literally, and no two places share one condition - and every member of the nav still carries exactly one glyph and one whole word.",
 "F298": "A later change cannot quietly give the operator a second mark, or a mark that no page chose, in a nav the carrier can no longer refuse.",
@@ -1639,12 +1689,8 @@
 "F359": "invites, workspace admin, identity read resolved: Invite a member",
 "F36": "P4 bounds the phone bar at a fifth of the screen height at 480 px and below. The browser lane drives ONE emulated phone device, 390 x 844 CSS px, so the measured bound is a bar height at or under 168.8 px there. No authority bounds any other phone width, and no authority bounds the desk width either: the desk reading uses the harness fixed viewport. A reading at a third width is outside the recorded bound and would be a new product question.",
 "F360": "tokens, workspace admin, identity read resolved: Machine tokens",
-"F361": "invites or tokens, the route gate admitted a workspace admin but the rail identity read failed for this render: Home, the member the rail still offers; the rail carries one mark, not zero",
-"F362": "The domain is the closed product of six page families, the four-member rights set and the two outcomes of the rail own identity read; every reachable row is enumerated, so a generator would only re-draw the same table.",
 "F363": "The nav never marks a member it does not offer: the marked set is a subset of the offered set in every render, and it is never empty on a page she can open.",
 "F364": "invites page, workspace admin, identity read resolved: Invite a member is both offered and marked",
-"F365": "invites or tokens, the rail identity read failed: the owning member is not offered, so the section is reconciled to Home and Home is both offered and marked",
-"F366": "Same closed domain as the mark law, the two outcomes of the rail own identity read included.",
 "F37": "Who may open a page does not change: GET /workspace/invites and GET /admin/tokens keep the shipped workspace-admin gate and their non-enumerable uniform 404, and GET /teams keeps its session-only gate. This Request only changes what the nav OFFERS and MARKS.",
 "F370": "open rail, desk width: no flyout is drawn, so no word is read for this law and the rail may scroll inside itself",
 "F372": "One overflow-y: auto declaration on the sticky rail keeps every member reachable in both geometries and breaks no shipped promise.",
@@ -1686,6 +1732,21 @@
 "F408": "A folded rail whose revealed word is clipped out of view, or covered by page content, while the member still reads as visible.",
 "F409": "The clip-aware law and its browser row are the standing check, read with the centre hit test rail_reading.rs already owns rather than with a layout box, and read on a board page where the word overlaps a positioned column. Owner of the row: acceptance designer.",
 "F41": "The one carrier that already decides which primary item is marked, by equality on a sum. Three variants are added beside Home and Board; a parallel marker field or a per-item bool set would make two marks representable.",
+"F410": "The domain is the closed product of six page families and the four-member rights set, with the rail own identity read RESOLVED; every reachable row is enumerated, so a generator would only re-draw the same table. The branch where that read fails is not a row here: no public surface and no declared seam can produce it, so it owes no acceptance row and is stated as its own NoTest law.",
+"F411": "Same closed domain as the mark law, with the rail own identity read RESOLVED. The failed-read branch is stated as its own NoTest law, because no public surface can produce it.",
+"F412": "When the rail own identity read fails for a render the route gate has already admitted, resolved() reconciles the section the page named to Home before the rail is built, so the served rail offers neither admin link and marks Home - one mark, never zero - on /workspace/invites and /admin/tokens as on every other page.",
+"F413": "No public surface and no declared seam can make that read fail: resolve_admin at crates/foundry-app/src/admin_tokens.rs:293 admits only a workspace admin, and the nav_identity read carries no public fault injection, so no acceptance row can drive this branch and none is owed. The DESIGN claim is closed by the Quint invariant markNeverEmpty, whose resolve=none mutant reproduces the zero-mark defect with a trace. The crafter totality unit test over every section-by-rights pair of NavSection::offered_mark is the craft evidence that the code matches the model; the runtime branch stays unobserved.",
+"F414": "the mark on a page whose own member the rail will not offer (P1, failure B1)",
+"F415": "The Quint invariant markNeverEmpty holds over the closed space with the rail own read failing, and its resolve=none mutant refutes the unreconciled composition with a trace that marks NOTHING on /admin/tokens for an operator the route gate admitted. The crafter totality unit test over every section-by-rights pair of NavSection::offered_mark is the craft evidence that the code matches the model. No acceptance row is owed.",
+"F416": "No public surface and no declared seam reaches this branch: resolve_admin at crates/foundry-app/src/admin_tokens.rs:293 admits only a workspace admin and the nav_identity read carries no public fault injection, so no lane can drive it and none is asked to. The claim is therefore unchecked at the public port and stays BLOCKED with an indeterminate runtime, never PASS; the model and the unit test carry it instead.",
+"F417": "The rights lookup fails part way through rendering the invite page or the machine tokens page, so the nav is built from the neutral identity the application falls back to for an operator the page itself let in.",
+"F418": "The page still answers her with her page, neither admin link is offered - so nothing is shown that would refuse her - and the nav marks Home, the one place the neutral nav still offers her, rather than the place she is on or nothing at all.",
+"F419": "An operator whose rights could not be read still gets her page, still reads one place off the nav, and is offered only places that open.",
+"F420": "No public surface and no declared seam makes that lookup fail: the two pages admit a workspace admin only, so every operator they admit is offered her own place there and every operator they refuse is answered nowhere, and the nav rights read carries no public fault injection. The browser and HTTP supports named for this oracle cannot inject a store failure, and inventing one would be a fixture fact no authority declares. The design carries this branch as its own law, closed by the model invariant that no render marks nothing together with a unit test of the nav carrier, so no acceptance row is owed for it. The publicly reachable consequence - an identity that is not an admin of this workspace is offered neither link - stays covered by the rights rows above.",
+"F421": "In a real browser at desk width the operator narrows the nav to icons on a board holding more work than fits her window, scrolls it to its bottom, and walks the keyboard onto one place in the nav's main group and then one in the group at its foot; over that same board she opens the list of keyboard shortcuts; and in a last reading she takes the same walk with the nav open.",
+"F422": "The word each narrowed place shows her is drawn across a lane of her board and is what is actually painted there: the middle of its box answers that word, never the lane, a card of work or whatever encloses it. The list of keyboard shortcuts she opens is drawn over the nav. With the nav open the word of the place holding the keyboard stays inside the nav, with nothing of it over her board.",
+"F423": "On her board the operator reads the name of each glyph she walks onto, instead of a word clipped out of view or painted under her work - and what she opens over the page still covers the nav.",
+"F424": "The word is kept readable over the board by some other means than the two the design names; the reading is of what is painted where the word is drawn, so any means that leaves it readable there passes. It also still passes if the word moves a few pixels further from the strip, which no promise fixes.",
 "F43": "Three siblings teams_for, invites_for and tokens_for join it with the same signature; home_for stays for the pages that own no primary item (settings, project create, instance admin, unsubscribe).",
 "F44": "The fact the two destinations gate on is already on the carrier from the single nav_identity read (ADR-IW-002) and already gates the Integrations item, so P2 needs no new lookup, no new field and no second reader of the same fact.",
 "F45": "The one owner of every rail member. The three moved destinations gain the mark conditions, two of them gain the rights condition; no member is renamed or moved and the glyph-and-word shape of each one is kept.",
