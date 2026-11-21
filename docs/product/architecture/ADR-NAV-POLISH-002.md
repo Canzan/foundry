@@ -1,5 +1,5 @@
 # NAV\-POLISH\-002 Rail text\-plus\-glyph controls owe text contrast\, not a boundary
-Status: Accepted
+Status: Superseded by NAV-POLISH-006
 
 ## Context
 

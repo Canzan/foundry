@@ -33,7 +33,7 @@ User decision 2026-11-20: the UI clean-up covers groups A to D, delivered as thr
 #### K4
 
 ```text
-User decision 2026-11-20: a rail control that draws a glyph and its own word is exempt from the WCAG 1.4.11 boundary rule, exactly as the rail links are. Its text must still obey the WCAG 1.4.3 text-contrast rule.
+User decision 2026-11-20: a control inside the left rail is exempt from the WCAG 1.4.11 boundary rule in EVERY layout, exactly as the rail links are. The exemption follows rail membership, not whether the control happens to draw a word, so it holds in the narrowed rail and at phone width where Sign out and the theme control draw only a glyph. Wherever a rail control draws its word, that word still obeys the WCAG 1.4.3 text-contrast rule against the surface behind it.
 ```
 
 #### K5
@@ -132,12 +132,12 @@ Extend
 Mark conditions on the three moved members, the workspace-admin condition on two of them, and the sign-out submit joins the item presentation.
 ```
 
-crates\/foundry\-app\/static\/css\/foundry\.b3a70ff6\.css
+crates\/foundry\-app\/static\/css\/foundry\.2f9e0cb1\.css
 
 Extend
 
 ```text
-Sticky rail with its scroll container on the open geometry alone and overflow: visible on the folded geometry, phone glyph geometry, the clipped workspace name and the quiet lower group. The file carries the sha256 prefix of its own bytes, so any further change renames it again and removes the old name.
+Sticky rail with its scroll container on the open geometry alone, overflow: visible and an explicit paint level on the folded geometry, phone glyph geometry, the clipped workspace name and the quiet lower group. The file carries the sha256 prefix of its own bytes, so any further change renames it again and removes the old name.
 ```
 
 crates\/foundry\-app\/templates\/base\.html
@@ -293,7 +293,7 @@ Phone bar height: below the 480 px breakpoint the bar draws the GLYPH geometry i
 ```
 
 ```text
-Quiet lower group: the sign-out submit and the JS-built .theme-toggle take the presentation of their neighbour links, .sidebar__user a - transparent fill over the rail surface, --cz-muted text, 5 px radius, no border, no bold - so the global black button fill no longer reaches the rail, and no fill or border makes either control the heaviest thing in the nav. Both controls draw a glyph and their own word, like those neighbour links. The border .theme-toggle carried for WCAG 1.4.11 goes with the user decision of 2026-11-20: a rail control drawn as text plus an icon is exempt from the boundary rule, exactly as the rail links are. The text of both controls keeps the WCAG 1.4.3 obligation at the --cz-muted tier the theme lane already walks. The quiet presentation satisfies no boundary property by itself: the shipped canzan-theme-system walk skips a transparent fill, reads 1:1 for a fill equal to the surface, counts a zero-width border as none and reads no third property. That walk enumerates BUTTONS, so it cannot read the exemption, and the acceptance designer migrates the scope of that law for a rail control drawn as text plus an icon. The button role, aria-label, title and click behaviour of the theme control are untouched, and the shared .sidebar__user :focus-visible rule is untouched, so the selection ring still reads as a shape.
+Quiet lower group: the sign-out submit and the JS-built .theme-toggle take the presentation of their neighbour links, .sidebar__user a - transparent fill over the rail surface, --cz-muted text, 5 px radius, no border, no bold - so the global black button fill no longer reaches the rail, and no fill or border makes either control the heaviest thing in the nav. The border .theme-toggle carried for WCAG 1.4.11 goes with the user decision of 2026-11-20: a control INSIDE THE RAIL is exempt from the boundary rule in every layout, exactly as the rail links are. The exemption follows rail MEMBERSHIP, not a drawn word, because the rail has three layouts and the same unchanged control draws its word in only one of them: the open desk rail draws glyph and word, the narrowed rail draws the glyph and reveals the word on hover or focus, and at phone width Sign out draws the glyph alone. A word-keyed exemption would give one control two different answers in two layouts and would owe a 3:1 boundary exactly where the rail is narrowest. The text of a rail control keeps the WCAG 1.4.3 obligation wherever it is DRAWN: against the rail surface in the open layout and against the flyout surface where the narrowed rail reveals it; a clipped word is not drawn and is not read for a ratio. The quiet presentation satisfies no boundary property by itself: the shipped canzan-theme-system walk skips a transparent fill, reads 1:1 for a fill equal to the surface, counts a zero-width border as none and reads no third property. That walk enumerates BUTTONS inside .app-shell, so it cannot read the exemption, and the acceptance designer migrates its scope to DOM containment in the rail element the sidebar partial renders. A control inside .app-shell but outside the rail keeps the 3:1 rule, whether or not it draws a word. The button role, aria-label, title and click behaviour of the theme control are untouched, and the shared .sidebar__user :focus-visible rule is untouched, so the selection ring still reads as a shape.
 ```
 
 ```text
@@ -388,7 +388,7 @@ The one owner of every rail member. The three moved destinations gain the mark c
 
 sidebar\_\_label
 
-crates\/foundry\-app\/static\/css\/foundry\.b3a70ff6\.css\:1114
+crates\/foundry\-app\/static\/css\/foundry\.2f9e0cb1\.css\:1153
 
 Reuse
 
@@ -436,7 +436,7 @@ Extend
 The one live reading of the rail already returns each member box, its visibility, its accessible name and which member is marked; the sticky and phone-height readings are two more fields of the SAME probe, so a geometry fact and a mark fact cannot come from two moments. Acceptance support, owned by the acceptance designer.
 ```
 
-foundry\.b3a70ff6\.css
+foundry\.2f9e0cb1\.css
 
 crates\/foundry\-app\/templates\/base\.html\:6
 
@@ -446,7 +446,7 @@ Extend
 The serving reader of the stylesheet name. The link carries the content hash, with no new head member and no second stylesheet.
 ```
 
-foundry\.b3a70ff6\.css
+foundry\.2f9e0cb1\.css
 
 crates\/foundry\-app\/static\/VENDOR\.md\:33
 
@@ -476,6 +476,16 @@ Extend
 The shipped rail-member law already enumerates members from the partial; the new mark-comes-from-the-carrier obligation joins it as a sibling rule rather than a second gate over the same file.
 ```
 
+lane\-menu\-trigger
+
+crates\/foundry\-app\/templates\/partials\/board\_columns\.html\:44
+
+Reuse
+
+```text
+The outside-rail control the boundary reading is anchored on: every column renders one, it sits outside the rail aside, and it carries its own 1 px --cz-muted border, so it is read for 3:1 and meets it. Consulted owner, read and not edited by this Request; the walk classifies it by DOM containment, and its ellipsis character is text rather than a glyph element.
+```
+
 ##### Impact
 
 rust\-module
@@ -500,12 +510,12 @@ Mark conditions on three members, the workspace-admin condition on two of them, 
 
 stylesheet
 
-crates\/foundry\-app\/static\/css\/foundry\.b3a70ff6\.css\:984
+crates\/foundry\-app\/static\/css\/foundry\.2f9e0cb1\.css\:1021
 
 Migrated
 
 ```text
-Sticky rail with the scroll container on the open geometry alone, overflow: visible on the folded geometry, phone glyph geometry, the clipped workspace name and the quiet lower group change the bytes, so the content-hashed name changes with them and the old name is removed in the same change.
+Sticky rail with the scroll container on the open geometry alone, overflow: visible and an explicit z-index on the rail, phone glyph geometry, the clipped workspace name and the quiet lower group change the bytes, so the content-hashed name changes with them and the old name is removed in the same change.
 ```
 
 template\-head
@@ -665,7 +675,7 @@ crates\/foundry\-acceptance\/tests\/features\/canzan\-theme\-system\.feature\:15
 Migrated
 
 ```text
-Its two control-boundary rows demand 3:1 from every visible button inside .app-shell, so they refuse the quiet sign-out submit and the quiet theme control: the crafter measured 0.00:1 in the dark palette and the same in the light one. The user decision of 2026-11-20 exempts a rail control drawn as text plus an icon from that boundary rule and keeps its text-contrast duty, so the scope of this law changes. The acceptance designer owns these rows and migrates them; the lane is a support of this slice, never a production target. The focus-ring row, the body-text rows and the token-seam row stay true and are not edited.
+Its two control-boundary rows demand 3:1 from every visible button inside .app-shell, so they refuse the quiet sign-out submit and the quiet theme control: the crafter measured 0.00:1 in the dark palette and the same in the light one. The user decision of 2026-11-20 exempts a control INSIDE THE RAIL from that boundary rule in every layout and keeps its text-contrast duty wherever its word is drawn, so the scope of this law changes and the lane owes a row for the narrowed rail and for the phone layout, where a rail control draws only a glyph. The same rows keep the outside-rail reading honest on a board page, where the lane-actions trigger every column renders is read for 3:1 and meets it. The acceptance designer owns these rows and migrates them; the lane is a support of this slice, never a production target. The focus-ring row, the body-text rows and the token-seam row stay true and are not edited.
 ```
 
 acceptance\-oracle
@@ -685,7 +695,7 @@ crates\/foundry\-acceptance\/src\/steps\/feature\_canzan\_theme\.rs\:2264
 Migrated
 
 ```text
-CONTROL_BOUNDARY_PROBE and its assertion hold the enumeration the two migrated rows read: button, .button and submit input inside .app-shell. The exemption for a rail control that draws a glyph and its own word belongs here, together with the text-contrast reading that replaces the boundary reading for those two controls. Owner: acceptance designer.
+CONTROL_BOUNDARY_PROBE and its assertion hold the enumeration the migrated rows read: button, .button and submit input inside .app-shell. Two changes belong here. The exemption predicate becomes DOM containment in the rail element the sidebar partial renders - the inTheNav fact the probe already reports - instead of containment AND a glyph AND a non-empty word, and the text-contrast reading replaces the boundary reading wherever a rail control word is drawn, against the rail surface in the open layout and against the flyout surface in the narrowed one. The anti-vacuity floor then has to change with it: a count of glyph-only controls loses its last member once the rail is exempt as a whole, because no control outside the rail answers that shape, so the floor becomes at least one control OUTSIDE the rail read for the 3:1 boundary. Owner: acceptance designer.
 ```
 
 acceptance\-oracle
@@ -750,7 +760,7 @@ NavContext.is_workspace_admin is the one presentation projection of that fact, a
 
 The served stylesheet filename carries the sha256 prefix of its own bytes\, and every reader names the same filename\.
 
-crates\/foundry\-app\/static\/css\/foundry\.b3a70ff6\.css\:1
+crates\/foundry\-app\/static\/css\/foundry\.2f9e0cb1\.css\:1
 
 Producer
 
@@ -1243,7 +1253,7 @@ None.
 ###### L7
 
 ```text
-In the lower group the sign-out submit and the theme control resolve to the same fill as the rail surface, no border their neighbour links lack and the same text tier and weight as those links; and both still act - one press of Sign out ends the session, one press of the theme control changes the palette. Each control draws a glyph and its own visible word, and that text reaches 4.5:1 against the surface behind it in both palettes; neither control owes a 3:1 fill or border boundary, because a rail control drawn as text plus an icon is exempt from WCAG 1.4.11. A control inside .app-shell that draws no visible word keeps the boundary rule.
+In the lower group the sign-out submit and the theme control resolve to the same fill as the rail surface, no border their neighbour links lack and the same text tier and weight as those links; and both still act - one press of Sign out ends the session, one press of the theme control changes the palette. NO CONTROL INSIDE THE RAIL OWES A 3:1 FILL OR BORDER BOUNDARY, in any layout: the exemption follows rail MEMBERSHIP, as it already does for the rail links, and not whether a word happens to be drawn, so it holds in the open desk layout, in the narrowed rail where both controls draw only a glyph, and at phone width where Sign out draws only a glyph. Wherever a rail control DRAWS its word, that word reaches 4.5:1 against the surface behind it in both palettes - the rail surface in the open layout, the flyout surface where the narrowed rail reveals it. EVERY control inside .app-shell but OUTSIDE the rail is read for the 3:1 boundary and meets it, whether or not it draws a word, and at least one such control is read on every board page the law runs on.
 ```
 
 Invariant
@@ -1259,11 +1269,11 @@ Finite
 ###### Cases
 
 ```text
-light palette: sign-out fill equals the rail surface, border width 0, colour and weight equal a neighbour link
+light palette, open desk layout: sign-out fill equals the rail surface, border width 0, colour and weight equal a neighbour link
 ```
 
 ```text
-dark palette: the same, through the re-bound tokens
+dark palette, open desk layout: the same, through the re-bound tokens
 ```
 
 ```text
@@ -1279,15 +1289,27 @@ scripting off: no theme control exists and the sign-out submit alone carries the
 ```
 
 ```text
-both palettes: the sign-out word and the theme-control word each reach 4.5:1 against the rail surface, and neither control is read for a fill or border boundary
+both palettes, open desk layout: the sign-out word and the theme-control word each reach 4.5:1 against the rail surface, and neither control is read for a fill or border boundary
 ```
 
 ```text
-a button inside .app-shell with no visible word, for example a glyph-only icon button: the 3:1 fill or border boundary still holds for it
+narrowed rail, both palettes: Sign out and the theme control draw only a glyph and are still read for no fill or border boundary; the word each one reveals reaches 4.5:1 against the flyout surface behind it
 ```
 
 ```text
-Two controls, two palettes and one with-scripting / without-scripting split, plus the exempt and the non-exempt shape: a closed enumeration of readings on one document.
+phone device, both palettes: Sign out draws only a glyph and is still read for no fill or border boundary; its word is clipped and not drawn, so no text ratio is read for it there
+```
+
+```text
+the lane-actions trigger on a board page, .lane-menu-trigger in partials/board_columns.html, is outside the rail, so it IS read for the 3:1 boundary in both palettes and meets it by its own 1 px --cz-muted border; a board page always renders at least one column, so the reading always has this member
+```
+
+```text
+the floor: on each board page the law runs on, AT LEAST ONE control outside the rail was read for the 3:1 boundary; a reading in which every control has left the boundary reading is red, whatever the controls look like
+```
+
+```text
+Two controls, two palettes, the with-scripting and without-scripting split, the three layouts the rail has - open desk, narrowed desk, phone - and the outside-rail reading with its floor: a closed enumeration of readings on one document. The exemption is read as DOM containment in the rail element the sidebar partial renders, the aside that holds #sidebar-nav, never as the control own class or fill and never as whether a word is drawn. Two consequences for the walk, both owned by the acceptance designer: the nav-collapse toggle is mounted into .sidebar__brand inside that aside, so it becomes exempt with the other rail controls; and the floor can no longer be a count of glyph-only controls, because after the exemption widens no control outside the rail answers that shape - the lane-actions trigger draws an ellipsis character, not a glyph element, so the walk reads its glyph flag as false and its word as non-empty. The floor is therefore a control OUTSIDE THE RAIL being read at all. An open modal gives a second such control, .modal-close in partials/edit_lane_modal.html and partials/delete_issue_modal.html, if a board page ever stops rendering a column.
 ```
 
 ###### Evidence
@@ -1391,7 +1413,7 @@ The quiet lower group satisfies the shipped canzan-theme-system control-boundary
 ```
 
 ```text
-Law scope, not the stylesheet. The shipped walk enumerates every visible button inside .app-shell and asks for 3:1 from the better of the own opaque fill and the border. It skips a transparent fill, counts a zero-width border as none and reads no third property, so the text-plus-icon argument never reaches the checker. The theme control has no escape at all, because its fill is the very surface it is measured against. Only the scope of that law can change, and only the acceptance designer owns it.
+Law scope, not the stylesheet. The shipped walk enumerates every visible button inside .app-shell and asks for 3:1 from the better of the own opaque fill and the border. It skips a transparent fill, counts a zero-width border as none and reads no third property, so the text-plus-icon argument never reaches the checker. The theme control has no escape at all, because its fill is the very surface it is measured against. Only the scope of that law can change, and only the acceptance designer owns it: the scope becomes rail MEMBERSHIP, which gives the same answer in every layout, the narrowed rail and the phone bar included, where the word is not drawn at all.
 ```
 
 ```text
@@ -2141,23 +2163,23 @@ crafter
 Bypass
 
 ```text
-The 1.4.11 exemption is a scope rule inside the acceptance walk, not a property of the stylesheet. A future rail control can drop its visible word, and a new quiet button can be added inside the rail. No Rust type and no gate refuses either one.
+The 1.4.11 exemption is a scope rule inside the acceptance walk, not a property of the stylesheet, and it now keys on rail MEMBERSHIP. Any control later placed inside the rail element inherits the exemption with no boundary of its own - the nav-collapse toggle, mounted into .sidebar__brand, already does - and a control moved out of the rail loses it silently. No Rust type and no gate refuses either move.
 ```
 
 ```text
-Every rail control that draws a glyph and its own word keeps the WCAG 1.4.3 text ratio, and every other button inside .app-shell keeps the 3:1 fill or border rule.
+Every control inside .app-shell but outside the rail is still read for the 3:1 fill or border rule and meets it, and every rail control word that is actually drawn keeps the WCAG 1.4.3 text ratio against the surface behind it.
 ```
 
 ```text
-A glyph-only rail control is read for the boundary rule and stays red until it carries a fill or a border.
+A new rail control may ship quiet, with no fill and no border, in every layout.
 ```
 
 ```text
-An exemption that reads the fill, the tag or the class instead of the visible word, because that skips every transparent button in the shell.
+An exemption read from the control own class, tag or fill, or from whether a word is drawn: the first skips every quiet button in the shell, and the second gives one unchanged control two different answers in two layouts.
 ```
 
 ```text
-The migrated walk reads the visible word of the control, so the exemption cannot widen by itself. The L7 case that keeps the boundary rule for a button with no visible word is the standing check.
+The floor inside the walk: at least one control OUTSIDE the rail is read for the 3:1 boundary on every board page the law runs on, anchored on the lane-actions trigger that every column renders. It is a reading, not a count of a shape, so it goes red the moment the exemption widens past the rail and the outside-rail controls leave the reading. Owner: acceptance designer.
 ```
 
 acceptance\-designer
@@ -2235,7 +2257,9 @@ None.
 ## ADRs
 
 - NAV\-POLISH\-001 Nav marks its own page and offers only what opens — Superseded by NAV-POLISH-003
-- NAV\-POLISH\-002 Rail text\-plus\-glyph controls owe text contrast\, not a boundary — Accepted
+- NAV\-POLISH\-002 Rail text\-plus\-glyph controls owe text contrast\, not a boundary — Superseded by NAV-POLISH-006
 - NAV\-POLISH\-003 Nav marks an offered member and the rail keeps its flyout — Superseded by NAV-POLISH-004
 - NAV\-POLISH\-004 The rail carries its own paint level above page content — Accepted
 - NAV\-POLISH\-005 Unobservable rail\-identity failure is closed by model and unit test — Accepted
+- NAV\-POLISH\-006 Rail controls are exempt from the boundary rule in every layout — Superseded by NAV-POLISH-007
+- NAV\-POLISH\-007 The boundary floor is an outside\-rail reading\, not a glyph count — Accepted
