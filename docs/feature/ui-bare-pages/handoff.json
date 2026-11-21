@@ -1,9 +1,252 @@
 {
+"acceptance": {
+"S1": [
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F139",
+"L1/F140",
+"L1/F141",
+"L1/F142",
+"L8/F305",
+"L8/F306",
+"L8/F307"
+],
+"still_passes_if": "F345",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: What a client asking for the shortcut list is given"
+},
+"expected": "F343",
+"stimulus": "F342",
+"user_result": "F344"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2/F145",
+"L2/F146",
+"L2/F147"
+],
+"still_passes_if": "F349",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: The page and the overlay advertise the same shortcuts"
+},
+"expected": "F347",
+"stimulus": "F346",
+"user_result": "F348"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F139",
+"L3/F156"
+],
+"still_passes_if": "F353",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: Opening the shortcut list from the nav, each key sits beside what it does"
+},
+"expected": "F351",
+"stimulus": "F350",
+"user_result": "F352"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3/F150",
+"L3/F151",
+"L3/F152",
+"L3/F153",
+"L3/F154",
+"L3/F155",
+"L3/F156"
+],
+"still_passes_if": "F357",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: Signed out, what she came for sits in one centred card under the product name"
+},
+"expected": "F355",
+"stimulus": "F354",
+"user_result": "F356"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3/F150"
+],
+"still_passes_if": "F361",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: The sign-in card holds on a screen that asks for the dark palette"
+},
+"expected": "F359",
+"stimulus": "F358",
+"user_result": "F360"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F159",
+"L4/F160",
+"L4/F161",
+"L4/F162",
+"L4/F163",
+"L4/F164",
+"L4/F165"
+],
+"still_passes_if": "F365",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: The browser is told what each sign-in and password field holds"
+},
+"expected": "F363",
+"stimulus": "F362",
+"user_result": "F364"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F168",
+"L5/F170",
+"L5/F171"
+],
+"still_passes_if": "F369",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: An issue's own page shows its key, its title, what she wrote and where it sits"
+},
+"expected": "F367",
+"stimulus": "F366",
+"user_result": "F368"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F169"
+],
+"still_passes_if": "F373",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: An issue with nothing written down still has one place for it"
+},
+"expected": "F371",
+"stimulus": "F370",
+"user_result": "F372"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6",
+"L6/F175",
+"L6/F176",
+"L6/F177",
+"L6/F178"
+],
+"still_passes_if": "F377",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature::Whatever she wrote in the description is shown as she wrote it"
+},
+"expected": "F375",
+"stimulus": "F374",
+"user_result": "F376"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F168"
+],
+"still_passes_if": "F381",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: Deleting from an issue's own page still asks her to confirm"
+},
+"expected": "F379",
+"stimulus": "F378",
+"user_result": "F380"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F168"
+],
+"still_passes_if": "F385",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: The other controls on an issue's own page are drawn like Foundry's own"
+},
+"expected": "F383",
+"stimulus": "F382",
+"user_result": "F384"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L3/F150"
+],
+"still_passes_if": "F389",
+"test": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature"
+},
+"expected": "F387",
+"stimulus": "F386",
+"user_result": "F388"
+},
+{
+"covers": [
+"P1",
+"P2",
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"T1",
+"T2",
+"T3"
+],
+"still_passes_if": "F393",
+"test": "cargo xtask check-arch :: asset-reference, asset-hash, colour-token and pre-paint-script layers"
+},
+"expected": "F391",
+"stimulus": "F390",
+"user_result": "F392"
+}
+]
+},
 "counters": {
 "B": 3,
 "C": 3,
 "E": 11,
-"F": 341,
+"F": 393,
 "K": 4,
 "L": 8,
 "N": 3,
@@ -1671,11 +1914,63 @@
 "F34": "Shortcut page and overlay from ONE route. GET /keyboard-help keeps one URL and one row source. The arm is decided from the destination the CLIENT declares in its Sec-Fetch-Dest request header: the document destination, which only a top-level navigation carries, answers a framed page; every other declared destination and an absent header answer the bare fragment the route serves today, which is what keyboard.js assigns into the overlay host and what the shipped HTTP-lane read asserts. Page script cannot set that header, so the arm follows a property of the request rather than a name a caller picks. Carrier: a two-variant private enum HelpVariant in crates/foundry-app/src/keyboard.rs, decided once by a total private fn help_variant(headers) that answers Fragment for every input it does not recognise; the per-request state is that one value; no effects and no new error. Rows: one private fn shortcut_entries() over the SHORTCUTS table feeds both arms, so the two arms cannot advertise different lists. Layers. Domain: none, this is presentation. Application: none, the route stays public and stateless, so no session read and no rail. Adapter: partials/keyboard_shortcut_rows.html owns the shortcut rows and the selection instruction; partials/keyboard_help.html keeps the dialog container and includes them; keyboard_help_page.html extends the card page and includes the same rows under its own h1. Observation: the response body shape and the rows it lists.",
 "F340": "Fill-and-match across two fields and the single save offer live in the manager, not on the page, so a capture of the page shows neither. The operator sees nothing wrong until the manager fills the wrong value or saves the confirmation separately.",
 "F341": "A real browser with a password manager on a pending invite and on a reset link, with a capture of both fields after fill and of the save prompt.",
+"F342": "A client asks for the keyboard shortcut list four ways: opening it as a page, fetching it as a script, loading it as a frame, and declaring nothing about where the answer goes.",
+"F343": "Only the client opening a page is given a full styled page carrying the shortcut rows under its own heading; the other three are given the bare labelled list a live page writes into itself, and every one of the four answers tells a cache that it depends on what the client declared.",
+"F344": "Opening the shortcut list lands the operator on a page that looks like Foundry, the list she opens over her board keeps working, and no cache between her and the application can hand one of them the other's body.",
+"F345": "The page arm is framed but advertises its rows in another order, which the row-identity reading catches instead.",
+"F346": "The same shortcut address is asked for once as a page and once as a script fetching it, and the shortcuts each answer advertises are read out of both.",
+"F347": "Both answers advertise exactly the seven shipped shortcuts in the shipped order, and they advertise the identical rows as each other.",
+"F348": "The operator learns one set of keys, whichever way she reads it, and a key she is told about is a key she can press.",
+"F349": "Both bodies keep advertising a key the client no longer binds, because what a key does in the browser is read by the shipped keyboard lane.",
 "F35": "ONE chrome-less page frame for the signed-out family and the shortcut page. New templates/card_page.html extends base.html and renders one main.page-card holding a product-name line and then its own content block. signin.html, forgot.html, forgot_sent.html, bootstrap_claim.html, invite_accept.html, reset_password.html and the new keyboard_help_page.html extend it instead of base.html; each keeps its own h1, its own copy and its own form action, method, hidden fields and inputs unchanged. The product name is a brand LINE, not a heading, so every page keeps exactly one h1 and the shipped heading reads do not move. No sidebar partial and no theme control is included, because the shipped theme read asserts the sign-in screen has neither. Stylesheet: one .page-card block, centred with auto inline margins and a max inline size, on the raised surface tier the dashboard cards already use, and full width inside the page padding below the shipped phone breakpoint. Layers: Adapter only; no Rust carrier and no view-model field changes.",
+"F350": "The operator follows the nav to the keyboard shortcut list at desk width, and opens the same list on a 390 by 844 phone.",
+"F351": "Every shortcut key is painted on the same line as what it does, beside it rather than above it, and the instruction about choosing a card is drawn below the whole list.",
+"F352": "She reads each key and its meaning as one pair, on a desk and on a phone, instead of matching a key to a line below it.",
+"F353": "The pairs sit on one line in a type that is not the application's own, because the look an operator judges by eye is examined rather than measured.",
+"F354": "Signed out, with no session at all, the operator looks at sign-in, the forgotten-password page, the check-your-email page she is sent to, the first-admin claim, the invitation page where she sets her password, the page where she chooses a new password, and the public shortcut list, each at desk width and each on a 390 by 844 phone.",
+"F355": "Each one is a whole document whose own stylesheet the browser resolved, drawing exactly one painted card around what she came for, with the product name above the page's single heading inside that card, centred with a margin she can see at desk width and filling the width inside the page padding on the phone, nothing running off the side of the screen, and no navigation rail and no palette control anywhere on it.",
+"F356": "Every page she can land on signed out reads as one family of Foundry pages that name the product, instead of a form stretched across the window.",
+"F357": "The card is centred and named at the two widths read here while a third width between them draws it differently, because only these two are measured.",
+"F358": "The operator looks at the sign-in page on a screen that asks for the dark palette.",
+"F359": "The painted card and the product name above the heading are there as they are in the light palette, and the page still offers no navigation rail and no palette control.",
 "F36": "The issue page reads as the issue. views::IssuePage gains title, description, status_slug and status_chip; comments.rs::render_issue_page fills them from ONE existing read, store::issue_edit_view over the project and number the handler already resolved, so there is no new SQL, no new store function and no new authorization decision. issue.html keeps its h1 holding the issue key alone, because a shipped browser read asserts that heading text EQUALS the key; the title takes its own h2 and the status sits beside the key. The description region is ALWAYS present: the stored text, escaped by the template engine and wrapped with preserved line breaks, or the empty copy, matching the shipped attachment and comment empty states. The comment markdown sanitizer in foundry-core is deliberately NOT consumed here: rendering issue markdown would add a product promise and a second consumer of that sanitizer, which a visual pass does not hold. The status element is the shipped chip: the handler renders it through issues.rs::render_state_chip and the template embeds the string with the no-escape filter, exactly as base.html embeds the site footer, so the chip markup keeps one owner and its data-state is the stored slug. The Delete anchor keeps its href mechanism and its data-action marker and takes the shipped secondary-button presentation; the upload form label and its file input take the stylesheet's own control tokens. Layers. Domain: none. Application: show_issue reads one more projection of the issue it already resolved, and a gap between the two reads refuses rather than renders a blank issue. Adapter: issue.html plus the title, description, status-chip and file-input rules. Observation: the page text and the chip's data-state.",
+"F360": "An operator whose screen is dark gets the same named card as everyone else, not a page whose frame disappeared.",
+"F361": "The card is drawn in a colour that is legible nowhere, because the palette's own contrast is read by the shipped theme lane.",
+"F362": "A visitor opens sign-in, the first-admin claim, the invitation page where she sets her password, the page where she chooses a new password, and the forgotten-password page, and the intent each named field declares is read off the served page.",
+"F363": "The sign-in email declares her username and its password her current password; the claim email declares her username and its password a password she is creating; both fields of the invitation page and both of the password-reset page declare a password she is creating; and the forgotten-password email declares nothing.",
+"F364": "Her password manager fills the sign-in form she returns to, and offers to generate and save a new password where she is creating one, instead of offering her an old secret or nothing at all.",
+"F365": "A particular password manager ignores what the page declares, which no page can control and no reading here can see.",
+"F366": "A member opens the full page of her own issue, once for each place an issue can sit, the issue carrying a title and a description written over two lines.",
+"F367": "The page is headed by the issue key alone, shows the stored title in a heading of its own, shows the stored description whole with its line breaks and as text rather than markup, and shows exactly one status chip of the shipped shape whose marked state and whose word are both the stored state.",
+"F368": "She reads the issue on its own page: what it is called, what it says, and where it sits, without opening a dialog or going back to the board.",
+"F369": "The chip shows the stored state as the stored word rather than a human label, which is the decision of 2026-11-21 and not a defect.",
 "F37": "Autocomplete by flow on the eight named inputs: on signin.html the email takes username and the password takes current-password; on bootstrap_claim.html the email takes username and the password takes new-password, because that form CREATES the first admin's password and current-password there makes a password manager offer a stored secret instead of generating and saving one; on invite_accept.html and reset_password.html the password and its confirmation both take new-password. No other input in the repository gains a token in this Request. Every input keeps its type, name, required flag and order, so each shipped form POST, each hidden token and each server-side validation is untouched. Layers: Adapter only; no carrier and no state.",
+"F370": "A member opens the page of an issue nobody has described yet, beside the page of one that has a description.",
+"F371": "The page that has a description holds exactly one place carrying that text; the page of the undescribed issue holds exactly one place of the same shape, and that place carries copy rather than being blank or absent.",
+"F372": "She can tell an issue nobody has described from a page that failed to show her the description.",
+"F373": "The empty copy is worded differently from the attachment and comment empty states, because the wording itself is not pinned.",
+"F374": "Descriptions of every shape are written as the operator would write them, from a recorded seed and always including nothing at all, something that looks like a script, two lines ended the way a browser ends them, and one unbroken word of four thousand letters; each issue's own page is then opened.",
+"F375": "Every page shows that description whole, with its line breaks kept, with every character of it drawn as text and nothing of it as markup, and with no live script of hers anywhere in the document.",
+"F376": "Whatever she writes in a description is what she reads back, however long it is and whatever it looks like, and nothing she writes can run in anyone's browser.",
+"F377": "A description wider than the page is wrapped rather than cut, because no authority bounds its length and no pixel bound is read here.",
+"F378": "A member follows Delete from her issue's own page.",
+"F379": "Exactly one Delete control is offered, it carries the address that is its whole mechanism, and following that address answers the page that asks her to confirm before anything is deleted.",
 "F38": "ONE content-hash migration. The served stylesheet is the only file whose NAME changes: its bytes change, so the shipped asset-hash rule requires the name to carry the sha256 prefix of the new bytes, and the rename travels in the same commit to its three readers, the link in templates/base.html, the row and sha256 in static/VENDOR.md, and the three cache-policy assertions in crates/foundry-app/src/lib.rs. The shipped check-arch refuses a /static reference that does not resolve and a content-hashed name that is not its own hash, so a half-done rename is caught by the gate rather than by review.",
+"F380": "Styling the control does not cost her the way out of it: one press still asks her first, with scripting on or off.",
+"F381": "The confirm page itself is restyled, because this reading is about reaching it.",
+"F382": "A member looks at her issue's own page in a real browser.",
+"F383": "Delete is painted as one of the application's own controls, with room around its word and a surface or an edge of its own rather than a bare underlined link, and the control for attaching a file is painted in the same type as the page around it.",
+"F384": "The controls beside her issue look like they belong to Foundry, not like the browser's own leftovers.",
+"F385": "The controls are styled in a way an operator would still call ugly, because looking right is examined by eye and not measured here.",
+"F386": "The shipped palette sweep walks the board, the dashboard, an issue, the shortcut list and the sign-in screen in both palettes.",
+"F387": "The overlay still draws its keycaps and its muted meanings over the scrim, and the sign-in screen still carries no rail and no palette-named control.",
+"F388": "The list she opens over her board looks exactly as it did, and the new card frame costs the sign-in screen nothing.",
+"F389": "The overlay keeps its colours while the page arm draws different ones, which the shortcut-page readings catch instead.",
 "F39": "The shortcut rows are styled ONCE for both arms. The row rules move off the overlay-host prefix onto the rows' own class with the SAME declarations, so the overlay keeps the computed keycap background, keycap border and muted description colour the shipped theme read measures, and the navigated page gets the same rows. The overlay-only chrome stays scoped to the host: the fixed scrim on the non-empty host and the raised card on the dialog container, because on the page that chrome is the card page's own. This is why the navigated page draws browser-default serif with each key on its own line today: every shipped shortcut rule is host-scoped.",
+"F390": "The repository's own architectural gate is run over the application tree.",
+"F391": "Every static reference resolves on disk and every content-hashed filename is the sha256 prefix of its own bytes; no colour literal lives outside the three stylesheet token regions and those regions declare the identical token set; the pre-paint head scripts carry none of the deferring attributes and every other head script defers.",
+"F392": "The restyled pages reach her with a stylesheet that is actually there, in the palette tokens the rest of the application uses, and with no flash of the wrong palette on the way.",
+"F393": "A stylesheet rule is wrong in a way no gate parses, because the file has no linter and no CSS parser in the gate.",
 "F4": "Sign in and every other signed-out page (first-admin claim, invite accept, password reset) show their form in one centred card under the product name, not stretched across the window, at desk and phone width.",
 "F40": "Claim-to-checker. The one claim with a state-and-arm algebra is the help-variant decision and the row identity between the arms, a closed one-step function over the four destinations a client can declare, so Quint carries it at docs/feature/ui-bare-pages/design/keyboard_help_variant.qnt, verified exhaustively with the TLA-backed backend; TLA+ is not needed because there is no temporal or fairness claim, and Agda is not needed because no proof over an open domain is claimed. No model for the card geometry, the autocomplete tokens or the issue page content: each names no shared state, no multi-step protocol, no concurrency and no crash window, and each domain is the closed set of named pages or named inputs the finite laws enumerate. The one broad domain is the stored description text, carried by a generated property over the page render rather than by a model.",
 "F41": "Scope out stays out: app_shell.html, partials/sidebar.html, the board header, the issue dialog's Delete control and the general form, label and section-heading sizing belong to the next Request, ui-page-frame. The card's own max inline size is the only width rule this Request adds, and no rule changes who may open a page or what a form does.",

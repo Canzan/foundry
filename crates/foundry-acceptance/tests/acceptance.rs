@@ -149,6 +149,8 @@ use foundry_acceptance::steps::feature_team_membership_default_team as _feature_
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_token_management_api as _feature_tma;
 #[allow(unused_imports)]
+use foundry_acceptance::steps::feature_ui_bare_pages as _feature_ui_bare_pages;
+#[allow(unused_imports)]
 use foundry_acceptance::steps::feature_ui_nav_polish as _feature_ui_nav_polish;
 #[allow(unused_imports)]
 use foundry_acceptance::steps::feature_web_provisioning_flow as _feature_web_provisioning;

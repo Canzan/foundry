@@ -67,6 +67,7 @@ pub mod steps {
     pub mod feature_team_membership;
     pub mod feature_team_membership_default_team;
     pub mod feature_token_management_api;
+    pub mod feature_ui_bare_pages;
     pub mod feature_ui_nav_polish;
     pub mod feature_web_provisioning_flow;
     pub mod handler_instrumentation;

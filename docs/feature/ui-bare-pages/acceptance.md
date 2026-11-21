@@ -2,7 +2,417 @@
 
 ## Slices
 
-None.
+### S1
+
+##### Covers
+
+P1
+
+```text
+A client asks for the keyboard shortcut list four ways: opening it as a page, fetching it as a script, loading it as a frame, and declaring nothing about where the answer goes.
+```
+
+```text
+Only the client opening a page is given a full styled page carrying the shortcut rows under its own heading; the other three are given the bare labelled list a live page writes into itself, and every one of the four answers tells a cache that it depends on what the client declared.
+```
+
+```text
+Opening the shortcut list lands the operator on a page that looks like Foundry, the list she opens over her board keeps working, and no cache between her and the application can hand one of them the other's body.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: What a client asking for the shortcut list is given
+
+```text
+The page arm is framed but advertises its rows in another order, which the row-identity reading catches instead.
+```
+
+###### Obligations
+
+
+
+
+
+
+
+
+##### Covers
+
+P1
+
+```text
+The same shortcut address is asked for once as a page and once as a script fetching it, and the shortcuts each answer advertises are read out of both.
+```
+
+```text
+Both answers advertise exactly the seven shipped shortcuts in the shipped order, and they advertise the identical rows as each other.
+```
+
+```text
+The operator learns one set of keys, whichever way she reads it, and a key she is told about is a key she can press.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: The page and the overlay advertise the same shortcuts
+
+```text
+Both bodies keep advertising a key the client no longer binds, because what a key does in the browser is read by the shipped keyboard lane.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P1
+
+```text
+The operator follows the nav to the keyboard shortcut list at desk width, and opens the same list on a 390 by 844 phone.
+```
+
+```text
+Every shortcut key is painted on the same line as what it does, beside it rather than above it, and the instruction about choosing a card is drawn below the whole list.
+```
+
+```text
+She reads each key and its meaning as one pair, on a desk and on a phone, instead of matching a key to a line below it.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: Opening the shortcut list from the nav\, each key sits beside what it does
+
+```text
+The pairs sit on one line in a type that is not the application's own, because the look an operator judges by eye is examined rather than measured.
+```
+
+###### Obligations
+
+
+
+##### Covers
+
+P2
+
+```text
+Signed out, with no session at all, the operator looks at sign-in, the forgotten-password page, the check-your-email page she is sent to, the first-admin claim, the invitation page where she sets her password, the page where she chooses a new password, and the public shortcut list, each at desk width and each on a 390 by 844 phone.
+```
+
+```text
+Each one is a whole document whose own stylesheet the browser resolved, drawing exactly one painted card around what she came for, with the product name above the page's single heading inside that card, centred with a margin she can see at desk width and filling the width inside the page padding on the phone, nothing running off the side of the screen, and no navigation rail and no palette control anywhere on it.
+```
+
+```text
+Every page she can land on signed out reads as one family of Foundry pages that name the product, instead of a form stretched across the window.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: Signed out\, what she came for sits in one centred card under the product name
+
+```text
+The card is centred and named at the two widths read here while a third width between them draws it differently, because only these two are measured.
+```
+
+###### Obligations
+
+
+
+
+
+
+
+
+##### Covers
+
+P2
+
+```text
+The operator looks at the sign-in page on a screen that asks for the dark palette.
+```
+
+```text
+The painted card and the product name above the heading are there as they are in the light palette, and the page still offers no navigation rail and no palette control.
+```
+
+```text
+An operator whose screen is dark gets the same named card as everyone else, not a page whose frame disappeared.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: The sign\-in card holds on a screen that asks for the dark palette
+
+```text
+The card is drawn in a colour that is legible nowhere, because the palette's own contrast is read by the shipped theme lane.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P4
+
+```text
+A visitor opens sign-in, the first-admin claim, the invitation page where she sets her password, the page where she chooses a new password, and the forgotten-password page, and the intent each named field declares is read off the served page.
+```
+
+```text
+The sign-in email declares her username and its password her current password; the claim email declares her username and its password a password she is creating; both fields of the invitation page and both of the password-reset page declare a password she is creating; and the forgotten-password email declares nothing.
+```
+
+```text
+Her password manager fills the sign-in form she returns to, and offers to generate and save a new password where she is creating one, instead of offering her an old secret or nothing at all.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: The browser is told what each sign\-in and password field holds
+
+```text
+A particular password manager ignores what the page declares, which no page can control and no reading here can see.
+```
+
+###### Obligations
+
+
+
+
+
+
+
+
+##### Covers
+
+P3
+
+```text
+A member opens the full page of her own issue, once for each place an issue can sit, the issue carrying a title and a description written over two lines.
+```
+
+```text
+The page is headed by the issue key alone, shows the stored title in a heading of its own, shows the stored description whole with its line breaks and as text rather than markup, and shows exactly one status chip of the shipped shape whose marked state and whose word are both the stored state.
+```
+
+```text
+She reads the issue on its own page: what it is called, what it says, and where it sits, without opening a dialog or going back to the board.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: An issue\'s own page shows its key\, its title\, what she wrote and where it sits
+
+```text
+The chip shows the stored state as the stored word rather than a human label, which is the decision of 2026-11-21 and not a defect.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P3
+
+```text
+A member opens the page of an issue nobody has described yet, beside the page of one that has a description.
+```
+
+```text
+The page that has a description holds exactly one place carrying that text; the page of the undescribed issue holds exactly one place of the same shape, and that place carries copy rather than being blank or absent.
+```
+
+```text
+She can tell an issue nobody has described from a page that failed to show her the description.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: An issue with nothing written down still has one place for it
+
+```text
+The empty copy is worded differently from the attachment and comment empty states, because the wording itself is not pinned.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+Descriptions of every shape are written as the operator would write them, from a recorded seed and always including nothing at all, something that looks like a script, two lines ended the way a browser ends them, and one unbroken word of four thousand letters; each issue's own page is then opened.
+```
+
+```text
+Every page shows that description whole, with its line breaks kept, with every character of it drawn as text and nothing of it as markup, and with no live script of hers anywhere in the document.
+```
+
+```text
+Whatever she writes in a description is what she reads back, however long it is and whatever it looks like, and nothing she writes can run in anyone's browser.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature\:\:Whatever she wrote in the description is shown as she wrote it
+
+```text
+A description wider than the page is wrapped rather than cut, because no authority bounds its length and no pixel bound is read here.
+```
+
+###### Obligations
+
+
+
+
+
+
+##### Covers
+
+P3
+
+```text
+A member follows Delete from her issue's own page.
+```
+
+```text
+Exactly one Delete control is offered, it carries the address that is its whole mechanism, and following that address answers the page that asks her to confirm before anything is deleted.
+```
+
+```text
+Styling the control does not cost her the way out of it: one press still asks her first, with scripting on or off.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: Deleting from an issue\'s own page still asks her to confirm
+
+```text
+The confirm page itself is restyled, because this reading is about reaching it.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+A member looks at her issue's own page in a real browser.
+```
+
+```text
+Delete is painted as one of the application's own controls, with room around its word and a surface or an edge of its own rather than a bare underlined link, and the control for attaching a file is painted in the same type as the page around it.
+```
+
+```text
+The controls beside her issue look like they belong to Foundry, not like the browser's own leftovers.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: The other controls on an issue\'s own page are drawn like Foundry\'s own
+
+```text
+The controls are styled in a way an operator would still call ugly, because looking right is examined by eye and not measured here.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+```text
+The shipped palette sweep walks the board, the dashboard, an issue, the shortcut list and the sign-in screen in both palettes.
+```
+
+```text
+The overlay still draws its keycaps and its muted meanings over the scrim, and the sign-in screen still carries no rail and no palette-named control.
+```
+
+```text
+The list she opens over her board looks exactly as it did, and the new card frame costs the sign-in screen nothing.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/canzan\-theme\-system\.feature
+
+```text
+The overlay keeps its colours while the page arm draws different ones, which the shortcut-page readings catch instead.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+P2
+
+P3
+
+```text
+The repository's own architectural gate is run over the application tree.
+```
+
+```text
+Every static reference resolves on disk and every content-hashed filename is the sha256 prefix of its own bytes; no colour literal lives outside the three stylesheet token regions and those regions declare the identical token set; the pre-paint head scripts carry none of the deferring attributes and every other head script defers.
+```
+
+```text
+The restyled pages reach her with a stylesheet that is actually there, in the palette tokens the rest of the application uses, and with no flash of the wrong palette on the way.
+```
+
+##### Disposition
+
+Tested
+
+cargo xtask check\-arch \:\: asset\-reference\, asset\-hash\, colour\-token and pre\-paint\-script layers
+
+```text
+A stylesheet rule is wrong in a way no gate parses, because the file has no linter and no CSS parser in the gate.
+```
+
+###### Obligations
+
+
+
 
 ## Expectations
 
