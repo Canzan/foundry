@@ -1,0 +1,1685 @@
+{
+"counters": {
+"B": 3,
+"C": 3,
+"F": 308,
+"K": 4,
+"L": 8,
+"N": 3,
+"P": 4,
+"S": 1,
+"T": 3,
+"Y": 8
+},
+"design": {
+"adrs": [
+{
+"key": "002",
+"status": "Superseded by BARE-PAGES-001",
+"title": "One shortcut route, two arms by declared destination"
+},
+{
+"key": "003",
+"status": "Accepted",
+"title": "One card frame owns every chrome-less page"
+},
+{
+"key": "BARE-PAGES-001",
+"status": "Accepted",
+"title": "Both shortcut arms vary on the declared destination"
+}
+],
+"paradigm": "procedural",
+"shared": {
+"constraints": [
+{
+"id": "K1",
+"text": "F9"
+},
+{
+"id": "K2",
+"text": "F10"
+},
+{
+"id": "K3",
+"text": "F293"
+},
+{
+"id": "K4",
+"text": "F294"
+}
+]
+},
+"slices": {
+"S1": {
+"oracle": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature",
+"prefactoring": {
+"existing_oracle": "crates/foundry-acceptance/tests/features/us-k01-keyboard-templating.feature",
+"move": "F32",
+"preserved": "F33",
+"verification": [
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=keyboard cargo test -p foundry-acceptance\""
+]
+},
+"public_oracle": {
+"expected": "F298",
+"falsifier": "F299",
+"promises": [
+"P1",
+"P2",
+"P3",
+"P4"
+],
+"stimulus": "F297"
+},
+"records": {
+"agreement": [
+{
+"contract": "the GET /keyboard-help response body shape",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/keyboard.rs:317",
+"party": "Producer",
+"reason": "F103"
+},
+{
+"contract": "the GET /keyboard-help response body shape",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/static/js/keyboard.js:323",
+"party": "Consumer",
+"reason": "F104"
+},
+{
+"contract": "the GET /keyboard-help response body shape",
+"decision": "Migrated",
+"locator": "crates/foundry-app/templates/partials/sidebar.html:78",
+"party": "Consumer",
+"reason": "F105"
+},
+{
+"contract": "the GET /keyboard-help response body shape",
+"decision": "Migrated",
+"locator": "crates/foundry-app/templates/dashboard_root.html:32",
+"party": "Consumer",
+"reason": "F106"
+},
+{
+"contract": "the GET /keyboard-help response body shape",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-acceptance/src/steps/us_12_keyboard_nav.rs:370",
+"party": "Consumer",
+"reason": "F107"
+},
+{
+"contract": "the content-hashed stylesheet URL under /static/css",
+"decision": "Migrated",
+"locator": "crates/foundry-app/static/css/foundry.2f9e0cb1.css:1",
+"party": "Producer",
+"reason": "F108"
+},
+{
+"contract": "the content-hashed stylesheet URL under /static/css",
+"decision": "Migrated",
+"locator": "crates/foundry-app/templates/base.html:6",
+"party": "Consumer",
+"reason": "F109"
+},
+{
+"contract": "the content-hashed stylesheet URL under /static/css",
+"decision": "Migrated",
+"locator": "crates/foundry-app/static/VENDOR.md:33",
+"party": "Consumer",
+"reason": "F110"
+},
+{
+"contract": "the content-hashed stylesheet URL under /static/css",
+"decision": "Migrated",
+"locator": "crates/foundry-app/src/lib.rs:361",
+"party": "Consumer",
+"reason": "F111"
+},
+{
+"contract": "the status chip markup, one span carrying the state slug as data-state and as its text",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/src/issues.rs:699",
+"party": "Producer",
+"reason": "F112"
+},
+{
+"contract": "the status chip markup, one span carrying the state slug as data-state and as its text",
+"decision": "Migrated",
+"locator": "crates/foundry-app/templates/issue.html:4",
+"party": "Consumer",
+"reason": "F113"
+},
+{
+"contract": "the status chip markup, one span carrying the state slug as data-state and as its text",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/static/js/board-dnd.js:1",
+"party": "Consumer",
+"reason": "F114"
+}
+],
+"architectural_tests": [
+{
+"command": "scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 cargo xtask check-arch\"",
+"id": "T1",
+"obligation": "F289",
+"oracle": "xtask/src/check_arch.rs"
+},
+{
+"command": "scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 cargo xtask check-arch\"",
+"id": "T2",
+"obligation": "F290",
+"oracle": "xtask/src/check_arch.rs"
+},
+{
+"command": "scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 cargo xtask check-arch\"",
+"id": "T3",
+"obligation": "F291",
+"oracle": "xtask/src/check_arch.rs"
+}
+],
+"boundaries": {
+"dependency_direction": "F119",
+"driven_ports": [
+"F117",
+"F118"
+],
+"driving_port": "F116",
+"failures": [
+{
+"condition": "F120",
+"id": "B1",
+"observation": "F121",
+"outcome": "Refusal"
+},
+{
+"condition": "F122",
+"id": "B2",
+"observation": "F123",
+"outcome": "Refusal"
+},
+{
+"condition": "F124",
+"id": "B3",
+"observation": "F125",
+"outcome": "Indeterminate"
+}
+]
+},
+"claims": [
+{
+"admitted_input": "F198",
+"bypass": "F200",
+"constructor": "help_variant",
+"consumer": "show_keyboard_help",
+"harm": "F197",
+"id": "C1",
+"owner": "crates/foundry-app/src/keyboard.rs",
+"proposition": "F196",
+"public_observation": "F199"
+},
+{
+"admitted_input": "F203",
+"bypass": "F205",
+"constructor": "shortcut_entries",
+"consumer": "the overlay view-model and the page view-model",
+"harm": "F202",
+"id": "C2",
+"owner": "crates/foundry-app/src/keyboard.rs",
+"proposition": "F201",
+"public_observation": "F204"
+},
+{
+"admitted_input": "F208",
+"bypass": "F210",
+"constructor": "render_state_chip",
+"consumer": "issue.html through the no-escape filter",
+"harm": "F207",
+"id": "C3",
+"owner": "crates/foundry-app/src/issues.rs",
+"proposition": "F206",
+"public_observation": "F209"
+}
+],
+"closure": [
+{
+"axis": "Safety",
+"basis": "F230",
+"design": "Pass",
+"evidence": [
+"docs/feature/ui-bare-pages/design/keyboard_help_variant.qnt"
+],
+"runtime": "DesignedNotBuilt",
+"subject": "F229"
+},
+{
+"axis": "Inhabitation",
+"basis": "F231",
+"design": "Pass",
+"evidence": [
+"docs/feature/ui-bare-pages/design/keyboard_help_variant.qnt"
+],
+"runtime": "DesignedNotBuilt",
+"subject": "F229"
+},
+{
+"axis": "PublicReachability",
+"basis": "F232",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F229"
+},
+{
+"axis": "Liveness",
+"basis": "F233",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F229"
+},
+{
+"axis": "Safety",
+"basis": "F235",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F234"
+},
+{
+"axis": "Inhabitation",
+"basis": "F236",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F234"
+},
+{
+"axis": "PublicReachability",
+"basis": "F237",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F234"
+},
+{
+"axis": "Liveness",
+"basis": "F238",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F234"
+},
+{
+"axis": "Safety",
+"basis": "F240",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F239"
+},
+{
+"axis": "Inhabitation",
+"basis": "F241",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F239"
+},
+{
+"axis": "PublicReachability",
+"basis": "F242",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F239"
+},
+{
+"axis": "Liveness",
+"basis": "F243",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F239"
+},
+{
+"axis": "Safety",
+"basis": "F245",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F244"
+},
+{
+"axis": "Inhabitation",
+"basis": "F246",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F244"
+},
+{
+"axis": "PublicReachability",
+"basis": "F247",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F244"
+},
+{
+"axis": "Liveness",
+"basis": "F248",
+"design": "Pass",
+"runtime": "DesignedNotBuilt",
+"subject": "F244"
+}
+],
+"constraints": [
+"F41",
+"F42",
+"F43",
+"F44",
+"F301",
+"F46",
+"F302",
+"F303"
+],
+"constructors": [
+{
+"name": "help_variant",
+"signature": "fn help_variant(headers: and HeaderMap) -> HelpVariant"
+},
+{
+"name": "shortcut_entries",
+"signature": "fn shortcut_entries() -> Vec<views::ShortcutEntry>"
+},
+{
+"name": "KeyboardHelpPage",
+"signature": "struct KeyboardHelpPage { entries: Vec<ShortcutEntry>, selection_instruction: String }"
+},
+{
+"name": "IssuePage",
+"signature": "struct IssuePage { issue_key, title, description, status_slug, status_chip, ... }"
+}
+],
+"decisions": [
+"F34",
+"F35",
+"F36",
+"F37",
+"F38",
+"F39",
+"F40",
+"F300"
+],
+"equality": [
+{
+"definition": "F136",
+"under": "the shortcut rows a response lists"
+},
+{
+"definition": "F137",
+"under": "the autocomplete token of a named input"
+}
+],
+"impact": [
+{
+"decision": "Changed",
+"kind": "handler",
+"locator": "crates/foundry-app/src/keyboard.rs:317",
+"reason": "F70"
+},
+{
+"decision": "Changed",
+"kind": "view-model",
+"locator": "crates/foundry-app/src/views.rs:233",
+"reason": "F71"
+},
+{
+"decision": "Changed",
+"kind": "handler",
+"locator": "crates/foundry-app/src/comments.rs:692",
+"reason": "F72"
+},
+{
+"decision": "Changed",
+"kind": "handler",
+"locator": "crates/foundry-app/src/issues.rs:699",
+"reason": "F73"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/partials/keyboard_help.html:1",
+"reason": "F74"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/partials/keyboard_shortcut_rows.html:1",
+"reason": "F75"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/keyboard_help_page.html:1",
+"reason": "F76"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/card_page.html:1",
+"reason": "F77"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/signin.html:1",
+"reason": "F78"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/forgot.html:1",
+"reason": "F79"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/forgot_sent.html:1",
+"reason": "F80"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/bootstrap_claim.html:1",
+"reason": "F81"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/invite_accept.html:1",
+"reason": "F82"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/reset_password.html:1",
+"reason": "F82"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/issue.html:4",
+"reason": "F83"
+},
+{
+"decision": "Migrated",
+"kind": "stylesheet",
+"locator": "crates/foundry-app/static/css/foundry.2f9e0cb1.css:1411",
+"reason": "F84"
+},
+{
+"decision": "Migrated",
+"kind": "template",
+"locator": "crates/foundry-app/templates/base.html:6",
+"reason": "F85"
+},
+{
+"decision": "Migrated",
+"kind": "asset-register",
+"locator": "crates/foundry-app/static/VENDOR.md:33",
+"reason": "F27"
+},
+{
+"decision": "Migrated",
+"kind": "test",
+"locator": "crates/foundry-app/src/lib.rs:344",
+"reason": "F28"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "client-script",
+"locator": "crates/foundry-app/static/js/keyboard.js:323",
+"reason": "F86"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "template",
+"locator": "crates/foundry-app/templates/partials/sidebar.html:78",
+"reason": "F87"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "template",
+"locator": "crates/foundry-app/templates/dashboard_root.html:32",
+"reason": "F88"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/us-12-keyboard-nav.feature:82",
+"reason": "F89"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/us-k01-keyboard-templating.feature:75",
+"reason": "F90"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/us-b04-signin-layout.feature:44",
+"reason": "F91"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/us-06-signin.feature:1",
+"reason": "F92"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature:1",
+"reason": "F93"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/issue-edit-modal-close-icon.feature:1",
+"reason": "F94"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/issue-status-move.feature:1",
+"reason": "F95"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/issue-card-delete.feature:1",
+"reason": "F96"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/us-10-comments.feature:1",
+"reason": "F97"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/us-11-attachments.feature:1",
+"reason": "F98"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/navigation-bar-linear-ui.feature:110",
+"reason": "F99"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/keycloak-sso.feature:1",
+"reason": "F100"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/external-integration-plugins-01-signed-out.feature:1",
+"reason": "F101"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "architectural-check",
+"locator": "xtask/src/check_arch.rs:1698",
+"reason": "F102"
+}
+],
+"laws": [
+{
+"evidence": [
+"docs/feature/ui-bare-pages/design/keyboard_help_variant.qnt"
+],
+"id": "L1",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/src/keyboard.rs",
+"statement": "F138",
+"treatment": {
+"cases": [
+"F139",
+"F140",
+"F141",
+"F142"
+],
+"kind": "Finite",
+"reason": "F143"
+}
+},
+{
+"evidence": [
+"docs/feature/ui-bare-pages/design/keyboard_help_variant.qnt"
+],
+"id": "L2",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/src/keyboard.rs",
+"statement": "F144",
+"treatment": {
+"cases": [
+"F145",
+"F146",
+"F147"
+],
+"kind": "Finite",
+"reason": "F148"
+}
+},
+{
+"id": "L3",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/templates/card_page.html",
+"statement": "F149",
+"treatment": {
+"cases": [
+"F150",
+"F151",
+"F152",
+"F153",
+"F154",
+"F155",
+"F156"
+],
+"kind": "Finite",
+"reason": "F157"
+}
+},
+{
+"id": "L4",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/templates/signin.html",
+"statement": "F158",
+"treatment": {
+"cases": [
+"F159",
+"F160",
+"F161",
+"F162",
+"F163",
+"F164",
+"F165"
+],
+"kind": "Finite",
+"reason": "F166"
+}
+},
+{
+"id": "L5",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/templates/issue.html",
+"statement": "F167",
+"treatment": {
+"cases": [
+"F168",
+"F169",
+"F170",
+"F171"
+],
+"kind": "Finite",
+"reason": "F172"
+}
+},
+{
+"id": "L6",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/src/comments.rs",
+"statement": "F173",
+"treatment": {
+"falsifier": "F181",
+"generator": {
+"depth_bound": "flat text, no nesting",
+"domain": "F174",
+"must_include": [
+"F175",
+"F176",
+"F177",
+"F178"
+],
+"seed_policy": "the repository's generated-test library with its own seeded runs and its persisted failure file",
+"shrinking": "F179",
+"size_bound": "4000 characters"
+},
+"independent_observation": "F180",
+"kind": "Broad"
+}
+},
+{
+"id": "L7",
+"kind": "Invariant",
+"layer": "Infrastructure",
+"owner": "crates/foundry-app/static/css",
+"statement": "F182",
+"treatment": {
+"kind": "NoTest",
+"reason": "F183"
+}
+},
+{
+"id": "L8",
+"kind": "Invariant",
+"layer": "Adapter",
+"owner": "crates/foundry-app/src/keyboard.rs",
+"statement": "F304",
+"treatment": {
+"cases": [
+"F305",
+"F306",
+"F307"
+],
+"kind": "Finite",
+"reason": "F308"
+}
+}
+],
+"models": [
+{
+"assumptions": [
+"F224",
+"F225"
+],
+"atoms": [
+{
+"kind": "State",
+"name": "dest",
+"site": "crates/foundry-app/src/keyboard.rs:317",
+"symbol": "the Sec-Fetch-Dest value read from the request headers"
+},
+{
+"kind": "State",
+"name": "served",
+"site": "crates/foundry-app/src/keyboard.rs:317",
+"symbol": "the response body show_keyboard_help returns"
+},
+{
+"atomicity": "F223",
+"kind": "Action",
+"name": "request",
+"site": "crates/foundry-app/src/keyboard.rs:317",
+"symbol": "show_keyboard_help"
+},
+{
+"kind": "Constant",
+"name": "ROWS",
+"site": "crates/foundry-app/src/keyboard.rs:68",
+"symbol": "SHORTCUTS"
+}
+],
+"language": "Quint",
+"mutants": [
+{
+"description": "F226",
+"id": "N1",
+"kills": [
+"fragmentUnlessDocument"
+]
+},
+{
+"description": "F227",
+"id": "N2",
+"kills": [
+"pageIsFramed"
+]
+},
+{
+"description": "F228",
+"id": "N3",
+"kills": [
+"rowsNeverDrift"
+]
+}
+],
+"path": "docs/feature/ui-bare-pages/design/keyboard_help_variant.qnt",
+"properties": [
+{
+"kind": "Invariant",
+"name": "fragmentUnlessDocument",
+"site": "crates/foundry-app/src/keyboard.rs:317",
+"statement": "F220",
+"symbol": "show_keyboard_help"
+},
+{
+"kind": "Invariant",
+"name": "pageIsFramed",
+"site": "crates/foundry-app/src/keyboard.rs:317",
+"statement": "F221",
+"symbol": "help_variant"
+},
+{
+"kind": "Invariant",
+"name": "rowsNeverDrift",
+"site": "crates/foundry-app/src/keyboard.rs:68",
+"statement": "F222",
+"symbol": "shortcut_entries"
+}
+]
+}
+],
+"not_applicable": [
+{
+"analysis": "contract_tests",
+"reason": "F115"
+}
+],
+"observations": [
+{
+"cannot_distinguish": "F127",
+"description": "F126",
+"result_type": "framed document or bare section"
+},
+{
+"cannot_distinguish": "F129",
+"description": "F128",
+"result_type": "ordered list of key and description pairs"
+},
+{
+"cannot_distinguish": "F131",
+"description": "F130",
+"result_type": "one centred card with the product name, read at the harness desk viewport and at the emulated phone device"
+},
+{
+"cannot_distinguish": "F133",
+"description": "F132",
+"result_type": "token string or absent"
+},
+{
+"cannot_distinguish": "F135",
+"description": "F134",
+"result_type": "key, title, description region and status slug"
+}
+],
+"refuted": [
+{
+"cause": "F185",
+"counterexample": "F186",
+"statement": "F184"
+},
+{
+"cause": "F188",
+"counterexample": "F189",
+"statement": "F187"
+},
+{
+"cause": "F191",
+"counterexample": "F192",
+"statement": "F190"
+},
+{
+"cause": "F194",
+"counterexample": "F195",
+"statement": "F193"
+}
+],
+"reuse": [
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/keyboard.rs:317",
+"reason": "F48",
+"symbol": "show_keyboard_help"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/keyboard.rs:68",
+"reason": "F49",
+"symbol": "SHORTCUTS"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/views.rs:233",
+"reason": "F50",
+"symbol": "KeyboardHelp"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/partials/keyboard_help.html:1",
+"reason": "F51",
+"symbol": "keyboard-help"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-app/templates/partials/keyboard_shortcut_rows.html:1",
+"reason": "F52",
+"symbol": "keyboard_shortcut_rows.html"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-app/templates/keyboard_help_page.html:1",
+"reason": "F53",
+"symbol": "keyboard_help_page.html"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-app/templates/card_page.html:1",
+"reason": "F54",
+"symbol": "card_page.html"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/base.html:6",
+"reason": "F55",
+"symbol": "base.html"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/signin.html:4",
+"reason": "F56",
+"symbol": "Sign in"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/forgot.html:4",
+"reason": "F57",
+"symbol": "Forgot password"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/forgot_sent.html:4",
+"reason": "F58",
+"symbol": "Check your email"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/bootstrap_claim.html:4",
+"reason": "F59",
+"symbol": "Claim your workspace"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/invite_accept.html:4",
+"reason": "F60",
+"symbol": "Set your password"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/reset_password.html:4",
+"reason": "F61",
+"symbol": "Choose a new password"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/issue.html:4",
+"reason": "F62",
+"symbol": "issue_key"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/views.rs:1077",
+"reason": "F63",
+"symbol": "IssuePage"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/comments.rs:692",
+"reason": "F64",
+"symbol": "render_issue_page"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-store/src/lib.rs:2558",
+"reason": "F65",
+"symbol": "issue_edit_view"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/issues.rs:699",
+"reason": "F66",
+"symbol": "render_state_chip"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/static/css/foundry.2f9e0cb1.css:1411",
+"reason": "F67",
+"symbol": "kb-overlay-root"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/static/VENDOR.md:33",
+"reason": "F68",
+"symbol": "VENDOR.md"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/src/lib.rs:344",
+"reason": "F69",
+"symbol": "static_cache_control_value"
+}
+],
+"risks": [
+{
+"allowed": "F251",
+"forbidden": "F252",
+"id": "Y1",
+"kind": "Stressor",
+"owner": "user",
+"preserved": "F250",
+"residue": "F253",
+"source": "F249"
+},
+{
+"allowed": "F256",
+"forbidden": "F257",
+"id": "Y2",
+"kind": "Stressor",
+"owner": "crates/foundry-app/static/js/keyboard.js",
+"preserved": "F255",
+"residue": "F258",
+"source": "F254"
+},
+{
+"allowed": "F261",
+"forbidden": "F262",
+"id": "Y3",
+"kind": "Stressor",
+"owner": "xtask/src/check_arch.rs",
+"preserved": "F260",
+"residue": "F263",
+"source": "F259"
+},
+{
+"allowed": "F266",
+"forbidden": "F267",
+"id": "Y4",
+"kind": "Stressor",
+"owner": "user",
+"preserved": "F265",
+"residue": "F268",
+"source": "F264"
+},
+{
+"allowed": "F271",
+"forbidden": "F272",
+"id": "Y5",
+"kind": "Stressor",
+"owner": "crates/foundry-app/templates/card_page.html",
+"preserved": "F270",
+"residue": "F273",
+"source": "F269"
+},
+{
+"allowed": "F276",
+"forbidden": "F277",
+"id": "Y6",
+"kind": "Stressor",
+"owner": "crates/foundry-app/src/comments.rs",
+"preserved": "F275",
+"residue": "F278",
+"source": "F274"
+},
+{
+"allowed": "F281",
+"forbidden": "F282",
+"id": "Y7",
+"kind": "SinglePointOfFailure",
+"owner": "crates/foundry-app/static/css",
+"preserved": "F280",
+"residue": "F283",
+"source": "F279"
+},
+{
+"allowed": "F286",
+"forbidden": "F287",
+"id": "Y8",
+"kind": "Bypass",
+"owner": "crates/foundry-app/src/comments.rs",
+"preserved": "F285",
+"residue": "F288",
+"source": "F284"
+}
+],
+"states": [
+{
+"kind": "Admitted",
+"owner": "crates/foundry-app/src/keyboard.rs",
+"state": "F211"
+},
+{
+"kind": "Admitted",
+"owner": "crates/foundry-app/static/js/keyboard.js",
+"state": "F212"
+},
+{
+"kind": "Admitted",
+"owner": "crates/foundry-app/src/comments.rs",
+"state": "F213"
+},
+{
+"kind": "Admitted",
+"owner": "crates/foundry-app/templates/card_page.html",
+"state": "F214"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-app/src/keyboard.rs",
+"state": "F215"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-app/templates/card_page.html",
+"state": "F216"
+},
+{
+"kind": "Excluded",
+"owner": "crates/foundry-app/templates/card_page.html",
+"state": "F217"
+},
+{
+"kind": "Unknown",
+"owner": "user",
+"state": "F218"
+},
+{
+"kind": "Unknown",
+"owner": "user",
+"state": "F219"
+}
+]
+},
+"supports": [
+"crates/foundry-acceptance/src/steps/feature_ui_bare_pages.rs",
+"crates/foundry-acceptance/src/steps/mod.rs",
+"crates/foundry-acceptance/tests/features/us-k01-keyboard-templating.feature",
+"crates/foundry-acceptance/src/steps/keyboard_fragments_templating.rs",
+"crates/foundry-acceptance/tests/features/us-12-keyboard-nav.feature",
+"crates/foundry-acceptance/src/steps/us_12_keyboard_nav.rs",
+"crates/foundry-acceptance/tests/features/us-b04-signin-layout.feature",
+"crates/foundry-acceptance/src/steps/feature_b_web_tier.rs",
+"crates/foundry-acceptance/tests/features/canzan-theme-system.feature",
+"crates/foundry-acceptance/src/steps/feature_canzan_theme.rs"
+],
+"targets": [
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/keyboard.rs",
+"reason": "F296"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/views.rs",
+"reason": "F13"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/comments.rs",
+"reason": "F14"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/issues.rs",
+"reason": "F15"
+},
+{
+"change": "Create",
+"path": "crates/foundry-app/templates/partials/keyboard_shortcut_rows.html",
+"reason": "F16"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/partials/keyboard_help.html",
+"reason": "F17"
+},
+{
+"change": "Create",
+"path": "crates/foundry-app/templates/keyboard_help_page.html",
+"reason": "F18"
+},
+{
+"change": "Create",
+"path": "crates/foundry-app/templates/card_page.html",
+"reason": "F19"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/signin.html",
+"reason": "F20"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/forgot.html",
+"reason": "F21"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/forgot_sent.html",
+"reason": "F21"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/bootstrap_claim.html",
+"reason": "F22"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/invite_accept.html",
+"reason": "F23"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/reset_password.html",
+"reason": "F23"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/issue.html",
+"reason": "F24"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/static/css/foundry.2f9e0cb1.css",
+"reason": "F25"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/templates/base.html",
+"reason": "F26"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/static/VENDOR.md",
+"reason": "F27"
+},
+{
+"change": "Extend",
+"path": "crates/foundry-app/src/lib.rs",
+"reason": "F28"
+}
+],
+"verification": [
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 cargo xtask check-arch\"",
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 cargo test -p foundry-app\"",
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=ui-bare-pages cargo test -p foundry-acceptance\"",
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=keyboard cargo test -p foundry-acceptance\"",
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=us-b04 cargo test -p foundry-acceptance\"",
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=canzan-theme-system cargo test -p foundry-acceptance\"",
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=all cargo test -p foundry-acceptance\""
+]
+}
+}
+},
+"facts": {
+"F1": "clean up the ui (visual pass, group A bare pages plus D3). Agreed with the user: A1 style the keyboard shortcuts page; A2 give sign-in and the other signed-out pages a centred card with the product name; A3 show the issue's title, description and status on its full page; D3 give the six sign-in and password fields the right autocomplete.",
+"F10": "User decision 2026-11-20: A1 style the shortcuts page, A2 centred card for signed-out pages, A3 the issue full page shows title, description and status, D3 autocomplete on the six password fields.",
+"F100": "The sign-in page keeps its OIDC link and its action; only its frame changes.",
+"F101": "A signed-out read of the sign-in surface; the redirect and the copy are unchanged.",
+"F102": "The asset-hash and asset-reference layers need no change: they are what refuses a half-done stylesheet rename.",
+"F103": "Serves a second arm, the framed page, to a declared document destination; the fragment arm is byte-compatible for every other request.",
+"F104": "Its fetch declares the empty destination and keeps receiving the bare fragment it assigns into the overlay host.",
+"F105": "A click on the rail link is a navigation, so it now receives the framed page instead of the bare fragment; the href is unchanged.",
+"F106": "The dashboard link receives the framed page for the same reason.",
+"F107": "Its HTTP read declares no destination, so the no-html-wrapper assertion still holds.",
+"F108": "The bytes change, so the name takes the sha256 prefix of the new bytes and the old URL stops existing.",
+"F109": "The link takes the new name in the same commit.",
+"F11": "The operator opens the keyboard shortcuts page and reads each key beside what it does; signed out, she sees sign-in as a centred card her password manager fills; she opens an issue's full page and reads its title, description and status.",
+"F110": "The register row and its sha256 take the new name in the same commit.",
+"F111": "The three cache-policy assertions name the path literally and take the new name in the same commit.",
+"F112": "The renderer's output bytes are unchanged; only its visibility widens.",
+"F113": "A new consumer: the page embeds the rendered chip string, so the page and the board swap can never draw two different chips.",
+"F114": "The board swap keeps receiving the same bytes from the same renderer.",
+"F115": "Every producer and consumer named in the agreement analysis lives in the one deployable and ships in the same commit, so the primary oracle covers them. The one datum that outlives a version is the immutable stylesheet URL a browser caches, and the shipped asset-reference and asset-hash layers of check-arch already refuse a name that is not its own hash and a reference that does not resolve; a producer-to-consumer contract test would duplicate that gate.",
+"F116": "The shipped HTTP routes of foundry-app, driven as a real browser navigation and as a plain HTTP read: GET /keyboard-help, GET /sign-in, GET /forgot-password, GET /bootstrap with its token, GET /invites/accept with its id and signature, GET /reset-password with its token, and GET /team/{team}/project/{project}/issues/{n}; plus the same shortcut URL fetched as a script would fetch it.",
+"F117": "Postgres through foundry-store, one existing projection read for the issue page",
+"F118": "the served static stylesheet under /static/css, read by the browser from the link in the shared head",
+"F119": "Templates and the stylesheet (adapter) depend on the app handlers; the handlers depend on foundry-services and foundry-store; no template reads the store and nothing new points outward. The shortcut route keeps no dependency on the session layer.",
+"F120": "The projection read answers nothing for an issue the resolution just admitted, because it was deleted in the gap.",
+"F121": "The shipped uniform not-found page, never a page with an empty title or a blank status.",
+"F122": "The projection read errors.",
+"F123": "The shipped internal-error path of the issue handler, logged by its existing error helper.",
+"F124": "A client navigates to the shortcut URL without declaring a destination.",
+"F125": "The bare fragment, today's unstyled body: the server cannot tell that navigation from a fetch, and it refuses nothing.",
+"F126": "The body shape GET /keyboard-help answers",
+"F127": "Two clients that declare the same destination: it cannot see whether a human or a script asked, only what the request declared.",
+"F128": "The shortcut rows a response lists, in order",
+"F129": "Which arm drew them, and whether a key is actually BOUND in the client.",
+"F13": "The page view-model beside the overlay one, and the four new issue-page fields.",
+"F130": "The rendered box of a signed-out form and of the shortcut page",
+"F131": "A pixel value at an untested width, and what the form does when it is submitted.",
+"F132": "The autocomplete token of a named input, as served",
+"F133": "Whether a particular password manager really fills or saves; only the declared token is observable.",
+"F134": "The text and the chip the issue page draws",
+"F135": "Markdown source from its rendered form, because the region shows the stored text as written.",
+"F136": "Two responses are equal when they list the same rows in the same order. The dialog container, the page frame and the heading level around them are not part of this equality, which is what lets one row partial serve both arms.",
+"F137": "Two served forms are equal when every named input carries the same token. Attribute order, whitespace and the surrounding frame are not part of this equality.",
+"F138": "A request to GET /keyboard-help that declares the document destination receives a framed page: a full document that links the stylesheet and carries the shortcut rows under its own heading. Every other declared destination, and a request that declares none, receives the bare fragment with no html wrapper.",
+"F139": "declared destination document: framed page",
+"F14": "The issue page view-model gains title, description, status slug and the rendered chip from the existing projection read.",
+"F140": "declared destination empty, which is what the overlay fetch sends: bare fragment",
+"F141": "declared destination iframe: bare fragment",
+"F142": "no destination header at all: bare fragment",
+"F143": "The destinations a client can declare on this route are a closed set and the decision is one step with no state, so these four rows exhaust the domain and a generator would redraw the same table.",
+"F144": "The page and the fragment advertise exactly the shipped shortcut rows, in the same order, with no row added, dropped or reordered, because both arms derive them from the one table through one builder and render the one rows partial.",
+"F145": "the seven shipped rows in the fragment arm",
+"F146": "the same seven rows, same order, in the page arm",
+"F147": "a row added to the table appears in both arms",
+"F148": "The table is the closed seven-row shipped list, so the rows are enumerable and the law is a row-identity check between two renders.",
+"F149": "Each signed-out page of the auth family and the shortcut page is one full document that links the stylesheet from the application's own static path and draws exactly one centred card carrying the product name and that page's single h1, with no navigation rail and no theme control, at the harness desk viewport and at the emulated phone device.",
+"F15": "The chip renderer becomes crate-visible; its bytes are unchanged.",
+"F150": "sign-in",
+"F151": "forgot password",
+"F152": "forgot sent",
+"F153": "first-admin claim",
+"F154": "invite accept",
+"F155": "password reset",
+"F156": "the shortcut page",
+"F157": "The pages are the closed set this Request names, and each is read once per viewport, so the seven rows exhaust the domain.",
+"F158": "Each of the eight named inputs carries exactly the autocomplete token its flow needs, as served: username and current-password on sign-in, username and new-password on first-admin claim, new-password on both invite-accept fields and on both password-reset fields; and no other input in the repository carries a token this Request added.",
+"F159": "sign-in email: username",
+"F16": "The single owner of the shortcut rows and the selection instruction.",
+"F160": "sign-in password: current-password",
+"F161": "claim email: username",
+"F162": "claim password: new-password",
+"F163": "invite accept password and confirm: new-password",
+"F164": "reset password and confirm: new-password",
+"F165": "forgot email: no token",
+"F166": "The inputs are the closed set P4 names, so the rows exhaust the domain.",
+"F167": "The issue full page draws the issue key as its heading text, the stored title, exactly one description region, and the status chip whose data-state is the stored state slug; its Delete control keeps the href that is its whole mechanism.",
+"F168": "an issue with a title and a description: title shown, description region holds the stored text",
+"F169": "an issue with an empty description: the description region holds the empty copy, and there is still exactly one region",
+"F17": "Keeps the dialog container and includes the rows partial.",
+"F170": "an issue in each shipped state: the chip data-state equals the stored slug",
+"F171": "the heading text equals the key, never the key and the title together",
+"F172": "The states are the project's closed lane set and the description is either present or empty, so the rows exhaust the structural domain; the text domain itself is carried by the generated property.",
+"F173": "For any stored description text, the issue page shows that text with its line breaks preserved, escaped so no stored character is drawn as markup, and never truncated.",
+"F174": "arbitrary unicode text for the description, including the empty string, HTML and markdown markup such as a script tag, an image tag with an event attribute, angle brackets, ampersands, quotes and backticks, CRLF and LF runs, long unbroken words, and right-to-left text",
+"F175": "the empty string",
+"F176": "a script tag",
+"F177": "a CRLF run",
+"F178": "a 4000-character unbroken word",
+"F179": "library shrinking on the generated string, which reduces a failure to the shortest offending text",
+"F18": "The framed page arm of the shortcut list, on the card frame.",
+"F180": "the rendered page contains the stored text with each markup character replaced by its entity, computed by an escape reference in the test rather than by the render under test, and the page holds exactly one description region",
+"F181": "a render that lets a script tag through unescaped, that drops text past a length, or that collapses the stored line breaks into one line",
+"F182": "The served stylesheet's name carries the sha256 prefix of its own bytes, and every static reference in the application resolves on disk.",
+"F183": "The shipped asset-reference and asset-hash layers of cargo xtask check-arch are this law's executable owner, recorded as an architectural test; a second oracle would duplicate the gate.",
+"F184": "Serving the framed page to every client of GET /keyboard-help is adequate, because the overlay would still show the list.",
+"F185": "The overlay assigns the response into its host with an inner-HTML write, so a framed document would nest a second head and body inside the live page, and the shipped HTTP read asserts the response carries no html wrapper. The carrier must therefore keep two arms, not one widened body.",
+"F186": "keyboard.js fetches the URL at line 323 and assigns the markup at line 331; us_12_keyboard_nav.rs line 370 asserts the body contains neither a doctype nor an html tag.",
+"F187": "One stylesheet rule set scoped to the overlay host can style both the overlay and the page.",
+"F188": "The page renders the rows outside that host, so a host-scoped selector cannot match them. The rows need their own class and the host keeps only the overlay chrome.",
+"F189": "Every shipped shortcut rule from line 1399 to line 1449 of the stylesheet is prefixed with the overlay host, which is exactly why the navigated page draws browser-default serif with each key on its own line.",
+"F19": "The chrome-less centred frame with the product name, extended by the signed-out family and the shortcut page.",
+"F190": "The issue page can carry the key and the title together in its heading.",
+"F191": "A shipped browser read asserts the heading text EQUALS the key, so a combined heading is refused by the existing oracle; the title takes its own second-level heading.",
+"F192": "feature_issue_edit_modal_close.rs lines 837 to 845 assert that the heading text equals the issue key.",
+"F193": "A marker header added by the client script can mark the fragment arm, leaving the page as the default.",
+"F194": "The default arm would then be the page, and every shipped client that sends no marker, including the HTTP read and any other fetch, would receive a framed document. The safe default has to be the fragment, so the POSITIVE marker must be on the page arm, which only the browser's own declared destination supplies.",
+"F195": "us_12_keyboard_nav.rs line 370 reads the route with a plain HTTP client that sends no such header and asserts a bare body.",
+"F196": "The arm GET /keyboard-help serves is one of exactly two variants, decided in one total function from the request headers.",
+"F197": "A framed document assigned into the overlay host, or a navigation that lands on an unstyled fragment: the two defects this Request exists to prevent.",
+"F198": "any header map, including an unknown destination value, an empty value and no header at all",
+"F199": "the response body shape of GET /keyboard-help",
+"F2": "Every page the operator lands on looks like Foundry and tells her what it is for",
+"F20": "Card frame, and the two autocomplete tokens.",
+"F200": "A client that navigates without declaring a destination receives the fragment, which is the safe arm and today's behaviour. Rust's checker makes neither arm unrepresentable for a future caller that renders the page view-model directly, so the finite acceptance read holds that line.",
+"F201": "Both arms draw their rows from the one shipped table through one builder and one partial, so the advertised list cannot differ between them.",
+"F202": "A page that advertises a key the overlay does not, which is the drift the keyboard layer's own comment warns about.",
+"F203": "the shipped shortcut table",
+"F204": "the rows each arm lists, in order",
+"F205": "A template could hard-code a row; no type refuses it. The single rows partial is what makes such a row visible in review, and the row-identity law is what fails on it.",
+"F206": "The issue page's status marker carries the stored state slug, and its text is that same slug, because the page embeds the one shipped chip renderer.",
+"F207": "A page showing a status the store does not hold, or two chip shapes drifting apart between the page and the board.",
+"F208": "the state column of the resolved issue row",
+"F209": "the status chip and its data-state on the issue page",
+"F21": "Card frame.",
+"F210": "The no-escape embed trusts the renderer's own escaping, exactly as the shared head embeds the site footer; a caller passing unescaped text into that field would bypass it, which is why the field is filled at one site only.",
+"F211": "A navigation to the shortcut page with no session at all",
+"F212": "A script fetch of the shortcut URL from any page, signed in or signed out",
+"F213": "An issue with an empty description, and an issue whose title or description is arbitrarily long",
+"F214": "A signed-out page rendered at the emulated phone device and at the harness desk viewport",
+"F215": "A framed document assigned into the overlay host",
+"F216": "Two h1 elements on a card page, and a heading that holds the issue key and the title together",
+"F217": "A navigation rail or a theme control on a signed-out page or on the public shortcut page",
+"F218": "Which clients navigate without declaring a destination: they keep today's unstyled fragment, and no authority bounds that set",
+"F219": "Whether a given password manager honours the standard tokens; only the served token is in this design's reach",
+"F22": "Card frame, and the username and created-password tokens.",
+"F220": "Every request that does not declare the document destination receives the bare fragment.",
+"F221": "A page body is answered only to a declared document destination, and it is always framed.",
+"F222": "Neither arm drops, adds or reorders a shortcut row.",
+"F223": "one whole request and its response; no interleaving, because the handler reads no shared state",
+"F224": "One client request per step; the shortcut table is the closed seven-row shipped list; the destinations are the closed four-value set a client can declare.",
+"F225": "The model carries no browser layout, no stylesheet and no session: the card geometry, the palette readings and the autocomplete tokens are outside it.",
+"F226": "The overlay fetch also receives the page: the arm answers a page for the empty destination as well as for document.",
+"F227": "The page arm is not framed: it answers a page body that links no stylesheet.",
+"F228": "The page arm drops the last advertised row, so it lists six of the seven shortcuts.",
+"F229": "the shortcut page arm (P1)",
+"F23": "Card frame, and the created-password token on both fields.",
+"F230": "The arms are a closed two-variant sum decided in one total function that answers the fragment for every input it does not recognise, so no third body and no silent page can be built. Quint checked fragmentUnlessDocument and pageIsFramed exhaustively over the four destinations a client can declare, and each failed on its own mutant: a page served to the overlay fetch, and a page body that links no stylesheet. The runtime still serves one unstyled fragment to a navigation.",
+"F231": "A navigation declaring the document destination builds the page from the shipped shortcut table alone, through help_variant, shortcut_entries and the page view-model; no session, no store read and no request body is needed, and the model exhibits the page state.",
+"F232": "Input: a browser navigation from the rail link at partials/sidebar.html:78 or the dashboard link at dashboard_root.html:32. Constructor: help_variant and the page view-model in keyboard.rs:317. Consumer: the HTML response of show_keyboard_help. Public port: GET /keyboard-help, which is the oracle stimulus.",
+"F233": "No liveness claim: one request, one response, no retry, no queue, no background work and no progress obligation anywhere in this Request.",
+"F234": "the signed-out card (P2)",
+"F235": "The card frame is the only frame these templates extend, and it includes no sidebar partial and no theme control, so a rail or a theme control on a signed-out page cannot be rendered by them; the product name is a brand line, not a heading, so a second h1 cannot appear. No checker proves a template shape, so the finite page law and the shipped theme read are the checks, and both are designed and not yet built.",
+"F236": "Each of the seven pages is built by its own existing handler from the view-model it already fills; the frame adds no field, so every page that renders today renders inside the card.",
+"F237": "Input: a signed-out GET of /sign-in, /forgot-password, /bootstrap with its token, /invites/accept with its id and signature, or /reset-password with its token. Constructor: the shipped handler and its view-model. Consumer: the card frame template. Public port: those same GETs, read at the desk viewport and at the emulated phone device.",
+"F238": "No liveness claim: a page render has no progress obligation, and no form behaviour changes.",
+"F239": "the issue page content (P3)",
+"F24": "Title, description region and status beside the unchanged key heading; presentation classes on the Delete anchor and the upload control.",
+"F240": "The description is escaped by the template engine and the status is the one shipped chip renderer's own output, so neither stored text nor a second chip shape can reach the page as markup; the heading keeps the key alone, which the shipped browser read already enforces. The generated description property and the finite page law are the checks, both designed and not yet built.",
+"F241": "The title, description and state come from the shipped projection read the edit dialog already uses, over the project and number the page handler has resolved; an empty description still builds the region through its empty copy.",
+"F242": "Input: a signed-in member's GET of /team/{team}/project/{project}/issues/{n}. Constructor: render_issue_page in comments.rs:692 filling IssuePage from issue_edit_view. Consumer: issue.html. Public port: that same GET, which is the oracle stimulus.",
+"F243": "No liveness claim: one request, one page; the second read either answers or refuses, with no waiting and no retry.",
+"F244": "the autocomplete tokens (P4)",
+"F245": "A token is a served attribute on a named input; the wrong-state risk is a wrong or missing token, which the finite eight-row law reads on the served markup. No type can exclude it, and no model applies: there is no state, no protocol and no crash window.",
+"F246": "Each token is a literal attribute in the template that already renders the input, so every intended value is built by the existing render.",
+"F247": "Input: a signed-out GET of the four pages. Constructor: the four templates. Consumer: the browser and its password manager. Public port: the served HTML of those GETs, read as served markup.",
+"F248": "No liveness claim: a served attribute has no progress obligation. Whether a particular manager acts on it is outside this design's reach and is recorded as an unknown state.",
+"F249": "Negating the assumption that every navigating client declares its destination: an old browser, a text browser, a command-line client or a proxy that strips fetch metadata navigates to the shortcut URL.",
+"F25": "The card block, the shortcut rows unscoped from the overlay host, the issue title, description and status rules and the file-input rules. The file carries the sha256 prefix of its own bytes, so this change renames it again and the old name goes.",
+"F250": "The shortcut list is readable: the rows arrive as the bare fragment, in order, with the selection instruction.",
+"F251": "No frame and no stylesheet, so browser-default type, which is exactly the shipped state today.",
+"F252": "A 404, an empty body, or a framed document handed to the overlay host.",
+"F253": "The unstyled navigation survives for metadata-less clients, and no authority bounds which clients those are.",
+"F254": "Negating the assumption that the overlay keeps declaring a non-document destination: a future client fetches the help through a mechanism that declares document, or a reader opens the rail link in a new tab expecting the overlay.",
+"F255": "Both arms list identical rows, so the operator still reads the whole list whichever body arrives.",
+"F256": "The overlay host receiving a framed document and drawing wrongly.",
+"F257": "A different row set between the two arms.",
+"F258": "The host assignment in the client script is not type-checked; the shipped templating read and the fragment case of the arm law hold that line.",
+"F259": "Negating the assumption that the stylesheet rename reaches all three readers in one commit: the bytes change and one reader keeps the old name.",
+"F26": "The stylesheet link takes the new hash.",
+"F260": "Nothing ships: the shipped asset-reference and asset-hash layers refuse the commit.",
+"F261": "A red local gate.",
+"F262": "A deployed page whose stylesheet URL answers 404 while browsers hold the old immutable URL.",
+"F263": "Only readers inside the scanned application tree are seen by that gate; a reader outside it would be invisible.",
+"F264": "Negating the assumption that a stored description is short and ordinary: an operator stores a hundred-kilobyte description, a single unbroken four-thousand-character word, or text that is markdown and HTML at once.",
+"F265": "The key, the title and the status stay readable, and the stored text is shown in full, escaped, with its line breaks.",
+"F266": "A long page and a wrapped word.",
+"F267": "Horizontal overflow that hides the status or the controls, silent truncation, and any stored character drawn as markup.",
+"F268": "No authority bounds the stored length, so the page grows with the data; the generated property reads the escaping and the wrapping, not a pixel bound.",
+"F269": "Negating the assumption that the signed-out pages are opened by a human: a mail client or a link-preview bot fetches the invite-accept or password-reset URL.",
+"F27": "The stylesheet row name and its recomputed sha256.",
+"F270": "The page renders and no single-use token is consumed, because the card frame adds no form, no link and no script and the GET keeps its shipped behaviour.",
+"F271": "A preview that shows the card and the product name.",
+"F272": "The frame introducing any effect on a GET.",
+"F273": "None new from this Request; the token lifecycle is unchanged.",
+"F274": "Negating the assumption that the issue page's second read always answers: the issue is deleted between the resolution and the projection read.",
+"F275": "The handler refuses with its shipped uniform not-found page, or its shipped internal-error path, never a half-filled page.",
+"F276": "A not-found page for an issue that existed a moment earlier.",
+"F277": "A page rendered with an empty title and a blank status as if that were the issue.",
+"F278": "The handler now holds two reads of the same issue, so the gap exists; it resolves to a refusal, which the failure rows record.",
+"F279": "One served stylesheet carries every surface, so a syntax error in the new card block degrades every page at once, and the file has no build step and no linter.",
+"F28": "The three cache-policy assertions that name the stylesheet path literally.",
+"F280": "Every page's markup, every form and every link keep working: a stylesheet cannot break a POST.",
+"F281": "An unstyled or partly styled page.",
+"F282": "A page that cannot be used without its stylesheet.",
+"F283": "The shipped theme and contrast reads plus the token-seam layers are the only checks on the file; there is no CSS parser in the gate.",
+"F284": "The no-escape embed of the status chip string in issue.html, the same mechanism the shared head uses for the site footer.",
+"F285": "Only the chip renderer's own escaped output is passed, from one call site.",
+"F286": "Nothing: no other value enters that field.",
+"F287": "Any caller passing unescaped user text through the chip field.",
+"F288": "Held by the single call site and by review, not by a type; the template engine cannot check a pre-rendered string.",
+"F289": "Every static reference in the application resolves on disk and every content-hashed filename is the sha256 prefix of its own bytes, so the stylesheet rename cannot land half-done.",
+"F290": "No colour literal lives outside the three stylesheet token regions, and the three regions declare the identical colour-token set, so the new card, row, issue and file-input rules name tokens only.",
+"F291": "The pre-paint head scripts carry no defer, async or module attribute and every other head script carries defer, which the stylesheet-link edit in the shared head must not disturb.",
+"F293": "User decision 2026-11-21: the first-admin claim password field is a new password (autocomplete new-password), not a current one.",
+"F294": "User decision 2026-11-21: the issue full page shows the shipped status chip with the stored status value; human status labels are a later change.",
+"F295": "The browser and the password manager can fill and save the sign-in and password fields: the email and current password on sign-in; the email and new password on first-admin claim; the new password and its confirmation on invite accept and password reset.",
+"F296": "The total variant decision, the one row builder, the page view-model construction, and the Vary: Sec-Fetch-Dest response header set once beside that decision and carried by BOTH arms.",
+"F297": "Through the real public driving port. Signed out, with no session cookie, a visitor opens /sign-in, /forgot-password, the first-admin claim at /bootstrap with a live token, /invites/accept with a live id and signature, and /reset-password with a live token; each page is read as served markup and rendered in the browser lane at the harness desk viewport and at the emulated 390 by 844 phone device, in both palettes. A visitor NAVIGATES the browser to /keyboard-help from the rail link; separately the same URL is read by a plain HTTP client that declares no destination, by a client that declares the document destination, and by a script fetch from a loaded page that declares the empty destination, and the response HEADERS are read on each of those reads. A signed-in team member opens /team/{team}/project/{project}/issues/{n} for an issue with a title, a description and a known state, and again for an issue whose description is empty, and presses the shortcut key that opens the overlay on a board page.",
+"F298": "Each signed-out page is one full document that links the stylesheet from the application's own static path and draws exactly one centred card: the product name above the page's own single heading, the form inside the card, the card inside the viewport with visible margin at desk width and full width inside the page padding on the phone, and no navigation rail and no theme-named control anywhere on it. The sign-in email carries the username token and its password the current-password token; the claim email carries username and its password the created-password token; both invite-accept fields and both password-reset fields carry the created-password token; no other input gained one. The browser NAVIGATION to /keyboard-help returns a full styled document whose rows pair each shipped shortcut key with its description on one line, with the selection instruction below them, and the plain HTTP read and the script fetch of the same URL still return the bare fragment with no html wrapper, the dialog container with its role and label, and the identical rows in the identical order; EVERY one of those responses, page arm and fragment arm alike, carries Vary: Sec-Fetch-Dest; the overlay on the board still draws its keycaps and muted descriptions over the scrim. The issue page shows the key as its heading text, the stored title, the stored description with its line breaks preserved and nothing of it drawn as markup, the empty copy instead when nothing is stored, and the shipped status chip whose data-state and text are the stored status value; its Delete control still follows its href to the confirm page and its upload control is drawn with the stylesheet's own control type.",
+"F299": "The shipped build fails every one of these today: the shortcut navigation answers an unstyled fragment in browser-default serif with each key on its own line and no Vary header at all; the four signed-out forms run edge to edge at desk width with no card, no margin and no product name; the issue page shows the key with a lone Delete link, a raw file control, and no title, description or status; and all eight inputs carry no autocomplete token. Each law also fails on its own plausible wrong implementation: serving the framed page to every client is caught by the script fetch and the plain HTTP read, which must still get no html wrapper; setting Vary on the page arm alone is caught by the header read on the fragment arm, which is the body a cache is most likely to hold; letting the page build its own row list is caught by the row-identity read between the two arms; keeping the shortcut rules scoped to the overlay host is caught by the navigated page, whose keys would still sit on their own line; putting the title in the heading is caught by the heading-equals-key read; giving the claim form the current-password token is caught by reading the served token itself; rendering the stored description as markup is caught by the generated property with a script tag in the text; and editing the stylesheet without renaming it is caught by the shipped asset-hash layer.",
+"F3": "The keyboard shortcuts page has the same look as the rest of Foundry, and each key sits on the same line as what it does.",
+"F300": "Cache contract of the two-arm route. One URL answers two bodies by a REQUEST header, so any cache between the browser and the application would otherwise serve one arm's body for the other arm's request: a framed document handed to the overlay fetch, or a bare fragment painted as a whole page. Both arms therefore declare the same contract in their response: Vary: Sec-Fetch-Dest, which names the one request header the arm is decided from, so a shared or private cache keys its entry on that header and never crosses the arms. The header is set in one place, beside the arm decision in crates/foundry-app/src/keyboard.rs, and on BOTH arms, including the fragment arm that is unchanged in body; a Vary on one arm alone leaves the other arm's cached body free to answer the wrong request. Cache-Control: no-store on both arms was the alternative and is rejected: it forbids the browser's own back-forward reuse of the help page for no gain, while Vary keeps the body cacheable and correct. No other route changes, because no other route in the application decides a body from a request header the client declares.",
+"F301": "The first-admin claim password carries the created-password token, decided by the user on 2026-11-21 and now the wording of P4 itself: that form CREATES the password, and the current-password token would make a password manager offer a stored secret instead of generating and saving one. No question is open here, and the eight-row autocomplete law is unchanged.",
+"F302": "The issue page shows the stored status value in the shipped chip, decided by the user on 2026-11-21: the chip is one element whose text the board swap asserts equals the stored slug, so the page embeds that same renderer and shows that same value. Human status labels are a later change and no question is open here.",
+"F303": "The shortcut route's two arms are distinguished by a request header, so every response from GET /keyboard-help, page arm and fragment arm alike, carries Vary: Sec-Fetch-Dest. A response from either arm without it is a defect even when its body is right, because the defect appears only at a cache and only for the OTHER arm's reader.",
+"F304": "Every response of GET /keyboard-help, from both arms, carries Vary: Sec-Fetch-Dest, so no cache can answer one arm's request with the other arm's body.",
+"F305": "a request declaring the document destination: the framed page AND the Vary header",
+"F306": "a request declaring the empty destination, as the overlay fetch does: the bare fragment AND the same Vary header",
+"F307": "a request declaring no destination: the bare fragment AND the same Vary header",
+"F308": "The arms are the closed pair the variant law enumerates, and the header is one named value on each, so three rows exhaust the domain; a generated property would redraw the same table.",
+"F32": "L1 to L2, in crates/foundry-app/templates/partials/keyboard_help.html and crates/foundry-app/src/keyboard.rs: extract the shortcut rows and the selection instruction into partials/keyboard_shortcut_rows.html, included by the unchanged dialog container, and extract the table-to-view-model mapping inside show_keyboard_help into one private shortcut_entries(). No behaviour change: the route still answers the same bare fragment. The follow-up change then adds the page arm by including the SAME rows partial and calling the SAME builder, so a page advertising a different list is not something a crafter has to remember not to write.",
+"F33": "GET /keyboard-help answers the same bare fragment: the dialog container with its role and its label, the heading, one key-and-description pair per shipped row in order, the selection-instruction paragraph, and no html wrapper.",
+"F34": "Shortcut page and overlay from ONE route. GET /keyboard-help keeps one URL and one row source. The arm is decided from the destination the CLIENT declares in its Sec-Fetch-Dest request header: the document destination, which only a top-level navigation carries, answers a framed page; every other declared destination and an absent header answer the bare fragment the route serves today, which is what keyboard.js assigns into the overlay host and what the shipped HTTP-lane read asserts. Page script cannot set that header, so the arm follows a property of the request rather than a name a caller picks. Carrier: a two-variant private enum HelpVariant in crates/foundry-app/src/keyboard.rs, decided once by a total private fn help_variant(headers) that answers Fragment for every input it does not recognise; the per-request state is that one value; no effects and no new error. Rows: one private fn shortcut_entries() over the SHORTCUTS table feeds both arms, so the two arms cannot advertise different lists. Layers. Domain: none, this is presentation. Application: none, the route stays public and stateless, so no session read and no rail. Adapter: partials/keyboard_shortcut_rows.html owns the shortcut rows and the selection instruction; partials/keyboard_help.html keeps the dialog container and includes them; keyboard_help_page.html extends the card page and includes the same rows under its own h1. Observation: the response body shape and the rows it lists.",
+"F35": "ONE chrome-less page frame for the signed-out family and the shortcut page. New templates/card_page.html extends base.html and renders one main.page-card holding a product-name line and then its own content block. signin.html, forgot.html, forgot_sent.html, bootstrap_claim.html, invite_accept.html, reset_password.html and the new keyboard_help_page.html extend it instead of base.html; each keeps its own h1, its own copy and its own form action, method, hidden fields and inputs unchanged. The product name is a brand LINE, not a heading, so every page keeps exactly one h1 and the shipped heading reads do not move. No sidebar partial and no theme control is included, because the shipped theme read asserts the sign-in screen has neither. Stylesheet: one .page-card block, centred with auto inline margins and a max inline size, on the raised surface tier the dashboard cards already use, and full width inside the page padding below the shipped phone breakpoint. Layers: Adapter only; no Rust carrier and no view-model field changes.",
+"F36": "The issue page reads as the issue. views::IssuePage gains title, description, status_slug and status_chip; comments.rs::render_issue_page fills them from ONE existing read, store::issue_edit_view over the project and number the handler already resolved, so there is no new SQL, no new store function and no new authorization decision. issue.html keeps its h1 holding the issue key alone, because a shipped browser read asserts that heading text EQUALS the key; the title takes its own h2 and the status sits beside the key. The description region is ALWAYS present: the stored text, escaped by the template engine and wrapped with preserved line breaks, or the empty copy, matching the shipped attachment and comment empty states. The comment markdown sanitizer in foundry-core is deliberately NOT consumed here: rendering issue markdown would add a product promise and a second consumer of that sanitizer, which a visual pass does not hold. The status element is the shipped chip: the handler renders it through issues.rs::render_state_chip and the template embeds the string with the no-escape filter, exactly as base.html embeds the site footer, so the chip markup keeps one owner and its data-state is the stored slug. The Delete anchor keeps its href mechanism and its data-action marker and takes the shipped secondary-button presentation; the upload form label and its file input take the stylesheet's own control tokens. Layers. Domain: none. Application: show_issue reads one more projection of the issue it already resolved, and a gap between the two reads refuses rather than renders a blank issue. Adapter: issue.html plus the title, description, status-chip and file-input rules. Observation: the page text and the chip's data-state.",
+"F37": "Autocomplete by flow on the eight named inputs: on signin.html the email takes username and the password takes current-password; on bootstrap_claim.html the email takes username and the password takes new-password, because that form CREATES the first admin's password and current-password there makes a password manager offer a stored secret instead of generating and saving one; on invite_accept.html and reset_password.html the password and its confirmation both take new-password. No other input in the repository gains a token in this Request. Every input keeps its type, name, required flag and order, so each shipped form POST, each hidden token and each server-side validation is untouched. Layers: Adapter only; no carrier and no state.",
+"F38": "ONE content-hash migration. The served stylesheet is the only file whose NAME changes: its bytes change, so the shipped asset-hash rule requires the name to carry the sha256 prefix of the new bytes, and the rename travels in the same commit to its three readers, the link in templates/base.html, the row and sha256 in static/VENDOR.md, and the three cache-policy assertions in crates/foundry-app/src/lib.rs. The shipped check-arch refuses a /static reference that does not resolve and a content-hashed name that is not its own hash, so a half-done rename is caught by the gate rather than by review.",
+"F39": "The shortcut rows are styled ONCE for both arms. The row rules move off the overlay-host prefix onto the rows' own class with the SAME declarations, so the overlay keeps the computed keycap background, keycap border and muted description colour the shipped theme read measures, and the navigated page gets the same rows. The overlay-only chrome stays scoped to the host: the fixed scrim on the non-empty host and the raised card on the dialog container, because on the page that chrome is the card page's own. This is why the navigated page draws browser-default serif with each key on its own line today: every shipped shortcut rule is host-scoped.",
+"F4": "Sign in and every other signed-out page (first-admin claim, invite accept, password reset) show their form in one centred card under the product name, not stretched across the window, at desk and phone width.",
+"F40": "Claim-to-checker. The one claim with a state-and-arm algebra is the help-variant decision and the row identity between the arms, a closed one-step function over the four destinations a client can declare, so Quint carries it at docs/feature/ui-bare-pages/design/keyboard_help_variant.qnt, verified exhaustively with the TLA-backed backend; TLA+ is not needed because there is no temporal or fairness claim, and Agda is not needed because no proof over an open domain is claimed. No model for the card geometry, the autocomplete tokens or the issue page content: each names no shared state, no multi-step protocol, no concurrency and no crash window, and each domain is the closed set of named pages or named inputs the finite laws enumerate. The one broad domain is the stored description text, carried by a generated property over the page render rather than by a model.",
+"F41": "Scope out stays out: app_shell.html, partials/sidebar.html, the board header, the issue dialog's Delete control and the general form, label and section-heading sizing belong to the next Request, ui-page-frame. The card's own max inline size is the only width rule this Request adds, and no rule changes who may open a page or what a form does.",
+"F42": "Shipped promises this Request must not break: GET /keyboard-help answers a body with no html wrapper to every request that does not declare the document destination; the overlay keeps its dialog container with its role and label and its key-and-description pairs; the sign-in screen carries no rail and no theme-named control and renders in both palettes; the sign-in and forgot pages stay full documents linking the stylesheet from the application's own static path; the issue page heading text equals the issue key; the board status chip keeps the slug as its data-state AND its text; no colour literal lives outside the three stylesheet token regions and the three regions declare the identical token set; every static reference resolves and every content-hashed name is its own sha256 prefix; the user menu still links to /keyboard-help; the pre-paint head scripts keep no defer, async or module attribute and every other head script keeps defer.",
+"F43": "No authority bounds the stored issue title or description length, and the store holds both as unbounded text, so the page shows whatever is stored, wrapped, with no truncation and no ellipsis. That is wider than any bound because no bound exists; a truncating page would be a product decision this Request does not hold. The shortcut list is the closed seven-row shipped table.",
+"F44": "P4 names eight inputs: the email and the password on sign-in and on first-admin claim, and the password and its confirmation on invite accept and password reset. The Request's six fields is the count of PASSWORD inputs in the screenshot review, at signin.html:9, bootstrap_claim.html:8, invite_accept.html:11-12 and reset_password.html:9-10; the two email inputs come from P4's own wording. The email input of forgot.html gets no token, because no promise names it.",
+"F46": "The shortcut page carries no rail. GET /keyboard-help is public and session-free by its own shipped rationale, the sign-in page loads the keyboard layer too, and the app shell needs a resolved nav identity. Adding a session read would change who the route serves, which scope-out forbids. Its same look as the rest of Foundry is the card frame, the stylesheet and the typography, not the rail.",
+"F48": "The one owner of the route. It gains the total variant decision and reads the request headers; its public, session-free contract and its 200 HTML response are unchanged, so no caller and no link moves.",
+"F49": "The single source of the advertised rows. Both arms derive from it through one new private builder, so an added row reaches the page and the overlay together; a page with its own hard-coded list is the drift this file's own comment warns about.",
+"F5": "An issue's full page shows its key, title, description and status, so the operator can read the issue there, and its other controls (delete, attachments) are styled like the rest of Foundry.",
+"F50": "The overlay view-model keeps its selector-identical contract and now includes the extracted rows partial; a sibling page view-model carries the same two fields, so neither arm owns a second copy of the row shape.",
+"F51": "Keeps the dialog container with its role and label that the shipped templating read asserts, and includes the rows partial instead of declaring the rows itself.",
+"F52": "No template today owns the shortcut rows apart from the dialog container that wraps them, and the page arm needs the rows WITHOUT that container: a page is not a dialog. Extracting them gives both arms one row owner; including the whole dialog on the page would put a dialog role on a document.",
+"F53": "The page arm needs a full document with its own h1; the overlay fragment cannot be that document, and no shipped template renders the shortcut list as a page.",
+"F54": "No template owns a chrome-less centred frame: the signed-out templates each place their content directly in base.html's content block, and app_shell.html is the rail frame a signed-out page and the public shortcut page may not render. One new frame is what keeps the card, its product name and its width in a single place instead of seven.",
+"F55": "The one owner of the head, the stylesheet link, the pre-paint scripts and the footer. The card page extends it rather than declaring a second head; the only edit here is the stylesheet link taking the new content hash.",
+"F56": "Keeps its h1, its error paragraph, its OIDC link, its forgot link and its form exactly as shipped; it changes which frame it extends and its two inputs gain their autocomplete tokens.",
+"F57": "A signed-out page of the same flow, paired with sign-in by the shipped layout expectation, so it takes the same card frame. Its email input gains no token, because no promise names it.",
+"F58": "The confirmation the forgot form lands on; leaving it bare would show the operator one styled page and then an unstyled one inside a single flow.",
+"F59": "The first-admin claim page named by P2 and P4: it takes the card frame, and its email and password inputs take their tokens; its four inputs, its token query and its submit are unchanged.",
+"F60": "The invite-accept page named by P2 and P4: card frame, and both password inputs take the created-password token; its three hidden fields are untouched.",
+"F61": "The password-reset page named by P2 and P4: card frame, and both password inputs take the created-password token; its hidden token field is untouched.",
+"F62": "The one owner of the issue full page. Its h1, its Delete anchor mechanism, its attachment list, its upload form, its timeline and its comment loop stay; the title, the description region and the status join the header, and the Delete anchor and the file input take shipped presentation classes.",
+"F63": "The page's one view-model. Four fields join it and the handler keeps building every value, so the template still only renders.",
+"F64": "The single place the issue page view-model is materialized; it fills the four new fields from the existing read, so no handler grows a second render path.",
+"F65": "The shipped projection that already answers title, description and state for the edit dialog, over the project id and number the page handler holds. A new query or a widened lookup row would make two owners of the same projection.",
+"F66": "The one owner of the status chip markup, today serving the board's drag-and-drop swap. It becomes crate-visible so the issue page embeds the SAME chip; a second chip shape on the page would let the two drift.",
+"F67": "The one served stylesheet and this feature's main carrier: the card block, the shortcut row rules unscoped from the overlay host, the issue title, description and status rules, and the file-input rules. Every value names an existing token, and the file is renamed to the sha256 prefix of its new bytes.",
+"F68": "The asset register that records the stylesheet name and its sha256; it is a reader of the content-hashed name, so the rename travels here in the same commit.",
+"F69": "Three cache-policy assertions name the stylesheet path literally, so they are readers of the content-hashed name and move with the rename.",
+"F7": "Keyboard shortcuts page, signed-out pages, the issue full page, and autocomplete on the six sign-in and password fields.",
+"F70": "Gains the total variant decision, the shared row builder and the page view-model; route, path, status and public access unchanged.",
+"F71": "The overlay view-model keeps its fields; a page sibling joins it, and IssuePage gains four fields.",
+"F72": "Fills the four new issue-page fields from the existing projection read; the comment, attachment and timeline assembly is untouched.",
+"F73": "The chip renderer becomes crate-visible; its output bytes are unchanged, so the board swap is unaffected.",
+"F74": "Keeps its dialog container and includes the extracted rows partial; the served bytes stay selector-identical.",
+"F75": "New: the single owner of the shortcut rows and the selection instruction, included by both arms.",
+"F76": "New: the framed page arm of the shortcut list.",
+"F77": "New: the chrome-less centred frame the signed-out family and the shortcut page extend.",
+"F78": "Extends the card frame; its two inputs take their tokens; form and copy unchanged.",
+"F79": "Extends the card frame; no token added.",
+"F8": "The page frame, form sizing and section headings, the issue dialog's Delete and the board header: the next Request (ui-page-frame). Any change to who may open a page or what a form does.",
+"F80": "Extends the card frame so the flow does not change look between form and confirmation.",
+"F81": "Extends the card frame; email and password take their tokens.",
+"F82": "Extends the card frame; both password inputs take the created-password token.",
+"F83": "Title, description region and status join the header; the heading, the Delete mechanism and every form are preserved.",
+"F84": "New card, row, issue and file-input rules, the shortcut rows unscoped from the overlay host, and the file renamed to the sha256 prefix of its new bytes; browsers holding the old immutable URL are unaffected because the old name is gone and the new link ships with it.",
+"F85": "The stylesheet link takes the new content hash; nothing else in the head moves.",
+"F86": "Its fetch declares the empty destination, so it keeps receiving the same bare fragment and keeps assigning it into the overlay host; no header is added to it.",
+"F87": "The rail link keeps its href, and a click on it is now the navigation that gets the framed page.",
+"F88": "The dashboard link keeps its href and gets the framed page for the same reason.",
+"F89": "Its HTTP read declares no destination, so it still receives the fragment with no html wrapper its step asserts.",
+"F9": "User decision 2026-11-20: the UI clean-up covers groups A to D, delivered as three Requests; this one is group A plus D3.",
+"F90": "The dialog container, its role, its label and its key-and-description pairs stay in the overlay arm, and the rows move to an included partial, not to inline Rust markup.",
+"F91": "The card frame extends base.html, so sign-in and forgot stay full documents that link the stylesheet from the application's own static path.",
+"F92": "Credentials, errors, cookies and the anti-forgery contract are untouched; only the frame around the form changes.",
+"F93": "Its sweep walks the board, the dashboard, an issue, the shortcut list and the sign-in screen. The overlay keeps its host-scoped selectors and its computed keycap and description colours, the sign-in screen grows no rail and no theme control, and every new value names an existing token.",
+"F94": "Its navigation oracle asserts the issue page heading text EQUALS the key, which is why the key keeps the h1 alone and the title takes an h2.",
+"F95": "The chip renderer's output bytes do not change, so the swapped board chip is identical.",
+"F96": "The Delete anchor keeps its href and its data-action marker; it gains a presentation class only.",
+"F97": "The comment list, its markers and the add-comment form are untouched on the page.",
+"F98": "The attachment list, its markers and the upload form keep their shape; the label and the file input gain presentation only.",
+"F99": "The user menu still links to /keyboard-help, because the URL does not change."
+},
+"product": {
+"decisions": [
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F9"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F10"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F293"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F294"
+}
+],
+"promises": [
+{
+"id": "P1",
+"kind": "Outcome",
+"text": "F3"
+},
+{
+"id": "P2",
+"kind": "Outcome",
+"text": "F4"
+},
+{
+"id": "P3",
+"kind": "Outcome",
+"text": "F5"
+},
+{
+"id": "P4",
+"kind": "Outcome",
+"text": "F295"
+}
+],
+"scope_in": [
+"F7"
+],
+"scope_out": [
+"F8"
+],
+"slices": [
+{
+"id": "S1",
+"observation": "F11",
+"promises": [
+"P1",
+"P2",
+"P3",
+"P4"
+]
+}
+]
+},
+"request": "F1",
+"schema": "nwdes.handoff",
+"scope": {
+"id": "ui-bare-pages",
+"kind": "Feature"
+},
+"version": 4,
+"work": {
+"size": "M",
+"value": "F2"
+}
+}
