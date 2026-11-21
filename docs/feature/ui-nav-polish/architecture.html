@@ -269,7 +269,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>Extend</p>
 
-<pre><code>Three NavSection variants with their predicates and constructors, and the totality unit test extended over every variant.
+<pre><code>Three NavSection variants with their predicates and constructors, the total offered_mark reconciliation called once inside resolved(), and the totality unit test extended over every variant and every section-by-rights pair.
 </code></pre>
 
 <p>crates/foundry-app/templates/partials/sidebar.html</p>
@@ -283,7 +283,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>Extend</p>
 
-<pre><code>Sticky rail, phone glyph geometry, the clipped workspace name and the quiet lower group. The file carries the sha256 prefix of its own bytes, so any further change renames it again and removes the old name.
+<pre><code>Sticky rail with its scroll container on the open geometry alone and overflow: visible on the folded geometry, phone glyph geometry, the clipped workspace name and the quiet lower group. The file carries the sha256 prefix of its own bytes, so any further change renames it again and removes the old name.
 </code></pre>
 
 <p>crates/foundry-app/templates/base.html</p>
@@ -368,13 +368,13 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h4>Public oracle</h4>
 
-<pre><code>Through the real public driving port, with a real session cookie: a workspace admin opens /teams, /workspace/invites, /admin/tokens, a team page under /teams, the dashboard and a board; a member with no rights beyond her workspace opens /teams and a board; an instance super-admin who administers no workspace opens the dashboard. For each rendered rail, every href it offered is then opened with the SAME cookie. In the browser lane the same GETs are rendered at the harness desk viewport, scrolled to the bottom of a page taller than the window in both rail geometries, and at the emulated 390x844 phone device; one press of Sign out and one press of the theme control are taken.
+<pre><code>Through the real public driving port, with a real session cookie: a workspace admin opens /teams, /workspace/invites, /admin/tokens, a team page under /teams, the dashboard and a board; a member with no rights beyond her workspace opens /teams and a board; an instance super-admin who administers no workspace opens the dashboard. For each rendered rail, every href it offered is then opened with the SAME cookie. In the browser lane the same GETs are rendered at the harness desk viewport, scrolled to the bottom of a page taller than the window in both rail geometries, and at the emulated 390x844 phone device; in the folded desk geometry, on a board page carrying cards, one primary nav member and one lower-group member each take keyboard focus so the revealed word overlaps a column; one press of Sign out and one press of the theme control are taken.
 </code></pre>
 
-<pre><code>On each page the one member carrying aria-current=page is the member that owns it - Teams on /teams and its team page, Invite a member on /workspace/invites, Machine tokens on /admin/tokens, Home on the dashboard, Board on the board - and never a second member. The member with no rights and the instance-only super-admin are offered Home, Board and Teams and neither admin link; the workspace admin is offered all five. Every offered href answers her own cookie with a page, never the refusal 404. At desk width the whole rail box lies inside the viewport after the scroll in both geometries, with every member visible. At the phone device the bar is at most 168.8 px high with every member visible, activatable and at least 44 px, and the workspace name is still one line that ends in an ellipsis, clipped out of the strip but not out of the document. The sign-out submit and the theme control resolve to the rail surface fill, no border their neighbour links lack and the same text tier and weight; each one draws a glyph and its own word, and that word reaches 4.5:1 against the surface behind it in both palettes, with no fill or border boundary owed; Sign out still ends the session and the theme control still changes the palette.
+<pre><code>On each page the one member carrying aria-current=page is the member that owns it - Teams on /teams and its team page, Invite a member on /workspace/invites, Machine tokens on /admin/tokens, Home on the dashboard, Board on the board - and never a second member and never none. The member with no rights and the instance-only super-admin are offered Home, Board and Teams and neither admin link; the workspace admin is offered all five. Every offered href answers her own cookie with a page, never the refusal 404. At desk width the whole rail box lies inside the viewport after the scroll in both geometries, with every member visible; in the folded geometry the revealed word of each focused member is VISIBLE beside the rail and painted over the column it overlaps, the centre of its revealed box hit-testing back to the word itself rather than to an ancestor, a column or a card. At the phone device the bar is at most 168.8 px high with every member visible, activatable and at least 44 px, and the workspace name is still one line that ends in an ellipsis, clipped out of the strip but not out of the document. The sign-out submit and the theme control resolve to the rail surface fill, no border their neighbour links lack and the same text tier and weight; each one draws a glyph and its own word, and that word reaches 4.5:1 against the surface behind it in both palettes, with no fill or border boundary owed; Sign out still ends the session and the theme control still changes the palette.
 </code></pre>
 
-<pre><code>The shipped build fails it today on every count: /teams, /workspace/invites and /admin/tokens mark Home, the two admin links are offered to a plain member and answer her 404, the rail scrolls away with a long page, the phone bar takes about 320 of 844 px, and the sign-out submit is a filled black slab beside bordered neighbours. Each law also fails on its own plausible wrong implementation: marking the owner member on /teams but leaving Home marked too is caught by exactly-one; hiding the two links from everyone is caught by the workspace-admin row; hiding them by clip instead of by condition is caught by the visible-and-activatable reading; capping the phone bar height with overflow is caught by the invisible-and-focusable reading; removing the workspace name with display:none on a phone is caught by the one-line-with-ellipsis reading; a quiet control whose word falls below 4.5:1 is caught by the text reading; and exempting every transparent button instead of a control with a visible word is caught by the glyph-only button that still owes a boundary.
+<pre><code>The shipped build fails it today on every count: /teams, /workspace/invites and /admin/tokens mark Home, the two admin links are offered to a plain member and answer her 404, the rail scrolls away with a long page, the phone bar takes about 320 of 844 px, and the sign-out submit is a filled black slab beside bordered neighbours. Each law also fails on its own plausible wrong implementation: marking the owner member on /teams but leaving Home marked too is caught by exactly-one; naming the owner member on an admin page whose link the rail will not offer is caught by the never-zero reading; hiding the two links from everyone is caught by the workspace-admin row; hiding them by clip instead of by condition is caught by the visible-and-activatable reading; holding the rail in view with one scroll-container declaration is caught by the revealed-word hit test, which a layout-box reading cannot see; leaving the sticky rail at z-index auto is caught by the same hit test on the board page, because the rail becomes a stacking context and the later positioned column then paints over the word; capping the phone bar height with overflow is caught by the invisible-and-focusable reading; removing the workspace name with display:none on a phone is caught by the one-line-with-ellipsis reading; a quiet control whose word falls below 4.5:1 is caught by the text reading; and exempting every transparent button instead of a control with a visible word is caught by the glyph-only button that still owes a boundary.
 </code></pre>
 
 <h5>Promises</h5>
@@ -408,13 +408,13 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h5>Decisions</h5>
 
-<pre><code>Current-page mark: enum NavSection in crates/foundry-app/src/nav.rs gains Teams, Invites and Tokens beside Home and Board. The carrier stays ONE field, NavContext.active, so the marked member is derived by equality on a sum and a rail with two marks is unrepresentable in Rust. Layers. Domain: none, this is presentation only. Application: each authed handler names exactly one section for its own page family, through new NavContext::teams_for, invites_for and tokens_for siblings over the existing private resolved() so the neutral fail-closed identity stays decided in one place. Adapter: partials/sidebar.html reads one predicate per item (is_teams, is_invites, is_tokens beside is_home, is_board) and emits the sidebar__item--active class and aria-current=page together. Carriers: decision = NavSection (nav.rs); per-request state = NavContext (nav.rs); effects = none; errors = none new.
+<pre><code>Current-page mark: enum NavSection in crates/foundry-app/src/nav.rs gains Teams, Invites and Tokens beside Home and Board. The carrier stays ONE field, NavContext.active, so the marked member is derived by equality on a sum and a rail with two marks is unrepresentable in Rust. ONE PLACE RECONCILES THE MARK WITH WHAT THE RAIL OFFERS: resolved() reads the identity first, then maps the section the handler named through a total private NavSection::offered_mark(self, is_workspace_admin), which answers Home for Invites and Tokens when the rail will not offer that member and the named section otherwise. Home is always offered, so a rail with zero marks is unrepresentable as well and the marked member is always a member the document renders. The route gate and the rail read the identity separately, so an operator the gate admitted as a workspace admin can still meet a failed nav_identity read; that render offers neither admin link and marks Home, which is what failure B1 declares. Layers. Domain: none, this is presentation only. Application: each authed handler names exactly one section for its own page family, through new NavContext::teams_for, invites_for and tokens_for siblings over the existing private resolved(), which owns the neutral fail-closed identity AND the mark reconciliation, so both stay decided in one place. Adapter: partials/sidebar.html reads one predicate per item (is_teams, is_invites, is_tokens beside is_home, is_board) and emits the sidebar__item--active class and aria-current=page together. Carriers: decision = NavSection (nav.rs); per-request state = NavContext (nav.rs); effects = none; errors = none new.
 </code></pre>
 
 <pre><code>Rights-based visibility: the two admin destinations are wrapped in the same {% if nav.is_workspace_admin %} condition the shipped Integrations item already uses. No new lookup and no new authorization decision: the fact is the one is_workspace_admin value NavContext already carries from the single nav_identity read (ADR-IW-002), which is the same fact member_invites show_invite_form and the admin_tokens require_admin gate read. Teams keeps no condition because GET /teams needs only a session. Application layer supplies the fact, Adapter layer decides presence. On identity-lookup failure the neutral identity reports false, so the rail fails closed and offers only links that open.
 </code></pre>
 
-<pre><code>Sticky rail: the bare .sidebar rule takes position: sticky, top: 0, align-self: flex-start, height: 100vh and overflow-y: auto, so the rail stops stretching to the whole document height inside the 100vh-min .app-shell flex row, and both geometries, open and folded, inherit it from one declaration. A rail taller than the window then scrolls inside itself, so no member becomes unreachable. The phone block resets position: static and height: auto, because there the rail is a top bar in a stacked shell. Adapter layer only: no Rust, no template and no class-name change.
+<pre><code>Sticky rail: the bare .sidebar rule takes position: sticky, top: 0, align-self: flex-start, height: 100vh and an explicit z-index of 20, so the rail stops stretching to the whole document height inside the 100vh-min .app-shell flex row and stays in view while the page scrolls under it. THE SCROLL CONTAINER BELONGS TO THE OPEN GEOMETRY ALONE: overflow-y: auto stays on the bare rule, and [data-nav-collapsed] .sidebar sets overflow: visible. A scroll container clips its scrollable overflow on BOTH axes, because a declared overflow-y of auto makes overflow-x compute to auto as well, and in the folded 72px rail the revealed word is an absolutely positioned descendant placed at left: 100% with a margin, entirely outside the rail padding box; a scrolling folded rail would therefore clip that word out of view and break the shipped nav-collapse-icon-rail promise, with nothing to scroll it back. The open 240px rail draws no flyout at all, so there the scroll container clips nothing and a rail taller than the window still scrolls inside itself. THE RAIL NEEDS ITS OWN STACKING LEVEL: position: sticky makes .sidebar a stacking context even at z-index auto, so the flyout z-index of 30 orders the word only INSIDE the rail and no longer lifts it over the page. The positioned page content - .column and .issue-card, both position: relative at z-index auto - comes later in the document, so a rail left at z-index auto paints UNDER a board column together with its revealed word. z-index: 20 puts the whole rail above that positioned content and below every overlay: the modal at 50, the keyboard-help overlay at 100 and the card drag ghost at 200 all still cover the rail. The comment beside the flyout rule states a premise that no longer holds - that a positioned descendant with a z-index paints above the non-positioned content column - because the content column IS positioned and the rail is now a stacking context; the crafter rewrites that comment to name the rail own level instead. The phone block resets position: static and height: auto, because there the rail is a top bar in a stacked shell. Adapter layer only: no Rust, no template and no class-name change.
 </code></pre>
 
 <pre><code>Phone bar height: below the 480 px breakpoint the bar draws the GLYPH geometry instead of the word geometry, and reuses the shipped folded-rail mechanism. .sidebar__icon becomes visible and .sidebar__label is clipped, never display:none, so each word stays in the accessibility tree and each member is a 44 px thumb square. The workspace name is clipped out of the flow in the same way, not removed: position absolute, a 1 px box and clip-path inset(50%), with text-overflow and overflow untouched. display:none takes the name out of the layout, and the shipped instance-admin-workspace-rename row reads the name box on a phone; a removed box measures 0 and makes that row red. The clip keeps the element in the document for the promise that reads it, for the same reason the member word is clipped. The two wrapping groups then take about two rows instead of about four. Every destination stays inside the bar, and nothing is hidden by a height cap or by overflow.
@@ -446,6 +446,12 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>The theme control is built by static/js/theme.js and appended into .sidebar__user, so its quiet presentation has to come from the stylesheet alone. With scripting off there is no theme control at all, and P5 is then satisfied by the sign-out submit alone.
 </code></pre>
 
+<pre><code>P3 bounds nothing about the window height, and the design is narrower in one respect: a rail whose own content is taller than the window cannot have its whole box inside the viewport under any mechanism. The open geometry keeps every member reachable by scrolling inside the rail; the folded geometry cannot, because a scroll container there is exactly what clips its revealed word, which is a shipped promise. That bound is carried as risk Y5, never as a satisfied promise. The desk reading uses the harness fixed viewport, where the rail fits.
+</code></pre>
+
+<pre><code>The rail paint order is a band, not a number the rail may choose freely: above the positioned page content that carries no z-index (.column and .issue-card, both position: relative) and below every overlay the stylesheet already declares - the modal at 50, the keyboard-help overlay at 100 and the card drag ghost at 200. A rail above an overlay would cover a modal; a rail at z-index auto is covered by a board column, the flyout included, because position: sticky already makes the rail a stacking context.
+</code></pre>
+
 <h5>Reuse</h5>
 
 <p>NavSection</p>
@@ -461,9 +467,9 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>crates/foundry-app/src/nav.rs:136</p>
 
-<p>Reuse</p>
+<p>Extend</p>
 
-<pre><code>Already resolves the identity, the neutral fail-closed fallback and board_href for any section; the three new constructors are thin siblings over it, so the fallback stays decided in one place.
+<pre><code>Already resolves the identity, the neutral fail-closed fallback and board_href for any section. The three new constructors are thin siblings over it, and the mark reconciliation goes INSIDE it, so the identity, the fallback and the member the rail may mark are decided in one place. A caller-side reconciliation would put that rule in four handlers and let one of them forget it.
 </code></pre>
 
 <p>NavContext::home_for</p>
@@ -582,7 +588,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>Changed</p>
 
-<pre><code>Three NavSection variants, three predicates, three constructors, and the existing totality unit test extended over every variant.
+<pre><code>Three NavSection variants, three predicates, three constructors, the total NavSection::offered_mark reconciliation called once inside resolved(), and the existing totality unit test extended over every variant and over every section-by-workspace-admin pair.
 </code></pre>
 
 <p>template-partial</p>
@@ -600,7 +606,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>Migrated</p>
 
-<pre><code>Sticky rail, phone glyph geometry, the clipped workspace name and the quiet lower group change the bytes, so the content-hashed name changes with them and the old name is removed in the same change.
+<pre><code>Sticky rail with the scroll container on the open geometry alone, overflow: visible on the folded geometry, phone glyph geometry, the clipped workspace name and the quiet lower group change the bytes, so the content-hashed name changes with them and the old name is removed in the same change.
 </code></pre>
 
 <p>template-head</p>
@@ -913,12 +919,12 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>####### B1</p>
 
-<pre><code>The nav_identity lookup fails for this render.
+<pre><code>The nav_identity lookup fails for this render, so the rail own read reports a neutral identity while the route gate has already admitted the acting operator.
 </code></pre>
 
 <p>Refusal</p>
 
-<pre><code>The page still answers 200 with a neutral rail that marks the page family it is on and offers neither admin link; the error is logged, nothing is offered that would refuse her.
+<pre><code>The page still answers 200 with a neutral rail that offers neither admin link and marks Home, on /workspace/invites and /admin/tokens as on every other page, because resolved() reconciles a section the rail will not offer to Home. The error is logged, nothing is offered that would refuse her, and no render carries zero marks.
 </code></pre>
 
 <p>####### B2</p>
@@ -989,11 +995,19 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>How the palette travels, which the theme lane owns.
 </code></pre>
 
+<pre><code>Whether the revealed word of a folded rail member is visible beside the rail while that member holds the pointer or the keyboard, read by the centre hit test of the revealed box rather than by its layout box.
+</code></pre>
+
+<p>Map[word, (revealed, hitsItsOwnWord)]</p>
+
+<pre><code>Which ancestor clipped it, and the box the word would have had if nothing clipped it.
+</code></pre>
+
 <h5>Equality</h5>
 
-<p>the seven observations above</p>
+<p>the eight observations above</p>
 
-<pre><code>Two rendered rails are the same rail when they offer the same set of word-and-href pairs, mark the same set, answer the same statuses for those hrefs, hold the same geometry predicates (whole box inside the viewport after the scroll at desk width, height at or under a fifth of the viewport at the phone device) and give the sign-out submit and the theme control the same resolved fill, border and text tier as their neighbour links. Two rails that differ only in row wrapping, tint, glyph, token name or source order are equal.
+<pre><code>Two rendered rails are the same rail when they offer the same set of word-and-href pairs, mark the same set, answer the same statuses for those hrefs, hold the same geometry predicates (whole box inside the viewport after the scroll at desk width, the revealed word of a focused folded member hit-testing back to itself, height at or under a fifth of the viewport at the phone device) and give the sign-out submit and the theme control the same resolved fill, border and text tier as their neighbour links. Two rails that differ only in row wrapping, tint, glyph, token name or source order are equal.
 </code></pre>
 
 <h5>Constructors</h5>
@@ -1022,11 +1036,15 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>async fn(&amp;AppState, Uuid, Uuid, bool, String) -&gt; NavContext</p>
 
+<p>NavSection::offered_mark</p>
+
+<p>fn(NavSection, bool) -&gt; NavSection</p>
+
 <h5>Laws</h5>
 
 <h6>L1</h6>
 
-<pre><code>On every authenticated page a signed-in operator can open, exactly one primary nav member carries aria-current=page, and it is the member that owns that page family: Home on the dashboard and on every page no primary member owns, Board on the board family, Teams on /teams and its descendants, Invite a member on /workspace/invites, Machine tokens on /admin/tokens.
+<pre><code>On every authenticated page a signed-in operator can open, exactly one primary nav member carries aria-current=page - never two and never zero - and it is the member that owns that page family whenever the rail offers her that member: Home on the dashboard and on every page no primary member owns, Board on the board family, Teams on /teams and its descendants, Invite a member on /workspace/invites, Machine tokens on /admin/tokens. When the rail will not offer the owning member, because the rail own identity read reported no workspace admin for this render, the marked member is Home, which the rail always offers.
 </code></pre>
 
 <p>Invariant</p>
@@ -1050,16 +1068,19 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>teams and a team page, any rights: Teams
 </code></pre>
 
-<pre><code>invites, workspace admin: Invite a member
+<pre><code>invites, workspace admin, identity read resolved: Invite a member
 </code></pre>
 
-<pre><code>tokens, workspace admin: Machine tokens
+<pre><code>tokens, workspace admin, identity read resolved: Machine tokens
 </code></pre>
 
 <pre><code>account settings, any rights: Home
 </code></pre>
 
-<pre><code>The domain is the closed product of six page families and the four-member rights set; every reachable row is enumerated, so a generator would only re-draw the same table.
+<pre><code>invites or tokens, the route gate admitted a workspace admin but the rail identity read failed for this render: Home, the member the rail still offers; the rail carries one mark, not zero
+</code></pre>
+
+<pre><code>The domain is the closed product of six page families, the four-member rights set and the two outcomes of the rail own identity read; every reachable row is enumerated, so a generator would only re-draw the same table.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1068,7 +1089,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>L2</h6>
 
-<pre><code>The nav never marks a member it does not offer: the marked set is a subset of the offered set in every render.
+<pre><code>The nav never marks a member it does not offer: the marked set is a subset of the offered set in every render, and it is never empty on a page she can open.
 </code></pre>
 
 <p>Invariant</p>
@@ -1083,13 +1104,16 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>Cases</h6>
 
-<pre><code>invites page, workspace admin: Invite a member is both offered and marked
+<pre><code>invites page, workspace admin, identity read resolved: Invite a member is both offered and marked
 </code></pre>
 
 <pre><code>any page, plain member: the marked member is one of the three she is offered
 </code></pre>
 
-<pre><code>Same closed domain as the mark law.
+<pre><code>invites or tokens, the rail identity read failed: the owning member is not offered, so the section is reconciled to Home and Home is both offered and marked
+</code></pre>
+
+<pre><code>Same closed domain as the mark law, the two outcomes of the rail own identity read included.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1279,6 +1303,42 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>None.</p>
 
+<h6>L8</h6>
+
+<pre><code>In the folded desk geometry, while the rail is held in view on a page taller than the window, the revealed word of a rail member is VISIBLE beside the rail when that member holds the pointer or the keyboard: the centre of the revealed box hit-tests back to the word itself or to a node inside it, never to an ancestor and never to page content the word overlaps. No ancestor of a rail member clips that word out of view, and no positioned page content paints over it.
+</code></pre>
+
+<p>Invariant</p>
+
+<p>Adapter</p>
+
+<p>crates/foundry-app/static/css</p>
+
+<h6>Treatment</h6>
+
+<p>Finite</p>
+
+<h6>Cases</h6>
+
+<pre><code>folded rail, desk width, a board page with cards scrolled to the bottom, a primary nav member holds keyboard focus and its revealed word overlaps a column: the word hit-tests back to itself, not to the column and not to a card
+</code></pre>
+
+<pre><code>folded rail, desk width, the same board page, a lower-group member holds keyboard focus and its revealed word overlaps a column: the word hit-tests back to itself
+</code></pre>
+
+<pre><code>folded rail, desk width, an open modal or the keyboard-help overlay: the overlay covers the rail, which is the declared order, and no word is read for this law
+</code></pre>
+
+<pre><code>open rail, desk width: no flyout is drawn, so no word is read for this law and the rail may scroll inside itself
+</code></pre>
+
+<pre><code>Two revealed words in one geometry at one harness viewport, read on the board page because that is the surface whose own content is positioned beside the rail: enumerated readings, no generated domain. The LAYOUT box of the word is not the reading, because clip, clip-path, an ancestor overflow and a later positioned sibling all leave that box untouched; the reading is the clip-aware centre hit test crates/foundry-acceptance/src/support/rail_reading.rs already owns, which fails both when the word is clipped and when something paints over it. Owner of the row: acceptance designer.
+</code></pre>
+
+<h6>Evidence</h6>
+
+<p>None.</p>
+
 <h5>Refuted</h5>
 
 <pre><code>Bounding the phone bar with max-height plus overflow satisfies P4.
@@ -1317,6 +1377,15 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>instance-admin-workspace-rename, phone row: the sidebar shows the workspace name on one line ending in an ellipsis. With display:none the reading is scrollWidth 0 and clientWidth 0, so the row goes red. With the clip the same row passes and the bar still measures two rows.
 </code></pre>
 
+<pre><code>One overflow-y: auto declaration on the sticky rail keeps every member reachable in both geometries and breaks no shipped promise.
+</code></pre>
+
+<pre><code>The carrier, not a special case. A declared overflow-y of auto makes overflow-x compute to auto as well, so the rail clips its scrollable overflow on BOTH axes. The folded rail revealed word is an absolutely positioned descendant whose containing block lies inside that scroller, so no declaration on the word itself escapes the clip. The scroll container therefore moves to the open geometry, which draws no flyout, and the folded geometry keeps overflow: visible. No CSS condition reads content height, so the over-tall folded rail stays a recorded residue rather than a third mechanism.
+</code></pre>
+
+<pre><code>Folded rail, 72px strip, desk width: a member takes keyboard focus and its word is placed at left: 100% plus 8px, entirely outside the rail padding box, where it is clipped out of view with nothing to scroll it back. No shipped lane sees it: the flyout assertion compares the word LAYOUT box while focused against the same box while unfocused, and an ancestor overflow leaves a layout box untouched.
+</code></pre>
+
 <h5>Claims</h5>
 
 <h6>C1</h6>
@@ -1329,17 +1398,17 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>crates/foundry-app/src/nav.rs</p>
 
-<pre><code>One NavSection variant chosen by the handler for the page it renders.
+<pre><code>One NavSection variant chosen by the handler for the page it renders, together with the workspace-admin fact the rail own identity read reported.
 </code></pre>
 
-<p>NavContext::for_page</p>
+<p>NavContext::resolved</p>
 
 <p>crates/foundry-app/templates/partials/sidebar.html</p>
 
 <pre><code>The set of members carrying aria-current=page in the served document.
 </code></pre>
 
-<pre><code>Rust excludes two marks in the carrier, not in the template: a predicate applied to the wrong member, or a hard-coded aria-current in the partial, still emits a wrong or second mark. The new check-arch obligation and the per-family acceptance rows cover that, and the nav.rs totality test covers a future variant.
+<pre><code>Rust excludes two marks in the carrier and, through the total NavSection::offered_mark reconciliation inside resolved(), excludes zero marks as well - but it excludes neither in the template: a predicate applied to the wrong member, or a hard-coded aria-current in the partial, still emits a wrong or second mark. The new check-arch obligation and the per-family acceptance rows cover that, and the nav.rs totality test covers a future variant and every section-by-rights pair of offered_mark.
 </code></pre>
 
 <h6>C2</h6>
@@ -1383,7 +1452,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>Admitted</p>
 
-<pre><code>Identity lookup failed: the neutral identity reports no workspace admin, the two links are absent and the page still renders 200 with Home marked.
+<pre><code>Identity lookup failed for this render: the neutral identity reports no workspace admin, the two admin links are absent, the section the page named is reconciled to Home, and the page still renders 200 with Home marked - on /workspace/invites and /admin/tokens as on every other page.
 </code></pre>
 
 <p>crates/foundry-app/src/nav.rs</p>
@@ -1435,21 +1504,21 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>Invariant</p>
 
-<pre><code>On a page she can open, the marked set has exactly one member.
+<pre><code>On a page she can open, the marked set has exactly one member, the failed-read branch included.
 </code></pre>
 
 <p>NavContext.active</p>
 
 <p>crates/foundry-app/templates/partials/sidebar.html:46</p>
 
-<p>markedIsOwnPage</p>
+<p>markedIsOwnPageOrHome</p>
 
 <p>Invariant</p>
 
-<pre><code>The marked member is the one that owns the page family, and Home for a family no member owns.
+<pre><code>The marked member owns the page family, and Home both for a family no member owns and for a page whose own member the rail will not offer.
 </code></pre>
 
-<p>NavSection</p>
+<p>NavSection::offered_mark</p>
 
 <p>crates/foundry-app/src/nav.rs:18</p>
 
@@ -1468,7 +1537,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>Invariant</p>
 
-<pre><code>Every offered member is admitted by its destination for this identity.
+<pre><code>Every offered member is admitted by its destination for the identity the ROUTE GATE reads, not for the identity the rail read.
 </code></pre>
 
 <p>NavContext.is_workspace_admin</p>
@@ -1479,7 +1548,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>Invariant</p>
 
-<pre><code>Every member her rights admit is still offered.
+<pre><code>With the rail own read in agreement with the acting session, every member her rights admit is still offered.
 </code></pre>
 
 <p>NavContext.is_workspace_admin</p>
@@ -1500,11 +1569,21 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>State</p>
 
-<p>rights</p>
+<p>gateRights</p>
 
-<p>is_workspace_admin and is_instance_admin on NavContext</p>
+<p>the workspace-admin fact the route gate reads for this request</p>
 
-<p>crates/foundry-app/src/nav.rs:38</p>
+<p>crates/foundry-app/src/admin_tokens.rs:294</p>
+
+<p>None.</p>
+
+<p>State</p>
+
+<p>navRights</p>
+
+<p>NavContext.is_workspace_admin, from the rail own nav_identity read</p>
+
+<p>crates/foundry-app/src/nav.rs:42</p>
 
 <p>None.</p>
 
@@ -1526,7 +1605,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>crates/foundry-app/src/nav.rs:136</p>
 
-<pre><code>One render per request: the whole rail is assembled and served in one step, so no interleaving is modelled.
+<pre><code>One render per request: the whole rail is assembled and served in one step, identity read included, so no interleaving is modelled.
 </code></pre>
 
 <p>Constant</p>
@@ -1547,15 +1626,18 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>Six page families, five of which own a primary member.
 </code></pre>
 
-<pre><code>One render per request: the operator opens another page with the same identity; no temporal or fairness claim.
+<pre><code>One render per request: the operator opens another page with the same acting identity and the rail re-reads its own identity on each render; no temporal or fairness claim.
 </code></pre>
 
 <pre><code>The shipped gates are the admit function and do not change in this Request.
 </code></pre>
 
+<pre><code>The rail own read reports either the acting identity or the neutral one; nothing else is representable.
+</code></pre>
+
 <h6>Mutants</h6>
 
-<p>######## N1</p>
+<p>######## N3</p>
 
 <pre><code>offer=all: the two admin links are offered to every signed-in operator (the shipped behaviour this Request replaces).
 </code></pre>
@@ -1564,7 +1646,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>noRefusedLinkOffered</p>
 
-<p>######## N2</p>
+<p>######## N4</p>
 
 <pre><code>mark=home: Teams, Invite a member and Machine tokens mark nothing and Home stays marked there (the shipped behaviour this Request replaces).
 </code></pre>
@@ -1572,6 +1654,17 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <h6>Kills</h6>
 
 <p>ownPageIsMarked</p>
+
+<p>######## N5</p>
+
+<pre><code>resolve=none: a page keeps naming its own member even when the rail will not offer it, which is the unreconciled composition of P1 and P2 the first candidate shipped; on /admin/tokens with a failed rail read the rail then marks nothing at all.
+</code></pre>
+
+<h6>Kills</h6>
+
+<p>markNeverEmpty</p>
+
+<p>exactlyOneMarked</p>
 
 <h5>Closure</h5>
 
@@ -1584,7 +1677,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>DesignedNotBuilt</p>
 
-<pre><code>Quint checked exactlyOneMarked, markedIsOwnPage and markedIsOffered over the closed six-family by four-rights space, and the unguarded form fails on the shipped mark=home variant, so the check can tell the two designs apart. The runtime still marks Home on the three pages.
+<pre><code>Quint checked exactlyOneMarked, markedIsOwnPageOrHome and markedIsOffered over the closed space of six page families, the four-member rights set and the two outcomes of the rail own identity read, symbolically to the model step bound and by randomized run. The checks tell the designs apart: the shipped mark=home variant is refuted with a trace, and so is the unreconciled variant that keeps naming a member the rail does not offer, whose trace marks NOTHING on /admin/tokens for an operator the route gate admitted. The runtime still marks Home on the three pages.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1632,7 +1725,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>DesignedNotBuilt</p>
 
-<pre><code>Quint checked offeredImpliesAdmitted and admittedIsOffered over the four-member rights set, and the unguarded form fails on the shipped offer=all variant with a plain member.
+<pre><code>Quint checked offeredImpliesAdmitted against the identity the ROUTE GATE reads, and admittedIsOffered over the four-member rights set bounded to a rail read that agreed with the acting session, which is the scope failure B1 declares. The unguarded form fails on the shipped offer=all variant with a plain member.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1680,7 +1773,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>DesignedNotBuilt</p>
 
-<pre><code>No checker covers these: they are real-browser layout facts with no state machine. Each has one declared executable observation through the browser lane (rail box after a scroll, bar height over viewport height at the 390x844 device, resolved fill border colour and weight beside a neighbour link) and a falsifier that the shipped stylesheet fails today. That is design evidence, not proof.
+<pre><code>No checker covers these: they are real-browser layout facts with no state machine. Each has one declared executable observation through the browser lane - the rail box after a scroll in both geometries, the revealed word of a focused folded member read by the clip-aware centre hit test, the bar height over the viewport height at the 390x844 device, and the resolved fill, border, colour and weight beside a neighbour link - and a falsifier the shipped stylesheet fails today. That is design evidence, not proof. A folded rail taller than the window is outside the declared bound and is carried as risk Y5.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1828,16 +1921,16 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>Second set, continued. Negate the assumption that the rail is shorter than the window at desk width: a short window or a large text size makes the rail taller than the viewport while the page is also long.
 </code></pre>
 
-<pre><code>Every rail member stays reachable, because the sticky rail scrolls inside itself.
+<pre><code>In the open geometry every rail member stays reachable, because the open rail is the scroll container and scrolls inside itself.
 </code></pre>
 
-<pre><code>The operator scrolls within the rail to reach its last member.
+<pre><code>In the open geometry the operator scrolls within the rail to reach its last member. In the folded geometry the rail paints its last members below the window edge, where the sticky box does not scroll them back.
 </code></pre>
 
-<pre><code>A member clipped by the 100vh box with no way to reach it, which is what a height cap without overflow would cause.
+<pre><code>A member clipped out of view with no way to reach it in the open geometry, and a revealed word clipped out of view in the folded geometry.
 </code></pre>
 
-<pre><code>overflow-y: auto on the sticky rail.
+<pre><code>overflow-y: auto on the OPEN rail alone. The folded rail keeps overflow: visible, because the scroll container is exactly what clips its revealed word; the folded rail is the shorter of the two, since the workspace name and the identity leave the layout and every target is a 40px square. No CSS condition reads content height, so no single declaration closes both the over-tall folded rail and the revealed word.
 </code></pre>
 
 <p>crafter</p>
@@ -1926,6 +2019,27 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>product-owner</p>
 
+<h6>Y10</h6>
+
+<p>Bypass</p>
+
+<pre><code>The revealed word holds neither its clip nor its paint order by type. Any later overflow, clip-path, contain or filter on a rail ancestor clips it again, and any change to the rail own z-index, or any page content that takes a z-index above it, paints over it. position: sticky already makes the rail a stacking context, so the word z-index of 30 orders nothing outside the rail. No gate refuses either change, and the shipped flyout assertion compares the word LAYOUT box, which both a clip and a cover leave untouched, so the regression is silent in every shipped lane.
+</code></pre>
+
+<pre><code>The word keeps its box, its accessible name and its reveal rules, and the member itself stays visible and activatable.
+</code></pre>
+
+<pre><code>Nothing.
+</code></pre>
+
+<pre><code>A folded rail whose revealed word is clipped out of view, or covered by page content, while the member still reads as visible.
+</code></pre>
+
+<pre><code>The clip-aware law and its browser row are the standing check, read with the centre hit test rail_reading.rs already owns rather than with a layout box, and read on a board page where the word overlaps a positioned column. Owner of the row: acceptance designer.
+</code></pre>
+
+<p>acceptance-designer</p>
+
 <h5>Architectural tests</h5>
 
 <h6>T1</h6>
@@ -1944,7 +2058,9 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h2>ADRs</h2>
 
-<p>- NAV-POLISH-001 Nav marks its own page and offers only what opens — Accepted</p>
+<p>- NAV-POLISH-001 Nav marks its own page and offers only what opens — Superseded by NAV-POLISH-003</p>
 <p>- NAV-POLISH-002 Rail text-plus-glyph controls owe text contrast, not a boundary — Accepted</p>
+<p>- NAV-POLISH-003 Nav marks an offered member and the rail keeps its flyout — Superseded by NAV-POLISH-004</p>
+<p>- NAV-POLISH-004 The rail carries its own paint level above page content — Accepted</p>
 
 </body></html>

@@ -1,5 +1,5 @@
 # NAV\-POLISH\-001 Nav marks its own page and offers only what opens
-Status: Accepted
+Status: Superseded by NAV-POLISH-003
 
 ## Context
 

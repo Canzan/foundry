@@ -4,20 +4,31 @@
 // operator; /workspace/invites and /admin/tokens admit a workspace admin and
 // answer every other caller with the non-enumerable 404.
 //
+// TWO IDENTITIES, NOT ONE. The ROUTE GATE decides admission from the acting
+// session (gateRights). The RAIL decides what it offers from its own
+// nav_identity read (navRights), which falls back to a neutral identity when
+// the read fails. The two therefore diverge on exactly one branch: the gate
+// admits a workspace admin while the rail sees a plain operator. Folding them
+// into one variable hid the zero-mark state this module now carries.
+//
 // Design variants are fixed per run by the init action, so one model carries
 // the proposed design AND the states it must exclude:
-//   mark  "own"   = each of the five primary destinations marks its own page
-//                   family (the proposal, P1)
-//         "home"  = Teams / Invite a member / Machine tokens mark nothing and
-//                   Home stays marked there (today's shipped behaviour)
-//   offer "gated" = Invite a member and Machine tokens are offered only to a
-//                   workspace admin (the proposal, P2)
-//         "all"   = both are offered to every signed-in operator (today's
-//                   shipped behaviour)
+//   mark    "own"   = each of the five primary destinations marks its own page
+//                     family (the proposal, P1)
+//           "home"  = Teams / Invite a member / Machine tokens mark nothing and
+//                     Home stays marked there (today's shipped behaviour)
+//   offer   "gated" = Invite a member and Machine tokens are offered only to a
+//                     workspace admin the rail's own read reported (P2)
+//           "all"   = both are offered to every signed-in operator (today's
+//                     shipped behaviour)
+//   resolve "home"  = a page whose own member the rail will not offer marks
+//                     Home instead (the proposal)
+//           "none"  = the page keeps naming its own member even when the rail
+//                     does not offer it, so the rail marks nothing
 module navMarkAndOffer {
   type State = {
-    mark: str, offer: str,
-    rights: str, page: str
+    mark: str, offer: str, resolve: str,
+    gateRights: str, navRights: str, page: str
   }
   type Obs = {
     offered: Set[str],
@@ -55,23 +66,32 @@ module navMarkAndOffer {
     else if (page == "tokens") "Machine tokens"
     else "none"
 
-  // The gate on the page itself: a page whose own item would refuse her answers
-  // 404, so no rail is rendered there at all.
+  // The gate on the page itself, read with the ACTING session: a page whose own
+  // item would refuse her answers 404, so no rail is rendered there at all.
   pure def pageAdmits(page: str, r: str): bool =
     if (page == "invites" or page == "tokens") isWorkspaceAdmin(r) else true
 
+  // The rail offers from its OWN read, never from the gate's identity.
   pure def offeredBy(st: State): Set[str] =
     if (st.offer == "gated")
-      PRIMARY.filter(i => admits(i, st.rights))
+      PRIMARY.filter(i => admits(i, st.navRights))
     else
       PRIMARY
 
+  // The member the page names for itself, and Home for a family that owns none.
+  pure def ownMemberOf(st: State): str =
+    if (ownerOf(st.page) == "none") "Home" else ownerOf(st.page)
+
+  // The member the rail actually marks. Under resolve = "home" a page whose own
+  // member the rail will not offer marks Home, which the rail always offers.
+  pure def markBy(st: State): str =
+    if (offeredBy(st).contains(ownMemberOf(st))) ownMemberOf(st)
+    else if (st.resolve == "home") "Home"
+    else ownMemberOf(st)
+
   pure def markedBy(st: State): Set[str] =
     if (st.mark == "own")
-      // The item that owns this page family, and Home for a family that owns
-      // none. Never an item the rail does not offer.
-      offeredBy(st).filter(i =>
-        if (ownerOf(st.page) == "none") i == "Home" else i == ownerOf(st.page))
+      offeredBy(st).filter(i => i == markBy(st))
     else
       // Today: only the board family marks Board; every other authed page marks
       // Home, the three moved destinations included.
@@ -80,86 +100,100 @@ module navMarkAndOffer {
   pure def observe(st: State): Obs = {
     offered: offeredBy(st),
     marked: markedBy(st),
-    reachableHere: pageAdmits(st.page, st.rights)
+    reachableHere: pageAdmits(st.page, st.gateRights)
   }
+
+  // The rail's read either reports the acting identity or, on failure, the
+  // neutral one. Nothing else is representable.
+  pure def railIdentity(gate: str, lookupFailed: bool): str =
+    if (lookupFailed) "plain" else gate
 
   action init = all {
     nondet m = Set("own", "home").oneOf()
     nondet o = Set("gated", "all").oneOf()
-    nondet r = RIGHTS.oneOf()
+    nondet rv = Set("home", "none").oneOf()
+    nondet g = RIGHTS.oneOf()
+    nondet f = Set(false, true).oneOf()
     nondet p = PAGES.oneOf()
-    all {
-      s' = { mark: m, offer: o, rights: r, page: p },
-      obs' = observe({ mark: m, offer: o, rights: r, page: p })
-    }
+    val st = { mark: m, offer: o, resolve: rv, gateRights: g,
+               navRights: railIdentity(g, f), page: p }
+    all { s' = st, obs' = observe(st) }
   }
 
   // One render per request: the operator's only move is to open another page
-  // with the same identity and the same shipped design.
+  // with the same acting identity; each render re-reads the rail identity, so
+  // the read can fail on one page and succeed on the next.
   action openAnotherPage = all {
     nondet p = PAGES.oneOf()
-    all {
-      s' = { ...s, page: p },
-      obs' = observe({ ...s, page: p })
-    }
+    nondet f = Set(false, true).oneOf()
+    val st = { ...s, page: p, navRights: railIdentity(s.gateRights, f) }
+    all { s' = st, obs' = observe(st) }
   }
 
   action step = openAnotherPage
 
   // ── The laws, over the states the product can actually render ──────────────
 
-  // P1 safety: on a page she can open, the nav marks exactly one primary item.
+  // P1 safety: on a page she can open, the nav marks exactly one primary item —
+  // never two, and never ZERO, the failed-read branch included.
   val exactlyOneMarked: bool =
     (s.mark == "own" and obs.reachableHere) implies obs.marked.size() == 1
 
-  // P1: the marked item is the one that owns the page she is on, and for a page
-  // no primary item owns, Home.
-  val markedIsOwnPage: bool =
-    (s.mark == "own" and obs.reachableHere) implies
-      obs.marked == Set(if (ownerOf(s.page) == "none") "Home" else ownerOf(s.page))
+  // P1: the marked item is the one that owns the page she is on, and Home both
+  // for a page no primary item owns and for a page whose own member the rail
+  // will not offer her.
+  val markedIsOwnPageOrHome: bool =
+    (s.mark == "own" and s.resolve == "home" and obs.reachableHere) implies
+      obs.marked == Set(markBy(s))
 
   // Safety across both promises: the nav never marks an item it does not offer.
   val markedIsOffered: bool = obs.marked.subseteq(obs.offered)
 
-  // P2 safety: every link the nav offers her opens.
+  // P2 safety: every link the nav offers OPENS — read against the gate's own
+  // identity, not the rail's, because the gate is what answers the click.
   val offeredImpliesAdmitted: bool =
-    (s.offer == "gated") implies obs.offered.forall(i => admits(i, s.rights))
+    (s.offer == "gated") implies obs.offered.forall(i => admits(i, s.gateRights))
 
-  // P2 completeness: she loses no destination her rights already open — the
-  // gate removes exactly the two links that would refuse her.
+  // P2 completeness: with the rail's read in agreement with the acting session
+  // she loses no destination her rights already open. A failed read is the
+  // declared degradation (failure B1), so the law is bounded to a read that
+  // resolved.
   val admittedIsOffered: bool =
-    (s.offer == "gated") implies
-      PRIMARY.filter(i => admits(i, s.rights)).subseteq(obs.offered)
+    (s.offer == "gated" and s.navRights == s.gateRights) implies
+      PRIMARY.filter(i => admits(i, s.gateRights)).subseteq(obs.offered)
 
-  val navLaws: bool = exactlyOneMarked and markedIsOwnPage and markedIsOffered
+  val navLaws: bool = exactlyOneMarked and markedIsOwnPageOrHome and markedIsOffered
                       and offeredImpliesAdmitted and admittedIsOffered
 }
 
 // ── The same laws, UNGUARDED by the design variant ─────────────────────────
 // Run these from `initProposal` (the proposed design) and they must hold; run
-// them from `init` (which also admits today's shipped design) and the checker
-// must answer with a trace naming the shipped variant — that trace is the kill
-// of each baseline mutant.
+// them from `init` (which also admits today's shipped design and the
+// unreconciled mark) and the checker must answer with a trace naming the
+// variant — that trace is the kill of each baseline mutant.
 module navProposal {
   import navMarkAndOffer.* from "./nav_mark_and_offer"
 
   action initProposal = all {
-    nondet r = RIGHTS.oneOf()
+    nondet g = RIGHTS.oneOf()
+    nondet f = Set(false, true).oneOf()
     nondet p = PAGES.oneOf()
-    all {
-      s' = { mark: "own", offer: "gated", rights: r, page: p },
-      obs' = observe({ mark: "own", offer: "gated", rights: r, page: p })
-    }
+    val st = { mark: "own", offer: "gated", resolve: "home",
+               gateRights: g, navRights: railIdentity(g, f), page: p }
+    all { s' = st, obs' = observe(st) }
   }
 
-  // On every page she can open, the item that owns the page is the marked one.
+  // On every page she can open, the rail marks exactly one member, and it is
+  // the member that owns the page whenever the rail offers it.
   val ownPageIsMarked: bool =
-    obs.reachableHere implies
-      obs.marked == Set(if (ownerOf(s.page) == "none") "Home" else ownerOf(s.page))
+    obs.reachableHere implies obs.marked == Set(markBy(s))
+
+  // The rail marks a member on every page she can open.
+  val markNeverEmpty: bool = obs.reachableHere implies obs.marked.size() == 1
 
   // No link the nav offers her would refuse her.
-  val noRefusedLinkOffered: bool = obs.offered.forall(i => admits(i, s.rights))
+  val noRefusedLinkOffered: bool = obs.offered.forall(i => admits(i, s.gateRights))
 
-  val proposalLaws: bool = ownPageIsMarked and noRefusedLinkOffered
+  val proposalLaws: bool = ownPageIsMarked and markNeverEmpty and noRefusedLinkOffered
                            and obs.marked.subseteq(obs.offered)
 }
