@@ -224,7 +224,7 @@
 "B": 2,
 "C": 2,
 "E": 9,
-"F": 471,
+"F": 483,
 "K": 5,
 "L": 9,
 "N": 5,
@@ -1401,55 +1401,61 @@
 "examination": {
 "E1": {
 "observations": [
-"F462",
-"F463"
+"F472",
+"F473"
 ],
 "verdict": "met"
 },
 "E2": {
 "observations": [
-"F464",
-"F462"
+"F474",
+"F475",
+"F473"
 ],
 "verdict": "met"
 },
 "E3": {
 "observations": [
-"F465"
+"F476"
 ],
 "verdict": "met"
 },
 "E4": {
 "observations": [
-"F466"
+"F477"
 ],
 "verdict": "met"
 },
 "E5": {
-"reason": "F471",
-"verdict": "not_examined"
+"observations": [
+"F478"
+],
+"verdict": "met"
 },
 "E6": {
 "observations": [
-"F467"
+"F479",
+"F480"
 ],
 "verdict": "met"
 },
 "E7": {
 "observations": [
-"F468"
+"F481"
 ],
 "verdict": "met"
 },
 "E8": {
 "observations": [
-"F469"
+"F482",
+"F480"
 ],
 "verdict": "met"
 },
 "E9": {
 "observations": [
-"F470"
+"F483",
+"F480"
 ],
 "verdict": "met"
 }
@@ -1851,17 +1857,19 @@
 "F459": "In the narrowed nav neither Sign out nor the theme control draws a word at rest and neither is asked for a fill or an outline of its own, and the word Sign out shows her on the keyboard stands out from the box it is drawn in at the ratio body text owes. On her phone Sign out is a glyph with its word clipped out of the bar, so no ratio is read for it and it is asked for no fill or outline either. In all four readings a control outside the nav is still read for its own fill or outline and meets it, and a control of the nav quieter than that reading would allow is what makes the exemption load-bearing.",
 "F460": "Whichever shape the nav takes - a column of words, a strip of icons, a bar across the top of her phone - the operator reads its two controls as quietly as the links beside them, reads any word they show her, and can still pick out the controls on the page outside the nav.",
 "F461": "A control of the nav gains an outline in one of these layouts while the rest stay quiet; the reading asks whether anything in the nav is quieter than the outline rule allows, so one outlined control among several still passes - the nav lane is where a control drawn as the heaviest thing in the nav is refused.",
-"F462": "Browser at the desk viewport 1280x800, signed in as a workspace admin: on /teams the nav marks only \"Teams\" (current=page), on /workspace/invites only \"Invite a member\", on /admin/tokens only \"Machine tokens\". In each of the three captures the other four primary nav links carry no current marker, so exactly one item is marked and never none and never two.\n",
-"F463": "What the mark looks like, read off the captured screen pixels of /teams at 1280x800: the marked item's box is painted a lighter fill than the rail surface (255,255,255 on a 243,244,241 rail) and its word in the strongest ink in the rail (36,38,37, contrast 15.2:1), while the four unmarked items keep the rail surface as their fill and a 5.5:1 word ink. In the dark palette the marked box is (19,24,23) on a (15,19,18) rail with a 15.7:1 word ink against 6.1:1 for the others. The mark is therefore a difference the operator can see in both palettes, carried mostly by the stronger word ink in dark, where the fill differs by only 4 to 5 levels.\n",
-"F464": "Pages below the three sections, same desk viewport and session: /team/backend/members marks only \"Teams\"; /team/backend/project/identity-platform, the page the nav's own \"Board\" link opens, marks only \"Board\"; /teams?sort=name, an address carrying an extra query value, marks only \"Teams\". The two admin sections offer no deeper page of their own in the observed build: /workspace/invites carries one invite form and /admin/tokens one issue-token form and a token list, with no link below either. Deeper pages under other teams and other unvisited addresses were not opened and stay unobserved.\n",
-"F465": "Two operators the admin pages admit: Priya (workspace admin and instance admin) and Tomas (workspace admin, not an instance admin). Each is offered \"Invite a member\" and \"Machine tokens\" in the nav. Pressing \"Invite a member\" opens /workspace/invites with status 200 and pressing \"Machine tokens\" opens /admin/tokens with status 200, for both of them, and each arrives with that same item marked. Every one of the five links the nav offered them opened with the same signed-in session: Home (/), Board (/team/backend/project/identity-platform), Teams (/teams) and the two admin pages, all status 200, no refusal and no error page. Both were admitted by signing in through the public sign-in form with their own credentials.\n",
-"F466": "The operator the two pages refuse, Lena, a plain workspace member: asking for /workspace/invites and /admin/tokens directly answers her 404 in both cases, so those pages do refuse her. Her nav offers only Home, Board and Teams. The two admin items are absent from her nav, not greyed or disabled: no such link is listed in her rail at the desk viewport 1280x800 with the rail expanded, at 1280x800 with the rail folded to a 72 px strip, at the 390x844 phone with the bar expanded, and at the 390x844 phone with the bar folded. Each of the three links she is offered opened 200 with her own session. Other refused operators and other widths were not opened.\n",
-"F467": "Height of the nav bar above the content at phone widths, measured against the browser view height that the same capture reports: 125 px of 844 (14.8 per cent) at 390x844, 125 px of 800 (15.6 per cent) at 480x800, and 125 px of 640 (19.5 per cent) at 360x640. All three are at or below a fifth, with only about 3 px of margin left at 360x640. A smaller or shorter phone, a wrapped item label and a long account name were not observed.\n",
-"F468": "One press to each destination at phone widths. At 390x844 all five destinations stand in the bar itself, each 44 px wide, with no menu, fold or \"more\" control in front of them; pressing each in turn opened its own page: Teams /teams 200, Board /team/backend/project/identity-platform 200, Invite a member /workspace/invites 200, Machine tokens /admin/tokens 200, each arriving with that item marked. At 480x800 and at 360x640 the same five items are present and visible, 44 and 40 px wide. Two readings qualify this: at these widths the item labels are reduced to a 1x1 clip, so the operator sees the glyph and not the word, and at 390 and 360 the clipped \"Machine tokens\" text reaches past the right edge without giving the page a sideways scroll.\n",
-"F469": "How quiet the lower group looks, read off the captured screen pixels at 1280x800. Scanning the full height of the rail for any box painted unlike the rail surface across the item width finds exactly one band in the whole rail: the current-page item. Sign out's box is the rail surface, with 3.6 per cent of its pixels unlike that surface, and the theme control's 4.0 per cent, against 5.6 to 8.3 per cent for the plain links beside them, so neither one owes a fill or a border in either palette, and neither is the heaviest thing in the nav. Sign out's word is painted in exactly the same ink as the plain links (92,100,95 light and 141,149,143 dark). MATTER OF DEGREE: the theme control's word is painted in the strongest ink tier instead (18,22,20, 16.5:1 in light; 232,235,232, 15.6:1 in dark) against its neighbours' 5.5:1 and 6.1:1, the same tier as the marked page item, so it reads as more prominent than the items beside it while still being a plain, unfilled, unbordered item. The look on hover and at phone width was not captured.\n",
 "F47": "The single nav assembly for every /teams page and its descendants, so one edit marks Teams on all of them.",
-"F470": "Both controls still do their work. Pressing the theme control advanced it from \"Theme: following your device\" to light and then to dark, and the captured screens show the rail surface changing from (243,244,241) to (15,19,18), so the look of the page she is on did change; the dark choice was still in force after reloading that same page. Pressing Sign out took the operator to /sign-in with status 200, and a following request for /teams in the same browser answered 404, so her session had ended. Not observed: whether the theme choice holds on a different page or on a later visit, and whether the old session token is still usable anywhere else.\n",
-"F471": "Not examined for want of a reachable stimulus, see observation O6. The promise needs a desk page taller than its window, scrolled to the bottom. Through the public harness no such desk page exists: in every capture the application shell fits the window, with the footer landmark sitting at the viewport bottom (y=784 of 800, y=404 of 420), and the harness carries no step that scrolls a page. Prerequisite: a desk subject whose document exceeds its window, plus a page-scroll step. Owner: the acceptance designer who owns the public harness. Remedy: add that step or that subject and re-capture the rail in both geometries. What I did capture supports only the weaker claim that the rail box spans the viewport with all five items visible before scrolling, and O6 retains the negative that in a 1280x420 window the rail's own content scrolled and the first item's word went off-screen.\n",
+"F472": "Desk width 1440x900, real session cookie through the public browser port. Workspace admin on /teams: the nav offers Home, Board, Teams, Invite a member, Machine tokens, and exactly one of them carries current=page - Teams. On /workspace/invites exactly one carries it - Invite a member. On /admin/tokens exactly one carries it - Machine tokens. On / it is Home only and on /team/backend/project/identity-platform it is Board only. In every one of these eight captures (two viewers, Priya and Tomas) the count of marked items is exactly one and never zero.",
+"F473": "Painted-pixel reading of the rail screenshot at 1440x900 on /teams (marked item Teams). Light palette: the marked item is painted on a white chip (255,255,255) where its four neighbours are painted on the rail surface (243,244,241), and its word is inked (36,38,37) at 15.2:1 where the neighbours are inked (92,100,95) at 5.5:1. Dark palette: marked chip (19,24,23) against the neighbours (15,19,18), word (233,242,238) against the neighbours (141,149,143). The mark is therefore a seen difference of chip and ink, not only an attribute.",
+"F474": "Pages reached below a section, desk 1440x900, workspace admin. /team/backend/members (a page under Teams, two segments deeper) marks Teams only. /teams?sort=name (a query on the section landing page) marks Teams only. /team/backend/project/identity-platform marks Board only. No other item is marked in any of the three captures.",
+"F475": "Limit on the pages under the two admin sections. The main content of /workspace/invites offers no link at all, only the Send invite form, and the main content of /admin/tokens offers no link at all, only the Issue token form. In this state no page therefore exists below either of those two sections to visit, so the deeper-page reading was exercised under Teams only.",
+"F476": "Offered items and what each offered link answers, same cookie per operator. Workspace admin Priya: all five offered; / 200, /team/backend/project/identity-platform 200, /teams 200, /workspace/invites 200, /admin/tokens 200. Workspace admin Tomas (not an instance admin): all five offered; /teams 200, /admin/tokens 200, /workspace/invites 200. At the phone device the admin pressed each of the five offered items in turn and each opened its page with status 200. No offered link answered a refusal.",
+"F477": "Refused operators. Member Lena (no rights beyond her workspace) is offered Home, Board and Teams only - no Invite a member and no Machine tokens - at desk 1440x900 with the rail expanded, at desk 1440x900 with the rail folded to 72 px, and at the emulated 390x844 phone. Kai (workspace member and this instance second admin) is likewise offered three items at desk width. Typed by hand with their own cookies, /workspace/invites and /admin/tokens both answer 404 for Lena and both answer 404 for Kai, so the two pages do refuse them. The absent items appear in no capture, neither disabled nor clipped.",
+"F478": "Page taller than the window, desk width 1440, window height 400, on /team/backend/members. Rail expanded: the page is 959 px tall and scrolls 559 px to the bottom; after the scroll the rail box lies at y=0 h=400 inside the 400 px window, the Primary navigation at y=78 h=183, and all five items are visible. Rail folded: the page is 922 px tall and scrolls 522 px to the bottom; after the scroll the rail box lies at y=0 h=400, the Primary navigation at y=112 h=208, and all five items are visible. The nav is whole and in view after a real page scroll in both geometries.",
+"F479": "Nav bar height above the content at phone widths, measured against the browser viewport, which at the emulated device equals its screen. 390x844: bar 125 px = 14.8 percent, limit 168.8. 390x640: 125 px = 19.5 percent, limit 128. 480x640: 125 px = 19.5 percent. The bar measured 125 px in every phone capture on /teams, the dashboard, the board, /workspace/invites and /admin/tokens, with the five-item admin rail and with the three-item member rail.",
+"F480": "What this public capture cannot show. The probe reports geometry, offered links, statuses and painted pixels; it does not run the real devices, so no claim is made beyond the widths and heights listed. The nav bar measured a fixed 125 px at every phone size captured, so a screen shorter than about 625 px would take more than a fifth of it; no phone between 390 and 480 px wide is that short. Theme persistence was seen over a reload only, not over a later visit. The word quiet in the lower group is a matter of degree: what is measured is equal fill, absent border and equal ink, not a judgment of taste.",
+"F481": "One press per destination at the emulated 390x844 phone, workspace admin. The bar holds the five items side by side at x=104..332 inside the 390 px wide page, each 44 px wide and visible, with no horizontal page scroll and no nav item off-screen. Pressed in turn from the bar with no menu, fold or more control touched first: Home opened / (200), Board opened /team/backend/project/identity-platform (200), Teams opened /teams (200), Invite a member opened /workspace/invites (200), Machine tokens opened /admin/tokens (200). The item words are not seen at their centre at this width, so the items read as glyphs.",
+"F482": "Lower group weight, painted pixels of the rail at 1440x900 on /teams. Light palette: the Sign out control and the theme control are both painted on the rail surface fill (243,244,241), the same fill as the neighbour links, with no border - a 13 px wide strip across each control edge, inside and outside, holds one single colour. The Sign out word is inked (92,100,95), byte for byte the ink of the neighbour links Home, Board, Invite a member and Machine tokens, at 5.5:1 against the surface. Dark palette: surface (15,19,18) under both controls, Sign out word (141,149,143), again the neighbours ink, at 6.1:1. Ink boxes: Home 11 px tall, Teams 11 px, Sign out 13 px (a descender), theme 12 px, with 5.1, 4.9 ink pixels per column - one text tier. Neither control carries a fill, a border or a colour of its own; the theme controls glyph holds a few pixels darker, (18,22,20), than the neighbour ink.",
+"F483": "The two lower controls still work, desk 1440x900. The theme control reads Theme: following your device. Switch to light.; one press makes it read Theme: light. Switch to dark. and the rail is painted light (243,244,241); a reload keeps it light; a second press makes it read Theme: dark. Switch to system. and the rail is painted dark (15,19,18). Pressing Sign out moves her to /sign-in; the same browser then gets 404 on /teams, and a later browser started fresh with that same viewers cookie also gets 404 on /teams, so the session itself ended and the old cookie is no longer usable.",
 "F5": "On a page taller than the window, the whole nav stays in view while she scrolls the page, at desk width, open or folded.",
 "F50": "The one live reading of the rail already returns each member box, its visibility, its accessible name and which member is marked; the sticky and phone-height readings are two more fields of the SAME probe, so a geometry fact and a mark fact cannot come from two moments. Acceptance support, owned by the acceptance designer.",
 "F53": "The three shipped cache-policy assertions name the stylesheet path literally (344, 361, 380); they are re-pointed, not replaced.",
