@@ -1205,22 +1205,22 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>####### B1</p>
 
-<pre><code>The projection read answers nothing for an issue the resolution just admitted, because it was deleted in the gap.
+<pre><code>The projection read in crates/foundry-app/src/comments.rs show_issue (the handler at comments.rs:58, which resolves the issue first and reads its title, description and state second) answers nothing for an issue the resolution just admitted, because the issue was deleted between the two reads.
 </code></pre>
 
 <p>Refusal</p>
 
-<pre><code>The shipped uniform not-found page, never a page with an empty title or a blank status.
+<pre><code>The shipped uniform not-found page of crates/foundry-app/src/bootstrap.rs resource_not_found_page, never a page with an empty title or a blank status. UNOBSERVED by this Request, and deliberately so: the gap is a race between two reads of one handler, and no public stimulus can hold it open. The driving port offers no way to delete the issue between them, and the handler takes the concrete store over a live pool, so there is no seam a foundry-app test could use to answer the first read and refuse the second; a test would have to invent that seam, which is production design this Request does not hold. What IS observed is the refusal BODY: the same uniform not-found page the shipped lanes already read for an issue that is absent before the handler starts. The residual risk row for the two-read gap carries the owner.
 </code></pre>
 
 <p>####### B2</p>
 
-<pre><code>The projection read errors.
+<pre><code>That same projection read errors, for example on a lost database connection, after the resolution succeeded.
 </code></pre>
 
 <p>Refusal</p>
 
-<pre><code>The shipped internal-error path of the issue handler, logged by its existing error helper.
+<pre><code>The shipped internal-error path of show_issue, through the handler&#x27;s existing internal_error helper in crates/foundry-app/src/comments.rs, logged with its label and answering 500 with no partial page. UNOBSERVED by this Request, for the same reason as the read that answers nothing: a store error is not reachable from the public driving port, and the handler has no injection seam for one. The existing error helper is the one that already covers every other read in this handler, so this arm adds no new behaviour to observe; it names which arm the new read joins.
 </code></pre>
 
 <p>####### B3</p>
@@ -1522,9 +1522,9 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>arbitrary unicode text for the description, including the empty string, HTML and markdown markup such as a script tag, an image tag with an event attribute, angle brackets, ampersands, quotes and backticks, CRLF and LF runs, long unbroken words, and right-to-left text
 </code></pre>
 
-<p>4000 characters</p>
+<p>4000 characters, 24 draws per run</p>
 
-<p>the repository&#x27;s generated-test library with its own seeded runs and its persisted failure file</p>
+<p>No generated-test library: the acceptance crate carries none, so the oracle draws from a standard-library-style StdRng seeded with the fixed value 20261121, which makes every run reproduce the same 24 cases from the seed printed in the failure message. There is no persisted failure file; a failure is replayed from that seed and from the offending text the message carries.</p>
 
 <h6>Must include</h6>
 
@@ -1542,7 +1542,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>flat text, no nesting</p>
 
-<pre><code>library shrinking on the generated string, which reduces a failure to the shortest offending text
+<pre><code>No library shrinking. The oracle reports the SHORTEST offending text it drew, so the failure message names the smallest counterexample in the run rather than the first; a smaller one outside the drawn set is not searched for, and that limit is stated with the result.
 </code></pre>
 
 <pre><code>the rendered page contains the stored text with each markup character replaced by its entity, computed by an escape reference in the test rather than by the render under test, and the page holds exactly one description region

@@ -246,7 +246,7 @@
 "B": 3,
 "C": 3,
 "E": 11,
-"F": 393,
+"F": 398,
 "K": 4,
 "L": 8,
 "N": 3,
@@ -432,15 +432,15 @@
 "driving_port": "F116",
 "failures": [
 {
-"condition": "F120",
+"condition": "F394",
 "id": "B1",
-"observation": "F121",
+"observation": "F395",
 "outcome": "Refusal"
 },
 {
-"condition": "F122",
+"condition": "F396",
 "id": "B2",
-"observation": "F123",
+"observation": "F397",
 "outcome": "Refusal"
 },
 {
@@ -986,9 +986,9 @@
 "F177",
 "F178"
 ],
-"seed_policy": "the repository's generated-test library with its own seeded runs and its persisted failure file",
-"shrinking": "F179",
-"size_bound": "4000 characters"
+"seed_policy": "No generated-test library: the acceptance crate carries none, so the oracle draws from a standard-library-style StdRng seeded with the fixed value 20261121, which makes every run reproduce the same 24 cases from the seed printed in the failure message. There is no persisted failure file; a failure is replayed from that seed and from the offending text the message carries.",
+"shrinking": "F398",
+"size_bound": "4000 characters, 24 draws per run"
 },
 "independent_observation": "F180",
 "kind": "Broad"
@@ -1672,10 +1672,6 @@
 "F117": "Postgres through foundry-store, one existing projection read for the issue page",
 "F118": "the served static stylesheet under /static/css, read by the browser from the link in the shared head",
 "F119": "Templates and the stylesheet (adapter) depend on the app handlers; the handlers depend on foundry-services and foundry-store; no template reads the store and nothing new points outward. The shortcut route keeps no dependency on the session layer.",
-"F120": "The projection read answers nothing for an issue the resolution just admitted, because it was deleted in the gap.",
-"F121": "The shipped uniform not-found page, never a page with an empty title or a blank status.",
-"F122": "The projection read errors.",
-"F123": "The shipped internal-error path of the issue handler, logged by its existing error helper.",
 "F124": "A client navigates to the shortcut URL without declaring a destination.",
 "F125": "The bare fragment, today's unstyled body: the server cannot tell that navigation from a fetch, and it refuses nothing.",
 "F126": "The body shape GET /keyboard-help answers",
@@ -1736,7 +1732,6 @@
 "F176": "a script tag",
 "F177": "a CRLF run",
 "F178": "a 4000-character unbroken word",
-"F179": "library shrinking on the generated string, which reduces a failure to the shortest offending text",
 "F18": "The framed page arm of the shortcut list, on the card frame.",
 "F180": "the rendered page contains the stored text with each markup character replaced by its entity, computed by an escape reference in the test rather than by the render under test, and the page holds exactly one description region",
 "F181": "a render that lets a script tag through unescaped, that drops text past a length, or that collapses the stored line breaks into one line",
@@ -1971,6 +1966,11 @@
 "F391": "Every static reference resolves on disk and every content-hashed filename is the sha256 prefix of its own bytes; no colour literal lives outside the three stylesheet token regions and those regions declare the identical token set; the pre-paint head scripts carry none of the deferring attributes and every other head script defers.",
 "F392": "The restyled pages reach her with a stylesheet that is actually there, in the palette tokens the rest of the application uses, and with no flash of the wrong palette on the way.",
 "F393": "A stylesheet rule is wrong in a way no gate parses, because the file has no linter and no CSS parser in the gate.",
+"F394": "The projection read in crates/foundry-app/src/comments.rs show_issue (the handler at comments.rs:58, which resolves the issue first and reads its title, description and state second) answers nothing for an issue the resolution just admitted, because the issue was deleted between the two reads.",
+"F395": "The shipped uniform not-found page of crates/foundry-app/src/bootstrap.rs resource_not_found_page, never a page with an empty title or a blank status. UNOBSERVED by this Request, and deliberately so: the gap is a race between two reads of one handler, and no public stimulus can hold it open. The driving port offers no way to delete the issue between them, and the handler takes the concrete store over a live pool, so there is no seam a foundry-app test could use to answer the first read and refuse the second; a test would have to invent that seam, which is production design this Request does not hold. What IS observed is the refusal BODY: the same uniform not-found page the shipped lanes already read for an issue that is absent before the handler starts. The residual risk row for the two-read gap carries the owner.",
+"F396": "That same projection read errors, for example on a lost database connection, after the resolution succeeded.",
+"F397": "The shipped internal-error path of show_issue, through the handler's existing internal_error helper in crates/foundry-app/src/comments.rs, logged with its label and answering 500 with no partial page. UNOBSERVED by this Request, for the same reason as the read that answers nothing: a store error is not reachable from the public driving port, and the handler has no injection seam for one. The existing error helper is the one that already covers every other read in this handler, so this arm adds no new behaviour to observe; it names which arm the new read joins.",
+"F398": "No library shrinking. The oracle reports the SHORTEST offending text it drew, so the failure message names the smallest counterexample in the run rather than the first; a smaller one outside the drawn set is not searched for, and that limit is stated with the result.",
 "F4": "Sign in and every other signed-out page (first-admin claim, invite accept, password reset) show their form in one centred card under the product name, not stretched across the window, at desk and phone width.",
 "F40": "Claim-to-checker. The one claim with a state-and-arm algebra is the help-variant decision and the row identity between the arms, a closed one-step function over the four destinations a client can declare, so Quint carries it at docs/feature/ui-bare-pages/design/keyboard_help_variant.qnt, verified exhaustively with the TLA-backed backend; TLA+ is not needed because there is no temporal or fairness claim, and Agda is not needed because no proof over an open domain is claimed. No model for the card geometry, the autocomplete tokens or the issue page content: each names no shared state, no multi-step protocol, no concurrency and no crash window, and each domain is the closed set of named pages or named inputs the finite laws enumerate. The one broad domain is the stored description text, carried by a generated property over the page render rather than by a model.",
 "F41": "Scope out stays out: app_shell.html, partials/sidebar.html, the board header, the issue dialog's Delete control and the general form, label and section-heading sizing belong to the next Request, ui-page-frame. The card's own max inline size is the only width rule this Request adds, and no rule changes who may open a page or what a form does.",

@@ -1173,25 +1173,25 @@ Templates and the stylesheet (adapter) depend on the app handlers; the handlers 
 ####### B1
 
 ```text
-The projection read answers nothing for an issue the resolution just admitted, because it was deleted in the gap.
+The projection read in crates/foundry-app/src/comments.rs show_issue (the handler at comments.rs:58, which resolves the issue first and reads its title, description and state second) answers nothing for an issue the resolution just admitted, because the issue was deleted between the two reads.
 ```
 
 Refusal
 
 ```text
-The shipped uniform not-found page, never a page with an empty title or a blank status.
+The shipped uniform not-found page of crates/foundry-app/src/bootstrap.rs resource_not_found_page, never a page with an empty title or a blank status. UNOBSERVED by this Request, and deliberately so: the gap is a race between two reads of one handler, and no public stimulus can hold it open. The driving port offers no way to delete the issue between them, and the handler takes the concrete store over a live pool, so there is no seam a foundry-app test could use to answer the first read and refuse the second; a test would have to invent that seam, which is production design this Request does not hold. What IS observed is the refusal BODY: the same uniform not-found page the shipped lanes already read for an issue that is absent before the handler starts. The residual risk row for the two-read gap carries the owner.
 ```
 
 ####### B2
 
 ```text
-The projection read errors.
+That same projection read errors, for example on a lost database connection, after the resolution succeeded.
 ```
 
 Refusal
 
 ```text
-The shipped internal-error path of the issue handler, logged by its existing error helper.
+The shipped internal-error path of show_issue, through the handler's existing internal_error helper in crates/foundry-app/src/comments.rs, logged with its label and answering 500 with no partial page. UNOBSERVED by this Request, for the same reason as the read that answers nothing: a store error is not reachable from the public driving port, and the handler has no injection seam for one. The existing error helper is the one that already covers every other read in this handler, so this arm adds no new behaviour to observe; it names which arm the new read joins.
 ```
 
 ####### B3
@@ -1544,9 +1544,9 @@ Broad
 arbitrary unicode text for the description, including the empty string, HTML and markdown markup such as a script tag, an image tag with an event attribute, angle brackets, ampersands, quotes and backticks, CRLF and LF runs, long unbroken words, and right-to-left text
 ```
 
-4000 characters
+4000 characters\, 24 draws per run
 
-the repository\'s generated\-test library with its own seeded runs and its persisted failure file
+No generated\-test library\: the acceptance crate carries none\, so the oracle draws from a standard\-library\-style StdRng seeded with the fixed value 20261121\, which makes every run reproduce the same 24 cases from the seed printed in the failure message\. There is no persisted failure file\; a failure is replayed from that seed and from the offending text the message carries\.
 
 ###### Must include
 
@@ -1569,7 +1569,7 @@ a 4000-character unbroken word
 flat text\, no nesting
 
 ```text
-library shrinking on the generated string, which reduces a failure to the shortest offending text
+No library shrinking. The oracle reports the SHORTEST offending text it drew, so the failure message names the smallest counterexample in the run rather than the first; a smaller one outside the drawn set is not searched for, and that limit is stated with the result.
 ```
 
 ```text
