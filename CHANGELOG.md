@@ -13,8 +13,36 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   Board on every app page, and in the folded nav each is an icon that names where it
   goes, like every other rail item. The Home page no longer has a Quick actions section:
   each of its links is now in the nav (Integrations, Keyboard shortcuts and Sign out were
-  there already), and Home keeps its greeting and Your projects. Who sees each link has
-  not changed.
+  there already), and Home keeps its greeting and Your projects. Who is let into each
+  page has not changed; which of the three the nav offers now follows the operator's
+  rights, in the entry below.
+
+- **The left nav marks the page you are on, offers only what opens, and keeps out of
+  your way.** Five changes to the same rail:
+  - Teams, Invite a member and Machine tokens are marked as the current place on their
+    own pages, the way Home and Board already were. Exactly one place in the nav is ever
+    marked.
+  - Invite a member and Machine tokens are offered only to an operator those two pages
+    let in — a workspace admin — like the Integrations item beside them. Both pages
+    answer every other operator with the same not-found page they always have, so the
+    nav no longer shows a link that refuses her. No operator loses a place her rights
+    already open, and nothing about who may open a page changed.
+  - The nav stays in view while a long page scrolls under it, instead of being left a
+    screen above the operator at the bottom of a long board. A nav taller than the
+    window scrolls inside itself, so no place falls outside a box she can reach. In the
+    folded nav the word each icon stands for is still shown beside the strip, drawn over
+    the page content, and anything she opens over the page — a dialog, a lane menu, the
+    shortcut list — is still drawn over the nav.
+  - On a phone, at 480 px and below, the top bar draws icons instead of words and takes
+    about a fifth of the screen instead of about a third. Every place stays inside the
+    bar, each one a 44 px target, each keeps its name for a screen reader and shows that
+    name under its icon on a press or a Tab, and no page slides sideways.
+  - Sign out and the theme control in the nav's lower group read as quietly as the links
+    beside them: the rail's own background, the same muted text, no border and no black
+    slab. One press of Sign out still ends the session and one press of the theme
+    control still changes the palette.
+
+  The stylesheet is re-hashed to `foundry.2f9e0cb1.css`.
 
 ## [v0.19.0] - 2026-11-19
 

@@ -988,20 +988,41 @@ kbd {
    `align-self: flex-start` stops the stretch, `height: 100vh` gives the rail the
    window instead of the document, and `position: sticky; top: 0` holds it there
    while the page scrolls under it. ONE declaration, so both geometries — open
-   and folded — inherit it; the folded rules override width alone.
+   and folded — inherit the pin; the folded rules override the width and the
+   overflow.
 
    `overflow-y: auto` AND NOT A HEIGHT CAP: a rail taller than the window (a
    workspace with many members in the lower group, a large text size) scrolls
    INSIDE itself, so no member is ever drawn outside a box it cannot be reached
    in. A cap without that is exactly the "invisible and still focusable" state
-   both rail oracles refuse. The phone block resets position and height: below
-   the breakpoint the rail is a top bar in a stacked shell, not a column. */
+   both rail oracles refuse. THE SCROLL BOX BELONGS TO THIS GEOMETRY ALONE: a
+   declared `overflow-y: auto` makes `overflow-x` compute to `auto` as well, so
+   the box clips on BOTH axes, and the folded rail places its revealed word
+   outside its own padding box — see `[data-nav-collapsed] .sidebar` below, which
+   takes `overflow: visible` back for that reason. The open rail draws no
+   flyout, so here the box clips nothing. The phone block resets position and
+   height: below the breakpoint the rail is a top bar in a stacked shell, not a
+   column.
+
+   THE RAIL OWNS ITS OWN PAINT LEVEL (ADR-NAV-POLISH-004). `position: sticky`
+   already makes the rail a STACKING CONTEXT, so a `z-index` on a descendant —
+   the folded rail's revealed word — orders that word only INSIDE the rail and
+   can no longer lift it over the page. The positioned page content comes later
+   in the document (`.column` and `.issue-card`, both `position: relative` at
+   `z-index: auto`, and a travelling lane at 2), so a rail left at `z-index:
+   auto` paints UNDER a board column together with everything it holds.
+   `z-index: 20` is a BAND, not a free number: above that positioned content and
+   below every overlay the operator opens over the page — the modal at 50, the
+   lane menu at 60, the keyboard-help overlay at 100 and the card drag ghost at
+   200 — so the rail covers no overlay and no overlay is cut in half by a strip
+   of glyphs. Raising it above 50 is what that half-covered list looks like. */
 .sidebar {
   flex: 0 0 240px;
   width: 240px;
   align-self: flex-start;
   position: sticky;
   top: 0;
+  z-index: 20;
   height: 100vh;
   overflow-y: auto;
   display: flex;
@@ -1052,9 +1073,22 @@ kbd {
  * (D3, D4). Nothing widens the content column: it is already `flex: 1 1 auto`
  * with `min-width: 0`, so it takes exactly the width the rail gives up. The 72px
  * strip and the 40px target are DESIGN values; no promise fixes either. */
+/* THE FOLDED RAIL TAKES ITS SCROLL BOX BACK OFF (ui-nav-polish P3 / L8,
+ * ADR-NAV-POLISH-003). The open rail scrolls its own content when it is taller
+ * than the window, and `overflow-y: auto` on `.sidebar` makes `overflow-x`
+ * compute to `auto` with it, so that box clips on both axes. The folded rail
+ * draws its revealed word as an absolutely positioned descendant at `left:
+ * 100%` with a margin — ENTIRELY OUTSIDE the 72px padding box — so the same box
+ * would clip that word out of view sideways, with nothing to scroll it back:
+ * the operator would walk a strip of glyphs she cannot name, which is the one
+ * thing this geometry exists to give her. `overflow: visible` is therefore not
+ * a relaxation but the condition of the flyout. The strip's own content is ten
+ * icon squares and fits any window the open rail fits; a rail taller than the
+ * window scrolls in the geometry that has the room for it. */
 [data-nav-collapsed] .sidebar {
   flex: 0 0 72px;
   width: 72px;
+  overflow: visible;
   align-items: center;
 }
 [data-nav-collapsed] .sidebar__brand {
@@ -1078,8 +1112,13 @@ kbd {
 }
 /* Every rail member, the Sign out submit included, is the SAME square target.
    `position: relative` is the anchor the revealed label is placed against, and
-   it is what keeps the flyout out of the page content's paint: a positioned
-   descendant with a `z-index` paints above the non-positioned content column.
+   that is ALL it is. It does not lift the flyout over the page: the content
+   column is positioned too (`.column` and `.issue-card` are `position:
+   relative`) and comes later in the document, and `.sidebar` is a stacking
+   context in its own right, so the word's `z-index: 30` orders it only INSIDE
+   the rail. What carries it over a board lane is the rail's own `z-index: 20`
+   on `.sidebar` (ADR-NAV-POLISH-004); the 30 below orders the word above its
+   siblings in the rail and nothing more.
    The Sign out button is reached through the form it posts rather than through a
    class of its own, because the template's classes, hrefs and form are
    unchanged by this feature. */

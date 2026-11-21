@@ -36,6 +36,35 @@ pub enum NavSection {
     Tokens,
 }
 
+impl NavSection {
+    /// The member the rail may MARK, given what the rail will OFFER for this
+    /// render (ui-nav-polish L2, L9 / ADR-NAV-POLISH-003, ADR-NAV-POLISH-005).
+    ///
+    /// ONE PLACE RECONCILES THE MARK WITH THE OFFER, and it is
+    /// [`NavContext::resolved`], the one place that already resolves the rail's
+    /// own identity. `Invites` and `Tokens` are the only members the rail
+    /// withholds, and it withholds them exactly when its own `nav_identity`
+    /// read reported no workspace admin. That read can report `false` for a
+    /// render the ROUTE GATE already admitted — the gate and the rail read the
+    /// fact separately, and the rail's read can fail — so a page that named
+    /// `Invites` or `Tokens` for itself would otherwise mark a member its own
+    /// document does not render, and the rail would serve ZERO marks (failure
+    /// B1). Mapping that section to `Home`, which the rail always offers, is
+    /// what keeps the marked set a non-empty subset of the offered set in
+    /// EVERY render.
+    ///
+    /// TOTAL, PURE AND INFALLIBLE: every variant has an answer for both values
+    /// of the fact, so no caller can forget a case and none can fail. The
+    /// reconciliation lives here rather than in the four handlers that name a
+    /// section, because one of those four would forget it.
+    fn offered_mark(self, is_workspace_admin: bool) -> Self {
+        match self {
+            Self::Invites | Self::Tokens if !is_workspace_admin => Self::Home,
+            Self::Home | Self::Board | Self::Teams | Self::Invites | Self::Tokens => self,
+        }
+    }
+}
+
 /// Everything the shared sidebar needs, assembled ONCE per authenticated page
 /// from the session context. Single documented source for every
 /// shared-artifacts-registry variable — no variable has two divergent sources.
@@ -206,7 +235,12 @@ impl NavContext {
     }
 
     /// The rail with `active` current, for the identity [`Self::home_for`]
-    /// describes: one place decides the neutral fallback for every section.
+    /// describes: one place decides the neutral fallback for every section AND
+    /// reconciles the section the page named with the members the rail will
+    /// offer that identity ([`NavSection::offered_mark`], law L9). The identity
+    /// is read FIRST, because the reconciliation needs the workspace-admin fact
+    /// the rail itself resolved — including the `false` of the neutral fallback
+    /// — and not the one the route gate read.
     async fn resolved(
         state: &crate::AppState,
         user_id: uuid::Uuid,
@@ -235,7 +269,7 @@ impl NavContext {
             is_instance_admin,
             identity.is_workspace_admin,
             csrf,
-            active,
+            active.offered_mark(identity.is_workspace_admin),
             board_href,
         )
     }
@@ -449,6 +483,65 @@ mod tests {
             assert_eq!(
                 current, 1,
                 "exactly one primary item must be current for {active:?}, got {current}"
+            );
+        }
+    }
+
+    /// Behaviour 4 (ui-nav-polish L2 / L9, ADR-NAV-POLISH-005) — the mark the
+    /// rail may carry is reconciled with what the rail OFFERS, over the whole
+    /// closed product of five sections and the two values of the
+    /// workspace-admin fact the rail's OWN identity read reported.
+    ///
+    /// `Invites` and `Tokens` are the two members the rail withholds from an
+    /// identity the two admin pages refuse, so for that identity they fall to
+    /// `Home`; every other pair keeps the section the page named. The
+    /// interesting pair is the UNOBSERVABLE one (failure B1): the route gate
+    /// admitted a workspace admin, the rail's `nav_identity` read then failed
+    /// and fell back to the neutral identity that reports `false`, and the
+    /// served rail must still mark exactly ONE member — never zero — on
+    /// `/workspace/invites` and `/admin/tokens` as on every other page. No
+    /// acceptance row can drive that render, which is why this unit pair is its
+    /// standing check. The marked member is asserted to be an OFFERED one by
+    /// construction: `Home` is in the offered set of every identity.
+    #[test]
+    fn the_mark_falls_to_home_when_the_rail_will_not_offer_the_named_section() {
+        let cases = [
+            (NavSection::Home, false, NavSection::Home),
+            (NavSection::Home, true, NavSection::Home),
+            (NavSection::Board, false, NavSection::Board),
+            (NavSection::Board, true, NavSection::Board),
+            (NavSection::Teams, false, NavSection::Teams),
+            (NavSection::Teams, true, NavSection::Teams),
+            (NavSection::Invites, false, NavSection::Home),
+            (NavSection::Invites, true, NavSection::Invites),
+            (NavSection::Tokens, false, NavSection::Home),
+            (NavSection::Tokens, true, NavSection::Tokens),
+        ];
+        for (named, is_workspace_admin, expected) in cases {
+            assert_eq!(
+                named.offered_mark(is_workspace_admin),
+                expected,
+                "{named:?} named with is_workspace_admin={is_workspace_admin} must be marked \
+                 as {expected:?}"
+            );
+            let nav = nav_with("Acme", named.offered_mark(is_workspace_admin));
+            let current = usize::from(nav.is_home())
+                + usize::from(nav.is_board())
+                + usize::from(nav.is_teams())
+                + usize::from(nav.is_invites())
+                + usize::from(nav.is_tokens());
+            assert_eq!(
+                current, 1,
+                "the reconciled mark for ({named:?}, {is_workspace_admin}) must still be \
+                 exactly one primary item, got {current}"
+            );
+            let offered = is_workspace_admin
+                || !matches!(nav.active, NavSection::Invites | NavSection::Tokens);
+            assert!(
+                offered,
+                "the reconciled mark {:?} must be a member the rail offers an identity with \
+                 is_workspace_admin={is_workspace_admin}",
+                nav.active
             );
         }
     }
