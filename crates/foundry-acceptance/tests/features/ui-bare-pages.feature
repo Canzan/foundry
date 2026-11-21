@@ -83,11 +83,13 @@ Feature: Every page the operator lands on looks like Foundry and tells her what 
 
   @real-io @driving_port
   Scenario: The page and the overlay advertise the same shortcuts
-    # L2. RED-trigger: the page arm advertises nothing at all today. The wrong
-    # fix this catches is a page that writes its own list of keys: the two
-    # answers are compared against the shipped list AND against each other, so
-    # a key added to one and not the other fails, and a key added to neither
-    # fails against the list below.
+    # L2. This reading is GREEN today and is meant to be: both ways of asking
+    # get the same single body, so the two lists agree because they are one
+    # list. It is a drift guard that holds the line from the moment the page arm
+    # exists. The wrong fix it catches is a page that writes its own list of
+    # keys: the two answers are compared against the shipped list AND against
+    # each other, so a key added to one and not the other fails, and a key added
+    # to neither fails against the list below.
     When the shortcut list is asked for both as a page and as a script fetching it
     Then both answers advertise exactly these shortcuts, in this order
       | key   | what it does   |

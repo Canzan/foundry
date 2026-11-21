@@ -90,7 +90,7 @@ She reads each key and its meaning as one pair, on a desk and on a phone, instea
 
 Tested
 
-crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: Opening the shortcut list from the nav\, each key sits beside what it does
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: Opening the shortcut list from the nav\, each key sits beside what it does\; crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: On her phone each shortcut key still sits beside what it does
 
 ```text
 The pairs sit on one line in a type that is not the application's own, because the look an operator judges by eye is examined rather than measured.
@@ -98,7 +98,7 @@ The pairs sit on one line in a type that is not the application's own, because t
 
 ###### Obligations
 
-
+None.
 
 ##### Covers
 

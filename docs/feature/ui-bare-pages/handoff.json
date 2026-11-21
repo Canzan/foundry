@@ -47,12 +47,8 @@
 ],
 "disposition": {
 "kind": "Tested",
-"obligations": [
-"L1/F139",
-"L3/F156"
-],
 "still_passes_if": "F353",
-"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: Opening the shortcut list from the nav, each key sits beside what it does"
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: Opening the shortcut list from the nav, each key sits beside what it does; crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: On her phone each shortcut key still sits beside what it does"
 },
 "expected": "F351",
 "stimulus": "F350",

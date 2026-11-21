@@ -69,6 +69,12 @@ const PHONE_GAP_PX: f64 = 48.0;
 /// this seed and its index.
 const DESCRIPTION_SEED: u64 = 20_261_121;
 const DESCRIPTION_CASES: usize = 24;
+/// The shortest text a draw may be. The page is read for the text it CONTAINS,
+/// so a run of one or two characters would already stand somewhere in any
+/// served document and could not tell a page that shows the description from a
+/// page that shows none. Every drawn text is long enough to be a reading of its
+/// own.
+const DESCRIPTION_MIN_LEN: usize = 24;
 const LONG_WORD_LEN: usize = 4000;
 
 fn now_anchor() -> time::OffsetDateTime {
@@ -293,19 +299,22 @@ async fn when_a_client_asks_for_the_shortcut_list(world: &mut FoundryWorld, decl
     );
 }
 
-/// The shortcuts a body advertises, in the order it writes them: the key of each
-/// pair and what it says that key does.
+/// The shortcuts a body advertises, in the order it writes them: each key read
+/// together with the line that FOLLOWS it, which is the line a reader takes as
+/// its meaning. A key the body leaves with nothing after it is advertised with
+/// nothing beside it, so a body that writes more keys than meanings is read as
+/// the short run it is instead of being quietly cut to the shorter of the two.
 fn advertised_shortcuts(body: &str) -> AdvertisedShortcuts {
     let doc = html::parse(body);
-    let keys = html::select_all(&doc, "[data-shortcut]");
-    let meanings = html::select_all(&doc, "dd");
-    keys.iter()
-        .zip(meanings.iter())
-        .map(|(key, meaning)| {
-            (
-                one_line(&key.text().collect::<String>()),
-                one_line(&meaning.text().collect::<String>()),
-            )
+    html::select_all(&doc, "[data-shortcut]")
+        .iter()
+        .map(|key| {
+            let beside = key
+                .next_siblings()
+                .find_map(scraper::ElementRef::wrap)
+                .map(|following| one_line(&following.text().collect::<String>()))
+                .unwrap_or_default();
+            (one_line(&key.text().collect::<String>()), beside)
         })
         .collect()
 }
@@ -798,36 +807,58 @@ async fn when_she_opens_both_pages(world: &mut FoundryWorld) {
 }
 
 /// WHERE THE DESCRIPTION LIVES, discovered from the page that HAS one rather
-/// than assumed: the smallest element whose own text is the stored description.
-/// Its shape is then what the empty page is read for, so the law "the area is
-/// always there" is read without naming anything the page was not already
-/// observed to use.
+/// than assumed: the INNERMOST element whose own text is the stored
+/// description. Anything wrapped around that element reads back exactly the
+/// same text, so a wrapper and the line inside it are one place, not two, and
+/// only the innermost matches are counted. The shape of that place is then what
+/// the empty page is read for, so the law "the area is always there" is read
+/// without naming anything the page was not already observed to use.
 fn description_area_shape(body: &str, stored: &str) -> (String, usize) {
     let doc = html::parse(body);
-    let mut shape = String::new();
-    let mut count = 0usize;
-    for element in html::select_all(&doc, "*") {
-        let own: String = element.text().collect();
-        if one_line(&own) == one_line(stored) {
-            count += 1;
-            let name = element.value().name().to_string();
-            let classes = element
-                .value()
-                .attr("class")
-                .unwrap_or_default()
-                .to_string();
-            shape = format!("{name}|{classes}");
-        }
-    }
-    (shape, count)
+    let carrying: Vec<_> = html::select_all(&doc, "*")
+        .into_iter()
+        .filter(|element| one_line(&element.text().collect::<String>()) == one_line(stored))
+        .collect();
+    let innermost: Vec<_> = carrying
+        .iter()
+        .filter(|element| {
+            !carrying.iter().any(|other| {
+                other.id() != element.id() && element.descendants().any(|n| n.id() == other.id())
+            })
+        })
+        .collect();
+    let shape = innermost
+        .last()
+        .map(|element| {
+            format!(
+                "{}|{}",
+                element.value().name(),
+                element.value().attr("class").unwrap_or_default()
+            )
+        })
+        .unwrap_or_default();
+    (shape, innermost.len())
 }
 
+/// Every place on a body of the same SHAPE: the same tag, carrying each of the
+/// classes the filled page's description area carried. Presence rather than an
+/// exact class string, because an empty area that keeps its own class and adds
+/// the shipped empty-state one is the same place, drawn empty.
 fn elements_of_shape(body: &str, shape: &str) -> Vec<String> {
     let (name, classes) = shape.split_once('|').unwrap_or((shape, ""));
+    let wanted: Vec<&str> = classes.split_whitespace().collect();
     let doc = html::parse(body);
     html::select_all(&doc, name)
         .iter()
-        .filter(|el| el.value().attr("class").unwrap_or_default() == classes)
+        .filter(|el| {
+            let carried: Vec<&str> = el
+                .value()
+                .attr("class")
+                .unwrap_or_default()
+                .split_whitespace()
+                .collect();
+            wanted.iter().all(|one| carried.contains(one))
+        })
         .map(|el| one_line(&el.text().collect::<String>()))
         .collect()
 }
@@ -973,12 +1004,12 @@ fn descriptions_of_every_shape() -> Vec<(String, String)> {
             "a".repeat(LONG_WORD_LEN),
         ),
     ];
-    let alphabet: Vec<char> = "<>&\"'`\n\r \tabcdeèπ日\\/{}[]=-_0123456789"
+    let alphabet: Vec<char> = "<>&\"'`\n\r \tabcdeèπ日םשعر\\/{}[]=-_0123456789"
         .chars()
         .collect();
     let mut rng = StdRng::seed_from_u64(DESCRIPTION_SEED);
     for case in 0..DESCRIPTION_CASES {
-        let len = rng.gen_range(1..=120);
+        let len = rng.gen_range(DESCRIPTION_MIN_LEN..=120);
         let text: String = (0..len)
             .map(|_| alphabet[rng.gen_range(0..alphabet.len())])
             .collect();
