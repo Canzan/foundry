@@ -2,7 +2,8 @@
 "counters": {
 "B": 3,
 "C": 3,
-"F": 308,
+"E": 11,
+"F": 341,
 "K": 4,
 "L": 8,
 "N": 3,
@@ -1301,6 +1302,109 @@
 }
 }
 },
+"expectations": {
+"rows": [
+{
+"id": "E1",
+"lacuna": "F310",
+"needs": "F311",
+"promises": [
+"P1"
+],
+"text": "F309"
+},
+{
+"id": "E2",
+"lacuna": "F313",
+"needs": "F314",
+"promises": [
+"P1"
+],
+"text": "F312"
+},
+{
+"id": "E3",
+"lacuna": "F316",
+"needs": "F317",
+"promises": [
+"P2"
+],
+"text": "F315"
+},
+{
+"id": "E4",
+"lacuna": "F319",
+"needs": "F320",
+"promises": [
+"P2"
+],
+"text": "F318"
+},
+{
+"id": "E5",
+"lacuna": "F322",
+"needs": "F323",
+"promises": [
+"P2"
+],
+"text": "F321"
+},
+{
+"id": "E6",
+"lacuna": "F325",
+"needs": "F326",
+"promises": [
+"P3"
+],
+"text": "F324"
+},
+{
+"id": "E7",
+"lacuna": "F328",
+"needs": "F329",
+"promises": [
+"P3"
+],
+"text": "F327"
+},
+{
+"id": "E8",
+"lacuna": "F331",
+"needs": "F332",
+"promises": [
+"P3"
+],
+"text": "F330"
+},
+{
+"id": "E9",
+"lacuna": "F334",
+"needs": "F335",
+"promises": [
+"P4"
+],
+"text": "F333"
+},
+{
+"id": "E10",
+"lacuna": "F337",
+"needs": "F338",
+"promises": [
+"P4"
+],
+"text": "F336"
+},
+{
+"id": "E11",
+"lacuna": "F340",
+"needs": "F341",
+"promises": [
+"P4"
+],
+"text": "F339"
+}
+]
+},
 "facts": {
 "F1": "clean up the ui (visual pass, group A bare pages plus D3). Agreed with the user: A1 style the keyboard shortcuts page; A2 give sign-in and the other signed-out pages a centred card with the product name; A3 show the issue's title, description and status on its full page; D3 give the six sign-in and password fields the right autocomplete.",
 "F10": "User decision 2026-11-20: A1 style the shortcuts page, A2 centred card for signed-out pages, A3 the issue full page shows title, description and status, D3 autocomplete on the six password fields.",
@@ -1531,9 +1635,42 @@
 "F306": "a request declaring the empty destination, as the overlay fetch does: the bare fragment AND the same Vary header",
 "F307": "a request declaring no destination: the bare fragment AND the same Vary header",
 "F308": "The arms are the closed pair the variant law enumerates, and the header is one named value on each, so three rows exhaust the domain; a generated property would redraw the same table.",
+"F309": "Opening the keyboard shortcuts page, the operator sees a page that looks like the rest of Foundry: the same page frame, heading, typography and colours as other Foundry pages, not an unstyled browser-default list.",
+"F310": "A user sees only the painted page. An oracle that asserts a stylesheet, class name or markup container cannot show that the rendered page actually matches the look of other Foundry pages, and a styled page can still differ in a way only the eye catches.",
+"F311": "The shortcuts page reached the way the operator reaches it, plus one other Foundry page captured at the same width for comparison.",
+"F312": "On the keyboard shortcuts page each shortcut key sits on the same line as the action it performs, so the operator reads key and meaning as one pair and never has to match a key to a description on another line.",
+"F313": "An oracle can confirm a one-row layout at a single window width. It does not see the pair break onto two lines at a narrower width, with a long action description, or at a large browser font, which is exactly when the operator loses the pairing.",
+"F314": "A capture of the full shortcut list at desk width and at phone width, showing several key/action pairs including the longest description.",
+"F315": "Signed out at desk width, the sign-in form appears inside one card that is centred in the window with the product name above it, and the form does not stretch across the full window width.",
+"F316": "The promise does not say how wide the card is or how the product name is shown, so 'centred' and 'not stretched' stay a matter of judgement. An oracle that checks a container element or a CSS class cannot show the painted width, the centring, or that the product name is visible above the card.",
+"F317": "A full-window capture of the signed-out sign-in page at desk width.",
+"F318": "The first-admin claim page, the invite accept page and the password reset page each show their own form in the same centred card under the product name as sign-in, so every signed-out page the operator can land on looks like one family.",
+"F319": "An oracle can test sign-in alone and assume the other three follow, because they share a template. It does not show the other three pages at all, and reaching them needs an unclaimed install, a live invite and a reset link that a capture may be unable to create.",
 "F32": "L1 to L2, in crates/foundry-app/templates/partials/keyboard_help.html and crates/foundry-app/src/keyboard.rs: extract the shortcut rows and the selection instruction into partials/keyboard_shortcut_rows.html, included by the unchanged dialog container, and extract the table-to-view-model mapping inside show_keyboard_help into one private shortcut_entries(). No behaviour change: the route still answers the same bare fragment. The follow-up change then adds the page arm by including the SAME rows partial and calling the SAME builder, so a page advertising a different list is not something a crafter has to remember not to write.",
+"F320": "One capture per page: first-admin claim on an unclaimed install, invite accept from a pending invite, password reset from a reset link.",
+"F321": "At phone width every signed-out page still shows its form in one centred card under the product name, with all fields and the submit control fully on screen and no sideways scrolling.",
+"F322": "The promise names 'phone width' without a size. An oracle may assert at one emulated viewport and report pass while, at another common phone width, the card is clipped, the product name is cut off, or the page scrolls sideways.",
+"F323": "Captures of the signed-out pages at a narrow phone width, showing the whole card and whether the page scrolls sideways.",
+"F324": "Opening an issue's own full page, the operator reads the issue's key, its title, its description text and its status on that page, without opening a dialog or going back to the board.",
+"F325": "An oracle can confirm that four labelled places exist on the page. It does not show that each one holds this issue's stored value, so a page that shows the key and title but an empty or stale description, or a status that belongs to another issue, can still pass.",
+"F326": "A capture of the full page of a known issue whose key, title, description and status are known in advance, including one issue with a long multi-line description.",
+"F327": "The status on the issue full page is shown as the same status chip the operator already knows from the rest of Foundry, carrying this issue's stored status value.",
+"F328": "The user decision of 2026-11-21 keeps the stored status value rather than a human label, so a raw value such as 'in_progress' is expected here and an oracle cannot tell a correct raw value from a wrong-but-raw one without the issue's known status.",
+"F329": "A capture of the chip for an issue whose stored status is known, and a capture of the same chip elsewhere in Foundry for comparison.",
 "F33": "GET /keyboard-help answers the same bare fragment: the dialog container with its role and its label, the heading, one key-and-description pair per shipped row in order, the selection-instruction paragraph, and no html wrapper.",
+"F330": "The other controls on the issue full page, its delete control and its attachments area, look like Foundry's own controls, not like unstyled browser defaults.",
+"F331": "'Styled like the rest of Foundry' is a judgement a user makes by eye, and the promise names no reference control. An oracle that checks class names or button markup shows nothing about appearance, and the promise covers only the look, not what delete or attachments do.",
+"F332": "A capture of the delete control and the attachments area on the issue full page, with a comparable Foundry control for reference.",
+"F333": "On the sign-in page the browser or password manager offers the operator her stored email and her existing password for that site, and after a successful sign-in it offers to save them.",
+"F334": "Whether a manager offers to fill or save depends on the browser, its profile and its stored entries, which no capture of the page controls. An oracle can read the fields' autocomplete intent but cannot show a real offer to fill or a real save prompt.",
+"F335": "A real browser with a password manager, one stored credential for the site, and a capture of the fill suggestion and of the save prompt after sign-in.",
+"F336": "On the first-admin claim page the manager treats the email and the password field as a brand-new credential: it offers a new generated password rather than suggesting an existing one, and offers to save the result.",
+"F337": "The difference between a new and an existing password is invisible on the page itself; the operator only learns it from what the manager suggests. An oracle that reads an attribute cannot show the manager's suggestion, and a wrong intent leaves the page looking identical.",
+"F338": "A real browser with a password manager on an unclaimed install, with a capture of what it suggests in the password field and of the save prompt.",
+"F339": "On the invite accept page and on the password reset page the manager treats the new password and its confirmation as one new credential: it can fill both fields with the same new password and offers to save that one password, not two.",
 "F34": "Shortcut page and overlay from ONE route. GET /keyboard-help keeps one URL and one row source. The arm is decided from the destination the CLIENT declares in its Sec-Fetch-Dest request header: the document destination, which only a top-level navigation carries, answers a framed page; every other declared destination and an absent header answer the bare fragment the route serves today, which is what keyboard.js assigns into the overlay host and what the shipped HTTP-lane read asserts. Page script cannot set that header, so the arm follows a property of the request rather than a name a caller picks. Carrier: a two-variant private enum HelpVariant in crates/foundry-app/src/keyboard.rs, decided once by a total private fn help_variant(headers) that answers Fragment for every input it does not recognise; the per-request state is that one value; no effects and no new error. Rows: one private fn shortcut_entries() over the SHORTCUTS table feeds both arms, so the two arms cannot advertise different lists. Layers. Domain: none, this is presentation. Application: none, the route stays public and stateless, so no session read and no rail. Adapter: partials/keyboard_shortcut_rows.html owns the shortcut rows and the selection instruction; partials/keyboard_help.html keeps the dialog container and includes them; keyboard_help_page.html extends the card page and includes the same rows under its own h1. Observation: the response body shape and the rows it lists.",
+"F340": "Fill-and-match across two fields and the single save offer live in the manager, not on the page, so a capture of the page shows neither. The operator sees nothing wrong until the manager fills the wrong value or saves the confirmation separately.",
+"F341": "A real browser with a password manager on a pending invite and on a reset link, with a capture of both fields after fill and of the save prompt.",
 "F35": "ONE chrome-less page frame for the signed-out family and the shortcut page. New templates/card_page.html extends base.html and renders one main.page-card holding a product-name line and then its own content block. signin.html, forgot.html, forgot_sent.html, bootstrap_claim.html, invite_accept.html, reset_password.html and the new keyboard_help_page.html extend it instead of base.html; each keeps its own h1, its own copy and its own form action, method, hidden fields and inputs unchanged. The product name is a brand LINE, not a heading, so every page keeps exactly one h1 and the shipped heading reads do not move. No sidebar partial and no theme control is included, because the shipped theme read asserts the sign-in screen has neither. Stylesheet: one .page-card block, centred with auto inline margins and a max inline size, on the raised surface tier the dashboard cards already use, and full width inside the page padding below the shipped phone breakpoint. Layers: Adapter only; no Rust carrier and no view-model field changes.",
 "F36": "The issue page reads as the issue. views::IssuePage gains title, description, status_slug and status_chip; comments.rs::render_issue_page fills them from ONE existing read, store::issue_edit_view over the project and number the handler already resolved, so there is no new SQL, no new store function and no new authorization decision. issue.html keeps its h1 holding the issue key alone, because a shipped browser read asserts that heading text EQUALS the key; the title takes its own h2 and the status sits beside the key. The description region is ALWAYS present: the stored text, escaped by the template engine and wrapped with preserved line breaks, or the empty copy, matching the shipped attachment and comment empty states. The comment markdown sanitizer in foundry-core is deliberately NOT consumed here: rendering issue markdown would add a product promise and a second consumer of that sanitizer, which a visual pass does not hold. The status element is the shipped chip: the handler renders it through issues.rs::render_state_chip and the template embeds the string with the no-escape filter, exactly as base.html embeds the site footer, so the chip markup keeps one owner and its data-state is the stored slug. The Delete anchor keeps its href mechanism and its data-action marker and takes the shipped secondary-button presentation; the upload form label and its file input take the stylesheet's own control tokens. Layers. Domain: none. Application: show_issue reads one more projection of the issue it already resolved, and a gap between the two reads refuses rather than renders a blank issue. Adapter: issue.html plus the title, description, status-chip and file-input rules. Observation: the page text and the chip's data-state.",
 "F37": "Autocomplete by flow on the eight named inputs: on signin.html the email takes username and the password takes current-password; on bootstrap_claim.html the email takes username and the password takes new-password, because that form CREATES the first admin's password and current-password there makes a password manager offer a stored secret instead of generating and saving one; on invite_accept.html and reset_password.html the password and its confirmation both take new-password. No other input in the repository gains a token in this Request. Every input keeps its type, name, required flag and order, so each shipped form POST, each hidden token and each server-side validation is untouched. Layers: Adapter only; no carrier and no state.",

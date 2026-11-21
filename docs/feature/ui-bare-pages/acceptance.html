@@ -160,7 +160,216 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h2>Expectations</h2>
 
+<h3>Rows</h3>
+
+<h4>E1</h4>
+
+<h5>Promises</h5>
+
+<p>P1</p>
+
+<pre><code>Opening the keyboard shortcuts page, the operator sees a page that looks like the rest of Foundry: the same page frame, heading, typography and colours as other Foundry pages, not an unstyled browser-default list.
+</code></pre>
+
+<pre><code>A user sees only the painted page. An oracle that asserts a stylesheet, class name or markup container cannot show that the rendered page actually matches the look of other Foundry pages, and a styled page can still differ in a way only the eye catches.
+</code></pre>
+
 <p>None.</p>
+
+<p>None.</p>
+
+<pre><code>The shortcuts page reached the way the operator reaches it, plus one other Foundry page captured at the same width for comparison.
+</code></pre>
+
+<h4>E2</h4>
+
+<h5>Promises</h5>
+
+<p>P1</p>
+
+<pre><code>On the keyboard shortcuts page each shortcut key sits on the same line as the action it performs, so the operator reads key and meaning as one pair and never has to match a key to a description on another line.
+</code></pre>
+
+<pre><code>An oracle can confirm a one-row layout at a single window width. It does not see the pair break onto two lines at a narrower width, with a long action description, or at a large browser font, which is exactly when the operator loses the pairing.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>A capture of the full shortcut list at desk width and at phone width, showing several key/action pairs including the longest description.
+</code></pre>
+
+<h4>E3</h4>
+
+<h5>Promises</h5>
+
+<p>P2</p>
+
+<pre><code>Signed out at desk width, the sign-in form appears inside one card that is centred in the window with the product name above it, and the form does not stretch across the full window width.
+</code></pre>
+
+<pre><code>The promise does not say how wide the card is or how the product name is shown, so &#x27;centred&#x27; and &#x27;not stretched&#x27; stay a matter of judgement. An oracle that checks a container element or a CSS class cannot show the painted width, the centring, or that the product name is visible above the card.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>A full-window capture of the signed-out sign-in page at desk width.
+</code></pre>
+
+<h4>E4</h4>
+
+<h5>Promises</h5>
+
+<p>P2</p>
+
+<pre><code>The first-admin claim page, the invite accept page and the password reset page each show their own form in the same centred card under the product name as sign-in, so every signed-out page the operator can land on looks like one family.
+</code></pre>
+
+<pre><code>An oracle can test sign-in alone and assume the other three follow, because they share a template. It does not show the other three pages at all, and reaching them needs an unclaimed install, a live invite and a reset link that a capture may be unable to create.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>One capture per page: first-admin claim on an unclaimed install, invite accept from a pending invite, password reset from a reset link.
+</code></pre>
+
+<h4>E5</h4>
+
+<h5>Promises</h5>
+
+<p>P2</p>
+
+<pre><code>At phone width every signed-out page still shows its form in one centred card under the product name, with all fields and the submit control fully on screen and no sideways scrolling.
+</code></pre>
+
+<pre><code>The promise names &#x27;phone width&#x27; without a size. An oracle may assert at one emulated viewport and report pass while, at another common phone width, the card is clipped, the product name is cut off, or the page scrolls sideways.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>Captures of the signed-out pages at a narrow phone width, showing the whole card and whether the page scrolls sideways.
+</code></pre>
+
+<h4>E6</h4>
+
+<h5>Promises</h5>
+
+<p>P3</p>
+
+<pre><code>Opening an issue&#x27;s own full page, the operator reads the issue&#x27;s key, its title, its description text and its status on that page, without opening a dialog or going back to the board.
+</code></pre>
+
+<pre><code>An oracle can confirm that four labelled places exist on the page. It does not show that each one holds this issue&#x27;s stored value, so a page that shows the key and title but an empty or stale description, or a status that belongs to another issue, can still pass.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>A capture of the full page of a known issue whose key, title, description and status are known in advance, including one issue with a long multi-line description.
+</code></pre>
+
+<h4>E7</h4>
+
+<h5>Promises</h5>
+
+<p>P3</p>
+
+<pre><code>The status on the issue full page is shown as the same status chip the operator already knows from the rest of Foundry, carrying this issue&#x27;s stored status value.
+</code></pre>
+
+<pre><code>The user decision of 2026-11-21 keeps the stored status value rather than a human label, so a raw value such as &#x27;in_progress&#x27; is expected here and an oracle cannot tell a correct raw value from a wrong-but-raw one without the issue&#x27;s known status.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>A capture of the chip for an issue whose stored status is known, and a capture of the same chip elsewhere in Foundry for comparison.
+</code></pre>
+
+<h4>E8</h4>
+
+<h5>Promises</h5>
+
+<p>P3</p>
+
+<pre><code>The other controls on the issue full page, its delete control and its attachments area, look like Foundry&#x27;s own controls, not like unstyled browser defaults.
+</code></pre>
+
+<pre><code>&#x27;Styled like the rest of Foundry&#x27; is a judgement a user makes by eye, and the promise names no reference control. An oracle that checks class names or button markup shows nothing about appearance, and the promise covers only the look, not what delete or attachments do.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>A capture of the delete control and the attachments area on the issue full page, with a comparable Foundry control for reference.
+</code></pre>
+
+<h4>E9</h4>
+
+<h5>Promises</h5>
+
+<p>P4</p>
+
+<pre><code>On the sign-in page the browser or password manager offers the operator her stored email and her existing password for that site, and after a successful sign-in it offers to save them.
+</code></pre>
+
+<pre><code>Whether a manager offers to fill or save depends on the browser, its profile and its stored entries, which no capture of the page controls. An oracle can read the fields&#x27; autocomplete intent but cannot show a real offer to fill or a real save prompt.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>A real browser with a password manager, one stored credential for the site, and a capture of the fill suggestion and of the save prompt after sign-in.
+</code></pre>
+
+<h4>E10</h4>
+
+<h5>Promises</h5>
+
+<p>P4</p>
+
+<pre><code>On the first-admin claim page the manager treats the email and the password field as a brand-new credential: it offers a new generated password rather than suggesting an existing one, and offers to save the result.
+</code></pre>
+
+<pre><code>The difference between a new and an existing password is invisible on the page itself; the operator only learns it from what the manager suggests. An oracle that reads an attribute cannot show the manager&#x27;s suggestion, and a wrong intent leaves the page looking identical.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>A real browser with a password manager on an unclaimed install, with a capture of what it suggests in the password field and of the save prompt.
+</code></pre>
+
+<h4>E11</h4>
+
+<h5>Promises</h5>
+
+<p>P4</p>
+
+<pre><code>On the invite accept page and on the password reset page the manager treats the new password and its confirmation as one new credential: it can fill both fields with the same new password and offers to save that one password, not two.
+</code></pre>
+
+<pre><code>Fill-and-match across two fields and the single save offer live in the manager, not on the page, so a capture of the page shows neither. The operator sees nothing wrong until the manager fills the wrong value or saves the confirmation separately.
+</code></pre>
+
+<p>None.</p>
+
+<p>None.</p>
+
+<pre><code>A real browser with a password manager on a pending invite and on a reset link, with a capture of both fields after fill and of the save prompt.
+</code></pre>
 
 <h2>Charter</h2>
 
