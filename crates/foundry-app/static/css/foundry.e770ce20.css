@@ -1423,7 +1423,21 @@ kbd {
   margin: 0 0 12px;
   font-size: 15px;
 }
-#kb-overlay-root .keyboard-help dl {
+/* ui-bare-pages — THE ROWS ARE STYLED ONCE, FOR BOTH ARMS. These three rules
+   carried the `#kb-overlay-root .keyboard-help` prefix, and the DECLARATIONS
+   below are unchanged from it; only the selector moved onto the rows' own
+   class. The prefix was the whole defect: GET /keyboard-help answers the SAME
+   rows to the overlay and to a browser opening the address, and outside the
+   host not one of these rules applied — so the page she navigated to drew
+   browser-default serif with every key on a line of its own and its meaning on
+   the next. The overlay keeps the computed keycap background, keycap border
+   and muted description colour the shipped theme read measures, because the
+   rows inside the host still match this class.
+
+   The overlay-ONLY chrome stays scoped to the host above: the fixed scrim and
+   the raised dialog card. On the page that chrome is `.page-card`'s own, and a
+   second card around the list would box the rows inside another box. */
+.kb-shortcuts {
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 6px 16px;
@@ -1433,7 +1447,7 @@ kbd {
 /* The keycap sits ON the raised card, so it is the RECESSED tier — the same
    inversion `.card__key` uses. Its glyph inherits `--cz-text` from the card:
    16.53:1 light, 15.58:1 dark on `--cz-bg-2`. */
-#kb-overlay-root .keyboard-help dt {
+.kb-shortcuts dt {
   font-family: var(--cz-mono);
   background: var(--cz-bg-2);
   border: 1px solid var(--cz-line);
@@ -1443,7 +1457,7 @@ kbd {
 }
 /* The shortcut's description, muted against the card: 6.10:1 light, 5.83:1
    dark on `--cz-surface`. */
-#kb-overlay-root .keyboard-help dd {
+.kb-shortcuts dd {
   margin: 0;
   color: var(--cz-muted);
 }
@@ -1971,4 +1985,111 @@ kbd {
 .lane-menu [role="menuitem"][disabled]:hover,
 .lane-menu [role="menuitem"][disabled]:focus-visible {
   background: transparent;
+}
+
+/* ── ui-bare-pages — THE CHROME-LESS CARD PAGE (ADR-003) ──────────────────────
+   The frame `card_page.html` draws around every page an operator can land on
+   without a session, and around the public shortcut list. Before it, those
+   seven forms ran edge to edge with no surface, no margin and no product name.
+
+   It is the RAISED tier the dashboard cards already use, so the card exists in
+   BOTH palettes — a surface bound in one palette only would leave the other
+   palette's operator with no card at all.
+
+   THE WIDTH RULE IS ONE DECLARATION PAIR AND IT NEEDS NO BREAKPOINT.
+   `max-inline-size` caps the card on a desk window so a sign-in form is a
+   column and not a line stretched across a monitor; `inline-size` keeps a
+   gutter of the page's own padding on a phone, where she has no width to spare
+   and a desk-width margin would cost her a third of what she can read. The two
+   meet without a media query: on a narrow screen the cap never binds, on a wide
+   one the percentage never binds, and `margin-inline: auto` centres the card in
+   both. A fixed width would slide the page sideways below the cap. */
+.page-card {
+  max-inline-size: 28rem;
+  inline-size: calc(100% - 2rem);
+  margin-block: 3rem;
+  margin-inline: auto;
+  padding: 1.75rem;
+  background: var(--cz-surface);
+  border: 1px solid var(--cz-line);
+  border-radius: 10px;
+  box-shadow: var(--cz-shadow);
+}
+
+/* The product name is a LINE above the page's own heading, never a second
+   heading: each card page keeps exactly one `<h1>`, which is its own subject.
+   The mono eyebrow idiom the lane and dashboard headers already use. */
+.page-card__brand {
+  font-family: var(--cz-mono);
+  font-weight: 500;
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  color: var(--cz-muted);
+  margin: 0 0 0.75rem;
+}
+
+.page-card h1 {
+  font-size: 1.5rem;
+  margin: 0 0 1.25rem;
+}
+
+/* ── ui-bare-pages — AN ISSUE'S OWN PAGE READS AS THE ISSUE ───────────────────
+   The key stays alone in the `<h1>` (a shipped browser read asserts the
+   heading text EQUALS it), so the key, the status chip and Delete share one
+   row and the title takes its own `<h2>` below them. */
+.issue-header__line {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.issue-header__line h1 {
+  margin: 0;
+  font-size: 1.5rem;
+}
+
+/* The Delete control is pushed to the end of the row rather than given a
+   margin, so the key and the status stay together whatever the key's length. */
+.issue-header__line .issue-delete {
+  margin-inline-start: auto;
+}
+
+.issue-title {
+  margin: 0.5rem 0 1rem;
+  font-size: 1.15rem;
+}
+
+/* HER TEXT, AS SHE WROTE IT. `pre-wrap` is the whole of the line-break
+   promise: the stored text is escaped by the template engine and reaches the
+   page as TEXT, and without this it would be collapsed onto one line by the
+   ordinary white-space rules. `anywhere` is the other half — no authority
+   bounds the stored description, so a single unbroken four-thousand-character
+   word must wrap inside the page instead of sliding it sideways. Nothing here
+   truncates: a page that shortened her text would be a product decision this
+   visual pass does not hold. */
+.issue-description {
+  margin-block-end: 1.25rem;
+}
+
+.issue-description__text {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The empty description reads like the attachment and comment empty states
+   beside it: she can tell an issue nobody has described from a page that
+   failed to show one. */
+.issue-description__text.empty {
+  color: var(--cz-muted);
+}
+
+/* The browser's raw file control is the one thing on the issue page that does
+   not belong to the application — it is drawn in the UA's own face, beside her
+   attachments. `font: inherit` is what the text inputs above already take. */
+input[type="file"] {
+  font: inherit;
+  max-inline-size: 100%;
 }

@@ -76,6 +76,27 @@ pub async fn show_issue(
             Ok(issue) => issue,
             Err(refusal) => return refusal,
         };
+    // ui-bare-pages P3 — the page reads as the ISSUE, not as a key and a Delete
+    // link. The title, the description and the state come from the SHIPPED
+    // projection the edit dialog already uses, over the project and number this
+    // handler has just resolved: no new SQL, no new store function and no new
+    // authorization decision, so the page can never show more than the
+    // resolution above already admitted.
+    //
+    // `Ok(None)` is the gap between the two reads: the resolution admitted the
+    // issue and the projection answers nothing, which means it was deleted
+    // between them. It REFUSES with the same uniform not-found page an absent
+    // issue already gets, rather than rendering a page with a blank title and
+    // no status — a half-drawn issue reads as a product that lost her work.
+    let detail = match state
+        .store
+        .issue_edit_view(issue.project_id, issue_number)
+        .await
+    {
+        Ok(Some(row)) => row,
+        Ok(None) => return resource_not_found_page(),
+        Err(err) => return internal_error("issue_edit_view", err),
+    };
     let comments = match state.store.list_comments_for_issue(issue.issue_id).await {
         Ok(rows) => rows,
         Err(err) => return internal_error("list_comments_for_issue", err),
@@ -137,6 +158,7 @@ pub async fn show_issue(
         &team_slug,
         &project_slug,
         &key,
+        &detail,
         &comments,
         &attachments,
         &changes,
@@ -693,6 +715,7 @@ fn render_issue_page(
     team_slug: &str,
     project_slug: &str,
     issue_key: &str,
+    detail: &foundry_store::IssueEditRow,
     comments: &[CommentRow],
     attachments: &[AttachmentSummary],
     changes: &[IssueChangeRow],
@@ -730,6 +753,10 @@ fn render_issue_page(
     views::IssuePage {
         issue_key: issue_key.to_string(),
         project_slug: project_slug.to_string(),
+        title: detail.title.clone(),
+        description: detail.description_md.clone(),
+        status_slug: detail.state.clone(),
+        status_chip: crate::issues::render_state_chip(&detail.state),
         post_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/comments"),
         csrf: csrf.to_string(),
         upload_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/attachments"),

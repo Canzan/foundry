@@ -242,6 +242,24 @@ pub struct KeyboardHelp {
     pub selection_instruction: String,
 }
 
+/// The PAGE arm of `GET /keyboard-help` (ui-bare-pages ADR-002) — the framed
+/// document a top-level navigation lands on. A SIBLING of [`KeyboardHelp`],
+/// carrying the identical two fields, because both arms render the ONE
+/// `partials/keyboard_shortcut_rows.html` row owner: neither arm holds a copy
+/// of the row shape, so the two can never advertise different keys. It extends
+/// `card_page.html` (not the dialog container) — a page is not a dialog, and a
+/// `role="dialog"` on a whole document is what including the overlay partial
+/// here would produce.
+#[derive(Debug, Clone, Template)]
+#[template(path = "keyboard_help_page.html")]
+pub struct KeyboardHelpPage {
+    pub entries: Vec<ShortcutEntry>,
+    /// `keyboard.rs::SELECTION_INSTRUCTION`, rendered by the shared rows
+    /// partial as `p.kb-selection-instruction` below the list — the same copy,
+    /// from the same owner, as the overlay's.
+    pub selection_instruction: String,
+}
+
 /// The state-change chip FRAGMENT (US-R03). A BARE htmx fragment — it MUST NOT
 /// extend `base.html` (htmx swaps it into the live board DOM; extending base
 /// double-wraps the swap, NFR-WEBB-COMPAT-02). Renders the `partials/state_chip.html`
@@ -1076,8 +1094,34 @@ pub struct PayloadTooLarge {
 #[template(path = "issue.html")]
 pub struct IssuePage {
     /// Canonical issue key (e.g. `AUTH-3`) — page title + `<h1>`.
+    ///
+    /// IT STAYS ALONE IN THE `<h1>` (ui-bare-pages L5): a shipped browser read
+    /// asserts the heading text EQUALS the key, so the title takes its own
+    /// `<h2>` below it rather than joining it here.
     pub issue_key: String,
     pub project_slug: String,
+    /// The stored issue title (ui-bare-pages P3), shown in its own `<h2>` under
+    /// the key. Auto-escaped by Askama.
+    pub title: String,
+    /// The stored description, EXACTLY as she wrote it (ui-bare-pages L6). It
+    /// is auto-escaped by Askama and wrapped with its line breaks preserved by
+    /// the stylesheet; it is never truncated, because no authority bounds its
+    /// length. The comment markdown sanitizer is deliberately NOT consumed
+    /// here — rendering issue markdown is a product promise this visual pass
+    /// does not hold. Empty when nothing is stored; the region is drawn either
+    /// way, with its empty copy.
+    pub description: String,
+    /// The stored state slug (`backlog`, `todo`, `in_progress`, `done`) — the
+    /// value the chip below marks, kept beside it so the page can be read for
+    /// the stored value and not only for rendered markup.
+    pub status_slug: String,
+    /// The SHIPPED status chip, already rendered by the ONE owner of that
+    /// markup (`issues.rs::render_state_chip`) and embedded with `|safe`,
+    /// exactly as `base.html` embeds the site footer. One renderer means the
+    /// page and the board's drag-and-drop swap can never draw two chips that
+    /// drift apart. The renderer escapes its own field, which is why this
+    /// field is filled at ONE site only.
+    pub status_chip: String,
     /// `POST …/issues/{n}/comments` — the add-comment form action.
     pub post_url: String,
     /// CSRF double-submit token minted by `show_issue` — rendered into the

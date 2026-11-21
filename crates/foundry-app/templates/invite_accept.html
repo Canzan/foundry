@@ -1,6 +1,6 @@
-{% extends "base.html" %}
+{% extends "card_page.html" %}
 {% block title %}Set your password{% endblock %}
-{% block content %}
+{% block card_content %}
 <h1>Set your password</h1>
 <p>Set a password for your <strong>{{ workspace_name }}</strong> workspace.</p>
 {% if let Some(error) = error %}<p class="error">{{ error }}</p>{% endif %}
@@ -8,8 +8,8 @@
   <input type="hidden" name="_csrf" value="{{ csrf_token }}">
   <input type="hidden" name="id" value="{{ invite_id }}">
   <input type="hidden" name="sig" value="{{ sig }}">
-  <label>New password <input type="password" name="password" required></label>
-  <label>Confirm password <input type="password" name="confirm" required></label>
+  <label>New password <input type="password" name="password" autocomplete="new-password" required></label>
+  <label>Confirm password <input type="password" name="confirm" autocomplete="new-password" required></label>
   <button type="submit">Set password and sign in</button>
 </form>
 {% endblock %}

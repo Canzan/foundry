@@ -1,7 +1,15 @@
 {% extends "app_shell.html" %}
 {% block title %}{{ issue_key }} - {{ project_slug }}{% endblock %}
 {% block app_content %}
-<header><h1>{{ issue_key }}</h1>
+<header>
+<div class="issue-header__line"><h1>{{ issue_key }}</h1>
+{# ui-bare-pages P3 — THE SHIPPED CHIP, rendered by `issues.rs::render_state_chip`
+   and embedded here exactly as base.html embeds the site footer. `|safe` is
+   sound for the same reason it is there: the renderer has already escaped its
+   own field, and the handler fills `status_chip` at ONE site. A second chip
+   shape written into this template is what would let the page and the board's
+   drag-and-drop swap drift apart. #}
+{{ status_chip|safe }}
 {# An ANCHOR, not a button, and the `href` is the WHOLE mechanism (D6,
    AC-1.11, adr-issue-delete-002): scripting on or off, the browser follows it
    to `…/issues/{n}/delete`, which answers the `delete_issue_modal_page.html`
@@ -25,7 +33,18 @@
    issue that no longer exists. The full page's success path is the `303` to
    the board, and that is what a plain navigation gets. A <button type="button">
    cannot do any of this: with scripting off it is inert. #}
-<a href="{{ delete_url }}" data-action="delete-issue">Delete</a></header>
+<a class="button secondary issue-delete" href="{{ delete_url }}" data-action="delete-issue">Delete</a></div>
+<h2 class="issue-title">{{ title }}</h2></header>
+{# ui-bare-pages P3 — THE DESCRIPTION REGION IS ALWAYS DRAWN, with her text or
+   with the empty copy. An area that disappears when nothing is stored leaves
+   her unable to tell an issue nobody has described from a page that forgot to
+   show one, which is why both arms carry the SAME element with the SAME class.
+   The text is auto-escaped by Askama and is never shortened; `{{ description }}`
+   sits tight against its tags so not one character of what she typed — her
+   line breaks included — is changed on the way to the page. #}
+<section class="issue-description" data-issue-description>
+{% if description.is_empty() %}<p class="issue-description__text empty">Nothing written down yet.</p>{% else %}<p class="issue-description__text">{{ description }}</p>{% endif %}
+</section>
 {% if attachments.is_empty() %}<section class="attachments" data-attachment-list>
   <p class="attachments-empty">No attachments yet.</p>
 </section>{% else %}<section class="attachments">

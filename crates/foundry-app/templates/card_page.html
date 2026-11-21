@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{# ui-bare-pages ADR-003 — THE ONE CHROME-LESS PAGE FRAME.
+
+   Every page an operator can land on WITHOUT a session extends this file:
+   sign-in, forgot-password, check-your-email, the first-admin claim, the invite
+   accept, the password reset, and the public shortcut list. Before it, each of
+   those placed its form straight into base.html's content block and ran from
+   one edge of the window to the other with no frame, no margin and nothing
+   naming the product — the first page an evaluator ever sees.
+
+   NO SIDEBAR AND NO THEME CONTROL, deliberately. `app_shell.html` is the rail
+   frame, and a rail is wrong here twice over: signed out she can go nowhere it
+   offers, and the shortcut list is served without reading a session at all, so
+   a rail there would change who the route serves. A shipped theme read asserts
+   the sign-in screen carries neither.
+
+   THE PRODUCT NAME IS A LINE, NOT A HEADING. Every page that extends this one
+   keeps its own single `<h1>`, and the shipped heading reads do not move. A
+   second `<h1>` here would be the product name pretending to be the page's
+   subject. #}
+{% block content %}
+<main class="page-card">
+  <p class="page-card__brand">Foundry</p>
+  {% block card_content %}{% endblock %}
+</main>
+{% endblock %}

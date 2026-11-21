@@ -53,7 +53,7 @@ use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
 use axum::extract::{Path, Query, State};
-use axum::http::header::{HeaderMap, HeaderValue, LOCATION};
+use axum::http::header::{HeaderMap, HeaderValue, LOCATION, VARY};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::ProjectKey;
@@ -314,7 +314,36 @@ fn render_search_fragment(matches: &[&foundry_store::IssueRow], key_prefix: &str
 // GET /keyboard-help — shortcut help overlay (public)
 // =========================================================================
 
-pub async fn show_keyboard_help() -> Response {
+/// Which body `GET /keyboard-help` answers. Exactly two, decided ONCE from the
+/// request headers by [`help_variant`] (ui-bare-pages ADR-002).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HelpVariant {
+    /// The framed page a top-level navigation lands on.
+    Page,
+    /// The bare overlay fragment every other client is given — today's body.
+    Fragment,
+}
+
+/// The one request header the arm is decided from, and therefore the one header
+/// the answer declares itself to depend on (ui-bare-pages ADR-BARE-PAGES-001).
+const SEC_FETCH_DEST_HEADER: &str = "sec-fetch-dest";
+
+/// TOTAL over every header map. `document` — the destination ONLY a top-level
+/// navigation carries, and one a page script cannot set — answers the framed
+/// page; every other declared destination, every value this does not recognise,
+/// and an absent header answer the fragment, which is the safe arm and today's
+/// behaviour.
+fn help_variant(headers: &HeaderMap) -> HelpVariant {
+    match headers
+        .get(SEC_FETCH_DEST_HEADER)
+        .and_then(|value| value.to_str().ok())
+    {
+        Some(destination) if destination.eq_ignore_ascii_case("document") => HelpVariant::Page,
+        _ => HelpVariant::Fragment,
+    }
+}
+
+pub async fn show_keyboard_help(headers: HeaderMap) -> Response {
     // Render the BARE htmx help overlay (US-K02 / US-12) from the
     // `partials/keyboard_help.html` Askama partial via the `KeyboardHelp`
     // view-model. Selector-and-substring-identical to the previous `format!`:
@@ -322,13 +351,33 @@ pub async fn show_keyboard_help() -> Response {
     // with the `header>h2` heading and one `dt[data-shortcut]`+`dd` pair per
     // shortcut. Stays BARE (no `base.html`). Askama auto-escapes key/label
     // (replacing the manual `html_escape`).
-    let body = crate::views::KeyboardHelp {
-        entries: shortcut_entries(),
-        selection_instruction: SELECTION_INSTRUCTION.to_string(),
-    }
-    .render()
-    .expect("keyboard_help partial renders from a fully-resolved, infallible view-model");
-    Html(body).into_response()
+    let body = match help_variant(&headers) {
+        HelpVariant::Page => crate::views::KeyboardHelpPage {
+            entries: shortcut_entries(),
+            selection_instruction: SELECTION_INSTRUCTION.to_string(),
+        }
+        .render()
+        .expect("keyboard_help_page renders from a fully-resolved, infallible view-model"),
+        HelpVariant::Fragment => crate::views::KeyboardHelp {
+            entries: shortcut_entries(),
+            selection_instruction: SELECTION_INSTRUCTION.to_string(),
+        }
+        .render()
+        .expect("keyboard_help partial renders from a fully-resolved, infallible view-model"),
+    };
+    // ONE address, TWO bodies, chosen from a REQUEST header — so every answer
+    // from BOTH arms names that header as what it depends on. A cache told
+    // nothing keys one entry per URL and is then free to hand the framed page
+    // to the overlay's fetch, or the bare fragment to a browser opening the
+    // address. Setting it on the new arm alone leaves the OTHER arm's body —
+    // the one a cache is most likely to be holding — free to answer the wrong
+    // request, and that defect is visible only at the cache and only to the
+    // other reader (ADR-BARE-PAGES-001).
+    let mut response = Html(body).into_response();
+    response
+        .headers_mut()
+        .insert(VARY, HeaderValue::from_static(SEC_FETCH_DEST_HEADER));
+    response
 }
 
 /// The advertised rows, built from [`SHORTCUTS`] and from nothing else. The ONE

@@ -696,7 +696,11 @@ fn bad_request_fragment(message: &str) -> Response {
 /// data-state="{normalized}">{normalized}</span>` (Askama auto-escapes
 /// `{{ normalized }}`; the underscore-normalized value carries no
 /// markup-significant characters, so the bytes are unchanged).
-fn render_state_chip(normalized: &str) -> String {
+///
+/// CRATE-VISIBLE (ui-bare-pages P3): the issue full page embeds the SAME chip,
+/// so the page and this board swap can never draw two chip shapes that drift
+/// apart. Its OUTPUT BYTES are unchanged by that widening.
+pub(crate) fn render_state_chip(normalized: &str) -> String {
     crate::views::StateChip {
         normalized: normalized.to_string(),
     }

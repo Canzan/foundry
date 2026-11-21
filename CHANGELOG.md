@@ -9,6 +9,31 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ### Changed
 
+- **Every page you land on looks like Foundry and says what it is for.** Four changes
+  to the pages that had none of its look:
+  - The keyboard shortcuts page is drawn like the rest of Foundry. Each key sits on the
+    same line as what it does, on a desk screen and on a phone, with the note about
+    choosing a card below the list. The address has not changed, and the shortcut list
+    the `?` overlay shows is the same list from the same place, so the page and the
+    overlay can never offer you two different sets of keys.
+  - Sign in, Forgot password, Check your email, Claim your workspace, Set your password
+    and Choose a new password each show their form in one centred card under the product
+    name, instead of running from one edge of the window to the other. On a phone the
+    card takes the screen inside the page padding. None of these pages offers a
+    navigation rail or a palette control, and what each form does is unchanged.
+  - An issue's own page shows the issue: its key as the heading, its title below it, its
+    status in the same chip the board uses, and the description as you wrote it, with
+    your line breaks, whole, and never drawn as markup. An issue nobody has described
+    still has one place for a description, which tells you nothing is written down yet.
+    Delete and the control for attaching a file are drawn like Foundry's own controls;
+    Delete still asks you to confirm.
+  - Your browser and your password manager are told what each sign-in and password field
+    holds: your email and your current password on sign in; your email and a password
+    you are creating on Claim your workspace; and a password you are creating on both
+    fields of Set your password and of Choose a new password.
+
+  The stylesheet is re-hashed to `foundry.e770ce20.css`.
+
 - **Teams, Invite a member and Machine tokens live in the left nav.** They sit after
   Board on every app page, and in the folded nav each is an icon that names where it
   goes, like every other rail item. The Home page no longer has a Quick actions section:
@@ -41,8 +66,6 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
     beside them: the rail's own background, the same muted text, no border and no black
     slab. One press of Sign out still ends the session and one press of the theme
     control still changes the palette.
-
-  The stylesheet is re-hashed to `foundry.2f9e0cb1.css`.
 
 ## [v0.19.0] - 2026-11-19
 

@@ -7,5 +7,5 @@
 
    It reads `entries` and `selection_instruction`, which both arm view-models
    carry, so neither arm owns a copy of the row shape. #}
-<dl>{% for entry in entries %}<dt data-shortcut="{{ entry.key }}">{{ entry.key }}</dt><dd>{{ entry.label }}</dd>{% endfor %}</dl>
+<dl class="kb-shortcuts">{% for entry in entries %}<dt data-shortcut="{{ entry.key }}">{{ entry.key }}</dt><dd>{{ entry.label }}</dd>{% endfor %}</dl>
 <p class="kb-selection-instruction">{{ selection_instruction }}</p>

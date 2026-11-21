@@ -1,0 +1,30 @@
+{% extends "card_page.html" %}
+{# ui-bare-pages ADR-002 — the PAGE arm of GET /keyboard-help, answered to a
+   client that declares the document destination. It is a full document on the
+   card frame with a heading of its own; the overlay fragment cannot be that
+   document, and including the overlay's dialog container here would put
+   `role="dialog"` on a whole page.
+
+   The rows come from the SAME partial the overlay includes, so the two arms
+   cannot advertise different keys. #}
+{% block title %}Keyboard shortcuts{% endblock %}
+{% block card_content %}
+<h1>Keyboard shortcuts</h1>
+{# `class="keyboard-help"` AND NO `role`/`aria-label`, both deliberately.
+
+   The CLASS is a shipped promise: with scripting off there is no overlay, so
+   this page is the ONLY way to read the list (NFR-4 / ODD-8), and the no-JS
+   scenario of keyboard-shortcut-bindings finds the list by `.keyboard-help`.
+   Dropping it here left that operator with a page the lane could not find.
+
+   The ROLE stays off: `role="dialog"` on a whole document announces the page
+   she navigated to as a dialog she can dismiss, and there is nothing behind it
+   to go back to. The dialog container belongs to the overlay arm alone, which
+   is why this page includes the ROWS partial and not that container. The
+   overlay's own chrome — the scrim and the raised card — stays scoped to
+   `#kb-overlay-root`, so this section takes no card of its own: the frame here
+   is `.page-card`. #}
+<section class="keyboard-help">
+{% include "partials/keyboard_shortcut_rows.html" %}
+</section>
+{% endblock %}
