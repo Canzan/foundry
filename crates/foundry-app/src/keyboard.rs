@@ -323,18 +323,26 @@ pub async fn show_keyboard_help() -> Response {
     // shortcut. Stays BARE (no `base.html`). Askama auto-escapes key/label
     // (replacing the manual `html_escape`).
     let body = crate::views::KeyboardHelp {
-        entries: SHORTCUTS
-            .iter()
-            .map(|(key, label)| crate::views::ShortcutEntry {
-                key: (*key).to_string(),
-                label: (*label).to_string(),
-            })
-            .collect(),
+        entries: shortcut_entries(),
         selection_instruction: SELECTION_INSTRUCTION.to_string(),
     }
     .render()
     .expect("keyboard_help partial renders from a fully-resolved, infallible view-model");
     Html(body).into_response()
+}
+
+/// The advertised rows, built from [`SHORTCUTS`] and from nothing else. The ONE
+/// builder every arm of this route derives its rows from, so an added row
+/// reaches each arm together; an arm with a list of its own is the drift the
+/// `SHORTCUTS` comment warns about.
+fn shortcut_entries() -> Vec<crate::views::ShortcutEntry> {
+    SHORTCUTS
+        .iter()
+        .map(|(key, label)| crate::views::ShortcutEntry {
+            key: (*key).to_string(),
+            label: (*label).to_string(),
+        })
+        .collect()
 }
 
 // =========================================================================

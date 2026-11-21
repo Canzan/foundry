@@ -1,0 +1,11 @@
+{# ui-bare-pages — THE ONE OWNER OF THE SHORTCUT ROWS and of the selection
+   instruction that belongs under them. Included by BOTH arms of
+   GET /keyboard-help: `partials/keyboard_help.html` (the overlay's dialog
+   container) and `keyboard_help_page.html` (the framed page). A second list
+   written into either arm is exactly the drift `keyboard.rs::SHORTCUTS` warns
+   about — the operator would be told two different sets of keys at one address.
+
+   It reads `entries` and `selection_instruction`, which both arm view-models
+   carry, so neither arm owns a copy of the row shape. #}
+<dl>{% for entry in entries %}<dt data-shortcut="{{ entry.key }}">{{ entry.key }}</dt><dd>{{ entry.label }}</dd>{% endfor %}</dl>
+<p class="kb-selection-instruction">{{ selection_instruction }}</p>
