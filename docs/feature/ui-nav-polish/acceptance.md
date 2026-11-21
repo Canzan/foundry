@@ -584,4 +584,109 @@ None.
 
 ## Examination
 
-None.
+### E1
+
+met
+
+#### Observations
+
+```text
+Browser at the desk viewport 1280x800, signed in as a workspace admin: on /teams the nav marks only "Teams" (current=page), on /workspace/invites only "Invite a member", on /admin/tokens only "Machine tokens". In each of the three captures the other four primary nav links carry no current marker, so exactly one item is marked and never none and never two.
+
+```
+
+```text
+What the mark looks like, read off the captured screen pixels of /teams at 1280x800: the marked item's box is painted a lighter fill than the rail surface (255,255,255 on a 243,244,241 rail) and its word in the strongest ink in the rail (36,38,37, contrast 15.2:1), while the four unmarked items keep the rail surface as their fill and a 5.5:1 word ink. In the dark palette the marked box is (19,24,23) on a (15,19,18) rail with a 15.7:1 word ink against 6.1:1 for the others. The mark is therefore a difference the operator can see in both palettes, carried mostly by the stronger word ink in dark, where the fill differs by only 4 to 5 levels.
+
+```
+
+### E2
+
+met
+
+#### Observations
+
+```text
+Pages below the three sections, same desk viewport and session: /team/backend/members marks only "Teams"; /team/backend/project/identity-platform, the page the nav's own "Board" link opens, marks only "Board"; /teams?sort=name, an address carrying an extra query value, marks only "Teams". The two admin sections offer no deeper page of their own in the observed build: /workspace/invites carries one invite form and /admin/tokens one issue-token form and a token list, with no link below either. Deeper pages under other teams and other unvisited addresses were not opened and stay unobserved.
+
+```
+
+```text
+Browser at the desk viewport 1280x800, signed in as a workspace admin: on /teams the nav marks only "Teams" (current=page), on /workspace/invites only "Invite a member", on /admin/tokens only "Machine tokens". In each of the three captures the other four primary nav links carry no current marker, so exactly one item is marked and never none and never two.
+
+```
+
+### E3
+
+met
+
+#### Observations
+
+```text
+Two operators the admin pages admit: Priya (workspace admin and instance admin) and Tomas (workspace admin, not an instance admin). Each is offered "Invite a member" and "Machine tokens" in the nav. Pressing "Invite a member" opens /workspace/invites with status 200 and pressing "Machine tokens" opens /admin/tokens with status 200, for both of them, and each arrives with that same item marked. Every one of the five links the nav offered them opened with the same signed-in session: Home (/), Board (/team/backend/project/identity-platform), Teams (/teams) and the two admin pages, all status 200, no refusal and no error page. Both were admitted by signing in through the public sign-in form with their own credentials.
+
+```
+
+### E4
+
+met
+
+#### Observations
+
+```text
+The operator the two pages refuse, Lena, a plain workspace member: asking for /workspace/invites and /admin/tokens directly answers her 404 in both cases, so those pages do refuse her. Her nav offers only Home, Board and Teams. The two admin items are absent from her nav, not greyed or disabled: no such link is listed in her rail at the desk viewport 1280x800 with the rail expanded, at 1280x800 with the rail folded to a 72 px strip, at the 390x844 phone with the bar expanded, and at the 390x844 phone with the bar folded. Each of the three links she is offered opened 200 with her own session. Other refused operators and other widths were not opened.
+
+```
+
+### E5
+
+not_examined
+
+```text
+Not examined for want of a reachable stimulus, see observation O6. The promise needs a desk page taller than its window, scrolled to the bottom. Through the public harness no such desk page exists: in every capture the application shell fits the window, with the footer landmark sitting at the viewport bottom (y=784 of 800, y=404 of 420), and the harness carries no step that scrolls a page. Prerequisite: a desk subject whose document exceeds its window, plus a page-scroll step. Owner: the acceptance designer who owns the public harness. Remedy: add that step or that subject and re-capture the rail in both geometries. What I did capture supports only the weaker claim that the rail box spans the viewport with all five items visible before scrolling, and O6 retains the negative that in a 1280x420 window the rail's own content scrolled and the first item's word went off-screen.
+
+```
+
+### E6
+
+met
+
+#### Observations
+
+```text
+Height of the nav bar above the content at phone widths, measured against the browser view height that the same capture reports: 125 px of 844 (14.8 per cent) at 390x844, 125 px of 800 (15.6 per cent) at 480x800, and 125 px of 640 (19.5 per cent) at 360x640. All three are at or below a fifth, with only about 3 px of margin left at 360x640. A smaller or shorter phone, a wrapped item label and a long account name were not observed.
+
+```
+
+### E7
+
+met
+
+#### Observations
+
+```text
+One press to each destination at phone widths. At 390x844 all five destinations stand in the bar itself, each 44 px wide, with no menu, fold or "more" control in front of them; pressing each in turn opened its own page: Teams /teams 200, Board /team/backend/project/identity-platform 200, Invite a member /workspace/invites 200, Machine tokens /admin/tokens 200, each arriving with that item marked. At 480x800 and at 360x640 the same five items are present and visible, 44 and 40 px wide. Two readings qualify this: at these widths the item labels are reduced to a 1x1 clip, so the operator sees the glyph and not the word, and at 390 and 360 the clipped "Machine tokens" text reaches past the right edge without giving the page a sideways scroll.
+
+```
+
+### E8
+
+met
+
+#### Observations
+
+```text
+How quiet the lower group looks, read off the captured screen pixels at 1280x800. Scanning the full height of the rail for any box painted unlike the rail surface across the item width finds exactly one band in the whole rail: the current-page item. Sign out's box is the rail surface, with 3.6 per cent of its pixels unlike that surface, and the theme control's 4.0 per cent, against 5.6 to 8.3 per cent for the plain links beside them, so neither one owes a fill or a border in either palette, and neither is the heaviest thing in the nav. Sign out's word is painted in exactly the same ink as the plain links (92,100,95 light and 141,149,143 dark). MATTER OF DEGREE: the theme control's word is painted in the strongest ink tier instead (18,22,20, 16.5:1 in light; 232,235,232, 15.6:1 in dark) against its neighbours' 5.5:1 and 6.1:1, the same tier as the marked page item, so it reads as more prominent than the items beside it while still being a plain, unfilled, unbordered item. The look on hover and at phone width was not captured.
+
+```
+
+### E9
+
+met
+
+#### Observations
+
+```text
+Both controls still do their work. Pressing the theme control advanced it from "Theme: following your device" to light and then to dark, and the captured screens show the rail surface changing from (243,244,241) to (15,19,18), so the look of the page she is on did change; the dark choice was still in force after reloading that same page. Pressing Sign out took the operator to /sign-in with status 200, and a following request for /teams in the same browser answered 404, so her session had ended. Not observed: whether the theme choice holds on a different page or on a later visit, and whether the old session token is still usable anywhere else.
+
+```
