@@ -109,6 +109,12 @@
 #   board                       each board column by its heading, with the
 #                               keys of its cards top to bottom, and the dialog
 #                               that is open
+#   scroll <bottom|top>         real mouse-wheel turns over the middle of the
+#                               window until the page reaches its bottom (or
+#                               top), then how far it is scrolled, how tall the
+#                               page is and how tall the window is (a page
+#                               taller than its window: make issues with
+#                               new-issue, or a short window with --height)
 # A link in navigation and the focus show `current=<value>` when the page marks
 # them with aria-current. The focus line also lists the words the control
 # paints: each with its box, and `seen` when the point at its centre shows it
@@ -183,7 +189,7 @@ usage: examine-foundry start <state> [--before] [--replicas 2]
        examine-foundry new-issue [--replica 2] <viewer> <team>/<project> <title>
        examine-foundry browser <viewer> [--width px] [--height px] [--phone] [--js off] [--slow N] [--fresh] <step>...
            steps: go <path> | reload | watch-go <path> | watch-reload | look | key <Tab|Shift+Tab|Enter|Space|Escape> | tab-order <N> | click <name> | hover <name> | sign-in | width <px>
-                  | click-card <issue key> | choose <list name> <option> | board | shot <name>
+                  | click-card <issue key> | choose <list name> <option> | board | shot <name> | scroll <bottom|top>
        examine-foundry shots <dir>
        examine-foundry gate [--file <repo path> <your file>]...
        examine-foundry suite <tag> [--file <repo path> <your file>]...
@@ -1928,6 +1934,13 @@ try {
         await sleep(500);
         await board();
         break;
+      case "scroll": {
+        const to = arg();
+        if (to !== "bottom" && to !== "top") fail("scroll takes bottom or top");
+        say(`\n> scroll ${to}`);
+        await scrollPage(to);
+        break;
+      }
       default:
         fail(`no browser step named ${step}`);
     }
@@ -2309,6 +2322,33 @@ async function choose(field, option) {
   });
   if (String(result.value).startsWith("no option")) fail(result.value);
   say(`  ${result.value}`);
+}
+
+// Scroll the page as a person does: real mouse-wheel turns over the middle of
+// the window, until the page stops moving or reaches its bottom (or top).
+// Then say how far the page is scrolled, how tall it is and how tall the
+// window is.
+async function scrollPage(to) {
+  const x = Math.round(width / 2), y = Math.round(height / 2);
+  const where = () => inPage(() => ({
+    y: Math.round(window.scrollY),
+    doc: Math.round(document.documentElement.scrollHeight),
+    win: window.innerHeight,
+  }));
+  let last = await where();
+  for (let i = 0; i < 200; i++) {
+    await send("Input.dispatchMouseEvent", {
+      type: "mouseWheel", x, y, deltaX: 0, deltaY: to === "bottom" ? 400 : -400,
+    });
+    await sleep(60);
+    const now = await where();
+    const done = to === "bottom" ? now.y + now.win >= now.doc : now.y <= 0;
+    if (done || now.y === last.y) { last = now; break; }
+    last = now;
+  }
+  await sleep(300);
+  last = await where();
+  say(`  the page is scrolled ${last.y} px; it is ${last.doc} px tall in a window ${last.win} px tall`);
 }
 
 // What the board shows now: each column by its heading, with the keys of the
