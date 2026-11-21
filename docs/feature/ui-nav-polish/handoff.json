@@ -106,8 +106,8 @@
 "disposition": {
 "kind": "Tested",
 "obligations": [
-"L7/F144",
-"L7/F145",
+"L7/F432",
+"L7/F433",
 "L7/F148"
 ],
 "still_passes_if": "F287",
@@ -171,15 +171,16 @@
 "disposition": {
 "kind": "Tested",
 "obligations": [
-"L7/F317",
-"L7/F318"
+"L7/F434",
+"L7/F449",
+"L7/F450"
 ],
-"still_passes_if": "F341",
+"still_passes_if": "F457",
 "test": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature: Board and rail text stays legible in both palettes"
 },
-"expected": "F339",
+"expected": "F455",
 "stimulus": "F338",
-"user_result": "F340"
+"user_result": "F456"
 },
 {
 "covers": [
@@ -199,6 +200,23 @@
 "expected": "F422",
 "stimulus": "F421",
 "user_result": "F423"
+},
+{
+"covers": [
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7/F435",
+"L7/F436"
+],
+"still_passes_if": "F461",
+"test": "crates/foundry-acceptance/tests/features/canzan-theme-system.feature: With the nav narrowed its two controls owe no outline, and the word it shows her stays legible; On her phone the nav's one control owes no outline, and shows no word to read"
+},
+"expected": "F459",
+"stimulus": "F458",
+"user_result": "F460"
 }
 ]
 },
@@ -206,7 +224,7 @@
 "B": 2,
 "C": 2,
 "E": 9,
-"F": 454,
+"F": 461,
 "K": 5,
 "L": 9,
 "N": 5,
@@ -1671,10 +1689,7 @@
 "F336": "With the page scrolled down, the whole nav still lies inside what she can see, from its top edge to its bottom edge, and every place in it can still be seen and pressed - in both geometries. On a page with nothing to scroll the whole nav lies inside what she can see as well: the open nav used to run about ten pixels past the bottom of the window there, because the rail took the height of the whole page frame.",
 "F337": "At the bottom of a long board the operator goes somewhere else straight away instead of scrolling back to the top to find the nav, and on a page with nothing to scroll no edge of the nav is cut off below her window.",
 "F338": "In a real browser the operator looks at a board with the nav beside it, once in the light palette and once in the dark one, and every control she can see on that page is measured as it is drawn for her.",
-"F339": "The word Sign out and the word of the theme control each stand out from the surface behind them at the ratio body text owes, in both palettes, and neither control is asked for a fill or an outline of its own on top of that word; every control that draws no word at all, such as the glyph that narrows the nav, is still identified by its own fill or its outline strongly enough to be found by its shape.",
 "F34": "One content-hash migration: the stylesheet is the only file whose name changes, and the rename travels to its four readers in the same commit - the link in templates/base.html, the row and sha256 in static/VENDOR.md, and the three cache-policy assertions in crates/foundry-app/src/lib.rs. check-arch already refuses a /static reference that does not resolve and a content-hashed filename that is not its own sha256 prefix, so a half-done rename is caught by the shipped gate.",
-"F340": "She reads the two quiet controls as easily as the links beside them, and she can still pick out the controls that carry no word.",
-"F341": "The two quiet controls keep some fill or outline of their own as well; the row reads how legible their words are, so a control that is both legible and outlined passes. What it refuses is a quiet control whose word cannot be read, and a wordless control with nothing to find it by.",
 "F342": "Three NavSection variants with their predicates and constructors, the total offered_mark reconciliation called once inside resolved(), and the totality unit test extended over every variant and every section-by-rights pair.",
 "F347": "Current-page mark: enum NavSection in crates/foundry-app/src/nav.rs gains Teams, Invites and Tokens beside Home and Board. The carrier stays ONE field, NavContext.active, so the marked member is derived by equality on a sum and a rail with two marks is unrepresentable in Rust. ONE PLACE RECONCILES THE MARK WITH WHAT THE RAIL OFFERS: resolved() reads the identity first, then maps the section the handler named through a total private NavSection::offered_mark(self, is_workspace_admin), which answers Home for Invites and Tokens when the rail will not offer that member and the named section otherwise. Home is always offered, so a rail with zero marks is unrepresentable as well and the marked member is always a member the document renders. The route gate and the rail read the identity separately, so an operator the gate admitted as a workspace admin can still meet a failed nav_identity read; that render offers neither admin link and marks Home, which is what failure B1 declares. Layers. Domain: none, this is presentation only. Application: each authed handler names exactly one section for its own page family, through new NavContext::teams_for, invites_for and tokens_for siblings over the existing private resolved(), which owns the neutral fail-closed identity AND the mark reconciliation, so both stay decided in one place. Adapter: partials/sidebar.html reads one predicate per item (is_teams, is_invites, is_tokens beside is_home, is_board) and emits the sidebar__item--active class and aria-current=page together. Carriers: decision = NavSection (nav.rs); per-request state = NavContext (nav.rs); effects = none; errors = none new.",
 "F349": "P3 bounds nothing about the window height, and the design is narrower in one respect: a rail whose own content is taller than the window cannot have its whole box inside the viewport under any mechanism. The open geometry keeps every member reachable by scrolling inside the rail; the folded geometry cannot, because a scroll container there is exactly what clips its revealed word, which is a shipped promise. That bound is carried as risk Y5, never as a satisfied promise. The desk reading uses the harness fixed viewport, where the rail fits.",
@@ -1773,6 +1788,13 @@
 "F452": "The 1.4.11 exemption is a scope rule inside the acceptance walk, not a property of the stylesheet, and it now keys on rail MEMBERSHIP. Any control later placed inside the rail element inherits the exemption with no boundary of its own - the nav-collapse toggle, mounted into .sidebar__brand, already does - and a control moved out of the rail loses it silently. No Rust type and no gate refuses either move.",
 "F453": "Every control inside .app-shell but outside the rail is still read for the 3:1 fill or border rule and meets it, and every rail control word that is actually drawn keeps the WCAG 1.4.3 text ratio against the surface behind it.",
 "F454": "The floor inside the walk: at least one control OUTSIDE the rail is read for the 3:1 boundary on every board page the law runs on, anchored on the lane-actions trigger that every column renders. It is a reading, not a count of a shape, so it goes red the moment the exemption widens past the rail and the outside-rail controls leave the reading. Owner: acceptance designer.",
+"F455": "The word Sign out and the word of the theme control each stand out from the surface behind them at the ratio body text owes, in both palettes, and neither control is asked for a fill or an outline of its own, because both sit in the nav. Every control outside the nav keeps that reading and meets it - the lane-actions trigger each lane of the board draws is one, and at least one such control outside the nav is read on every board page this law runs on.",
+"F456": "She reads the two quiet controls as easily as the links beside them, and she can still pick out the controls that sit outside the nav.",
+"F457": "The two controls of the nav keep some fill or outline of their own as well; the row reads how legible their words are and whether anything outside the nav is still read, so a control that is both legible and outlined passes. What it refuses is a quiet control of the nav whose word cannot be read, and a reading in which nothing outside the nav is read at all.",
+"F458": "In a real browser on the same board, the operator narrows the nav to icons with its own control and stops on Sign out with the keyboard, in the dark palette and again in the light one; then she opens that board on her phone, in the dark palette she chose and again in the light one. Every control she can see is measured as it is drawn for her in each of those four readings.",
+"F459": "In the narrowed nav neither Sign out nor the theme control draws a word at rest and neither is asked for a fill or an outline of its own, and the word Sign out shows her on the keyboard stands out from the box it is drawn in at the ratio body text owes. On her phone Sign out is a glyph with its word clipped out of the bar, so no ratio is read for it and it is asked for no fill or outline either. In all four readings a control outside the nav is still read for its own fill or outline and meets it, and a control of the nav quieter than that reading would allow is what makes the exemption load-bearing.",
+"F460": "Whichever shape the nav takes - a column of words, a strip of icons, a bar across the top of her phone - the operator reads its two controls as quietly as the links beside them, reads any word they show her, and can still pick out the controls on the page outside the nav.",
+"F461": "A control of the nav gains an outline in one of these layouts while the rest stay quiet; the reading asks whether anything in the nav is quieter than the outline rule allows, so one outlined control among several still passes - the nav lane is where a control drawn as the heaviest thing in the nav is refused.",
 "F47": "The single nav assembly for every /teams page and its descendants, so one edit marks Teams on all of them.",
 "F5": "On a page taller than the window, the whole nav stays in view while she scrolls the page, at desk width, open or folded.",
 "F50": "The one live reading of the rail already returns each member box, its visibility, its accessible name and which member is marked; the sticky and phone-height readings are two more fields of the SAME probe, so a geometry fact and a mark fact cannot come from two moments. Acceptance support, owned by the acceptance designer.",

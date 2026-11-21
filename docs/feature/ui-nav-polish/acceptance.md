@@ -294,11 +294,11 @@ In a real browser the operator looks at a board with the nav beside it, once in 
 ```
 
 ```text
-The word Sign out and the word of the theme control each stand out from the surface behind them at the ratio body text owes, in both palettes, and neither control is asked for a fill or an outline of its own on top of that word; every control that draws no word at all, such as the glyph that narrows the nav, is still identified by its own fill or its outline strongly enough to be found by its shape.
+The word Sign out and the word of the theme control each stand out from the surface behind them at the ratio body text owes, in both palettes, and neither control is asked for a fill or an outline of its own, because both sit in the nav. Every control outside the nav keeps that reading and meets it - the lane-actions trigger each lane of the board draws is one, and at least one such control outside the nav is read on every board page this law runs on.
 ```
 
 ```text
-She reads the two quiet controls as easily as the links beside them, and she can still pick out the controls that carry no word.
+She reads the two quiet controls as easily as the links beside them, and she can still pick out the controls that sit outside the nav.
 ```
 
 ##### Disposition
@@ -308,10 +308,11 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/canzan\-theme\-system\.feature\: Board and rail text stays legible in both palettes
 
 ```text
-The two quiet controls keep some fill or outline of their own as well; the row reads how legible their words are, so a control that is both legible and outlined passes. What it refuses is a quiet control whose word cannot be read, and a wordless control with nothing to find it by.
+The two controls of the nav keep some fill or outline of their own as well; the row reads how legible their words are and whether anything outside the nav is still read, so a control that is both legible and outlined passes. What it refuses is a quiet control of the nav whose word cannot be read, and a reading in which nothing outside the nav is read at all.
 ```
 
 ###### Obligations
+
 
 
 
@@ -344,6 +345,36 @@ The word is kept readable over the board by some other means than the two the de
 ###### Obligations
 
 
+
+
+
+##### Covers
+
+P5
+
+```text
+In a real browser on the same board, the operator narrows the nav to icons with its own control and stops on Sign out with the keyboard, in the dark palette and again in the light one; then she opens that board on her phone, in the dark palette she chose and again in the light one. Every control she can see is measured as it is drawn for her in each of those four readings.
+```
+
+```text
+In the narrowed nav neither Sign out nor the theme control draws a word at rest and neither is asked for a fill or an outline of its own, and the word Sign out shows her on the keyboard stands out from the box it is drawn in at the ratio body text owes. On her phone Sign out is a glyph with its word clipped out of the bar, so no ratio is read for it and it is asked for no fill or outline either. In all four readings a control outside the nav is still read for its own fill or outline and meets it, and a control of the nav quieter than that reading would allow is what makes the exemption load-bearing.
+```
+
+```text
+Whichever shape the nav takes - a column of words, a strip of icons, a bar across the top of her phone - the operator reads its two controls as quietly as the links beside them, reads any word they show her, and can still pick out the controls on the page outside the nav.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/canzan\-theme\-system\.feature\: With the nav narrowed its two controls owe no outline\, and the word it shows her stays legible\; On her phone the nav\'s one control owes no outline\, and shows no word to read
+
+```text
+A control of the nav gains an outline in one of these layouts while the rest stay quiet; the reading asks whether anything in the nav is quieter than the outline rule allows, so one outlined control among several still passes - the nav lane is where a control drawn as the heaviest thing in the nav is refused.
+```
+
+###### Obligations
 
 
 

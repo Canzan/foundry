@@ -509,10 +509,13 @@ var labelRect = label ? label.getBoundingClientRect() : null;
 var labelHit = null;
 // WHAT ANSWERED THAT POINT, and WHAT THE WORD LIES OVER. A word clipped out of
 // view and a word something else paints over look identical in the layout box,
-// and both answer the point with another element: the page content column, a
-// card, or whatever encloses the word. Naming the answer is what tells those
-// causes apart in a failure, and naming what the word's box lies over is what
-// stops the reading being taken where nothing could cover it at all.
+// and both answer the point with some other element: a page content column, a
+// card, or whatever encloses the word. The answer does NOT tell those two
+// causes apart — both can name the same element — so it is reported as the
+// evidence of a failure rather than as its diagnosis, and whoever reads it
+// still has to look at the rail's overflow and its paint level. Naming what the
+// word's box lies over is what stops the reading being taken where nothing
+// could cover it at all.
 var labelHitDescription = null;
 var labelLiesOver = [];
 var labelCentreIsBesideTheRail = null;

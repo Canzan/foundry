@@ -169,6 +169,7 @@
 
 use crate::support::browser_harness;
 use crate::support::harness::signed_in_get;
+use crate::support::rail_reading;
 use crate::support::served_markup::head_scripts;
 use crate::world::FoundryWorld;
 use cucumber::{given, then, when};
@@ -379,17 +380,17 @@ async fn then_every_large_text_pair_reaches_at_least_3_to_1(world: &mut FoundryW
 }
 
 #[then(
-    regex = r"^every control no visible word names is identified by its own fill or border at 3 to 1$"
+    regex = r"^every control outside the left nav is identified by its own fill or border at 3 to 1$"
 )]
-async fn then_every_wordless_control_is_identified_by_its_shape(world: &mut FoundryWorld) {
-    assert_shape_identifies_wordless_controls(browser_of(world), "dark").await;
+async fn then_every_control_outside_the_rail_is_identified_by_its_shape(world: &mut FoundryWorld) {
+    assert_shape_identifies_controls_outside_the_rail(browser_of(world), "dark").await;
 }
 
 #[then(
-    regex = r"^a nav control the operator finds by its own visible word has that word legible at 4\.5 to 1 instead$"
+    regex = r"^a control inside the left nav is read for the word it draws instead, legible at 4\.5 to 1$"
 )]
-async fn then_a_nav_control_is_read_for_its_own_word(world: &mut FoundryWorld) {
-    assert_the_word_is_legible(browser_of(world), "dark").await;
+async fn then_a_rail_control_is_read_for_the_word_it_draws(world: &mut FoundryWorld) {
+    assert_rail_words_are_legible(browser_of(world), "dark", Some("Sign out")).await;
 }
 
 #[then(regex = r"^the same holds when the device preference is light$")]
@@ -397,9 +398,164 @@ async fn then_the_same_holds_when_the_device_preference_is_light(world: &mut Fou
     let light = light_device_board(world).await;
     assert_text_contrast(&light, "light", true).await;
     assert_text_contrast(&light, "light", false).await;
-    assert_shape_identifies_wordless_controls(&light, "light").await;
-    assert_the_word_is_legible(&light, "light").await;
+    assert_shape_identifies_controls_outside_the_rail(&light, "light").await;
+    assert_rail_words_are_legible(&light, "light", Some("Sign out")).await;
     light.close().await.ok();
+}
+
+// ----- the nav's other two layouts: narrowed to icons, and a phone ----------
+
+/// The narrowed layout, reached the operator's own way: one press of the control
+/// that narrows the nav, then the keyboard onto Sign out, which is what reveals
+/// the word in its own box beside the strip.
+async fn narrow_the_nav_and_stop_on_sign_out(client: &fantoccini::Client) {
+    client
+        .find(Locator::Css(rail_reading::NAV_CONTROL))
+        .await
+        .expect("the control that narrows the left nav")
+        .click()
+        .await
+        .expect("press the control that narrows the left nav");
+    let reading = rail_reading::read_nav(client).await;
+    assert!(
+        reading["marked"].as_bool().unwrap_or(false),
+        "the nav did not narrow when its control was pressed, so this scenario would read the open \
+         layout and call it the narrowed one"
+    );
+    let focus = rail_reading::tab_until_this_member_holds_focus(client, "Sign out").await;
+    assert!(
+        focus["labelPresent"].as_bool().unwrap_or(false),
+        "Sign out holds the keyboard but carries no word to reveal at all: {focus}"
+    );
+}
+
+#[when(regex = r"^the operator narrows the nav and stops on Sign out with the keyboard$")]
+async fn when_the_operator_narrows_the_nav_and_stops_on_sign_out(world: &mut FoundryWorld) {
+    narrow_the_nav_and_stop_on_sign_out(browser_of(world)).await;
+}
+
+#[then(regex = r"^no control inside the left nav is asked for a fill or an outline of its own$")]
+async fn then_no_rail_control_owes_an_outline(world: &mut FoundryWorld) {
+    assert_the_rail_controls_owe_no_boundary(browser_of(world), "dark").await;
+}
+
+#[then(
+    regex = r"^a control outside the left nav is still read for its own fill or outline at 3 to 1$"
+)]
+async fn then_a_control_outside_the_rail_is_still_read(world: &mut FoundryWorld) {
+    assert_shape_identifies_controls_outside_the_rail(browser_of(world), "dark").await;
+}
+
+#[then(
+    regex = r"^the word the narrowed nav shows her reaches 4\.5 to 1 against the box it is drawn in$"
+)]
+async fn then_the_revealed_word_is_legible(world: &mut FoundryWorld) {
+    assert_rail_words_are_legible(browser_of(world), "dark", Some("Sign out")).await;
+}
+
+#[then(regex = r"^the same holds with the nav narrowed in the light palette$")]
+async fn then_the_same_holds_with_the_nav_narrowed_in_light(world: &mut FoundryWorld) {
+    let light = light_device_board(world).await;
+    narrow_the_nav_and_stop_on_sign_out(&light).await;
+    assert_the_rail_controls_owe_no_boundary(&light, "light").await;
+    assert_shape_identifies_controls_outside_the_rail(&light, "light").await;
+    assert_rail_words_are_legible(&light, "light", Some("Sign out")).await;
+    light.close().await.ok();
+}
+
+/// Her phone, in the palette she chose for herself: the emulated device carries
+/// no device preference, so the palette comes from the choice the application
+/// remembers for her, which is the operator's own public way to either one.
+async fn phone_board_in(world: &FoundryWorld, choice: &str) -> fantoccini::Client {
+    let browser = browser_harness::open_mobile_session().await;
+    let base = world.harness.as_ref().expect("harness").base_url();
+    browser
+        .goto(&format!("{base}/sign-in"))
+        .await
+        .expect("reach the origin so a choice can be stored against it");
+    browser
+        .execute(
+            "try { window.localStorage.setItem(arguments[0], arguments[1]); } catch (err) {}
+             return true;",
+            vec![
+                serde_json::Value::String(THEME_STORAGE_KEY.to_string()),
+                serde_json::Value::String(choice.to_string()),
+            ],
+        )
+        .await
+        .expect("store the palette the operator chose");
+    land_on_board(&browser, world).await;
+    let painted = browser
+        .execute(
+            "return document.documentElement.getAttribute('data-theme');",
+            Vec::new(),
+        )
+        .await
+        .expect("read the palette the phone is in");
+    assert_eq!(
+        painted.as_str(),
+        Some(choice),
+        "the phone is in the {:?} palette instead of the {choice:?} one this row is about, so \
+         whatever it measures is the other palette",
+        painted.as_str().unwrap_or("none at all")
+    );
+    browser
+}
+
+#[given(
+    regex = r#"^the operator opens the "Sandbox" board on her phone, in the (dark|light) palette$"#
+)]
+async fn given_the_board_on_her_phone(world: &mut FoundryWorld, palette: String) {
+    seed_sandbox_issue(world).await;
+    let browser = phone_board_in(world, &palette).await;
+    world.browser = Some(browser);
+}
+
+#[then(regex = r"^no ratio is read for a nav control that draws no word there$")]
+async fn then_no_ratio_is_read_for_a_wordless_rail_control(world: &mut FoundryWorld) {
+    assert_no_word_is_drawn_by_sign_out(browser_of(world), "dark").await;
+}
+
+#[then(regex = r"^the same holds on her phone in the light palette$")]
+async fn then_the_same_holds_on_her_phone_in_light(world: &mut FoundryWorld) {
+    let light = phone_board_in(world, "light").await;
+    assert_the_rail_controls_owe_no_boundary(&light, "light").await;
+    assert_shape_identifies_controls_outside_the_rail(&light, "light").await;
+    assert_no_word_is_drawn_by_sign_out(&light, "light").await;
+    light.close().await.ok();
+}
+
+/// THE LAYOUT THAT DRAWS NO WORD, asserted rather than assumed. On a phone the
+/// bar is a row of glyphs and the word of each member is clipped out of it, so
+/// there is no drawn word to read a ratio off — which is exactly why the
+/// exemption cannot be keyed on one. The glyph is asserted present with it: a
+/// member that drew neither a word nor a glyph would satisfy "no word read"
+/// while showing the operator nothing.
+async fn assert_no_word_is_drawn_by_sign_out(client: &fantoccini::Client, palette_name: &str) {
+    let read = assert_rail_words_are_legible(client, palette_name, None).await;
+    assert!(
+        !read.iter().any(|word| word == "Sign out"),
+        "{palette_name} palette, her phone: the bar draws the word {:?} for a nav control, so a \
+         ratio was read where this row says none is owed. On a phone every member of the bar is a \
+         glyph with its word clipped out of it; a drawn word here means the bar is laid out as the \
+         desk nav is, and the bar-height promise is being measured on the wrong layout. Words \
+         read: {read:?}",
+        read.first().cloned().unwrap_or_default()
+    );
+    let glyphs = client
+        .find_all(Locator::Css(
+            ".sidebar form[action='/sign-out'] button svg.sidebar__icon",
+        ))
+        .await
+        .expect("look for the glyph the way out draws on a phone");
+    assert_eq!(
+        glyphs.len(),
+        1,
+        "{palette_name} palette, her phone: the way out draws {} glyph(s) in the bar. With its \
+         word clipped out of the bar the glyph is the only thing left to find it by, so a member \
+         that draws neither is one the operator cannot use at all.",
+        glyphs.len()
+    );
 }
 
 /// KPI 4's render-contract half. These selectors are the acceptance suite's own
@@ -3183,19 +3339,19 @@ async fn assert_text_contrast_within(
     );
 }
 
-/// A control the operator finds by its own visible word, drawn beside a glyph in
-/// the left nav. That word is what identifies it, exactly as it identifies the
-/// plain links around it, so the word carries the reading and the shape does
-/// not. Everything else on the shell — above all a control drawn as a glyph
-/// alone — is found by its shape and keeps the boundary reading.
-fn a_word_names_it(control: &serde_json::Value) -> bool {
+/// A control INSIDE THE LEFT NAV. That is the whole predicate: the nav the
+/// control sits in identifies it, exactly as it identifies the plain links
+/// around it, so such a control is read for the word it draws and never for a
+/// fill or an outline of its own. Everything outside the nav is found by its own
+/// shape and keeps the boundary reading, word or no word.
+///
+/// IT IS KEYED ON CONTAINMENT AND ON NOTHING ELSE. Keyed on a drawn word, the
+/// exemption would come and go with the layout — the narrowed nav draws no word
+/// at rest and a phone bar draws none at all — and the same control would owe an
+/// outline in one geometry and not in another. Keyed on a fill or a class it
+/// would widen to every quiet control of the shell.
+fn inside_the_rail(control: &serde_json::Value) -> bool {
     control["inTheNav"].as_bool().unwrap_or(false)
-        && control["glyph"].as_bool().unwrap_or(false)
-        && !control["word"]
-            .as_str()
-            .unwrap_or_default()
-            .trim()
-            .is_empty()
 }
 
 async fn read_the_controls(
@@ -3218,17 +3374,17 @@ async fn read_the_controls(
     controls
 }
 
-/// COMPUTE the identifying contrast of every control no word names, against the
-/// surface it sits on (WCAG 1.4.11): the better of its fill and its border must
-/// reach 3:1.
-async fn assert_shape_identifies_wordless_controls(
+/// COMPUTE the identifying contrast of every control OUTSIDE the left nav,
+/// against the surface it sits on (WCAG 1.4.11): the better of its fill and its
+/// border must reach 3:1.
+async fn assert_shape_identifies_controls_outside_the_rail(
     client: &fantoccini::Client,
     palette_name: &str,
 ) {
     let controls = read_the_controls(client, palette_name).await;
-    let mut glyph_only = 0usize;
+    let mut read_outside: Vec<String> = Vec::new();
     for control in &controls {
-        if a_word_names_it(control) {
+        if inside_the_rail(control) {
             continue;
         }
         let where_ = control["where"].as_str().unwrap_or_default();
@@ -3255,48 +3411,142 @@ async fn assert_shape_identifies_wordless_controls(
         assert!(
             best >= 3.0,
             "{palette_name} palette: `{where_}` computes only {best:.2}:1 ({how}) against {} — \
-             no word names this control, so nothing identifies it at WCAG 1.4.11's 3:1. A \
-             hairline divider is not a control boundary.",
+             this control sits outside the left nav, so nothing but its own fill or border \
+             identifies it, and that owes WCAG 1.4.11's 3:1. A hairline divider is not a control \
+             boundary.",
             hex(adjacent)
         );
-        // ONLY A CONTROL WITH NO WORD OF ITS OWN counts here. A control that
-        // draws a glyph AND a word, outside the nav, is read for the boundary
-        // too — but it is not the shape this anti-vacuity check is anchored on,
-        // and counting it would let the glyph-only controls slip out of the
-        // reading unnoticed.
-        if control["glyph"].as_bool().unwrap_or(false)
-            && control["word"]
-                .as_str()
-                .unwrap_or_default()
-                .trim()
-                .is_empty()
-        {
-            glyph_only += 1;
+        read_outside.push(where_.to_string());
+    }
+    // ANTI-VACUITY, anchored on the exemption's own boundary: at least one
+    // control OUTSIDE the nav has to have been read. The exemption is keyed on
+    // the nav a control sits in, so a predicate that widened — to a quiet fill,
+    // to a class, to every button of the shell — would empty this reading
+    // without failing anything, and the lane-actions trigger each lane of a
+    // board renders would stop being read at all. The count cannot be of
+    // glyph-only controls any more: outside the nav none answers that shape,
+    // because the lane trigger draws an ellipsis character rather than a glyph
+    // element and its word reads as non-empty.
+    assert!(
+        !read_outside.is_empty(),
+        "not one control outside the left nav was read for the 3:1 boundary on the \
+         {palette_name} board, so this reading protects nothing: the exemption has stopped being \
+         the nav a control sits in and has swallowed the whole shell. A board page always renders \
+         a lane, and a lane always renders its own actions trigger, so there is always at least \
+         one such control to read."
+    );
+}
+
+/// WHICH OF THE NAV'S THREE LAYOUTS the live document is in, for the failure
+/// message: a phone bar, the nav narrowed to icons, or the open nav. Read off
+/// the document rather than passed in, so a message can never name a layout the
+/// reading was not taken in.
+async fn describe_the_layout(client: &fantoccini::Client) -> String {
+    let reading = rail_reading::read_nav(client).await;
+    let across = reading["viewport"].as_f64().unwrap_or_default();
+    if across <= 480.0 {
+        return "her phone".to_string();
+    }
+    if reading["marked"].as_bool().unwrap_or(false) {
+        return "the nav narrowed to icons".to_string();
+    }
+    "the open nav".to_string()
+}
+
+/// WHY NO CONTROL OF THE NAV OWES AN OUTLINE, read as two product facts rather
+/// than as a classification of this walk's own making.
+///
+/// First: the two controls the operator meets at the foot of the nav are DOM
+/// descendants of the nav the sidebar renders. That is what the exemption is
+/// keyed on, so a control mounted anywhere else — the theme control is built by
+/// a script and appended — would owe the boundary like any other control of the
+/// shell.
+///
+/// Second: at least one of them computes BELOW 3:1 on its own fill and border.
+/// That is what makes the exemption load-bearing in this layout: were these
+/// controls read, the row would be red, so a green here is the exemption's doing
+/// and not a quiet pass over controls that happen to carry an outline anyway.
+async fn assert_the_rail_controls_owe_no_boundary(client: &fantoccini::Client, palette_name: &str) {
+    let layout = &describe_the_layout(client).await;
+    let controls = read_the_controls(client, palette_name).await;
+    let in_the_rail: Vec<&serde_json::Value> =
+        controls.iter().filter(|c| inside_the_rail(c)).collect();
+    let named: Vec<String> = in_the_rail
+        .iter()
+        .map(|c| c["where"].as_str().unwrap_or_default().to_string())
+        .collect();
+    for owed in ["Sign out", "theme-toggle"] {
+        assert!(
+            named.iter().any(|where_| where_.contains(owed)),
+            "{palette_name} palette, {layout}: no control matching {owed:?} was found inside the \
+             left nav. The controls read inside it are {named:?}, and every control the page \
+             carries is {:?}. WHY IT MATTERS: the exemption from the 3:1 outline rule is keyed on \
+             the nav a control sits in, so a control of the nav mounted outside it — the theme \
+             control is appended by a script — owes that outline like any other control of the \
+             shell and this row would be green while the operator met a bordered chip in the nav.",
+            controls
+                .iter()
+                .map(|c| c["where"].as_str().unwrap_or_default())
+                .collect::<Vec<_>>()
+        );
+    }
+    let mut quietest = f64::MAX;
+    let mut quietest_name = String::new();
+    for control in &in_the_rail {
+        let Some((adjacent, _)) = parse_colour(control["adjacent"].as_str().unwrap_or_default())
+        else {
+            continue;
+        };
+        let mut best = 0.0f64;
+        for raw in [&control["fill"], &control["border"]] {
+            let Some(text) = raw.as_str() else { continue };
+            let Some((colour, alpha)) = parse_colour(text) else {
+                continue;
+            };
+            if alpha < 1.0 {
+                continue;
+            }
+            best = best.max(contrast_ratio(colour, adjacent));
+        }
+        if best < quietest {
+            quietest = best;
+            quietest_name = control["where"].as_str().unwrap_or_default().to_string();
         }
     }
-    // ANTI-VACUITY, anchored on the shape of the exemption rather than on a
-    // count: a control drawn as a glyph with no word of its own is the case the
-    // boundary reading exists for. If every such control slipped out of this
-    // reading, the exemption has widened from "a word names it" to something
-    // else — a transparent fill, a class, a tag — and the shell's glyph-only
-    // controls would stop being read at all.
     assert!(
-        glyph_only >= 1,
-        "no control drawn as a glyph with no word of its own was read for the 3:1 boundary on the \
-         {palette_name} board, so this reading no longer protects the controls the operator can \
-         only find by their shape. The exemption belongs to a control its own visible word names \
-         and to nothing else."
+        quietest < 3.0,
+        "{palette_name} palette, {layout}: every control inside the left nav identifies itself by \
+         its own fill or border already — the quietest, `{quietest_name}`, computes \
+         {quietest:.2}:1. WHY IT MATTERS: this row is green because a control of the nav is read \
+         for its word and not for an outline, and that only means something while there is an \
+         outline it does not have. A nav control that carries one is a presentation change the \
+         operator can see, and the nav lane reads it as the heaviest thing in the nav."
     );
 }
 
 /// The other half: the word a nav control draws for itself has to be legible
 /// against the surface behind it (WCAG 1.4.3's 4.5:1), which is the whole
-/// reason the control may be as quiet as the links beside it.
-async fn assert_the_word_is_legible(client: &fantoccini::Client, palette_name: &str) {
+/// reason the control may be as quiet as the links beside it. The surface is
+/// whatever is behind the word WHERE IT IS DRAWN — the nav's own surface in the
+/// open layout, the flyout's box where the narrowed nav reveals it.
+///
+/// `word_owed` is the word this layout must have read, or `None` for a layout
+/// that draws no word at all; the words actually read come back either way.
+async fn assert_rail_words_are_legible(
+    client: &fantoccini::Client,
+    palette_name: &str,
+    word_owed: Option<&str>,
+) -> Vec<String> {
     let controls = read_the_controls(client, palette_name).await;
     let mut read = Vec::new();
     for control in &controls {
-        if !a_word_names_it(control) {
+        if !inside_the_rail(control)
+            || control["word"]
+                .as_str()
+                .unwrap_or_default()
+                .trim()
+                .is_empty()
+        {
             continue;
         }
         let where_ = control["where"].as_str().unwrap_or_default();
@@ -3327,12 +3577,15 @@ async fn assert_the_word_is_legible(client: &fantoccini::Client, palette_name: &
         );
         read.push(word);
     }
-    assert!(
-        read.iter().any(|word| word == "Sign out"),
-        "no control in the nav drew its own word on the {palette_name} board, so this reading \
-         measured nothing: the way out of the application is drawn with a word beside its glyph \
-         and is read here. Words found: {read:?}."
-    );
+    if let Some(owed) = word_owed {
+        assert!(
+            read.iter().any(|word| word == owed),
+            "the word {owed:?} was not drawn by any control of the left nav on the \
+             {palette_name} board, so this reading measured nothing. Words found: {read:?}. The \
+             way out of the application draws its own word in this layout and is read here."
+        );
+    }
+    read
 }
 
 /// Press `j` — the shipped board shortcut — and wait for the ring to land.

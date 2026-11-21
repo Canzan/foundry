@@ -154,20 +154,56 @@ Feature: foundry follows the light the operator's environment asks for
     # RED-trigger: rebinding the faint tier back to canzan.net's own value, which
     # measures 3.24:1 light and 3.52:1 dark and fails at label size.
     #
-    # WHAT IDENTIFIES A CONTROL depends on what the control draws. A control the
-    # operator finds by its own visible word, drawn beside its glyph in the nav,
-    # is read for the legibility of that word; a control she can only find by its
-    # shape - a glyph with no word of its own - still has to be identified by its
-    # own fill or its border. RED-trigger for that split: exempting every quiet
-    # or transparent control instead of a control a word names, which would stop
-    # reading the glyph-only controls of the shell altogether.
+    # WHAT IDENTIFIES A CONTROL depends on WHERE IT IS. A control inside the left
+    # nav is identified the way the links around it are - by the word it draws,
+    # and by the nav it sits in - so it is read for the legibility of that word
+    # and never for a fill or an outline of its own. Every control outside the
+    # nav is identified by its own shape and keeps that reading, whether or not
+    # it draws a word. RED-trigger for the split: keying the exemption on
+    # anything but the nav the control sits in - a quiet fill, a class, a drawn
+    # word - which either stops reading the controls of the shell or stops
+    # exempting a nav control the moment its layout drops its word.
     Given a browser session whose device preference is dark
     And the operator opens the "Sandbox" board
     Then every body-size text pair on the board and rail reaches at least 4.5 to 1
     And every large-text pair reaches at least 3 to 1
-    And every control no visible word names is identified by its own fill or border at 3 to 1
-    And a nav control the operator finds by its own visible word has that word legible at 4.5 to 1 instead
+    And every control outside the left nav is identified by its own fill or border at 3 to 1
+    And a control inside the left nav is read for the word it draws instead, legible at 4.5 to 1
     And the same holds when the device preference is light
+
+  @needs-browser @real-io @slice1 @us-cts-01 @kpi
+  Scenario: With the nav narrowed its two controls owe no outline, and the word it shows her stays legible
+    # The exemption follows the NAV THE CONTROL SITS IN, so it has to hold in the
+    # layout where neither control draws a word at rest: narrowed to icons, Sign
+    # out and the theme control are a glyph each, and the word Sign out shows on
+    # the keyboard is drawn in a box of its own over the board.
+    # RED-trigger: the exemption is keyed on a drawn word, so both controls fall
+    # back into the outline reading the moment the nav is narrowed and the lane
+    # goes red over a presentation the operator chose; or the revealed word keeps
+    # the nav's muted tier over the lighter box it is now drawn in, where it no
+    # longer reads.
+    Given a browser session whose device preference is dark
+    And the operator opens the "Sandbox" board
+    When the operator narrows the nav and stops on Sign out with the keyboard
+    Then no control inside the left nav is asked for a fill or an outline of its own
+    And a control outside the left nav is still read for its own fill or outline at 3 to 1
+    And the word the narrowed nav shows her reaches 4.5 to 1 against the box it is drawn in
+    And the same holds with the nav narrowed in the light palette
+
+  @needs-browser @real-io @slice1 @us-cts-01 @kpi
+  Scenario: On her phone the nav's one control owes no outline, and shows no word to read
+    # The third layout, and the one that settles what the exemption is keyed on:
+    # on a phone Sign out draws a glyph and its word is clipped out of the bar, so
+    # a rule that asks for a word has nothing to exempt and a rule that asks which
+    # nav the control sits in still answers.
+    # RED-trigger: Sign out is read for an outline it does not have and the phone
+    # arm of the lane goes red; or a word that is not drawn at all is measured
+    # anyway, which reads a ratio off a clipped sliver.
+    Given the operator opens the "Sandbox" board on her phone, in the dark palette
+    Then no control inside the left nav is asked for a fill or an outline of its own
+    And a control outside the left nav is still read for its own fill or outline at 3 to 1
+    And no ratio is read for a nav control that draws no word there
+    And the same holds on her phone in the light palette
 
   @needs-browser @real-io @slice1 @us-cts-01 @error
   Scenario: Everything the operator already selects on is still on the page

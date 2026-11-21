@@ -18,7 +18,9 @@
 //!     place holding the keyboard, and where the nav itself is drawn — read at
 //!     the middle of each box, because the box of a word is left untouched both
 //!     by an ancestor that clips it out of view and by page content drawn on
-//!     top of it.
+//!     top of it. The reading says whether the operator can see that word; it
+//!     does not say WHY she cannot, because a clipped word and a covered word
+//!     both answer with some other element.
 //!
 //! THE EXPECTED SET IS WRITTEN OUT, never read back off the rail. A rail
 //! compared against the rail agrees with itself even when both lose a
