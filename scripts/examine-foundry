@@ -221,6 +221,7 @@ secrets-key-unopenable-live-server	As secrets-key-unopenable, but replica 2 (por
 instance-key-file-unreadable	This Foundry made its own instance key file; Priya generated the secrets key, saved the Slack app with client ID 6123456789012.7234567890123 and connected Canzan Labs to Slack; then Foundry restarted with no FOUNDRY_INSTANCE_KEY and its instance key file, /tmp/examine-foundry-data/instance.key, replaced by a file that holds no key.
 three-credentials-key-opens	Foundry runs with the operator's instance key (FOUNDRY_INSTANCE_KEY); Priya generated the secrets key and saved the Slack app with client ID 6123456789012.7234567890123; Canzan Labs (by Priya) and Ops Guild (admin Omar) are connected to Slack through it; Lena routed New issue on Identity Platform to #auth-dev and one issue was delivered. 3 saved credentials, all of which open. No Matrix connection: Foundry reaches no Matrix homeserver this probe can run.
 three-credentials-one-damaged	As three-credentials-key-opens, then the stored sealed credential of Ops Guild's Slack connection was damaged with SQL (one byte of it changed, as disk or database damage would), so it no longer opens; nothing told Foundry, so its pages still read as before, and a replacement's re-seal refuses it.
+unclaimed	A fresh Foundry whose first admin is not claimed yet: no person, workspace, team or project exists, and the claim link from the server log is printed as the path to open (GET it signed out to see the first-admin claim page).
 STATES
 }
 
@@ -1112,8 +1113,12 @@ vm_start() {
   cp "$STATE_DIR/env-1" "$STATE_DIR/env-2"
 
   launch_foundry 1
-  seed_people_team_project
-  "seed_${state//-/_}"
+  if [ "$state" = unclaimed ]; then
+    seed_unclaimed
+  else
+    seed_people_team_project
+    "seed_${state//-/_}"
+  fi
   # Replica 2 boots once the state is seeded, so the bootstrap link is replica 1's;
   # a state may have started it already.
   if [ "$replicas" = 2 ] && [ ! -f "$STATE_DIR/foundry-2.pid" ]; then
@@ -2390,6 +2395,19 @@ expect() {
 expect_text() {
   local what="$1" text="$2"
   grep -qF -- "$text" "$STATE_DIR/last.body" || die "seeding: $what did not say \"$text\""
+}
+
+# The unclaimed state seeds nothing: it prints the claim path from the
+# [BOOTSTRAP] line of the server log, so the first-admin claim page can be
+# opened signed out. Claiming it through that page uses the link up.
+seed_unclaimed() {
+  local url
+  url=$(grep -o '\[BOOTSTRAP\] Visit [^ ]* to claim admin' "$STATE_DIR/foundry.log" | head -n1 | cut -d' ' -f3)
+  [ -n "$url" ] || die "seeding: the server log has no [BOOTSTRAP] link"
+  local path="${url#"$PUBLIC_URL"}"
+  path="${path#/}"
+  printf '%s\n' "$path" >"$STATE_DIR/claim-path"
+  printf 'examine-foundry: the first-admin claim page is at %s (as get, post and browser go take it)\n' "$path"
 }
 
 # Priya claims the first admin through the [BOOTSTRAP] link (which makes her the
