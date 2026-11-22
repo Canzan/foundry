@@ -4545,6 +4545,14 @@ mod tests {
         let locked = tree.path().join("crates/foundry-store/src/locked");
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000))
             .expect("lock dir");
+        // Root (an `act` container, a root CI image) reads a 0o000 directory
+        // anyway, so the unreadable state cannot be built here.
+        if std::fs::read_dir(&locked).is_ok() {
+            std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))
+                .expect("unlock dir");
+            eprintln!("skipped: this user can read a 0o000 directory (running as root)");
+            return;
+        }
         let violations = check_provisioned_marker_is_never_rewritten(tree.path());
         std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755))
             .expect("unlock dir");
