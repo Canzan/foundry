@@ -7,6 +7,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.20.0] - 2026-11-22
+
 ### Changed
 
 - **Every page you land on looks like Foundry and says what it is for.** Four changes
@@ -24,8 +26,8 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
     card takes the screen inside the page padding. None of these pages offers a
     navigation rail or a palette control, and what each form does is unchanged.
   - An issue's own page shows the issue: its key as the heading, its title below it, its
-    status in the same chip the board uses, now drawn as a chip in both palettes
-    instead of bare text, and the description as you wrote it, with your line breaks,
+    status drawn as a chip in both palettes instead of bare
+    text, and the description as you wrote it, with your line breaks,
     whole, and never drawn as markup. An issue nobody has described still has one place
     for a description, which tells you nothing is written down yet. Delete is drawn as
     one of Foundry's own controls, and the button that chooses a file to attach is
@@ -70,6 +72,11 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
     beside them: the rail's own background, the same muted text, no border and no black
     slab. One press of Sign out still ends the session and one press of the theme
     control still changes the palette.
+
+### Security
+
+- `url` is updated to 2.5.9 (RUSTSEC-2026-0592): a URL with many nested `blob:` prefixes
+  could overflow the stack when its origin was read.
 
 ## [v0.19.0] - 2026-11-19
 
