@@ -44,7 +44,10 @@ jobs:
   ci:
     name: cargo xtask ci (local-parity gate)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # The whole gate (release build, workspace tests, every acceptance lane
+    # with Docker) runs well past 45 minutes on a hosted runner; at 45 the job
+    # was cancelled inside the workspace tests, before acceptance began.
+    timeout-minutes: 180
     services:
       # Some workspace integration tests connect to DATABASE_URL; the
       # acceptance suite spins its own Postgres via testcontainers. Providing
