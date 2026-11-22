@@ -186,6 +186,26 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 <pre><code>User decision 2026-11-21: the issue full page shows the shipped status chip with the stored status value; human status labels are a later change.
 </code></pre>
 
+<h4>K5</h4>
+
+<pre><code>User decision 2026-11-21: the keyboard shortcuts page sits in the normal application frame with the nav when the operator is signed in, and in the centred card when signed out.
+</code></pre>
+
+<h4>K6</h4>
+
+<pre><code>User decision 2026-11-21: the issue page status is a styled status chip, and the attachment file control&#x27;s button is drawn like Foundry&#x27;s secondary button; the CHANGELOG wording is corrected to match.
+</code></pre>
+
+<h4>K7</h4>
+
+<pre><code>User decision 2026-11-21: drop IssuePage.status_slug; add the no-script full-page keyboard help (keyboard-shortcut-bindings.feature:115) to the preserved promises; feature-prefix ADR-002 and ADR-003 as ADR-BARE-PAGES-nnn and record amended-by, not superseded-by; fix the two weak oracle readings (autocomplete on no ninth input; refuse a classless description shape).
+</code></pre>
+
+<h4>K8</h4>
+
+<pre><code>User decision 2026-11-21: the examine probe gains a state with an unclaimed install and its claim link, so the first-admin claim page can be examined; expectations E9 to E11 test the browser&#x27;s password manager, not Foundry, and are retired as expectation defects; the oracle still checks the autocomplete tokens.
+</code></pre>
+
 <h3>Reuse</h3>
 
 <p>None.</p>
@@ -264,7 +284,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>Extend</p>
 
-<pre><code>The total variant decision, the one row builder, the page view-model construction, and the Vary: Sec-Fetch-Dest response header set once beside that decision and carried by BOTH arms.
+<pre><code>The total variant decision, the one row builder, the session read, the CSRF mint and its Set-Cookie, the instance-admin read and the home_for call that assemble the signed-in frame, the third render, and the Vary: Sec-Fetch-Dest, Cookie header on every arm with Cache-Control: no-store on the page arms.
 </code></pre>
 
 <p>crates/foundry-app/src/views.rs</p>
@@ -304,9 +324,9 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>crates/foundry-app/templates/keyboard_help_page.html</p>
 
-<p>Create</p>
+<p>Extend</p>
 
-<pre><code>The framed page arm of the shortcut list, on the card frame.
+<pre><code>The signed-OUT page arm on the card frame; it keeps the keyboard-help class and no role and no aria-label, which the no-script lane depends on.
 </code></pre>
 
 <p>crates/foundry-app/templates/card_page.html</p>
@@ -362,14 +382,14 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>Extend</p>
 
-<pre><code>Title, description region and status beside the unchanged key heading; presentation classes on the Delete anchor and the upload control.
+<pre><code>Title, marked description region and the shipped chip beside the unchanged key heading; presentation on the Delete anchor and on the attachment control.
 </code></pre>
 
-<p>crates/foundry-app/static/css/foundry.2f9e0cb1.css</p>
+<p>crates/foundry-app/static/css/foundry.e770ce20.css</p>
 
 <p>Extend</p>
 
-<pre><code>The card block, the shortcut rows unscoped from the overlay host, the issue title, description and status rules and the file-input rules. The file carries the sha256 prefix of its own bytes, so this change renames it again and the old name goes.
+<pre><code>The status-chip block the examination found missing, the file-selector-button presentation, the card block, the shortcut rows unscoped from the overlay host and the issue rules. The file carries the sha256 prefix of its own bytes, so this change renames it again and the old name goes.
 </code></pre>
 
 <p>crates/foundry-app/templates/base.html</p>
@@ -391,6 +411,20 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 <p>Extend</p>
 
 <pre><code>The three cache-policy assertions that name the stylesheet path literally.
+</code></pre>
+
+<p>crates/foundry-app/templates/keyboard_help_app_page.html</p>
+
+<p>Create</p>
+
+<pre><code>The signed-IN page arm: the same rows partial and the same keyboard-help class, inside the application frame with the nav. A template cannot choose its parent at run time, so the two frames are two templates over one row source.
+</code></pre>
+
+<p>CHANGELOG.md</p>
+
+<p>Extend</p>
+
+<pre><code>The release note wording corrected to the shipped behaviour, by the user decision of 2026-11-21.
 </code></pre>
 
 <p>crates/foundry-acceptance/tests/features/ui-bare-pages.feature</p>
@@ -430,13 +464,13 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h4>Public oracle</h4>
 
-<pre><code>Through the real public driving port. Signed out, with no session cookie, a visitor opens /sign-in, /forgot-password, the first-admin claim at /bootstrap with a live token, /invites/accept with a live id and signature, and /reset-password with a live token; each page is read as served markup and rendered in the browser lane at the harness desk viewport and at the emulated 390 by 844 phone device, in both palettes. A visitor NAVIGATES the browser to /keyboard-help from the rail link; separately the same URL is read by a plain HTTP client that declares no destination, by a client that declares the document destination, and by a script fetch from a loaded page that declares the empty destination, and the response HEADERS are read on each of those reads. A signed-in team member opens /team/{team}/project/{project}/issues/{n} for an issue with a title, a description and a known state, and again for an issue whose description is empty, and presses the shortcut key that opens the overlay on a board page.
+<pre><code>Through the real public driving port. Signed out, with no session cookie, a visitor opens /sign-in, /forgot-password, the first-admin claim at /bootstrap with a live token from the probe&#x27;s unclaimed install, /invites/accept with a live id and signature, and /reset-password with a live token; each is read as served markup and rendered in the browser lane at the harness desk viewport and at the emulated 390 by 844 phone device, in both palettes. The shortcut list is opened FIVE ways, with the response headers read on each: a browser NAVIGATION from the rail link with a signed-in session; the sign-out form of that framed page is then SUBMITTED; a navigation carrying a session cookie whose acting user has been removed from the store; a navigation with no session; and a script fetch declaring the empty destination, beside a plain read declaring the document destination. A signed-in team member opens /team/{team}/project/{project}/issues/{n} for an issue with a title, a description and a known state, and again for an issue whose description is empty, and the computed style and the contrast of the status chip and of the attachment control&#x27;s own file-selector button are read with the device preference dark and again light; she also presses the shortcut key that opens the overlay on a board page.
 </code></pre>
 
-<pre><code>Each signed-out page is one full document that links the stylesheet from the application&#x27;s own static path and draws exactly one centred card: the product name above the page&#x27;s own single heading, the form inside the card, the card inside the viewport with visible margin at desk width and full width inside the page padding on the phone, and no navigation rail and no theme-named control anywhere on it. The sign-in email carries the username token and its password the current-password token; the claim email carries username and its password the created-password token; both invite-accept fields and both password-reset fields carry the created-password token; no other input gained one. The browser NAVIGATION to /keyboard-help returns a full styled document whose rows pair each shipped shortcut key with its description on one line, with the selection instruction below them, and the plain HTTP read and the script fetch of the same URL still return the bare fragment with no html wrapper, the dialog container with its role and label, and the identical rows in the identical order; EVERY one of those responses, page arm and fragment arm alike, carries Vary: Sec-Fetch-Dest; the overlay on the board still draws its keycaps and muted descriptions over the scrim. The issue page shows the key as its heading text, the stored title, the stored description with its line breaks preserved and nothing of it drawn as markup, the empty copy instead when nothing is stored, and the shipped status chip whose data-state and text are the stored status value; its Delete control still follows its href to the confirm page and its upload control is drawn with the stylesheet&#x27;s own control type.
+<pre><code>Each signed-out page is one full document that links the stylesheet from the application&#x27;s own static path and draws exactly one centred card: the product name above the page&#x27;s own single heading, the form inside the card, visible margin at desk width and full width inside the page padding on the phone, and no navigation rail and no theme-named control on it. Over those touched pages the inputs carrying an autocomplete token are EXACTLY eight and no more: sign-in username and current-password, claim username and new-password, and new-password on both invite-accept and both password-reset fields, the forgot email carrying none. The signed-in navigation to the shortcut list returns the normal application frame with the nav, with Home marked and no second member marked, every rail destination on the page, and a sign-out form whose token equals the token in that same answer&#x27;s CSRF cookie; submitting it ends the session. The navigation whose session user no longer resolves returns the centred card, with no rail, no workspace name and no refusal, and so does the navigation with no session. Both page arms carry the keyboard-help class with no role and no aria-label, and both pair each shipped key with its description on one line above the selection instruction. The script fetch and the no-header read still return the bare fragment with no html wrapper, the dialog container with its role and label, and the identical rows in the identical order. EVERY one of those answers carries Vary naming both Sec-Fetch-Dest and Cookie, and each page arm also carries Cache-Control: no-store. The issue page shows the key as its heading text, the stored title, exactly one description region carrying the data-issue-description marker whose text element has a non-empty class, the stored text with its line breaks and nothing drawn as markup, the empty copy when nothing is stored, and the shipped status chip whose data-state is the stored value, which resolves the keycap pairing it reuses: an opaque --cz-bg-2 background rather than a translucent tint, a --cz-line hairline, a radius of its own, and --cz-text glyphs reaching 4.5 to 1 against that surface in both palettes. The attachment control&#x27;s file-selector button resolves the secondary control it reuses: a --cz-surface background, a --cz-muted border carrying its own 3 to 1 boundary and a --cz-text label reaching 4.5 to 1 in both palettes; the Delete control still follows its href to the confirm page.
 </code></pre>
 
-<pre><code>The shipped build fails every one of these today: the shortcut navigation answers an unstyled fragment in browser-default serif with each key on its own line and no Vary header at all; the four signed-out forms run edge to edge at desk width with no card, no margin and no product name; the issue page shows the key with a lone Delete link, a raw file control, and no title, description or status; and all eight inputs carry no autocomplete token. Each law also fails on its own plausible wrong implementation: serving the framed page to every client is caught by the script fetch and the plain HTTP read, which must still get no html wrapper; setting Vary on the page arm alone is caught by the header read on the fragment arm, which is the body a cache is most likely to hold; letting the page build its own row list is caught by the row-identity read between the two arms; keeping the shortcut rules scoped to the overlay host is caught by the navigated page, whose keys would still sit on their own line; putting the title in the heading is caught by the heading-equals-key read; giving the claim form the current-password token is caught by reading the served token itself; rendering the stored description as markup is caught by the generated property with a script tag in the text; and editing the stylesheet without renaming it is caught by the shipped asset-hash layer.
+<pre><code>The build the first examination refused fails these: the signed-in shortcut page is a card with no frame, no nav and no way back; the status span resolves no rule anywhere and the board draws no chip to compare it with; the attachment control is the browser&#x27;s own grey button; and the answers name only the destination header. Each law also fails on its own plausible wrong implementation: framing the signed-in page but leaving the signed-out one unframed is caught by the two navigations read separately; assembling the frame without the CSRF mint, or dropping its Set-Cookie, is caught by the sign-out submission from that page, which the double-submit check then refuses while every other page&#x27;s sign-out still works; marking no member, or marking a second one, is caught by the exactly-one-marked reading, and marking a member the page does not own is caught by its Home reading; a neutral-identity frame for a session whose user is gone is caught by the removed-user navigation, which must answer the card; serving the framed page to every client is caught by the script fetch and the no-header read, which must still get no html wrapper; dropping the keyboard-help class or adding a dialog role to a page arm is caught by the no-script reading that finds the list by that class; Vary on the page arm alone, or on the destination alone, is caught by the header read on all five answers; a chip with a background, a border and a radius whose glyphs fall below 4.5 to 1, or whose surface is a translucent tint a measurement walks straight through, is caught by the contrast and opacity readings in both palettes; a file-selector button that takes the global black fill, or whose label falls below 4.5 to 1, is caught by the same readings on it; a description region with the marker but an empty class shape is caught by the non-empty class reading; a ninth input quietly gaining a token is caught by the exact count of eight; rendering the stored description as markup is caught by the generated property with a script tag in the text; and editing the stylesheet without renaming it is caught by the shipped asset-hash layer.
 </code></pre>
 
 <h5>Promises</h5>
@@ -468,13 +502,13 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h5>Decisions</h5>
 
-<pre><code>Shortcut page and overlay from ONE route. GET /keyboard-help keeps one URL and one row source. The arm is decided from the destination the CLIENT declares in its Sec-Fetch-Dest request header: the document destination, which only a top-level navigation carries, answers a framed page; every other declared destination and an absent header answer the bare fragment the route serves today, which is what keyboard.js assigns into the overlay host and what the shipped HTTP-lane read asserts. Page script cannot set that header, so the arm follows a property of the request rather than a name a caller picks. Carrier: a two-variant private enum HelpVariant in crates/foundry-app/src/keyboard.rs, decided once by a total private fn help_variant(headers) that answers Fragment for every input it does not recognise; the per-request state is that one value; no effects and no new error. Rows: one private fn shortcut_entries() over the SHORTCUTS table feeds both arms, so the two arms cannot advertise different lists. Layers. Domain: none, this is presentation. Application: none, the route stays public and stateless, so no session read and no rail. Adapter: partials/keyboard_shortcut_rows.html owns the shortcut rows and the selection instruction; partials/keyboard_help.html keeps the dialog container and includes them; keyboard_help_page.html extends the card page and includes the same rows under its own h1. Observation: the response body shape and the rows it lists.
+<pre><code>ONE shortcut route, two bodies and two frames. GET /keyboard-help keeps one URL and one row source. WHICH BODY: decided from the destination the client declares in Sec-Fetch-Dest, a header page script cannot set; the document destination, carried only by a top-level navigation, answers a page, and every other declared destination and an absent header answer the bare overlay fragment, which keyboard.js assigns into the overlay host and which the shipped HTTP read asserts. WHICH FRAME, by the user ruling of 2026-11-21: the page arm renders the normal application frame with the nav when the session resolves to an acting user, and the centred card when it does not. THE FRAME&#x27;S INPUTS, exactly as the shipped caller at crates/foundry-app/src/projects.rs:88-101 assembles them: the handler takes the application state, the session and the request headers; it reads the signed-in user from the session, mints the per-request double-submit token with crate::csrf::ensure_csrf_cookie, which returns the token and an optional Set-Cookie; it resolves the acting user&#x27;s real instance-admin authority with crate::nav::resolve_is_instance_admin, fail-closed; and it calls crate::nav::NavContext::home_for with the state, the session user&#x27;s user_id, the session user&#x27;s workspace_id, that instance-admin flag and that same token. The answer then carries the Set-Cookie through crate::csrf::response_with_optional_cookie, so the rail footer&#x27;s sign-out form carries a token the cookie matches and the sign-out POST clears the double-submit check; omitting the mint or the cookie leaves a sign-out that is refused from this page alone. THE MARK: the shortcut page owns no primary rail member, so home_for marks Home, which is the shipped answer for every page that owns none, and exactly one member stays marked. NO SESSION, OR A SESSION WHOSE USER NO LONGER RESOLVES: the card arm answers, never a neutral-identity frame and never a refusal, because a rail assembled for an identity the store no longer answers for would draw a workspace name and admin items that are not hers; the route therefore stays PUBLIC and the help stays readable from the sign-in page. Carriers: HelpVariant for the body, the resolved session user for the frame, both decided once in keyboard.rs; no new error. Rows: one shortcut_entries builder feeds all three renders. Layers. Domain: none. Application: one session read, one token mint, one instance-admin read and one nav assembly, no authorization decision. Adapter: the rows partial is included by the overlay container, the card page arm and the application-frame page arm, both page arms keeping the keyboard-help class with no role and no aria-label. Observation: the response body shape, the frame and its marked member, the sign-out token against the cookie, and the rows.
 </code></pre>
 
-<pre><code>ONE chrome-less page frame for the signed-out family and the shortcut page. New templates/card_page.html extends base.html and renders one main.page-card holding a product-name line and then its own content block. signin.html, forgot.html, forgot_sent.html, bootstrap_claim.html, invite_accept.html, reset_password.html and the new keyboard_help_page.html extend it instead of base.html; each keeps its own h1, its own copy and its own form action, method, hidden fields and inputs unchanged. The product name is a brand LINE, not a heading, so every page keeps exactly one h1 and the shipped heading reads do not move. No sidebar partial and no theme control is included, because the shipped theme read asserts the sign-in screen has neither. Stylesheet: one .page-card block, centred with auto inline margins and a max inline size, on the raised surface tier the dashboard cards already use, and full width inside the page padding below the shipped phone breakpoint. Layers: Adapter only; no Rust carrier and no view-model field changes.
+<pre><code>ONE card frame owns every chrome-less page. templates/card_page.html extends base.html and renders one centred main.page-card with the product name as a brand LINE, not a heading, so each page keeps its single h1. It is extended by the signed-out auth family: signin, forgot, forgot_sent, bootstrap_claim, invite_accept and reset_password, and by the SIGNED-OUT arm of the shortcut page alone. A signed-in operator gets the application frame instead, by the user decision of 2026-11-21, because for her the card is a page with no way back. No sidebar and no theme control is included in the card frame, which the shipped theme read asserts for the sign-in screen. Stylesheet: one page-card block naming existing tokens, centred with auto inline margins and a max inline size, full width inside the page padding below the shipped phone breakpoint. Layers: Adapter only.
 </code></pre>
 
-<pre><code>The issue page reads as the issue. views::IssuePage gains title, description, status_slug and status_chip; comments.rs::render_issue_page fills them from ONE existing read, store::issue_edit_view over the project and number the handler already resolved, so there is no new SQL, no new store function and no new authorization decision. issue.html keeps its h1 holding the issue key alone, because a shipped browser read asserts that heading text EQUALS the key; the title takes its own h2 and the status sits beside the key. The description region is ALWAYS present: the stored text, escaped by the template engine and wrapped with preserved line breaks, or the empty copy, matching the shipped attachment and comment empty states. The comment markdown sanitizer in foundry-core is deliberately NOT consumed here: rendering issue markdown would add a product promise and a second consumer of that sanitizer, which a visual pass does not hold. The status element is the shipped chip: the handler renders it through issues.rs::render_state_chip and the template embeds the string with the no-escape filter, exactly as base.html embeds the site footer, so the chip markup keeps one owner and its data-state is the stored slug. The Delete anchor keeps its href mechanism and its data-action marker and takes the shipped secondary-button presentation; the upload form label and its file input take the stylesheet&#x27;s own control tokens. Layers. Domain: none. Application: show_issue reads one more projection of the issue it already resolved, and a gap between the two reads refuses rather than renders a blank issue. Adapter: issue.html plus the title, description, status-chip and file-input rules. Observation: the page text and the chip&#x27;s data-state.
+<pre><code>The issue page reads as the issue. views::IssuePage carries title, description and status_chip; STATUS_SLUG IS DROPPED by the user decision of 2026-11-21, because the chip renderer already carries the slug in its own data-state and a second field made the same fact readable in two places. comments.rs::render_issue_page fills the three from ONE existing read, store::issue_edit_view over the project and number the handler already resolved: no new SQL, no new store function, no new authorization. issue.html keeps its h1 holding the key alone, which a shipped browser read asserts; the title takes its own h2; the status is the shipped chip, rendered through issues.rs::render_state_chip and embedded with the no-escape filter exactly as base.html embeds the site footer, so one renderer serves the page and the board swap. THE CHIP IS STYLED: the examination found span.state with no rule anywhere in the stylesheet, so the stylesheet gains a state block on the recessed surface tier, the pairing the keycap already uses, which is what makes the chip a chip rather than bare text. THE ATTACHMENT CONTROL IS STYLED: the file input&#x27;s own button is drawn through the file-selector-button pseudo-element with the shipped secondary-button presentation, muted border and no fill, because the examination found the browser&#x27;s own grey control; the input keeps its type, its name and its required flag. The description region is always present and carries the data-issue-description marker: the stored text escaped with its line breaks preserved, or the empty copy. The comment markdown sanitizer is deliberately not consumed: rendering issue markdown would add a product promise and a second consumer of it. Layers. Domain: none. Application: one more projection of the issue already resolved. Adapter: issue.html plus the title, description, chip and file-button rules. Observation: the page text, the chip and its data-state.
 </code></pre>
 
 <pre><code>Autocomplete by flow on the eight named inputs: on signin.html the email takes username and the password takes current-password; on bootstrap_claim.html the email takes username and the password takes new-password, because that form CREATES the first admin&#x27;s password and current-password there makes a password manager offer a stored secret instead of generating and saving one; on invite_accept.html and reset_password.html the password and its confirmation both take new-password. No other input in the repository gains a token in this Request. Every input keeps its type, name, required flag and order, so each shipped form POST, each hidden token and each server-side validation is untouched. Layers: Adapter only; no carrier and no state.
@@ -489,7 +523,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>Claim-to-checker. The one claim with a state-and-arm algebra is the help-variant decision and the row identity between the arms, a closed one-step function over the four destinations a client can declare, so Quint carries it at docs/feature/ui-bare-pages/design/keyboard_help_variant.qnt, verified exhaustively with the TLA-backed backend; TLA+ is not needed because there is no temporal or fairness claim, and Agda is not needed because no proof over an open domain is claimed. No model for the card geometry, the autocomplete tokens or the issue page content: each names no shared state, no multi-step protocol, no concurrency and no crash window, and each domain is the closed set of named pages or named inputs the finite laws enumerate. The one broad domain is the stored description text, carried by a generated property over the page render rather than by a model.
 </code></pre>
 
-<pre><code>Cache contract of the two-arm route. One URL answers two bodies by a REQUEST header, so any cache between the browser and the application would otherwise serve one arm&#x27;s body for the other arm&#x27;s request: a framed document handed to the overlay fetch, or a bare fragment painted as a whole page. Both arms therefore declare the same contract in their response: Vary: Sec-Fetch-Dest, which names the one request header the arm is decided from, so a shared or private cache keys its entry on that header and never crosses the arms. The header is set in one place, beside the arm decision in crates/foundry-app/src/keyboard.rs, and on BOTH arms, including the fragment arm that is unchanged in body; a Vary on one arm alone leaves the other arm&#x27;s cached body free to answer the wrong request. Cache-Control: no-store on both arms was the alternative and is rejected: it forbids the browser&#x27;s own back-forward reuse of the help page for no gain, while Vary keeps the body cacheable and correct. No other route changes, because no other route in the application decides a body from a request header the client declares.
+<pre><code>Cache contract of a route whose body AND frame vary by request. One URL answers two bodies by a request header and, since the user decision of 2026-11-21, two frames by the session cookie. Both facts go in the response. Every answer from every arm carries Vary: Sec-Fetch-Dest, Cookie, so no cache keyed on the URL alone can hand the framed page to the overlay fetch, the bare fragment to a navigation, or one operator&#x27;s framed page to another operator. The PAGE arm additionally carries Cache-Control: no-store, because its signed-in frame names the operator&#x27;s workspace in the rail: a private cache that reused it would show a signed-out or different operator that identity through the back button, and Vary on Cookie alone does not stop a reuse after the cookie is cleared. The fragment arm stays cacheable under the two Vary names, because its body is identical for every client of that arm and carries no identity. The headers are set once beside the arm decision, on every arm, and the oracle reads them on every arm, because a missing header is a defect even when the body is right and is visible only at a cache and only to the other reader.
 </code></pre>
 
 <h5>Constraints</h5>
@@ -497,7 +531,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>Scope out stays out: app_shell.html, partials/sidebar.html, the board header, the issue dialog&#x27;s Delete control and the general form, label and section-heading sizing belong to the next Request, ui-page-frame. The card&#x27;s own max inline size is the only width rule this Request adds, and no rule changes who may open a page or what a form does.
 </code></pre>
 
-<pre><code>Shipped promises this Request must not break: GET /keyboard-help answers a body with no html wrapper to every request that does not declare the document destination; the overlay keeps its dialog container with its role and label and its key-and-description pairs; the sign-in screen carries no rail and no theme-named control and renders in both palettes; the sign-in and forgot pages stay full documents linking the stylesheet from the application&#x27;s own static path; the issue page heading text equals the issue key; the board status chip keeps the slug as its data-state AND its text; no colour literal lives outside the three stylesheet token regions and the three regions declare the identical token set; every static reference resolves and every content-hashed name is its own sha256 prefix; the user menu still links to /keyboard-help; the pre-paint head scripts keep no defer, async or module attribute and every other head script keeps defer.
+<pre><code>Shipped promises this Request must not break: GET /keyboard-help answers a body with no html wrapper to every request that does not declare the document destination; the overlay keeps its dialog container with its role and label and its key-and-description pairs; THE NO-SCRIPT FULL-PAGE HELP KEEPS WORKING, found by the keyboard-help class with no role and no aria-label on the page arm, which is the only way to read the list with scripting off (keyboard-shortcut-bindings.feature:115); the sign-in screen carries no rail and no theme-named control and renders in both palettes; the sign-in and forgot pages stay full documents linking the stylesheet from the application&#x27;s own static path; the issue page heading text equals the issue key; the board status chip keeps the slug as its data-state and as its text; no colour literal outside the three stylesheet token regions and the three regions declare the identical token set; every static reference resolves and every content-hashed name is its own sha256 prefix; the user menu still links to /keyboard-help; the pre-paint head scripts keep no defer, async or module attribute and every other head script keeps defer; exactly one primary nav member is marked on every authenticated page, which the shortcut page&#x27;s new application frame now joins.
 </code></pre>
 
 <pre><code>No authority bounds the stored issue title or description length, and the store holds both as unbounded text, so the page shows whatever is stored, wrapped, with no truncation and no ellipsis. That is wider than any bound because no bound exists; a truncating page would be a product decision this Request does not hold. The shortcut list is the closed seven-row shipped table.
@@ -509,13 +543,16 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>The first-admin claim password carries the created-password token, decided by the user on 2026-11-21 and now the wording of P4 itself: that form CREATES the password, and the current-password token would make a password manager offer a stored secret instead of generating and saving one. No question is open here, and the eight-row autocomplete law is unchanged.
 </code></pre>
 
-<pre><code>The shortcut page carries no rail. GET /keyboard-help is public and session-free by its own shipped rationale, the sign-in page loads the keyboard layer too, and the app shell needs a resolved nav identity. Adding a session read would change who the route serves, which scope-out forbids. Its same look as the rest of Foundry is the card frame, the stylesheet and the typography, not the rail.
+<pre><code>The shortcut page takes the application frame when a session resolves and the card when none does, by the user decision of 2026-11-21. The route therefore reads the session and assembles the nav, and it stays PUBLIC: no session is the card arm, never a refusal, which keeps the help reachable from the sign-in page where a stuck operator asks for it. The frame choice is not an authorization decision and changes who may open no page.
 </code></pre>
 
 <pre><code>The issue page shows the stored status value in the shipped chip, decided by the user on 2026-11-21: the chip is one element whose text the board swap asserts equals the stored slug, so the page embeds that same renderer and shows that same value. Human status labels are a later change and no question is open here.
 </code></pre>
 
 <pre><code>The shortcut route&#x27;s two arms are distinguished by a request header, so every response from GET /keyboard-help, page arm and fragment arm alike, carries Vary: Sec-Fetch-Dest. A response from either arm without it is a defect even when its body is right, because the defect appears only at a cache and only for the OTHER arm&#x27;s reader.
+</code></pre>
+
+<pre><code>Examination follow-up outside this design&#x27;s reach: the examine probe gains a state with an unclaimed install and its claim link so the first-admin claim page can be examined, and that probe, scripts/examine-foundry, is root owned. Expectations E9 to E11 read the browser&#x27;s own password manager rather than Foundry and retire as expectation defects at the next examination; what this design owes for P4 is the served token itself, which the autocomplete law reads.
 </code></pre>
 
 <h5>Reuse</h5>
@@ -565,13 +602,13 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>No template today owns the shortcut rows apart from the dialog container that wraps them, and the page arm needs the rows WITHOUT that container: a page is not a dialog. Extracting them gives both arms one row owner; including the whole dialog on the page would put a dialog role on a document.
 </code></pre>
 
-<p>keyboard_help_page.html</p>
+<p>app-shell</p>
 
-<p>crates/foundry-app/templates/keyboard_help_page.html:1</p>
+<p>crates/foundry-app/templates/app_shell.html:3</p>
 
-<p>CreateNew</p>
+<p>Reuse</p>
 
-<pre><code>The page arm needs a full document with its own h1; the overlay fragment cannot be that document, and no shipped template renders the shortcut list as a page.
+<pre><code>The shipped application frame, unchanged. The shortcut page&#x27;s signed-in arm renders a template that extends it, so the nav, the content column and the footer come from the one owner; the signed-out arm takes the card frame instead.
 </code></pre>
 
 <p>card_page.html</p>
@@ -691,13 +728,13 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>The one owner of the status chip markup, today serving the board&#x27;s drag-and-drop swap. It becomes crate-visible so the issue page embeds the SAME chip; a second chip shape on the page would let the two drift.
 </code></pre>
 
-<p>kb-overlay-root</p>
+<p>kb-shortcuts</p>
 
-<p>crates/foundry-app/static/css/foundry.2f9e0cb1.css:1411</p>
+<p>crates/foundry-app/static/css/foundry.e770ce20.css:1440</p>
 
 <p>Extend</p>
 
-<pre><code>The one served stylesheet and this feature&#x27;s main carrier: the card block, the shortcut row rules unscoped from the overlay host, the issue title, description and status rules, and the file-input rules. Every value names an existing token, and the file is renamed to the sha256 prefix of its new bytes.
+<pre><code>The one served stylesheet and this feature&#x27;s main carrier. It gains the status-chip block the examination found missing, the file-selector-button presentation for the attachment control, the card block, the shortcut rows unscoped from the overlay host and the issue title and description rules. Every value names an existing token, and the file is renamed to the sha256 prefix of its new bytes.
 </code></pre>
 
 <p>VENDOR.md</p>
@@ -716,6 +753,69 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <p>Extend</p>
 
 <pre><code>Three cache-policy assertions name the stylesheet path literally, so they are readers of the content-hashed name and move with the rename.
+</code></pre>
+
+<p>home_for</p>
+
+<p>crates/foundry-app/src/nav.rs:92</p>
+
+<p>Reuse</p>
+
+<pre><code>The shipped neutral nav constructor for a page that owns no primary rail member; the shortcut page&#x27;s signed-in arm uses it, so the mark and the fail-closed identity read stay decided in one place and no new nav rule appears.
+</code></pre>
+
+<p>re-hashed</p>
+
+<p>CHANGELOG.md:45</p>
+
+<p>Extend</p>
+
+<pre><code>The release note for this Request claims a styled status and a styled attachment control; the user decided on 2026-11-21 that its wording is corrected to match what ships, so the entry is a reader of this design.
+</code></pre>
+
+<p>keyboard-help</p>
+
+<p>crates/foundry-app/templates/keyboard_help_page.html:28</p>
+
+<p>Extend</p>
+
+<pre><code>The signed-out page arm, already shipped on the card frame. It keeps the keyboard-help class and no role and no aria-label, which the no-script lane depends on, and it stays the arm a visitor with no session is given.
+</code></pre>
+
+<p>keyboard_shortcut_rows</p>
+
+<p>crates/foundry-app/templates/keyboard_help_app_page.html:1</p>
+
+<p>CreateNew</p>
+
+<pre><code>The signed-in page arm. A template cannot choose its parent at run time, so the application frame needs its own template extending app_shell; it includes the SAME rows partial and keeps the same keyboard-help class, so the two frames share one row source and one selector.
+</code></pre>
+
+<p>ensure_csrf_cookie</p>
+
+<p>crates/foundry-app/src/csrf.rs:109</p>
+
+<p>Reuse</p>
+
+<pre><code>The shipped per-request double-submit mint. The signed-in page arm calls it exactly as the shipped nav callers do, and passes the SAME token to the nav, so the rail footer&#x27;s sign-out form is cookie-matched; a frame assembled without it carries a sign-out the CSRF check refuses.
+</code></pre>
+
+<p>response_with_optional_cookie</p>
+
+<p>crates/foundry-app/src/csrf.rs:127</p>
+
+<p>Reuse</p>
+
+<pre><code>The shipped wrapper that attaches the mint&#x27;s optional Set-Cookie to the answer. Without it the token in the form has no cookie to match on a first visit.
+</code></pre>
+
+<p>resolve_is_instance_admin</p>
+
+<p>crates/foundry-app/src/nav.rs:361</p>
+
+<p>Reuse</p>
+
+<pre><code>The shipped fail-closed read of the acting user&#x27;s real instance-admin authority, one of home_for&#x27;s three caller-supplied inputs; reusing it keeps the Instance-admin item following actual authority on this page as on every other.
 </code></pre>
 
 <h5>Impact</h5>
@@ -857,11 +957,11 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>stylesheet</p>
 
-<p>crates/foundry-app/static/css/foundry.2f9e0cb1.css:1411</p>
+<p>crates/foundry-app/static/css/foundry.e770ce20.css:1440</p>
 
 <p>Migrated</p>
 
-<pre><code>New card, row, issue and file-input rules, the shortcut rows unscoped from the overlay host, and the file renamed to the sha256 prefix of its new bytes; browsers holding the old immutable URL are unaffected because the old name is gone and the new link ships with it.
+<pre><code>The status-chip block, the file-selector-button presentation, the card block, the unscoped shortcut rows and the issue rules; the file is renamed again to the sha256 prefix of its new bytes and its three readers move with it.
 </code></pre>
 
 <p>template</p>
@@ -1042,6 +1142,42 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <p>UnchangedCompatible</p>
 
 <pre><code>The asset-hash and asset-reference layers need no change: they are what refuses a half-done stylesheet rename.
+</code></pre>
+
+<p>release-note</p>
+
+<p>CHANGELOG.md:45</p>
+
+<p>Changed</p>
+
+<pre><code>The wording is corrected to the shipped behaviour: a styled status chip, the attachment control drawn like the secondary button, and the shortcut page framed by the session.
+</code></pre>
+
+<p>handler</p>
+
+<p>crates/foundry-app/src/nav.rs:92</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The shortcut page&#x27;s signed-in arm calls the shipped constructor; no nav rule, no section and no mark changes.
+</code></pre>
+
+<p>acceptance-lane</p>
+
+<p>crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature:115</p>
+
+<p>UnchangedCompatible</p>
+
+<pre><code>The no-script full-page help stays found by the keyboard-help class with no role and no aria-label on the page arm, in both frames.
+</code></pre>
+
+<p>template</p>
+
+<p>crates/foundry-app/templates/keyboard_help_app_page.html:1</p>
+
+<p>Changed</p>
+
+<pre><code>New: the signed-in page arm inside the application frame with the nav.
 </code></pre>
 
 <h5>Agreement</h5>
@@ -1233,6 +1369,16 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>The bare fragment, today&#x27;s unstyled body: the server cannot tell that navigation from a fetch, and it refuses nothing.
 </code></pre>
 
+<p>####### B4</p>
+
+<pre><code>GET /keyboard-help is navigated with a session cookie whose acting user the store no longer answers for, for example a deleted or deactivated account whose session has not expired.
+</code></pre>
+
+<p>Indeterminate</p>
+
+<pre><code>The centred card arm, the same body a visitor with no session receives: no rail assembled for an identity the store cannot confirm, no workspace name, no admin item, no refusal and no 500. The handler cannot tell a stale session from no session beyond this read, and it does not try: both answer the card.
+</code></pre>
+
 <h5>Observations</h5>
 
 <pre><code>The body shape GET /keyboard-help answers
@@ -1309,7 +1455,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>L1</h6>
 
-<pre><code>A request to GET /keyboard-help that declares the document destination receives a framed page: a full document that links the stylesheet and carries the shortcut rows under its own heading. Every other declared destination, and a request that declares none, receives the bare fragment with no html wrapper.
+<pre><code>A request to GET /keyboard-help that declares the document destination receives a page; every other declared destination, and a request that declares none, receives the bare fragment with no html wrapper. The page arm&#x27;s FRAME follows the session: the normal application frame with the nav when the session resolves to an acting user the store still answers for, the centred card when there is no session or that user no longer resolves. In the framed arm exactly one primary nav member is marked, Home, and the rail footer&#x27;s sign-out form carries a token the answer&#x27;s own CSRF cookie matches.
 </code></pre>
 
 <p>Invariant</p>
@@ -1324,19 +1470,28 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>Cases</h6>
 
-<pre><code>declared destination document: framed page
+<pre><code>document destination with a resolved session: the application frame with the nav, Home marked and no second marked member, and a way back
 </code></pre>
 
-<pre><code>declared destination empty, which is what the overlay fetch sends: bare fragment
+<pre><code>document destination with a resolved session: the sign-out form&#x27;s token equals the token in the answer&#x27;s own CSRF cookie, and a sign-out posted from this page succeeds
 </code></pre>
 
-<pre><code>declared destination iframe: bare fragment
+<pre><code>document destination with no session: the centred card, no rail
+</code></pre>
+
+<pre><code>document destination with a session whose user no longer resolves: the centred card, not a frame with a neutral identity, and not a refusal
+</code></pre>
+
+<pre><code>empty destination, which the overlay fetch sends, signed in or out: bare fragment
+</code></pre>
+
+<pre><code>iframe destination: bare fragment
 </code></pre>
 
 <pre><code>no destination header at all: bare fragment
 </code></pre>
 
-<pre><code>The destinations a client can declare on this route are a closed set and the decision is one step with no state, so these four rows exhaust the domain and a generator would redraw the same table.
+<pre><code>The destinations a client can declare are a closed set, and the session either resolves to a user the store answers for, resolves to one it does not, or is absent, so these rows exhaust the product of the two facts the arm and the frame are decided from; the decision is one step with no state, so a generator would redraw the same table.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1378,7 +1533,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>L3</h6>
 
-<pre><code>Each signed-out page of the auth family and the shortcut page is one full document that links the stylesheet from the application&#x27;s own static path and draws exactly one centred card carrying the product name and that page&#x27;s single h1, with no navigation rail and no theme control, at the harness desk viewport and at the emulated phone device.
+<pre><code>Each signed-out page of the auth family, and the signed-out arm of the shortcut page, is one full document that links the stylesheet from the application&#x27;s own static path and draws exactly one centred card carrying the product name and that page&#x27;s single h1, with no navigation rail and no theme control, at the harness desk viewport and at the emulated phone device. A signed-in operator opening the shortcut page gets the application frame instead, with the nav.
 </code></pre>
 
 <p>Invariant</p>
@@ -1411,10 +1566,13 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>password reset
 </code></pre>
 
-<pre><code>the shortcut page
+<pre><code>the shortcut page with no session: the card
 </code></pre>
 
-<pre><code>The pages are the closed set this Request names, and each is read once per viewport, so the seven rows exhaust the domain.
+<pre><code>the shortcut page with a session: the application frame with the nav, not the card
+</code></pre>
+
+<pre><code>The pages are the closed set this Request names and each is read once per viewport, so the rows exhaust the domain.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1423,7 +1581,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>L4</h6>
 
-<pre><code>Each of the eight named inputs carries exactly the autocomplete token its flow needs, as served: username and current-password on sign-in, username and new-password on first-admin claim, new-password on both invite-accept fields and on both password-reset fields; and no other input in the repository carries a token this Request added.
+<pre><code>Each of the eight named inputs carries exactly the autocomplete token its flow needs, as served: username and current-password on sign-in, username and new-password on first-admin claim, new-password on both invite-accept fields and on both password-reset fields; and NO NINTH INPUT on any page this Request touches carries an autocomplete token.
 </code></pre>
 
 <p>Invariant</p>
@@ -1459,7 +1617,10 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <pre><code>forgot email: no token
 </code></pre>
 
-<pre><code>The inputs are the closed set P4 names, so the rows exhaust the domain.
+<pre><code>every other input of every touched page, counted on the served markup: no token, so the count of token-carrying inputs over those pages is exactly eight
+</code></pre>
+
+<pre><code>The inputs are the closed set P4 names, and the ninth-input row is a count over the served markup of the touched pages, so the rows exhaust the domain.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1468,7 +1629,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>L5</h6>
 
-<pre><code>The issue full page draws the issue key as its heading text, the stored title, exactly one description region, and the status chip whose data-state is the stored state slug; its Delete control keeps the href that is its whole mechanism.
+<pre><code>The issue full page draws the issue key as its heading text, the stored title, exactly one description region carrying the data-issue-description marker and a non-empty class on its text, and the shipped status chip, which resolves a style of its own rather than bare text, sits on an opaque surface and whose data-state is the stored status value; its Delete control keeps the href that is its whole mechanism and its presentation, and the attachment file control&#x27;s own button resolves the secondary-button presentation rather than the browser&#x27;s default. The chip&#x27;s text and the button&#x27;s text each reach 4.5 to 1 against the surface behind them, in both palettes.
 </code></pre>
 
 <p>Invariant</p>
@@ -1483,19 +1644,25 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>Cases</h6>
 
-<pre><code>an issue with a title and a description: title shown, description region holds the stored text
+<pre><code>an issue with a title and a description: title shown, marked region holds the stored text with a non-empty class
 </code></pre>
 
-<pre><code>an issue with an empty description: the description region holds the empty copy, and there is still exactly one region
+<pre><code>an issue with an empty description: the marked region holds the empty copy and there is still exactly one region
 </code></pre>
 
-<pre><code>an issue in each shipped state: the chip data-state equals the stored slug
+<pre><code>an issue in each shipped state: the chip data-state equals the stored slug AND the chip resolves a background, a border and a radius of its own in the live browser
+</code></pre>
+
+<pre><code>the chip block names the keycap pairing it reuses: an OPAQUE --cz-bg-2 background, a --cz-line hairline and --cz-text glyphs, never a translucent tint, so a measurement that walks up for a background finds a real surface; the chip text reaches 4.5 to 1 against that surface with the device preference dark and again with it light
+</code></pre>
+
+<pre><code>the file-selector button block names the secondary control it reuses: a --cz-surface background, a --cz-muted border and --cz-text label, with no fill of its own; the button text reaches 4.5 to 1 against that surface with the device preference dark and again with it light, and the border carries the control&#x27;s own 3 to 1 boundary as every control outside the left nav does
 </code></pre>
 
 <pre><code>the heading text equals the key, never the key and the title together
 </code></pre>
 
-<pre><code>The states are the project&#x27;s closed lane set and the description is either present or empty, so the rows exhaust the structural domain; the text domain itself is carried by the generated property.
+<pre><code>The states are the project&#x27;s closed lane set, the description is present or empty, and each control is read once per palette, so the rows exhaust the structural domain; the text domain is carried by the generated property.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1579,7 +1746,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>L8</h6>
 
-<pre><code>Every response of GET /keyboard-help, from both arms, carries Vary: Sec-Fetch-Dest, so no cache can answer one arm&#x27;s request with the other arm&#x27;s body.
+<pre><code>Every response of GET /keyboard-help, from every arm, carries Vary: Sec-Fetch-Dest, Cookie, and the page arm additionally carries Cache-Control: no-store, so no cache can answer one arm&#x27;s request with another arm&#x27;s body and no private cache can replay one operator&#x27;s framed page to another reader.
 </code></pre>
 
 <p>Invariant</p>
@@ -1594,16 +1761,19 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <h6>Cases</h6>
 
-<pre><code>a request declaring the document destination: the framed page AND the Vary header
+<pre><code>document destination with a session: the framed page, both Vary names AND no-store
 </code></pre>
 
-<pre><code>a request declaring the empty destination, as the overlay fetch does: the bare fragment AND the same Vary header
+<pre><code>document destination with no session: the card page, both Vary names AND no-store
 </code></pre>
 
-<pre><code>a request declaring no destination: the bare fragment AND the same Vary header
+<pre><code>empty destination: the bare fragment and both Vary names, cacheable
 </code></pre>
 
-<pre><code>The arms are the closed pair the variant law enumerates, and the header is one named value on each, so three rows exhaust the domain; a generated property would redraw the same table.
+<pre><code>no destination header: the bare fragment and both Vary names, cacheable
+</code></pre>
+
+<pre><code>The arms are the closed set the variant law enumerates and the headers are named values on each, so four rows exhaust the domain.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -1948,7 +2118,7 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 
 <p>DesignedNotBuilt</p>
 
-<pre><code>Input: a browser navigation from the rail link at partials/sidebar.html:78 or the dashboard link at dashboard_root.html:32. Constructor: help_variant and the page view-model in keyboard.rs:317. Consumer: the HTML response of show_keyboard_help. Public port: GET /keyboard-help, which is the oracle stimulus.
+<pre><code>Input: a browser navigation from the rail link at partials/sidebar.html:78 or the dashboard link. Constructor: help_variant plus the session read and the shipped nav constructor in keyboard.rs, then the application-frame page view-model or the card page view-model. Consumer: the HTML response of show_keyboard_help with its Vary and no-store headers. Public port: GET /keyboard-help, read signed in and signed out, which is the oracle stimulus.
 </code></pre>
 
 <h6>Evidence</h6>
@@ -2374,5 +2544,6 @@ scripts/test-in-lima.sh bash -c &quot;CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS
 <p>- 002 One shortcut route, two arms by declared destination — Superseded by BARE-PAGES-001</p>
 <p>- 003 One card frame owns every chrome-less page — Accepted</p>
 <p>- BARE-PAGES-001 Both shortcut arms vary on the declared destination — Accepted</p>
+<p>- BARE-PAGES-002 The shortcut frame follows the session, and every answer says so — Accepted</p>
 
 </body></html>

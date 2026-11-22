@@ -239,11 +239,11 @@
 ]
 },
 "counters": {
-"B": 3,
+"B": 4,
 "C": 3,
 "E": 11,
-"F": 410,
-"K": 4,
+"F": 489,
+"K": 8,
 "L": 8,
 "N": 3,
 "P": 4,
@@ -267,6 +267,11 @@
 "key": "BARE-PAGES-001",
 "status": "Accepted",
 "title": "Both shortcut arms vary on the declared destination"
+},
+{
+"key": "BARE-PAGES-002",
+"status": "Accepted",
+"title": "The shortcut frame follows the session, and every answer says so"
 }
 ],
 "paradigm": "procedural",
@@ -287,6 +292,22 @@
 {
 "id": "K4",
 "text": "F294"
+},
+{
+"id": "K5",
+"text": "F413"
+},
+{
+"id": "K6",
+"text": "F414"
+},
+{
+"id": "K7",
+"text": "F415"
+},
+{
+"id": "K8",
+"text": "F416"
 }
 ]
 },
@@ -302,15 +323,15 @@
 ]
 },
 "public_oracle": {
-"expected": "F298",
-"falsifier": "F299",
+"expected": "F472",
+"falsifier": "F473",
 "promises": [
 "P1",
 "P2",
 "P3",
 "P4"
 ],
-"stimulus": "F297"
+"stimulus": "F471"
 },
 "records": {
 "agreement": [
@@ -444,6 +465,12 @@
 "id": "B3",
 "observation": "F125",
 "outcome": "Indeterminate"
+},
+{
+"condition": "F478",
+"id": "B4",
+"observation": "F479",
+"outcome": "Indeterminate"
 }
 ]
 },
@@ -505,7 +532,7 @@
 },
 {
 "axis": "PublicReachability",
-"basis": "F232",
+"basis": "F469",
 "design": "Pass",
 "runtime": "DesignedNotBuilt",
 "subject": "F229"
@@ -604,13 +631,14 @@
 ],
 "constraints": [
 "F41",
-"F42",
+"F430",
 "F43",
 "F44",
 "F301",
-"F46",
+"F431",
 "F302",
-"F303"
+"F303",
+"F432"
 ],
 "constructors": [
 {
@@ -631,14 +659,14 @@
 }
 ],
 "decisions": [
-"F34",
-"F35",
-"F36",
+"F474",
+"F427",
+"F428",
 "F37",
 "F38",
 "F39",
 "F40",
-"F300"
+"F429"
 ],
 "equality": [
 {
@@ -744,8 +772,8 @@
 {
 "decision": "Migrated",
 "kind": "stylesheet",
-"locator": "crates/foundry-app/static/css/foundry.2f9e0cb1.css:1411",
-"reason": "F84"
+"locator": "crates/foundry-app/static/css/foundry.e770ce20.css:1440",
+"reason": "F439"
 },
 {
 "decision": "Migrated",
@@ -866,6 +894,30 @@
 "kind": "architectural-check",
 "locator": "xtask/src/check_arch.rs:1698",
 "reason": "F102"
+},
+{
+"decision": "Changed",
+"kind": "release-note",
+"locator": "CHANGELOG.md:45",
+"reason": "F440"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "handler",
+"locator": "crates/foundry-app/src/nav.rs:92",
+"reason": "F441"
+},
+{
+"decision": "UnchangedCompatible",
+"kind": "acceptance-lane",
+"locator": "crates/foundry-acceptance/tests/features/keyboard-shortcut-bindings.feature:115",
+"reason": "F442"
+},
+{
+"decision": "Changed",
+"kind": "template",
+"locator": "crates/foundry-app/templates/keyboard_help_app_page.html:1",
+"reason": "F443"
 }
 ],
 "laws": [
@@ -877,16 +929,19 @@
 "kind": "Invariant",
 "layer": "Adapter",
 "owner": "crates/foundry-app/src/keyboard.rs",
-"statement": "F138",
+"statement": "F480",
 "treatment": {
 "cases": [
-"F139",
-"F140",
-"F141",
+"F481",
+"F482",
+"F483",
+"F484",
+"F447",
+"F448",
 "F142"
 ],
 "kind": "Finite",
-"reason": "F143"
+"reason": "F485"
 }
 },
 {
@@ -913,7 +968,7 @@
 "kind": "Invariant",
 "layer": "Adapter",
 "owner": "crates/foundry-app/templates/card_page.html",
-"statement": "F149",
+"statement": "F450",
 "treatment": {
 "cases": [
 "F150",
@@ -922,10 +977,11 @@
 "F153",
 "F154",
 "F155",
-"F156"
+"F451",
+"F452"
 ],
 "kind": "Finite",
-"reason": "F157"
+"reason": "F453"
 }
 },
 {
@@ -933,7 +989,7 @@
 "kind": "Invariant",
 "layer": "Adapter",
 "owner": "crates/foundry-app/templates/signin.html",
-"statement": "F158",
+"statement": "F454",
 "treatment": {
 "cases": [
 "F159",
@@ -942,10 +998,11 @@
 "F162",
 "F163",
 "F164",
-"F165"
+"F165",
+"F455"
 ],
 "kind": "Finite",
-"reason": "F166"
+"reason": "F456"
 }
 },
 {
@@ -953,16 +1010,18 @@
 "kind": "Invariant",
 "layer": "Adapter",
 "owner": "crates/foundry-app/templates/issue.html",
-"statement": "F167",
+"statement": "F486",
 "treatment": {
 "cases": [
-"F168",
-"F169",
-"F170",
+"F458",
+"F459",
+"F460",
+"F487",
+"F488",
 "F171"
 ],
 "kind": "Finite",
-"reason": "F172"
+"reason": "F489"
 }
 },
 {
@@ -1006,15 +1065,16 @@
 "kind": "Invariant",
 "layer": "Adapter",
 "owner": "crates/foundry-app/src/keyboard.rs",
-"statement": "F304",
+"statement": "F463",
 "treatment": {
 "cases": [
-"F305",
-"F306",
-"F307"
+"F464",
+"F465",
+"F466",
+"F467"
 ],
 "kind": "Finite",
-"reason": "F308"
+"reason": "F468"
 }
 }
 ],
@@ -1188,10 +1248,10 @@
 "symbol": "keyboard_shortcut_rows.html"
 },
 {
-"decision": "CreateNew",
-"locator": "crates/foundry-app/templates/keyboard_help_page.html:1",
-"reason": "F53",
-"symbol": "keyboard_help_page.html"
+"decision": "Reuse",
+"locator": "crates/foundry-app/templates/app_shell.html:3",
+"reason": "F433",
+"symbol": "app-shell"
 },
 {
 "decision": "CreateNew",
@@ -1273,9 +1333,9 @@
 },
 {
 "decision": "Extend",
-"locator": "crates/foundry-app/static/css/foundry.2f9e0cb1.css:1411",
-"reason": "F67",
-"symbol": "kb-overlay-root"
+"locator": "crates/foundry-app/static/css/foundry.e770ce20.css:1440",
+"reason": "F434",
+"symbol": "kb-shortcuts"
 },
 {
 "decision": "Extend",
@@ -1288,6 +1348,48 @@
 "locator": "crates/foundry-app/src/lib.rs:344",
 "reason": "F69",
 "symbol": "static_cache_control_value"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/nav.rs:92",
+"reason": "F435",
+"symbol": "home_for"
+},
+{
+"decision": "Extend",
+"locator": "CHANGELOG.md:45",
+"reason": "F436",
+"symbol": "re-hashed"
+},
+{
+"decision": "Extend",
+"locator": "crates/foundry-app/templates/keyboard_help_page.html:28",
+"reason": "F437",
+"symbol": "keyboard-help"
+},
+{
+"decision": "CreateNew",
+"locator": "crates/foundry-app/templates/keyboard_help_app_page.html:1",
+"reason": "F438",
+"symbol": "keyboard_shortcut_rows"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/csrf.rs:109",
+"reason": "F475",
+"symbol": "ensure_csrf_cookie"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/csrf.rs:127",
+"reason": "F476",
+"symbol": "response_with_optional_cookie"
+},
+{
+"decision": "Reuse",
+"locator": "crates/foundry-app/src/nav.rs:361",
+"reason": "F477",
+"symbol": "resolve_is_instance_admin"
 }
 ],
 "risks": [
@@ -1436,7 +1538,7 @@
 {
 "change": "Extend",
 "path": "crates/foundry-app/src/keyboard.rs",
-"reason": "F296"
+"reason": "F470"
 },
 {
 "change": "Extend",
@@ -1464,9 +1566,9 @@
 "reason": "F17"
 },
 {
-"change": "Create",
+"change": "Extend",
 "path": "crates/foundry-app/templates/keyboard_help_page.html",
-"reason": "F18"
+"reason": "F418"
 },
 {
 "change": "Create",
@@ -1506,12 +1608,12 @@
 {
 "change": "Extend",
 "path": "crates/foundry-app/templates/issue.html",
-"reason": "F24"
+"reason": "F419"
 },
 {
 "change": "Extend",
-"path": "crates/foundry-app/static/css/foundry.2f9e0cb1.css",
-"reason": "F25"
+"path": "crates/foundry-app/static/css/foundry.e770ce20.css",
+"reason": "F420"
 },
 {
 "change": "Extend",
@@ -1527,6 +1629,16 @@
 "change": "Extend",
 "path": "crates/foundry-app/src/lib.rs",
 "reason": "F28"
+},
+{
+"change": "Create",
+"path": "crates/foundry-app/templates/keyboard_help_app_page.html",
+"reason": "F421"
+},
+{
+"change": "Extend",
+"path": "CHANGELOG.md",
+"reason": "F422"
 }
 ],
 "verification": [
@@ -1766,19 +1878,13 @@
 "F135": "Markdown source from its rendered form, because the region shows the stored text as written.",
 "F136": "Two responses are equal when they list the same rows in the same order. The dialog container, the page frame and the heading level around them are not part of this equality, which is what lets one row partial serve both arms.",
 "F137": "Two served forms are equal when every named input carries the same token. Attribute order, whitespace and the surrounding frame are not part of this equality.",
-"F138": "A request to GET /keyboard-help that declares the document destination receives a framed page: a full document that links the stylesheet and carries the shortcut rows under its own heading. Every other declared destination, and a request that declares none, receives the bare fragment with no html wrapper.",
-"F139": "declared destination document: framed page",
 "F14": "The issue page view-model gains title, description, status slug and the rendered chip from the existing projection read.",
-"F140": "declared destination empty, which is what the overlay fetch sends: bare fragment",
-"F141": "declared destination iframe: bare fragment",
 "F142": "no destination header at all: bare fragment",
-"F143": "The destinations a client can declare on this route are a closed set and the decision is one step with no state, so these four rows exhaust the domain and a generator would redraw the same table.",
 "F144": "The page and the fragment advertise exactly the shipped shortcut rows, in the same order, with no row added, dropped or reordered, because both arms derive them from the one table through one builder and render the one rows partial.",
 "F145": "the seven shipped rows in the fragment arm",
 "F146": "the same seven rows, same order, in the page arm",
 "F147": "a row added to the table appears in both arms",
 "F148": "The table is the closed seven-row shipped list, so the rows are enumerable and the law is a row-identity check between two renders.",
-"F149": "Each signed-out page of the auth family and the shortcut page is one full document that links the stylesheet from the application's own static path and draws exactly one centred card carrying the product name and that page's single h1, with no navigation rail and no theme control, at the harness desk viewport and at the emulated phone device.",
 "F15": "The chip renderer becomes crate-visible; its bytes are unchanged.",
 "F150": "sign-in",
 "F151": "forgot password",
@@ -1786,9 +1892,6 @@
 "F153": "first-admin claim",
 "F154": "invite accept",
 "F155": "password reset",
-"F156": "the shortcut page",
-"F157": "The pages are the closed set this Request names, and each is read once per viewport, so the seven rows exhaust the domain.",
-"F158": "Each of the eight named inputs carries exactly the autocomplete token its flow needs, as served: username and current-password on sign-in, username and new-password on first-admin claim, new-password on both invite-accept fields and on both password-reset fields; and no other input in the repository carries a token this Request added.",
 "F159": "sign-in email: username",
 "F16": "The single owner of the shortcut rows and the selection instruction.",
 "F160": "sign-in password: current-password",
@@ -1797,21 +1900,14 @@
 "F163": "invite accept password and confirm: new-password",
 "F164": "reset password and confirm: new-password",
 "F165": "forgot email: no token",
-"F166": "The inputs are the closed set P4 names, so the rows exhaust the domain.",
-"F167": "The issue full page draws the issue key as its heading text, the stored title, exactly one description region, and the status chip whose data-state is the stored state slug; its Delete control keeps the href that is its whole mechanism.",
-"F168": "an issue with a title and a description: title shown, description region holds the stored text",
-"F169": "an issue with an empty description: the description region holds the empty copy, and there is still exactly one region",
 "F17": "Keeps the dialog container and includes the rows partial.",
-"F170": "an issue in each shipped state: the chip data-state equals the stored slug",
 "F171": "the heading text equals the key, never the key and the title together",
-"F172": "The states are the project's closed lane set and the description is either present or empty, so the rows exhaust the structural domain; the text domain itself is carried by the generated property.",
 "F173": "For any stored description text, the issue page shows that text with its line breaks preserved, escaped so no stored character is drawn as markup, and never truncated.",
 "F174": "arbitrary unicode text for the description, including the empty string, HTML and markdown markup such as a script tag, an image tag with an event attribute, angle brackets, ampersands, quotes and backticks, CRLF and LF runs, long unbroken words, and right-to-left text",
 "F175": "the empty string",
 "F176": "a script tag",
 "F177": "a CRLF run",
 "F178": "a 4000-character unbroken word",
-"F18": "The framed page arm of the shortcut list, on the card frame.",
 "F180": "the rendered page contains the stored text with each markup character replaced by its entity, computed by an escape reference in the test rather than by the render under test, and the page holds exactly one description region",
 "F181": "a render that lets a script tag through unescaped, that drops text past a length, or that collapses the stored line breaks into one line",
 "F182": "The served stylesheet's name carries the sha256 prefix of its own bytes, and every static reference in the application resolves on disk.",
@@ -1870,7 +1966,6 @@
 "F23": "Card frame, and the created-password token on both fields.",
 "F230": "The arms are a closed two-variant sum decided in one total function that answers the fragment for every input it does not recognise, so no third body and no silent page can be built. Quint checked fragmentUnlessDocument and pageIsFramed exhaustively over the four destinations a client can declare, and each failed on its own mutant: a page served to the overlay fetch, and a page body that links no stylesheet. The runtime still serves one unstyled fragment to a navigation.",
 "F231": "A navigation declaring the document destination builds the page from the shipped shortcut table alone, through help_variant, shortcut_entries and the page view-model; no session, no store read and no request body is needed, and the model exhibits the page state.",
-"F232": "Input: a browser navigation from the rail link at partials/sidebar.html:78 or the dashboard link at dashboard_root.html:32. Constructor: help_variant and the page view-model in keyboard.rs:317. Consumer: the HTML response of show_keyboard_help. Public port: GET /keyboard-help, which is the oracle stimulus.",
 "F233": "No liveness claim: one request, one response, no retry, no queue, no background work and no progress obligation anywhere in this Request.",
 "F234": "the signed-out card (P2)",
 "F235": "The card frame is the only frame these templates extend, and it includes no sidebar partial and no theme control, so a rail or a theme control on a signed-out page cannot be rendered by them; the product name is a brand line, not a heading, so a second h1 cannot appear. No checker proves a template shape, so the finite page law and the shipped theme read are the checks, and both are designed and not yet built.",
@@ -1878,7 +1973,6 @@
 "F237": "Input: a signed-out GET of /sign-in, /forgot-password, /bootstrap with its token, /invites/accept with its id and signature, or /reset-password with its token. Constructor: the shipped handler and its view-model. Consumer: the card frame template. Public port: those same GETs, read at the desk viewport and at the emulated phone device.",
 "F238": "No liveness claim: a page render has no progress obligation, and no form behaviour changes.",
 "F239": "the issue page content (P3)",
-"F24": "Title, description region and status beside the unchanged key heading; presentation classes on the Delete anchor and the upload control.",
 "F240": "The description is escaped by the template engine and the status is the one shipped chip renderer's own output, so neither stored text nor a second chip shape can reach the page as markup; the heading keeps the key alone, which the shipped browser read already enforces. The generated description property and the finite page law are the checks, both designed and not yet built.",
 "F241": "The title, description and state come from the shipped projection read the edit dialog already uses, over the project and number the page handler has resolved; an empty description still builds the region through its empty copy.",
 "F242": "Input: a signed-in member's GET of /team/{team}/project/{project}/issues/{n}. Constructor: render_issue_page in comments.rs:692 filling IssuePage from issue_edit_view. Consumer: issue.html. Public port: that same GET, which is the oracle stimulus.",
@@ -1889,7 +1983,6 @@
 "F247": "Input: a signed-out GET of the four pages. Constructor: the four templates. Consumer: the browser and its password manager. Public port: the served HTML of those GETs, read as served markup.",
 "F248": "No liveness claim: a served attribute has no progress obligation. Whether a particular manager acts on it is outside this design's reach and is recorded as an unknown state.",
 "F249": "Negating the assumption that every navigating client declares its destination: an old browser, a text browser, a command-line client or a proxy that strips fetch metadata navigates to the shortcut URL.",
-"F25": "The card block, the shortcut rows unscoped from the overlay host, the issue title, description and status rules and the file-input rules. The file carries the sha256 prefix of its own bytes, so this change renames it again and the old name goes.",
 "F250": "The shortcut list is readable: the rows arrive as the bare fragment, in order, with the selection instruction.",
 "F251": "No frame and no stylesheet, so browser-default type, which is exactly the shipped state today.",
 "F252": "A 404, an empty body, or a framed document handed to the overlay host.",
@@ -1938,20 +2031,9 @@
 "F293": "User decision 2026-11-21: the first-admin claim password field is a new password (autocomplete new-password), not a current one.",
 "F294": "User decision 2026-11-21: the issue full page shows the shipped status chip with the stored status value; human status labels are a later change.",
 "F295": "The browser and the password manager can fill and save the sign-in and password fields: the email and current password on sign-in; the email and new password on first-admin claim; the new password and its confirmation on invite accept and password reset.",
-"F296": "The total variant decision, the one row builder, the page view-model construction, and the Vary: Sec-Fetch-Dest response header set once beside that decision and carried by BOTH arms.",
-"F297": "Through the real public driving port. Signed out, with no session cookie, a visitor opens /sign-in, /forgot-password, the first-admin claim at /bootstrap with a live token, /invites/accept with a live id and signature, and /reset-password with a live token; each page is read as served markup and rendered in the browser lane at the harness desk viewport and at the emulated 390 by 844 phone device, in both palettes. A visitor NAVIGATES the browser to /keyboard-help from the rail link; separately the same URL is read by a plain HTTP client that declares no destination, by a client that declares the document destination, and by a script fetch from a loaded page that declares the empty destination, and the response HEADERS are read on each of those reads. A signed-in team member opens /team/{team}/project/{project}/issues/{n} for an issue with a title, a description and a known state, and again for an issue whose description is empty, and presses the shortcut key that opens the overlay on a board page.",
-"F298": "Each signed-out page is one full document that links the stylesheet from the application's own static path and draws exactly one centred card: the product name above the page's own single heading, the form inside the card, the card inside the viewport with visible margin at desk width and full width inside the page padding on the phone, and no navigation rail and no theme-named control anywhere on it. The sign-in email carries the username token and its password the current-password token; the claim email carries username and its password the created-password token; both invite-accept fields and both password-reset fields carry the created-password token; no other input gained one. The browser NAVIGATION to /keyboard-help returns a full styled document whose rows pair each shipped shortcut key with its description on one line, with the selection instruction below them, and the plain HTTP read and the script fetch of the same URL still return the bare fragment with no html wrapper, the dialog container with its role and label, and the identical rows in the identical order; EVERY one of those responses, page arm and fragment arm alike, carries Vary: Sec-Fetch-Dest; the overlay on the board still draws its keycaps and muted descriptions over the scrim. The issue page shows the key as its heading text, the stored title, the stored description with its line breaks preserved and nothing of it drawn as markup, the empty copy instead when nothing is stored, and the shipped status chip whose data-state and text are the stored status value; its Delete control still follows its href to the confirm page and its upload control is drawn with the stylesheet's own control type.",
-"F299": "The shipped build fails every one of these today: the shortcut navigation answers an unstyled fragment in browser-default serif with each key on its own line and no Vary header at all; the four signed-out forms run edge to edge at desk width with no card, no margin and no product name; the issue page shows the key with a lone Delete link, a raw file control, and no title, description or status; and all eight inputs carry no autocomplete token. Each law also fails on its own plausible wrong implementation: serving the framed page to every client is caught by the script fetch and the plain HTTP read, which must still get no html wrapper; setting Vary on the page arm alone is caught by the header read on the fragment arm, which is the body a cache is most likely to hold; letting the page build its own row list is caught by the row-identity read between the two arms; keeping the shortcut rules scoped to the overlay host is caught by the navigated page, whose keys would still sit on their own line; putting the title in the heading is caught by the heading-equals-key read; giving the claim form the current-password token is caught by reading the served token itself; rendering the stored description as markup is caught by the generated property with a script tag in the text; and editing the stylesheet without renaming it is caught by the shipped asset-hash layer.",
-"F3": "The keyboard shortcuts page has the same look as the rest of Foundry, and each key sits on the same line as what it does.",
-"F300": "Cache contract of the two-arm route. One URL answers two bodies by a REQUEST header, so any cache between the browser and the application would otherwise serve one arm's body for the other arm's request: a framed document handed to the overlay fetch, or a bare fragment painted as a whole page. Both arms therefore declare the same contract in their response: Vary: Sec-Fetch-Dest, which names the one request header the arm is decided from, so a shared or private cache keys its entry on that header and never crosses the arms. The header is set in one place, beside the arm decision in crates/foundry-app/src/keyboard.rs, and on BOTH arms, including the fragment arm that is unchanged in body; a Vary on one arm alone leaves the other arm's cached body free to answer the wrong request. Cache-Control: no-store on both arms was the alternative and is rejected: it forbids the browser's own back-forward reuse of the help page for no gain, while Vary keeps the body cacheable and correct. No other route changes, because no other route in the application decides a body from a request header the client declares.",
 "F301": "The first-admin claim password carries the created-password token, decided by the user on 2026-11-21 and now the wording of P4 itself: that form CREATES the password, and the current-password token would make a password manager offer a stored secret instead of generating and saving one. No question is open here, and the eight-row autocomplete law is unchanged.",
 "F302": "The issue page shows the stored status value in the shipped chip, decided by the user on 2026-11-21: the chip is one element whose text the board swap asserts equals the stored slug, so the page embeds that same renderer and shows that same value. Human status labels are a later change and no question is open here.",
 "F303": "The shortcut route's two arms are distinguished by a request header, so every response from GET /keyboard-help, page arm and fragment arm alike, carries Vary: Sec-Fetch-Dest. A response from either arm without it is a defect even when its body is right, because the defect appears only at a cache and only for the OTHER arm's reader.",
-"F304": "Every response of GET /keyboard-help, from both arms, carries Vary: Sec-Fetch-Dest, so no cache can answer one arm's request with the other arm's body.",
-"F305": "a request declaring the document destination: the framed page AND the Vary header",
-"F306": "a request declaring the empty destination, as the overlay fetch does: the bare fragment AND the same Vary header",
-"F307": "a request declaring no destination: the bare fragment AND the same Vary header",
-"F308": "The arms are the closed pair the variant law enumerates, and the header is one named value on each, so three rows exhaust the domain; a generated property would redraw the same table.",
 "F309": "Opening the keyboard shortcuts page, the operator sees a page that looks like the rest of Foundry: the same page frame, heading, typography and colours as other Foundry pages, not an unstyled browser-default list.",
 "F310": "A user sees only the painted page. An oracle that asserts a stylesheet, class name or markup container cannot show that the rendered page actually matches the look of other Foundry pages, and a styled page can still differ in a way only the eye catches.",
 "F311": "The shortcuts page reached the way the operator reaches it, plus one other Foundry page captured at the same width for comparison.",
@@ -1985,7 +2067,6 @@
 "F337": "The difference between a new and an existing password is invisible on the page itself; the operator only learns it from what the manager suggests. An oracle that reads an attribute cannot show the manager's suggestion, and a wrong intent leaves the page looking identical.",
 "F338": "A real browser with a password manager on an unclaimed install, with a capture of what it suggests in the password field and of the save prompt.",
 "F339": "On the invite accept page and on the password reset page the manager treats the new password and its confirmation as one new credential: it can fill both fields with the same new password and offers to save that one password, not two.",
-"F34": "Shortcut page and overlay from ONE route. GET /keyboard-help keeps one URL and one row source. The arm is decided from the destination the CLIENT declares in its Sec-Fetch-Dest request header: the document destination, which only a top-level navigation carries, answers a framed page; every other declared destination and an absent header answer the bare fragment the route serves today, which is what keyboard.js assigns into the overlay host and what the shipped HTTP-lane read asserts. Page script cannot set that header, so the arm follows a property of the request rather than a name a caller picks. Carrier: a two-variant private enum HelpVariant in crates/foundry-app/src/keyboard.rs, decided once by a total private fn help_variant(headers) that answers Fragment for every input it does not recognise; the per-request state is that one value; no effects and no new error. Rows: one private fn shortcut_entries() over the SHORTCUTS table feeds both arms, so the two arms cannot advertise different lists. Layers. Domain: none, this is presentation. Application: none, the route stays public and stateless, so no session read and no rail. Adapter: partials/keyboard_shortcut_rows.html owns the shortcut rows and the selection instruction; partials/keyboard_help.html keeps the dialog container and includes them; keyboard_help_page.html extends the card page and includes the same rows under its own h1. Observation: the response body shape and the rows it lists.",
 "F340": "Fill-and-match across two fields and the single save offer live in the manager, not on the page, so a capture of the page shows neither. The operator sees nothing wrong until the manager fills the wrong value or saves the confirmation separately.",
 "F341": "A real browser with a password manager on a pending invite and on a reset link, with a capture of both fields after fill and of the save prompt.",
 "F342": "A client asks for the keyboard shortcut list four ways: opening it as a page, fetching it as a script, loading it as a frame, and declaring nothing about where the answer goes.",
@@ -1996,7 +2077,6 @@
 "F347": "Both answers advertise exactly the seven shipped shortcuts in the shipped order, and they advertise the identical rows as each other.",
 "F348": "The operator learns one set of keys, whichever way she reads it, and a key she is told about is a key she can press.",
 "F349": "Both bodies keep advertising a key the client no longer binds, because what a key does in the browser is read by the shipped keyboard lane.",
-"F35": "ONE chrome-less page frame for the signed-out family and the shortcut page. New templates/card_page.html extends base.html and renders one main.page-card holding a product-name line and then its own content block. signin.html, forgot.html, forgot_sent.html, bootstrap_claim.html, invite_accept.html, reset_password.html and the new keyboard_help_page.html extend it instead of base.html; each keeps its own h1, its own copy and its own form action, method, hidden fields and inputs unchanged. The product name is a brand LINE, not a heading, so every page keeps exactly one h1 and the shipped heading reads do not move. No sidebar partial and no theme control is included, because the shipped theme read asserts the sign-in screen has neither. Stylesheet: one .page-card block, centred with auto inline margins and a max inline size, on the raised surface tier the dashboard cards already use, and full width inside the page padding below the shipped phone breakpoint. Layers: Adapter only; no Rust carrier and no view-model field changes.",
 "F350": "The operator follows the nav to the keyboard shortcut list at desk width, and opens the same list on a 390 by 844 phone.",
 "F351": "Every shortcut key is painted on the same line as what it does, beside it rather than above it, and the instruction about choosing a card is drawn below the whole list.",
 "F352": "She reads each key and its meaning as one pair, on a desk and on a phone, instead of matching a key to a line below it.",
@@ -2007,7 +2087,6 @@
 "F357": "The card is centred and named at the two widths read here while a third width between them draws it differently, because only these two are measured.",
 "F358": "The operator looks at the sign-in page on a screen that asks for the dark palette.",
 "F359": "The painted card and the product name above the heading are there as they are in the light palette, and the page still offers no navigation rail and no palette control.",
-"F36": "The issue page reads as the issue. views::IssuePage gains title, description, status_slug and status_chip; comments.rs::render_issue_page fills them from ONE existing read, store::issue_edit_view over the project and number the handler already resolved, so there is no new SQL, no new store function and no new authorization decision. issue.html keeps its h1 holding the issue key alone, because a shipped browser read asserts that heading text EQUALS the key; the title takes its own h2 and the status sits beside the key. The description region is ALWAYS present: the stored text, escaped by the template engine and wrapped with preserved line breaks, or the empty copy, matching the shipped attachment and comment empty states. The comment markdown sanitizer in foundry-core is deliberately NOT consumed here: rendering issue markdown would add a product promise and a second consumer of that sanitizer, which a visual pass does not hold. The status element is the shipped chip: the handler renders it through issues.rs::render_state_chip and the template embeds the string with the no-escape filter, exactly as base.html embeds the site footer, so the chip markup keeps one owner and its data-state is the stored slug. The Delete anchor keeps its href mechanism and its data-action marker and takes the shipped secondary-button presentation; the upload form label and its file input take the stylesheet's own control tokens. Layers. Domain: none. Application: show_issue reads one more projection of the issue it already resolved, and a gap between the two reads refuses rather than renders a blank issue. Adapter: issue.html plus the title, description, status-chip and file-input rules. Observation: the page text and the chip's data-state.",
 "F360": "An operator whose screen is dark gets the same named card as everyone else, not a page whose frame disappeared.",
 "F361": "The card is drawn in a colour that is legible nowhere, because the palette's own contrast is read by the shipped theme lane.",
 "F362": "A visitor opens sign-in, the first-admin claim, the invitation page where she sets her password, the page where she chooses a new password, and the forgotten-password page, and the intent each named field declares is read off the served page.",
@@ -2065,17 +2144,80 @@
 "F409": "What the served sign-in and password fields tell a browser. /sign-in serves <input type=\"email\" name=\"email\" autocomplete=\"username\"> and <input type=\"password\" name=\"password\" autocomplete=\"current-password\">. /reset-password with a live token serves <input type=\"password\" name=\"password\" autocomplete=\"new-password\"> and <input type=\"password\" name=\"confirm\" autocomplete=\"new-password\">. /invites/accept with a live invite serves the same pair of new-password fields. The email field on /forgot-password carries no autocomplete token. The first-admin claim page could not be reached, so its two tokens were not read.",
 "F41": "Scope out stays out: app_shell.html, partials/sidebar.html, the board header, the issue dialog's Delete control and the general form, label and section-heading sizing belong to the next Request, ui-page-frame. The card's own max inline size is the only width rule this Request adds, and no rule changes who may open a page or what a form does.",
 "F410": "No password manager behaviour could be observed. The probe browser runs a fresh per-viewer profile with no stored credential for the site and no password-manager UI; its rendered read reports landmarks, buttons, links and focus only. No fill suggestion on /sign-in, no generated-password suggestion, no filling of both new-password fields with one value, and no save prompt after a successful sign-in or password set was captured on any page. The autocomplete tokens above are the intent the page declares, not an observed offer by a manager.",
-"F42": "Shipped promises this Request must not break: GET /keyboard-help answers a body with no html wrapper to every request that does not declare the document destination; the overlay keeps its dialog container with its role and label and its key-and-description pairs; the sign-in screen carries no rail and no theme-named control and renders in both palettes; the sign-in and forgot pages stay full documents linking the stylesheet from the application's own static path; the issue page heading text equals the issue key; the board status chip keeps the slug as its data-state AND its text; no colour literal lives outside the three stylesheet token regions and the three regions declare the identical token set; every static reference resolves and every content-hashed name is its own sha256 prefix; the user menu still links to /keyboard-help; the pre-paint head scripts keep no defer, async or module attribute and every other head script keeps defer.",
+"F411": "The keyboard shortcuts page has the same look as the rest of Foundry: signed in, it sits in the normal application frame with the nav; signed out, in the centred card; and each key sits on the same line as what it does.",
+"F412": "An issue's full page shows its key, title, description and status, so the operator can read the issue there; the status is a styled status chip, and its other controls (delete, the attachment file control) are styled like the rest of Foundry.",
+"F413": "User decision 2026-11-21: the keyboard shortcuts page sits in the normal application frame with the nav when the operator is signed in, and in the centred card when signed out.",
+"F414": "User decision 2026-11-21: the issue page status is a styled status chip, and the attachment file control's button is drawn like Foundry's secondary button; the CHANGELOG wording is corrected to match.",
+"F415": "User decision 2026-11-21: drop IssuePage.status_slug; add the no-script full-page keyboard help (keyboard-shortcut-bindings.feature:115) to the preserved promises; feature-prefix ADR-002 and ADR-003 as ADR-BARE-PAGES-nnn and record amended-by, not superseded-by; fix the two weak oracle readings (autocomplete on no ninth input; refuse a classless description shape).",
+"F416": "User decision 2026-11-21: the examine probe gains a state with an unclaimed install and its claim link, so the first-admin claim page can be examined; expectations E9 to E11 test the browser's password manager, not Foundry, and are retired as expectation defects; the oracle still checks the autocomplete tokens.",
+"F418": "The signed-OUT page arm on the card frame; it keeps the keyboard-help class and no role and no aria-label, which the no-script lane depends on.",
+"F419": "Title, marked description region and the shipped chip beside the unchanged key heading; presentation on the Delete anchor and on the attachment control.",
+"F420": "The status-chip block the examination found missing, the file-selector-button presentation, the card block, the shortcut rows unscoped from the overlay host and the issue rules. The file carries the sha256 prefix of its own bytes, so this change renames it again and the old name goes.",
+"F421": "The signed-IN page arm: the same rows partial and the same keyboard-help class, inside the application frame with the nav. A template cannot choose its parent at run time, so the two frames are two templates over one row source.",
+"F422": "The release note wording corrected to the shipped behaviour, by the user decision of 2026-11-21.",
+"F427": "ONE card frame owns every chrome-less page. templates/card_page.html extends base.html and renders one centred main.page-card with the product name as a brand LINE, not a heading, so each page keeps its single h1. It is extended by the signed-out auth family: signin, forgot, forgot_sent, bootstrap_claim, invite_accept and reset_password, and by the SIGNED-OUT arm of the shortcut page alone. A signed-in operator gets the application frame instead, by the user decision of 2026-11-21, because for her the card is a page with no way back. No sidebar and no theme control is included in the card frame, which the shipped theme read asserts for the sign-in screen. Stylesheet: one page-card block naming existing tokens, centred with auto inline margins and a max inline size, full width inside the page padding below the shipped phone breakpoint. Layers: Adapter only.",
+"F428": "The issue page reads as the issue. views::IssuePage carries title, description and status_chip; STATUS_SLUG IS DROPPED by the user decision of 2026-11-21, because the chip renderer already carries the slug in its own data-state and a second field made the same fact readable in two places. comments.rs::render_issue_page fills the three from ONE existing read, store::issue_edit_view over the project and number the handler already resolved: no new SQL, no new store function, no new authorization. issue.html keeps its h1 holding the key alone, which a shipped browser read asserts; the title takes its own h2; the status is the shipped chip, rendered through issues.rs::render_state_chip and embedded with the no-escape filter exactly as base.html embeds the site footer, so one renderer serves the page and the board swap. THE CHIP IS STYLED: the examination found span.state with no rule anywhere in the stylesheet, so the stylesheet gains a state block on the recessed surface tier, the pairing the keycap already uses, which is what makes the chip a chip rather than bare text. THE ATTACHMENT CONTROL IS STYLED: the file input's own button is drawn through the file-selector-button pseudo-element with the shipped secondary-button presentation, muted border and no fill, because the examination found the browser's own grey control; the input keeps its type, its name and its required flag. The description region is always present and carries the data-issue-description marker: the stored text escaped with its line breaks preserved, or the empty copy. The comment markdown sanitizer is deliberately not consumed: rendering issue markdown would add a product promise and a second consumer of it. Layers. Domain: none. Application: one more projection of the issue already resolved. Adapter: issue.html plus the title, description, chip and file-button rules. Observation: the page text, the chip and its data-state.",
+"F429": "Cache contract of a route whose body AND frame vary by request. One URL answers two bodies by a request header and, since the user decision of 2026-11-21, two frames by the session cookie. Both facts go in the response. Every answer from every arm carries Vary: Sec-Fetch-Dest, Cookie, so no cache keyed on the URL alone can hand the framed page to the overlay fetch, the bare fragment to a navigation, or one operator's framed page to another operator. The PAGE arm additionally carries Cache-Control: no-store, because its signed-in frame names the operator's workspace in the rail: a private cache that reused it would show a signed-out or different operator that identity through the back button, and Vary on Cookie alone does not stop a reuse after the cookie is cleared. The fragment arm stays cacheable under the two Vary names, because its body is identical for every client of that arm and carries no identity. The headers are set once beside the arm decision, on every arm, and the oracle reads them on every arm, because a missing header is a defect even when the body is right and is visible only at a cache and only to the other reader.",
 "F43": "No authority bounds the stored issue title or description length, and the store holds both as unbounded text, so the page shows whatever is stored, wrapped, with no truncation and no ellipsis. That is wider than any bound because no bound exists; a truncating page would be a product decision this Request does not hold. The shortcut list is the closed seven-row shipped table.",
+"F430": "Shipped promises this Request must not break: GET /keyboard-help answers a body with no html wrapper to every request that does not declare the document destination; the overlay keeps its dialog container with its role and label and its key-and-description pairs; THE NO-SCRIPT FULL-PAGE HELP KEEPS WORKING, found by the keyboard-help class with no role and no aria-label on the page arm, which is the only way to read the list with scripting off (keyboard-shortcut-bindings.feature:115); the sign-in screen carries no rail and no theme-named control and renders in both palettes; the sign-in and forgot pages stay full documents linking the stylesheet from the application's own static path; the issue page heading text equals the issue key; the board status chip keeps the slug as its data-state and as its text; no colour literal outside the three stylesheet token regions and the three regions declare the identical token set; every static reference resolves and every content-hashed name is its own sha256 prefix; the user menu still links to /keyboard-help; the pre-paint head scripts keep no defer, async or module attribute and every other head script keeps defer; exactly one primary nav member is marked on every authenticated page, which the shortcut page's new application frame now joins.",
+"F431": "The shortcut page takes the application frame when a session resolves and the card when none does, by the user decision of 2026-11-21. The route therefore reads the session and assembles the nav, and it stays PUBLIC: no session is the card arm, never a refusal, which keeps the help reachable from the sign-in page where a stuck operator asks for it. The frame choice is not an authorization decision and changes who may open no page.",
+"F432": "Examination follow-up outside this design's reach: the examine probe gains a state with an unclaimed install and its claim link so the first-admin claim page can be examined, and that probe, scripts/examine-foundry, is root owned. Expectations E9 to E11 read the browser's own password manager rather than Foundry and retire as expectation defects at the next examination; what this design owes for P4 is the served token itself, which the autocomplete law reads.",
+"F433": "The shipped application frame, unchanged. The shortcut page's signed-in arm renders a template that extends it, so the nav, the content column and the footer come from the one owner; the signed-out arm takes the card frame instead.",
+"F434": "The one served stylesheet and this feature's main carrier. It gains the status-chip block the examination found missing, the file-selector-button presentation for the attachment control, the card block, the shortcut rows unscoped from the overlay host and the issue title and description rules. Every value names an existing token, and the file is renamed to the sha256 prefix of its new bytes.",
+"F435": "The shipped neutral nav constructor for a page that owns no primary rail member; the shortcut page's signed-in arm uses it, so the mark and the fail-closed identity read stay decided in one place and no new nav rule appears.",
+"F436": "The release note for this Request claims a styled status and a styled attachment control; the user decided on 2026-11-21 that its wording is corrected to match what ships, so the entry is a reader of this design.",
+"F437": "The signed-out page arm, already shipped on the card frame. It keeps the keyboard-help class and no role and no aria-label, which the no-script lane depends on, and it stays the arm a visitor with no session is given.",
+"F438": "The signed-in page arm. A template cannot choose its parent at run time, so the application frame needs its own template extending app_shell; it includes the SAME rows partial and keeps the same keyboard-help class, so the two frames share one row source and one selector.",
+"F439": "The status-chip block, the file-selector-button presentation, the card block, the unscoped shortcut rows and the issue rules; the file is renamed again to the sha256 prefix of its new bytes and its three readers move with it.",
 "F44": "P4 names eight inputs: the email and the password on sign-in and on first-admin claim, and the password and its confirmation on invite accept and password reset. The Request's six fields is the count of PASSWORD inputs in the screenshot review, at signin.html:9, bootstrap_claim.html:8, invite_accept.html:11-12 and reset_password.html:9-10; the two email inputs come from P4's own wording. The email input of forgot.html gets no token, because no promise names it.",
-"F46": "The shortcut page carries no rail. GET /keyboard-help is public and session-free by its own shipped rationale, the sign-in page loads the keyboard layer too, and the app shell needs a resolved nav identity. Adding a session read would change who the route serves, which scope-out forbids. Its same look as the rest of Foundry is the card frame, the stylesheet and the typography, not the rail.",
+"F440": "The wording is corrected to the shipped behaviour: a styled status chip, the attachment control drawn like the secondary button, and the shortcut page framed by the session.",
+"F441": "The shortcut page's signed-in arm calls the shipped constructor; no nav rule, no section and no mark changes.",
+"F442": "The no-script full-page help stays found by the keyboard-help class with no role and no aria-label on the page arm, in both frames.",
+"F443": "New: the signed-in page arm inside the application frame with the nav.",
+"F447": "empty destination, which the overlay fetch sends, signed in or out: bare fragment",
+"F448": "iframe destination: bare fragment",
+"F450": "Each signed-out page of the auth family, and the signed-out arm of the shortcut page, is one full document that links the stylesheet from the application's own static path and draws exactly one centred card carrying the product name and that page's single h1, with no navigation rail and no theme control, at the harness desk viewport and at the emulated phone device. A signed-in operator opening the shortcut page gets the application frame instead, with the nav.",
+"F451": "the shortcut page with no session: the card",
+"F452": "the shortcut page with a session: the application frame with the nav, not the card",
+"F453": "The pages are the closed set this Request names and each is read once per viewport, so the rows exhaust the domain.",
+"F454": "Each of the eight named inputs carries exactly the autocomplete token its flow needs, as served: username and current-password on sign-in, username and new-password on first-admin claim, new-password on both invite-accept fields and on both password-reset fields; and NO NINTH INPUT on any page this Request touches carries an autocomplete token.",
+"F455": "every other input of every touched page, counted on the served markup: no token, so the count of token-carrying inputs over those pages is exactly eight",
+"F456": "The inputs are the closed set P4 names, and the ninth-input row is a count over the served markup of the touched pages, so the rows exhaust the domain.",
+"F458": "an issue with a title and a description: title shown, marked region holds the stored text with a non-empty class",
+"F459": "an issue with an empty description: the marked region holds the empty copy and there is still exactly one region",
+"F460": "an issue in each shipped state: the chip data-state equals the stored slug AND the chip resolves a background, a border and a radius of its own in the live browser",
+"F463": "Every response of GET /keyboard-help, from every arm, carries Vary: Sec-Fetch-Dest, Cookie, and the page arm additionally carries Cache-Control: no-store, so no cache can answer one arm's request with another arm's body and no private cache can replay one operator's framed page to another reader.",
+"F464": "document destination with a session: the framed page, both Vary names AND no-store",
+"F465": "document destination with no session: the card page, both Vary names AND no-store",
+"F466": "empty destination: the bare fragment and both Vary names, cacheable",
+"F467": "no destination header: the bare fragment and both Vary names, cacheable",
+"F468": "The arms are the closed set the variant law enumerates and the headers are named values on each, so four rows exhaust the domain.",
+"F469": "Input: a browser navigation from the rail link at partials/sidebar.html:78 or the dashboard link. Constructor: help_variant plus the session read and the shipped nav constructor in keyboard.rs, then the application-frame page view-model or the card page view-model. Consumer: the HTML response of show_keyboard_help with its Vary and no-store headers. Public port: GET /keyboard-help, read signed in and signed out, which is the oracle stimulus.",
+"F470": "The total variant decision, the one row builder, the session read, the CSRF mint and its Set-Cookie, the instance-admin read and the home_for call that assemble the signed-in frame, the third render, and the Vary: Sec-Fetch-Dest, Cookie header on every arm with Cache-Control: no-store on the page arms.",
+"F471": "Through the real public driving port. Signed out, with no session cookie, a visitor opens /sign-in, /forgot-password, the first-admin claim at /bootstrap with a live token from the probe's unclaimed install, /invites/accept with a live id and signature, and /reset-password with a live token; each is read as served markup and rendered in the browser lane at the harness desk viewport and at the emulated 390 by 844 phone device, in both palettes. The shortcut list is opened FIVE ways, with the response headers read on each: a browser NAVIGATION from the rail link with a signed-in session; the sign-out form of that framed page is then SUBMITTED; a navigation carrying a session cookie whose acting user has been removed from the store; a navigation with no session; and a script fetch declaring the empty destination, beside a plain read declaring the document destination. A signed-in team member opens /team/{team}/project/{project}/issues/{n} for an issue with a title, a description and a known state, and again for an issue whose description is empty, and the computed style and the contrast of the status chip and of the attachment control's own file-selector button are read with the device preference dark and again light; she also presses the shortcut key that opens the overlay on a board page.",
+"F472": "Each signed-out page is one full document that links the stylesheet from the application's own static path and draws exactly one centred card: the product name above the page's own single heading, the form inside the card, visible margin at desk width and full width inside the page padding on the phone, and no navigation rail and no theme-named control on it. Over those touched pages the inputs carrying an autocomplete token are EXACTLY eight and no more: sign-in username and current-password, claim username and new-password, and new-password on both invite-accept and both password-reset fields, the forgot email carrying none. The signed-in navigation to the shortcut list returns the normal application frame with the nav, with Home marked and no second member marked, every rail destination on the page, and a sign-out form whose token equals the token in that same answer's CSRF cookie; submitting it ends the session. The navigation whose session user no longer resolves returns the centred card, with no rail, no workspace name and no refusal, and so does the navigation with no session. Both page arms carry the keyboard-help class with no role and no aria-label, and both pair each shipped key with its description on one line above the selection instruction. The script fetch and the no-header read still return the bare fragment with no html wrapper, the dialog container with its role and label, and the identical rows in the identical order. EVERY one of those answers carries Vary naming both Sec-Fetch-Dest and Cookie, and each page arm also carries Cache-Control: no-store. The issue page shows the key as its heading text, the stored title, exactly one description region carrying the data-issue-description marker whose text element has a non-empty class, the stored text with its line breaks and nothing drawn as markup, the empty copy when nothing is stored, and the shipped status chip whose data-state is the stored value, which resolves the keycap pairing it reuses: an opaque --cz-bg-2 background rather than a translucent tint, a --cz-line hairline, a radius of its own, and --cz-text glyphs reaching 4.5 to 1 against that surface in both palettes. The attachment control's file-selector button resolves the secondary control it reuses: a --cz-surface background, a --cz-muted border carrying its own 3 to 1 boundary and a --cz-text label reaching 4.5 to 1 in both palettes; the Delete control still follows its href to the confirm page.",
+"F473": "The build the first examination refused fails these: the signed-in shortcut page is a card with no frame, no nav and no way back; the status span resolves no rule anywhere and the board draws no chip to compare it with; the attachment control is the browser's own grey button; and the answers name only the destination header. Each law also fails on its own plausible wrong implementation: framing the signed-in page but leaving the signed-out one unframed is caught by the two navigations read separately; assembling the frame without the CSRF mint, or dropping its Set-Cookie, is caught by the sign-out submission from that page, which the double-submit check then refuses while every other page's sign-out still works; marking no member, or marking a second one, is caught by the exactly-one-marked reading, and marking a member the page does not own is caught by its Home reading; a neutral-identity frame for a session whose user is gone is caught by the removed-user navigation, which must answer the card; serving the framed page to every client is caught by the script fetch and the no-header read, which must still get no html wrapper; dropping the keyboard-help class or adding a dialog role to a page arm is caught by the no-script reading that finds the list by that class; Vary on the page arm alone, or on the destination alone, is caught by the header read on all five answers; a chip with a background, a border and a radius whose glyphs fall below 4.5 to 1, or whose surface is a translucent tint a measurement walks straight through, is caught by the contrast and opacity readings in both palettes; a file-selector button that takes the global black fill, or whose label falls below 4.5 to 1, is caught by the same readings on it; a description region with the marker but an empty class shape is caught by the non-empty class reading; a ninth input quietly gaining a token is caught by the exact count of eight; rendering the stored description as markup is caught by the generated property with a script tag in the text; and editing the stylesheet without renaming it is caught by the shipped asset-hash layer.",
+"F474": "ONE shortcut route, two bodies and two frames. GET /keyboard-help keeps one URL and one row source. WHICH BODY: decided from the destination the client declares in Sec-Fetch-Dest, a header page script cannot set; the document destination, carried only by a top-level navigation, answers a page, and every other declared destination and an absent header answer the bare overlay fragment, which keyboard.js assigns into the overlay host and which the shipped HTTP read asserts. WHICH FRAME, by the user ruling of 2026-11-21: the page arm renders the normal application frame with the nav when the session resolves to an acting user, and the centred card when it does not. THE FRAME'S INPUTS, exactly as the shipped caller at crates/foundry-app/src/projects.rs:88-101 assembles them: the handler takes the application state, the session and the request headers; it reads the signed-in user from the session, mints the per-request double-submit token with crate::csrf::ensure_csrf_cookie, which returns the token and an optional Set-Cookie; it resolves the acting user's real instance-admin authority with crate::nav::resolve_is_instance_admin, fail-closed; and it calls crate::nav::NavContext::home_for with the state, the session user's user_id, the session user's workspace_id, that instance-admin flag and that same token. The answer then carries the Set-Cookie through crate::csrf::response_with_optional_cookie, so the rail footer's sign-out form carries a token the cookie matches and the sign-out POST clears the double-submit check; omitting the mint or the cookie leaves a sign-out that is refused from this page alone. THE MARK: the shortcut page owns no primary rail member, so home_for marks Home, which is the shipped answer for every page that owns none, and exactly one member stays marked. NO SESSION, OR A SESSION WHOSE USER NO LONGER RESOLVES: the card arm answers, never a neutral-identity frame and never a refusal, because a rail assembled for an identity the store no longer answers for would draw a workspace name and admin items that are not hers; the route therefore stays PUBLIC and the help stays readable from the sign-in page. Carriers: HelpVariant for the body, the resolved session user for the frame, both decided once in keyboard.rs; no new error. Rows: one shortcut_entries builder feeds all three renders. Layers. Domain: none. Application: one session read, one token mint, one instance-admin read and one nav assembly, no authorization decision. Adapter: the rows partial is included by the overlay container, the card page arm and the application-frame page arm, both page arms keeping the keyboard-help class with no role and no aria-label. Observation: the response body shape, the frame and its marked member, the sign-out token against the cookie, and the rows.",
+"F475": "The shipped per-request double-submit mint. The signed-in page arm calls it exactly as the shipped nav callers do, and passes the SAME token to the nav, so the rail footer's sign-out form is cookie-matched; a frame assembled without it carries a sign-out the CSRF check refuses.",
+"F476": "The shipped wrapper that attaches the mint's optional Set-Cookie to the answer. Without it the token in the form has no cookie to match on a first visit.",
+"F477": "The shipped fail-closed read of the acting user's real instance-admin authority, one of home_for's three caller-supplied inputs; reusing it keeps the Instance-admin item following actual authority on this page as on every other.",
+"F478": "GET /keyboard-help is navigated with a session cookie whose acting user the store no longer answers for, for example a deleted or deactivated account whose session has not expired.",
+"F479": "The centred card arm, the same body a visitor with no session receives: no rail assembled for an identity the store cannot confirm, no workspace name, no admin item, no refusal and no 500. The handler cannot tell a stale session from no session beyond this read, and it does not try: both answer the card.",
 "F48": "The one owner of the route. It gains the total variant decision and reads the request headers; its public, session-free contract and its 200 HTML response are unchanged, so no caller and no link moves.",
+"F480": "A request to GET /keyboard-help that declares the document destination receives a page; every other declared destination, and a request that declares none, receives the bare fragment with no html wrapper. The page arm's FRAME follows the session: the normal application frame with the nav when the session resolves to an acting user the store still answers for, the centred card when there is no session or that user no longer resolves. In the framed arm exactly one primary nav member is marked, Home, and the rail footer's sign-out form carries a token the answer's own CSRF cookie matches.",
+"F481": "document destination with a resolved session: the application frame with the nav, Home marked and no second marked member, and a way back",
+"F482": "document destination with a resolved session: the sign-out form's token equals the token in the answer's own CSRF cookie, and a sign-out posted from this page succeeds",
+"F483": "document destination with no session: the centred card, no rail",
+"F484": "document destination with a session whose user no longer resolves: the centred card, not a frame with a neutral identity, and not a refusal",
+"F485": "The destinations a client can declare are a closed set, and the session either resolves to a user the store answers for, resolves to one it does not, or is absent, so these rows exhaust the product of the two facts the arm and the frame are decided from; the decision is one step with no state, so a generator would redraw the same table.",
+"F486": "The issue full page draws the issue key as its heading text, the stored title, exactly one description region carrying the data-issue-description marker and a non-empty class on its text, and the shipped status chip, which resolves a style of its own rather than bare text, sits on an opaque surface and whose data-state is the stored status value; its Delete control keeps the href that is its whole mechanism and its presentation, and the attachment file control's own button resolves the secondary-button presentation rather than the browser's default. The chip's text and the button's text each reach 4.5 to 1 against the surface behind them, in both palettes.",
+"F487": "the chip block names the keycap pairing it reuses: an OPAQUE --cz-bg-2 background, a --cz-line hairline and --cz-text glyphs, never a translucent tint, so a measurement that walks up for a background finds a real surface; the chip text reaches 4.5 to 1 against that surface with the device preference dark and again with it light",
+"F488": "the file-selector button block names the secondary control it reuses: a --cz-surface background, a --cz-muted border and --cz-text label, with no fill of its own; the button text reaches 4.5 to 1 against that surface with the device preference dark and again with it light, and the border carries the control's own 3 to 1 boundary as every control outside the left nav does",
+"F489": "The states are the project's closed lane set, the description is present or empty, and each control is read once per palette, so the rows exhaust the structural domain; the text domain is carried by the generated property.",
 "F49": "The single source of the advertised rows. Both arms derive from it through one new private builder, so an added row reaches the page and the overlay together; a page with its own hard-coded list is the drift this file's own comment warns about.",
-"F5": "An issue's full page shows its key, title, description and status, so the operator can read the issue there, and its other controls (delete, attachments) are styled like the rest of Foundry.",
 "F50": "The overlay view-model keeps its selector-identical contract and now includes the extracted rows partial; a sibling page view-model carries the same two fields, so neither arm owns a second copy of the row shape.",
 "F51": "Keeps the dialog container with its role and label that the shipped templating read asserts, and includes the rows partial instead of declaring the rows itself.",
 "F52": "No template today owns the shortcut rows apart from the dialog container that wraps them, and the page arm needs the rows WITHOUT that container: a page is not a dialog. Extracting them gives both arms one row owner; including the whole dialog on the page would put a dialog role on a document.",
-"F53": "The page arm needs a full document with its own h1; the overlay fragment cannot be that document, and no shipped template renders the shortcut list as a page.",
 "F54": "No template owns a chrome-less centred frame: the signed-out templates each place their content directly in base.html's content block, and app_shell.html is the rail frame a signed-out page and the public shortcut page may not render. One new frame is what keeps the card, its product name and its width in a single place instead of seven.",
 "F55": "The one owner of the head, the stylesheet link, the pre-paint scripts and the footer. The card page extends it rather than declaring a second head; the only edit here is the stylesheet link taking the new content hash.",
 "F56": "Keeps its h1, its error paragraph, its OIDC link, its forgot link and its form exactly as shipped; it changes which frame it extends and its two inputs gain their autocomplete tokens.",
@@ -2089,7 +2231,6 @@
 "F64": "The single place the issue page view-model is materialized; it fills the four new fields from the existing read, so no handler grows a second render path.",
 "F65": "The shipped projection that already answers title, description and state for the edit dialog, over the project id and number the page handler holds. A new query or a widened lookup row would make two owners of the same projection.",
 "F66": "The one owner of the status chip markup, today serving the board's drag-and-drop swap. It becomes crate-visible so the issue page embeds the SAME chip; a second chip shape on the page would let the two drift.",
-"F67": "The one served stylesheet and this feature's main carrier: the card block, the shortcut row rules unscoped from the overlay host, the issue title, description and status rules, and the file-input rules. Every value names an existing token, and the file is renamed to the sha256 prefix of its new bytes.",
 "F68": "The asset register that records the stylesheet name and its sha256; it is a reader of the content-hashed name, so the rename travels here in the same commit.",
 "F69": "Three cache-policy assertions name the stylesheet path literally, so they are readers of the content-hashed name and move with the rename.",
 "F7": "Keyboard shortcuts page, signed-out pages, the issue full page, and autocomplete on the six sign-in and password fields.",
@@ -2108,7 +2249,6 @@
 "F81": "Extends the card frame; email and password take their tokens.",
 "F82": "Extends the card frame; both password inputs take the created-password token.",
 "F83": "Title, description region and status join the header; the heading, the Delete mechanism and every form are preserved.",
-"F84": "New card, row, issue and file-input rules, the shortcut rows unscoped from the overlay host, and the file renamed to the sha256 prefix of its new bytes; browsers holding the old immutable URL are unaffected because the old name is gone and the new link ships with it.",
 "F85": "The stylesheet link takes the new content hash; nothing else in the head moves.",
 "F86": "Its fetch declares the empty destination, so it keeps receiving the same bare fragment and keeps assigning it into the overlay host; no header is added to it.",
 "F87": "The rail link keeps its href, and a click on it is now the navigation that gets the framed page.",
@@ -2151,13 +2291,37 @@
 "kind": "Confirmed"
 },
 "text": "F294"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F413"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F414"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F415"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F416"
 }
 ],
 "promises": [
 {
 "id": "P1",
 "kind": "Outcome",
-"text": "F3"
+"text": "F411"
 },
 {
 "id": "P2",
@@ -2167,7 +2331,7 @@
 {
 "id": "P3",
 "kind": "Outcome",
-"text": "F5"
+"text": "F412"
 },
 {
 "id": "P4",

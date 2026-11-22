@@ -25,7 +25,7 @@ None.
 Outcome
 
 ```text
-The keyboard shortcuts page has the same look as the rest of Foundry, and each key sits on the same line as what it does.
+The keyboard shortcuts page has the same look as the rest of Foundry: signed in, it sits in the normal application frame with the nav; signed out, in the centred card; and each key sits on the same line as what it does.
 ```
 
 ### P2
@@ -41,7 +41,7 @@ Sign in and every other signed-out page (first-admin claim, invite accept, passw
 Outcome
 
 ```text
-An issue's full page shows its key, title, description and status, so the operator can read the issue there, and its other controls (delete, attachments) are styled like the rest of Foundry.
+An issue's full page shows its key, title, description and status, so the operator can read the issue there; the status is a styled status chip, and its other controls (delete, the attachment file control) are styled like the rest of Foundry.
 ```
 
 ### P4
@@ -93,6 +93,42 @@ Confirmed
 
 ```text
 User decision 2026-11-21: the issue full page shows the shipped status chip with the stored status value; human status labels are a later change.
+```
+
+#### Status
+
+Confirmed
+
+
+```text
+User decision 2026-11-21: the keyboard shortcuts page sits in the normal application frame with the nav when the operator is signed in, and in the centred card when signed out.
+```
+
+#### Status
+
+Confirmed
+
+
+```text
+User decision 2026-11-21: the issue page status is a styled status chip, and the attachment file control's button is drawn like Foundry's secondary button; the CHANGELOG wording is corrected to match.
+```
+
+#### Status
+
+Confirmed
+
+
+```text
+User decision 2026-11-21: drop IssuePage.status_slug; add the no-script full-page keyboard help (keyboard-shortcut-bindings.feature:115) to the preserved promises; feature-prefix ADR-002 and ADR-003 as ADR-BARE-PAGES-nnn and record amended-by, not superseded-by; fix the two weak oracle readings (autocomplete on no ninth input; refuse a classless description shape).
+```
+
+#### Status
+
+Confirmed
+
+
+```text
+User decision 2026-11-21: the examine probe gains a state with an unclaimed install and its claim link, so the first-admin claim page can be examined; expectations E9 to E11 test the browser's password manager, not Foundry, and are retired as expectation defects; the oracle still checks the autocomplete tokens.
 ```
 
 #### Status
