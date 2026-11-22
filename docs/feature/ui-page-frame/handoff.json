@@ -2,7 +2,8 @@
 "counters": {
 "B": 3,
 "C": 2,
-"F": 295,
+"E": 13,
+"F": 321,
 "K": 7,
 "L": 7,
 "N": 3,
@@ -1167,6 +1168,114 @@
 }
 }
 },
+"expectations": {
+"rows": [
+{
+"id": "E1",
+"lacuna": "F297",
+"promises": [
+"P1"
+],
+"text": "F296"
+},
+{
+"id": "E2",
+"lacuna": "F299",
+"promises": [
+"P1"
+],
+"text": "F298"
+},
+{
+"id": "E3",
+"lacuna": "F301",
+"promises": [
+"P1"
+],
+"text": "F300"
+},
+{
+"id": "E4",
+"lacuna": "F303",
+"promises": [
+"P1"
+],
+"text": "F302"
+},
+{
+"id": "E5",
+"lacuna": "F305",
+"promises": [
+"P2"
+],
+"text": "F304"
+},
+{
+"id": "E6",
+"lacuna": "F307",
+"promises": [
+"P2"
+],
+"text": "F306"
+},
+{
+"id": "E7",
+"lacuna": "F309",
+"promises": [
+"P3"
+],
+"text": "F308"
+},
+{
+"id": "E8",
+"lacuna": "F311",
+"promises": [
+"P3"
+],
+"text": "F310"
+},
+{
+"id": "E9",
+"lacuna": "F313",
+"promises": [
+"P3"
+],
+"text": "F312"
+},
+{
+"id": "E10",
+"lacuna": "F315",
+"promises": [
+"P4"
+],
+"text": "F314"
+},
+{
+"id": "E11",
+"lacuna": "F317",
+"promises": [
+"P4"
+],
+"text": "F316"
+},
+{
+"id": "E12",
+"lacuna": "F319",
+"promises": [
+"P5"
+],
+"text": "F318"
+},
+{
+"id": "E13",
+"lacuna": "F321",
+"promises": [
+"P5"
+],
+"text": "F320"
+}
+]
+},
 "facts": {
 "F1": "clean up the ui (visual pass, group B page frame and forms plus D1 and D2). Agreed with the user: B1 one content width and spacing on every app page (today the left edge is 424 px on Home, 272 px on the board and invites, 292 px on Teams, tokens and settings); B2 inputs sized to their content and styled lists, number and file inputs (fields stretch about 1100 px wide beside tiny unstyled controls on Teams, tokens, invites, Matrix and instance admin); B3 section headings and spacing on stacked forms (the orphaned Teams Save button, the nested bullet lists of rename forms on instance admin, raw fieldsets on settings); D1 a quiet, not primary, Delete in the issue dialog; D2 a tidy board header (Key prefix: AUTH is plain text, Change report and Integrations are run-together underlined links).",
 "F10": "User decision 2026-11-20: the UI clean-up covers groups A to D, delivered as three Requests; this one is group B plus D1 and D2.",
@@ -1371,8 +1480,34 @@
 "F293": "The change report of the same project: the same label and its own data-key-prefix equal to the stored key",
 "F294": "The live board after a change elsewhere: board-live.js still derives its URL from a.report-link[href] and the board still refreshes",
 "F295": "Two headers and a closed set of board states.",
+"F296": "Moving between the signed-in pages (Home, the board, Teams, invites, tokens, settings), the user sees each page's content begin at the same left edge beside the nav, so the content never jumps sideways from page to page.",
+"F297": "A user sees only the pages she visits: a signed-in page outside the sampled set, or a page in an empty, error or loading state, can still start at a different edge, and she cannot see whether a page added later keeps the edge.",
+"F298": "On every signed-in page the gap between the top of the page frame and the first line of content is the same, so the first heading sits at the same height on each page.",
+"F299": "The user judges the top gap on a page as she first lands on it; she cannot see whether the gap holds while the page is scrolled, with a long or wrapped page title, or when a banner or flash message is present above the content.",
 "F3": "Every signed-in app page starts its content at the same left edge and the same top spacing beside the nav, at the same width, at desk width and on a phone.",
+"F300": "At desk width and on a phone the content keeps the same frame: it fills the same width as the other pages, is not clipped, and needs no sideways scrolling to read.",
+"F301": "Only the two widths she tries are visible to her: tablet and in-between widths, landscape on a phone, browser zoom and a larger system font are unobserved, and 'same width' is not something she can measure by eye.",
+"F302": "Home no longer shows a narrow centred column: its content starts at the same left edge as the other pages and its cards span the frame width (confirmed decision 2026-11-22).",
+"F303": "She sees the card row width on her own window only; she cannot see whether a wider or much narrower window keeps the cards inside the frame, nor whether a page with a single card still reads as intended.",
+"F304": "A short text field on an app form (for example a project key, a name or a number) is drawn narrow, about as wide as the value it holds, instead of stretching across the whole page beside its label.",
+"F305": "'As wide as what it holds' has no stated measure she can check: she cannot see whether the field still fits the longest value the form accepts, and a field that is too narrow for real content looks the same to her as one that is correctly sized.",
+"F306": "Every list (drop-down), number and file control on the app's forms is drawn in the same style as Foundry's other controls, so a form reads as one set of Foundry controls and not a mix of Foundry fields and plain browser widgets.",
+"F307": "She sees one browser on one operating system: the native look of these controls differs elsewhere, and the open drop-down list, the file picker, the number spinner and the focused, disabled and error states can still fall back to the browser default without her noticing on the closed, resting form.",
+"F308": "On a page that holds several forms, each form appears as its own visible section under its own heading, so she can tell where one form ends and the next begins.",
+"F309": "She can see that headings exist and that sections are separated, but not whether each heading names the right form, nor the heading order a screen reader announces.",
+"F310": "Each section's action button sits with that section's own fields, so no button is left over at the end of the page away from the fields it belongs to; Teams shows no orphaned Save.",
+"F311": "Position does not show binding: she cannot see which form a button actually submits, and she learns a wrong pairing only by pressing it and watching the result.",
+"F312": "Instance admin shows its rename forms as sections rather than nested bullet lists, and settings shows labelled sections rather than raw browser fieldsets with their default boxes and legends.",
+"F313": "Only the three named pages are promised: she cannot see whether any other page with several forms still shows bullet lists, raw fieldsets or an orphaned button.",
+"F314": "In the issue dialog Delete reads as a quiet, secondary control: the dialog's main action is clearly the more prominent one, and Delete is not what her eye or a stray Enter lands on first.",
+"F315": "'Quiet' is a judgement, not a value she can read off the screen: prominence depends on her own perception, and the keyboard default and focus order of the dialog are not visible from how the buttons look.",
+"F316": "Pressing Delete in the issue dialog still asks her to confirm before anything is deleted, and declining the confirmation leaves the issue in place.",
+"F317": "Seeing the confirmation appear does not show her the outcome: whether declining truly keeps the issue and confirming truly deletes it is only visible after she returns to the board, and dismissing by Escape or by clicking outside is a separate path she may never try.",
+"F318": "The board header shows the project key as a labelled value: the label 'Key prefix' with the key beside it, read as label and value rather than one run of plain text.",
+"F319": "She can see the label and the key, but not whether the pairing is announced as a label and value to a screen reader, nor how the header reads with an unusually long key.",
 "F32": "ONE BOX OWNS WHERE A PAGE STARTS. The app shell content box (.app-shell__content) is the single padding box between the window and an app page first content box: 24px block and 32px inline at desk width, 16px below the shipped 480px phone breakpoint. The shipped stylesheet has THREE writers of that one fact, which is the whole of B1: the frame box, the element rule main { padding: 20px } which adds a second box on every page that wraps its content in <main> (Teams, tokens, settings, instance admin, the integrations pages: 292px), and .dash which adds a centred max-width 880px column whose inline start is a function of the WINDOW (Home: 424px). The element rule is SCOPED, not deleted, to body > main, because four out-of-frame pages (email_stop, unsubscribe_confirm, unsubscribe_result, notifications) render <main> as a direct child of body and are out of scope; scoping states the real rule (a page with no frame pads itself, a framed page is padded by the frame) rather than defeating the old one with a padding: 0 override. .dash keeps its class and its colour and type rules, because feature_ui_nav_polish.rs:77 and feature_canzan_theme.rs:950 select on it, and loses its max-width, its auto margins and its padding. .page-card keeps its own padding (a class beats an element rule), so the card pages are unchanged. Carriers: the frame box in the stylesheet app-shell block; no new template, no new Rust type, no new state. Layers. Domain: none. Application: none. Adapter: app_shell.html unchanged, one scoped element rule, one .dash rule set reduced. Infrastructure: none. Observation: the computed inline start and block start of each page first content box, at both viewports.",
+"F320": "In the board header Change report and Integrations appear as two separate, clearly drawn controls with visible separation, not two underlined links running together into one word.",
+"F321": "A resting header does not show her the hover, focus and pressed states or the size of each control's clickable area, so two visually separate labels can still be hard to hit apart, and a narrow phone header may wrap them back together.",
 "F33": "THE FRAME SETS NO MAXIMUM CONTENT WIDTH. Promise P1 asks for the same width on every page, and the frame content box gives exactly that: the window minus the rail minus its own inline padding, identical on every page. A max-inline-size on the frame was rejected twice over: centred it reintroduces a window-dependent left edge, which is the Home defect being removed, and left-aligned it still narrows the BOARD, whose lanes need the window. Readable line length is therefore a FIELD decision (P2) and a SECTION decision (P3), not a frame decision. Layers: Adapter only.",
 "F36": "A STACKED FORM BECOMES A SECTION WITH A HEADING AND ITS OWN ACTION. One .page-section block carries the rhythm the dashboard already uses (the retired .dash__section margin), a heading and its fields, and holds the submit button INSIDE the section it belongs to. Teams gains two sections, Create a team and Default team for new members, which is what stops the Save button reading as orphaned at the foot of the page. Settings wraps its rows and its Project emails include as sections; the fieldset and legend in integrations/project_emails.html and integrations/route_form.html STAY, because a checkbox or radio group is exactly what a fieldset is for, and they are styled instead: no UA border, the legend drawn as the section sub-heading, the choices in a spaced column. Instance admin keeps every htmx marker and every outer element kind of its rename rows (li[data-project-row], div[data-workspace-head]) because form-errors.js and the hx-swap outerHTML targets resolve them; the nested bullet lists lose their markers and their UA indent through list-style: none and padding-inline-start: 0, and the hierarchy is carried by the workspace heading plus a hairline on the nested row group. NO inline padding is added to a page first content box, or B1 would be undone one section at a time. Layers: Adapter only. Observation: the served section structure, one heading per section with its submit inside it, and the computed inline start of the first content box.",
 "F37": "D1: DELETE IS THE SECONDARY CONTROL, NOT A GHOST. .modal-delete resolves NO rule today, so it inherits the global button fill --cz-black and reads as the dialog main action beside Save. It takes the shipped button.secondary pairing exactly: --cz-surface fill, --cz-muted border, --cz-text label. A borderless text or ghost control was REJECTED: ADR-NAV-POLISH-007 and ADR-BARE-PAGES-002 hold every control to an identifiable boundary at 3:1, and a quiet control with no fill and no border has no boundary to measure. Save stays the only --cz-black fill in the dialog, so the primary tier is unambiguous. The control keeps its type=button, its position outside the form, its data-action, its hx-get to the confirm fragment and its 24px target, so she is still asked to confirm. Layers: Adapter only. Observation: the computed fill and border of Delete against those of Save, in both palettes, and the confirm fragment it still fetches.",
