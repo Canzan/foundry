@@ -847,32 +847,28 @@ None.
 
 ### E1
 
-unmet
-
-#### Observations
-
-```text
-Keyboard shortcuts page, reached as the operator reaches it. Signed in as Priya at 1440x800, a browser NAVIGATION to /keyboard-help returns a full styled document (Foundry stylesheet foundry.e770ce20.css, <h1>Keyboard shortcuts</h1>, main.page-card centred at x=496 w=448). Its rendered landmarks are only: main, contentinfo. "other links on the page: 0". The same browser at the same width on another Foundry page, /team/backend/project/identity-platform, shows: complementary (left rail) x=0 w=240 h=800, banner, navigation "Primary" with the links Home, Board, Teams, Invite a member, Machine tokens, plus the Theme and Sign out controls and 4 further links. The shortcuts page carries none of that frame and offers the operator no link at all, although she arrived from the "Keyboard shortcuts" item in that very rail. The signed-in and signed-out responses for /keyboard-help are the same 2044-byte document, so the rail is absent for a signed-in operator too.
-```
-
-```text
-Shortcut rows, both response arms. A read that declares no destination, a read that declares Sec-Fetch-Dest: empty, and a navigation that declares Sec-Fetch-Dest: document all answer HTTP 200 with "vary: sec-fetch-dest". The two non-navigation arms return the bare fragment (section.keyboard-help, role=dialog, aria-label="Keyboard shortcuts", no html wrapper, 769 bytes); the navigation returns the full document. All three carry the identical <dl class="kb-shortcuts"> with the identical seven pairs in the identical order: c/Create issue, //Search, j/Next, k/Previous, Enter/Open selected, ?/Show this help, Esc/Close modal, followed by the same p.kb-selection-instruction.
-```
-
-product_violation
-
-### E2
-
 met
 
 #### Observations
 
 ```text
-Shortcut rows, both response arms. A read that declares no destination, a read that declares Sec-Fetch-Dest: empty, and a navigation that declares Sec-Fetch-Dest: document all answer HTTP 200 with "vary: sec-fetch-dest". The two non-navigation arms return the bare fragment (section.keyboard-help, role=dialog, aria-label="Keyboard shortcuts", no html wrapper, 769 bytes); the navigation returns the full document. All three carry the identical <dl class="kb-shortcuts"> with the identical seven pairs in the identical order: c/Create issue, //Search, j/Next, k/Previous, Enter/Open selected, ?/Show this help, Esc/Close modal, followed by the same p.kb-selection-instruction.
+Keyboard shortcuts page, signed in as Priya, browser navigation at 1280x800: the page arrives in the normal application frame. Landmarks complementary x=0 w=240 y=0 h=800, navigation "Primary" x=12 w=215 y=78 h=183 with the rail links Home (current=page, the only one marked), Board, Teams, Invite a member, Machine tokens, all painted and seen; buttons "Theme: following your device", "Left nav: expanded. Collapse the left nav." and "Sign out"; contentinfo footer x=0 w=1280 y=784. The same viewport on /team/backend/project/identity-platform and on the issue page /team/backend/project/identity-platform/issues/1 reports the identical frame (complementary x=0 w=240 h=800, the same Primary nav at x=12 w=215, the same footer), so the shortcuts page sits in the same frame as other Foundry pages and is not a bare default list. Its own text reads: heading "Keyboard shortcuts", then c Create issue, / Search, j Next, k Previous, Enter Open selected, ? Show this help, Esc Close modal, then the screen-reader instruction. No horizontal scroll and no box past the right edge.
 ```
 
 ```text
-Shortcut key/description pairing. The served rows are <dt>key</dt><dd>description</dd> pairs inside <dl class="kb-shortcuts">, and the stylesheet gives that list "display: grid; grid-template-columns: auto 1fr", so each dt sits in column 1 and its own dd in column 2 of the same grid row. The stylesheets only width-conditional blocks start at @media (max-width: 480px) further down and contain no .kb-shortcuts selector, so there is no narrow-width override. Rendered at 1440x800 and again at the emulated 390x844 phone: "horizontal scroll: no", "boxes that scroll sideways inside the page: none", "boxes that reach past the right edge (a clipped box is listed too): none"; the card is main x=496 w=448 at desk and main x=16 w=358 on the phone. Limitation: the rendered read reports landmarks and controls, not per-row boxes, so the one-line pairing is read from the grid definition plus the absence of any overflow or clipping, not from a measured row-by-row capture.
+Keyboard shortcuts page, signed out (no session), browser navigation at 1280x800: landmarks main x=416 w=448 y=48 h=463 and contentinfo only; no navigation landmark, no rail link, no sign-out button, no theme control, no horizontal scroll. That is the same centred-card geometry (main x=416 w=448) the signed-out /sign-in page reports at the same viewport, so the signed-out arm of the shortcuts page belongs to the same signed-out card family.
+```
+
+```text
+Keyboard shortcuts page, signed in as Priya, phone viewport 390x844: no horizontal scroll; the single box reaching past the right edge is the nav text "Machine tokens" (to x=404), and all five rail labels report words painted "not seen at its centre (clipped or covered)" in the 44px-wide collapsed rail. The project board page and the issue full page report exactly the same at the same viewport, so this is the application nav own phone behaviour on every signed-in page, not a trait of the shortcuts page.
+```
+
+### E2
+
+not_examined
+
+```text
+Not provable from here, see O4 and O1. The only page reader this examination can run prints landmark, button and link boxes and painted words for nav links and the focused control; it prints no box or line geometry for non-interactive text, so it never shows whether a key and its action share one painted line, and shot writes images this examiner cannot read. The seven key and action pairs are present in the served text at desk and phone width with no sideways scroll, which does not decide the pairing. Owner: the evidence-capture owner, who must expose element-level geometry for the shortcut rows at desk width, at a narrow phone width, with the longest description and at a large browser font.
 ```
 
 ### E3
@@ -882,40 +878,28 @@ met
 #### Observations
 
 ```text
-Signed-out sign-in page at desk width. Served markup is one full document whose body holds <main class="page-card"> with <p class="page-card__brand">Foundry</p> above its own <h1>Sign in</h1> and the form inside the same card; no navigation rail and no theme control appear on it. The stylesheet gives .page-card "max-inline-size: 28rem; inline-size: calc(100% - 2rem); margin-inline: auto". Rendered at 1440x800: main x=496 w=448, so the card takes 448 of 1440 px with an equal 496 px margin on each side; horizontal scroll: no; the "Sign in" button is visible at x=525.
+All five signed-out pages, read as served and in the browser at 1280x800 and at the 390x844 phone, each from its own live precondition. /sign-in reads "Foundry" then "Sign in", Email, Password, Sign in, Forgot password?. /forgot-password reads "Foundry" then "Forgot password", Email, Send reset link. /bootstrap?token=cABfsVkp... on a fresh unclaimed install reads "Foundry" then "Claim your workspace", Email, Password, Display name, Workspace name, Claim. /invites/accept?id=01a2025f-19d7-7f61-93d2-1ab1f3697d65&sig=VH_z6deI... from an invite minted by POST /invites reads "Foundry" then "Set your password", "Set a password for your Canzan Labs workspace.", New password, Confirm password, Set password and sign in. /reset-password?token=VIw-fZlh... from the reset mail reads "Foundry" then "Choose a new password", New password, Confirm password, Set password. In the browser every one of the five reports exactly one main landmark at x=416 w=448 of a 1280px page at desk width, that is 416px of margin on each side and one third of the window, and x=16 w=358 of a 390px page on the phone; the footer sits below the card; no page has any navigation landmark or theme-named control; every page reports horizontal scroll: no, no inner box scrolling sideways and no box reaching past the right edge; and each submit button is visible inside the viewport (Sign in, Send reset link, Claim, Set password and sign in, Set password).
 ```
 
 ### E4
 
-unmet
+met
 
 #### Observations
 
 ```text
-The other signed-out form pages at desk width. /forgot-password (<h1>Forgot password</h1>), /reset-password with a live token (<h1>Choose a new password</h1>) and /invites/accept with a live id and signature (<h1>Set your password</h1>, "Set a password for your Canzan Labs workspace") each serve one full document with <main class="page-card"> and <p class="page-card__brand">Foundry</p> above their own single h1 and their form inside that card. Rendered at 1440x800 each shows main x=496 w=448 with no horizontal scroll and its submit button visible: "Send reset link", "Set password", "Set password and sign in".
+All five signed-out pages, read as served and in the browser at 1280x800 and at the 390x844 phone, each from its own live precondition. /sign-in reads "Foundry" then "Sign in", Email, Password, Sign in, Forgot password?. /forgot-password reads "Foundry" then "Forgot password", Email, Send reset link. /bootstrap?token=cABfsVkp... on a fresh unclaimed install reads "Foundry" then "Claim your workspace", Email, Password, Display name, Workspace name, Claim. /invites/accept?id=01a2025f-19d7-7f61-93d2-1ab1f3697d65&sig=VH_z6deI... from an invite minted by POST /invites reads "Foundry" then "Set your password", "Set a password for your Canzan Labs workspace.", New password, Confirm password, Set password and sign in. /reset-password?token=VIw-fZlh... from the reset mail reads "Foundry" then "Choose a new password", New password, Confirm password, Set password. In the browser every one of the five reports exactly one main landmark at x=416 w=448 of a 1280px page at desk width, that is 416px of margin on each side and one third of the window, and x=16 w=358 of a 390px page on the phone; the footer sits below the card; no page has any navigation landmark or theme-named control; every page reports horizontal scroll: no, no inner box scrolling sideways and no box reaching past the right edge; and each submit button is visible inside the viewport (Sign in, Send reset link, Claim, Set password and sign in, Set password).
 ```
-
-```text
-The first-admin claim page could not be reached. Every state the probe offers is an already-claimed install; starting a state with --before produced the same claimed install and no claim link; the mail double held only invite, reset and password-changed messages and never a /bootstrap link; and GET /bootstrap without a token answers HTTP 400 "Missing token" on a page that is not the card page. So no observation of "Claim your workspace" (the first-admin claim form), at desk or phone width, and none of what a password manager is offered there, was captured.
-```
-
-observation_gap
 
 ### E5
 
-unmet
+met
 
 #### Observations
 
 ```text
-The signed-out pages at phone width. At the emulated 390x844 phone, /sign-in (main x=16 w=358), /forgot-password (x=16 w=358), /reset-password with a live token (x=16 w=358) and /invites/accept with a live invite (x=16 w=358) each report "horizontal scroll: no", "boxes that scroll sideways inside the page: none", "boxes that reach past the right edge (a clipped box is listed too): none", and each submit control is listed visible. The card takes the screen inside a 16 px page padding on both sides.
+All five signed-out pages, read as served and in the browser at 1280x800 and at the 390x844 phone, each from its own live precondition. /sign-in reads "Foundry" then "Sign in", Email, Password, Sign in, Forgot password?. /forgot-password reads "Foundry" then "Forgot password", Email, Send reset link. /bootstrap?token=cABfsVkp... on a fresh unclaimed install reads "Foundry" then "Claim your workspace", Email, Password, Display name, Workspace name, Claim. /invites/accept?id=01a2025f-19d7-7f61-93d2-1ab1f3697d65&sig=VH_z6deI... from an invite minted by POST /invites reads "Foundry" then "Set your password", "Set a password for your Canzan Labs workspace.", New password, Confirm password, Set password and sign in. /reset-password?token=VIw-fZlh... from the reset mail reads "Foundry" then "Choose a new password", New password, Confirm password, Set password. In the browser every one of the five reports exactly one main landmark at x=416 w=448 of a 1280px page at desk width, that is 416px of margin on each side and one third of the window, and x=16 w=358 of a 390px page on the phone; the footer sits below the card; no page has any navigation landmark or theme-named control; every page reports horizontal scroll: no, no inner box scrolling sideways and no box reaching past the right edge; and each submit button is visible inside the viewport (Sign in, Send reset link, Claim, Set password and sign in, Set password).
 ```
-
-```text
-The first-admin claim page could not be reached. Every state the probe offers is an already-claimed install; starting a state with --before produced the same claimed install and no claim link; the mail double held only invite, reset and password-changed messages and never a /bootstrap link; and GET /bootstrap without a token answers HTTP 400 "Missing token" on a page that is not the card page. So no observation of "Claim your workspace" (the first-admin claim form), at desk or phone width, and none of what a password manager is offered there, was captured.
-```
-
-observation_gap
 
 ### E6
 
@@ -924,77 +908,45 @@ met
 #### Observations
 
 ```text
-An issue full page carries this issues stored values. Through the public port as a signed-in member, GET /team/backend/project/identity-platform/issues/2 for an issue whose values were written in advance shows <h1>AUTH-2</h1> (the key alone as the heading), <h2 class="issue-title">Audit the signing keys</h2>, and <p class="issue-description__text"> holding the stored text "First line of the description\nSecond line after a break <script>alert(1)</script> and a < & > in it" with the line break kept as a literal newline and every angle bracket escaped, so the script tag is read as text and not drawn as markup; the stylesheet gives that paragraph "white-space: pre-wrap". The status appears as <span class="state" data-state="backlog">backlog</span>. A second issue with nothing stored, AUTH-1, shows "Nothing written down yet." in the same one description place. No dialog and no return to the board is needed; the page is the ordinary app page with the left rail.
+Issue full page, signed in as Lena, /team/backend/project/identity-platform/issues/1, for an issue this examination created through the public New issue form with a known title and a known two-line description. The page reads: AUTH-1 (the key, as the heading), then "backlog Delete", then the stored title "Readable issue with a description", then the stored description "First line of the description. Second line with <script>alert(1)</script> inside it." - the angle brackets are painted as text and nothing is drawn as markup - then No attachments yet, Attach a file, Upload, No changes yet, No comments yet, Add a comment, Post. A Delete link points to .../issues/1/delete. The same page for an issue created with no description reads "Nothing written down yet." in that place. The board shows AUTH-1 in the Backlog lane, so the stored status is backlog and the page status text matches it. In the browser at 1280x800 the page carries the normal frame (complementary x=0 w=240 h=800, Primary nav, Sign out, footer) and buttons Upload x=272 w=75, Post x=272 w=57 and "Attach a file" x=359 w=313; at 390x844 the same controls are visible, no horizontal scroll and no box past the right edge. Selecting In-Progress in the board dialog Status combobox without saving left the page reading backlog.
 ```
 
 ### E7
 
-unmet
-
-#### Observations
+not_examined
 
 ```text
-The status on the issue page is not a chip and matches nothing else in Foundry. The value does follow the stored status: with the issue in Backlog the page serves <span class="state" data-state="backlog">backlog</span>, and after the issue is moved to In-Progress through its own public state endpoint the same page serves <span class="state" data-state="in_progress">in_progress</span>. But the shipped stylesheet foundry.e770ce20.css contains no rule for .state and no rule for [data-state] anywhere: every occurrence of the word "state" in it is either prose in a comment or the unrelated .empty-state. The span therefore paints as plain inline body text, with no chip shape, border, background or colour. And <span class="state"> appears on no other public page: not on the project board (its issue cards carry only key and title, the status being the lane), not on the project change report, and not in the boards issue dialog. The shipped CHANGELOG states "its status in the same chip the board uses"; the board uses no such chip.
+Half provable only, see O6 and O7. The issue full page shows the stored status value for a known issue (backlog, matching the board lane), so the value part holds; whether it is drawn as the status chip the operator knows elsewhere is not decidable, because the reader gives no background, border, radius or contrast for that word and Foundry shows no second drawing of the chip to compare with: the board card carries no status text and the card dialog presents a Status combobox instead. Owner: the evidence-capture owner, who must expose computed style or contrast for the chip plus one reference chip elsewhere in Foundry.
 ```
-
-product_violation
 
 ### E8
 
-unmet
-
-#### Observations
+not_examined
 
 ```text
-The issue pages delete control is a Foundry control; its attachment control is the browser default. Delete is served as <a class="button secondary issue-delete" href=".../issues/2/delete">Delete</a>, and the stylesheet defines .button/.button.secondary fully (min-height 32px, 6px 12px padding, 1px border, radius, surface background, muted border), so it is drawn as one of Foundry own buttons; the Upload submit is a <button> covered by the shared button rule and is rendered visible at w=75. The attachment control itself is a bare <input type="file" name="file" required> whose only rules in the shipped stylesheet are "font: inherit; max-inline-size: 100%", above the stylesheets own comment: "The browser raw file control is the one thing on the issue page that does not belong to the application - it is drawn in the UA own face, beside her attachments." The rendered page lists it as button "Attach a file" w=313, the user agent widget. The surrounding section classes .attachments and .attachments-empty carry no rules at all.
+Not provable from here, see O8. The reader reports the attachments area as a button named "Attach a file" at x=359 w=313 beside Upload, and Delete as a link to .../issues/1/delete, but prints no background, border, radius, colour or contrast for any of them and no reference Foundry control, so it shows nothing about how they are painted. The custom label hints at a styled control and is not a reading of its appearance. Owner: the evidence-capture owner, who must expose computed style or contrast for the delete control and the file-selector button together with a comparable Foundry control.
 ```
-
-product_violation
 
 ### E9
 
-unmet
-
-#### Observations
+not_examined
 
 ```text
-What the served sign-in and password fields tell a browser. /sign-in serves <input type="email" name="email" autocomplete="username"> and <input type="password" name="password" autocomplete="current-password">. /reset-password with a live token serves <input type="password" name="password" autocomplete="new-password"> and <input type="password" name="confirm" autocomplete="new-password">. /invites/accept with a live invite serves the same pair of new-password fields. The email field on /forgot-password carries no autocomplete token. The first-admin claim page could not be reached, so its two tokens were not read.
+Not provable from here, see O9. What the promise names happens in the browser password manager, and the probe browser has no step to store a credential for the site, to open a profile carrying a saved entry, to type into a field, or to read a fill suggestion or a save prompt; the served-page reader prints the field input types (email, password) and no autocomplete token. The sign-in page itself is reached, served and painted as a card with its email and password fields. Owner: the evidence-capture owner, who must supply a real browser with a manager and one stored credential for the site and capture the fill suggestion and the save prompt.
 ```
-
-```text
-No password manager behaviour could be observed. The probe browser runs a fresh per-viewer profile with no stored credential for the site and no password-manager UI; its rendered read reports landmarks, buttons, links and focus only. No fill suggestion on /sign-in, no generated-password suggestion, no filling of both new-password fields with one value, and no save prompt after a successful sign-in or password set was captured on any page. The autocomplete tokens above are the intent the page declares, not an observed offer by a manager.
-```
-
-observation_gap
 
 ### E10
 
-unmet
-
-#### Observations
+not_examined
 
 ```text
-The first-admin claim page could not be reached. Every state the probe offers is an already-claimed install; starting a state with --before produced the same claimed install and no claim link; the mail double held only invite, reset and password-changed messages and never a /bootstrap link; and GET /bootstrap without a token answers HTTP 400 "Missing token" on a page that is not the card page. So no observation of "Claim your workspace" (the first-admin claim form), at desk or phone width, and none of what a password manager is offered there, was captured.
+Not provable from here, see O9 and O5. The first-admin claim page is reached on a fresh unclaimed install with a live token and shows its email, password, display name and workspace name fields in the centred card, but whether a manager offers a new generated password rather than an existing one is only visible in the manager, and no step of the probe browser stores a credential, opens a manager suggestion or reads a save prompt. Owner: the evidence-capture owner, who must supply a real browser with a manager on an unclaimed install and capture the password-field suggestion and the save prompt.
 ```
-
-```text
-No password manager behaviour could be observed. The probe browser runs a fresh per-viewer profile with no stored credential for the site and no password-manager UI; its rendered read reports landmarks, buttons, links and focus only. No fill suggestion on /sign-in, no generated-password suggestion, no filling of both new-password fields with one value, and no save prompt after a successful sign-in or password set was captured on any page. The autocomplete tokens above are the intent the page declares, not an observed offer by a manager.
-```
-
-observation_gap
 
 ### E11
 
-unmet
-
-#### Observations
+not_examined
 
 ```text
-What the served sign-in and password fields tell a browser. /sign-in serves <input type="email" name="email" autocomplete="username"> and <input type="password" name="password" autocomplete="current-password">. /reset-password with a live token serves <input type="password" name="password" autocomplete="new-password"> and <input type="password" name="confirm" autocomplete="new-password">. /invites/accept with a live invite serves the same pair of new-password fields. The email field on /forgot-password carries no autocomplete token. The first-admin claim page could not be reached, so its two tokens were not read.
+Not provable from here, see O9 and O5. Both pages are reached live - invite accept from an invite minted through POST /invites, and reset from a link in the mail double - and each shows a new password and a confirmation field in the centred card, but filling both fields with one value and a single save offer live in the manager; the probe browser cannot type, cannot carry a manager profile and reads no suggestion or save prompt. Owner: the evidence-capture owner, who must supply a real browser with a manager on a pending invite and on a reset link and capture both fields after fill and the save prompt.
 ```
-
-```text
-No password manager behaviour could be observed. The probe browser runs a fresh per-viewer profile with no stored credential for the site and no password-manager UI; its rendered read reports landmarks, buttons, links and focus only. No fill suggestion on /sign-in, no generated-password suggestion, no filling of both new-password fields with one value, and no save prompt after a successful sign-in or password set was captured on any page. The autocomplete tokens above are the intent the page declares, not an observed offer by a manager.
-```
-
-observation_gap
