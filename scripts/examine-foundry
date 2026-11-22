@@ -109,6 +109,9 @@
 #   board                       each board column by its heading, with the
 #                               keys of its cards top to bottom, and the dialog
 #                               that is open
+#   style <css selector>        the computed look of up to 8 matching elements:
+#                               box, padding, border, corner, fill, ink, font,
+#                               display and the opaque colour behind each
 #   scroll <bottom|top>         real mouse-wheel turns over the middle of the
 #                               window until the page reaches its bottom (or
 #                               top), then how far it is scrolled, how tall the
@@ -189,7 +192,7 @@ usage: examine-foundry start <state> [--before] [--replicas 2]
        examine-foundry new-issue [--replica 2] <viewer> <team>/<project> <title>
        examine-foundry browser <viewer> [--width px] [--height px] [--phone] [--js off] [--slow N] [--fresh] <step>...
            steps: go <path> | reload | watch-go <path> | watch-reload | look | key <Tab|Shift+Tab|Enter|Space|Escape> | tab-order <N> | click <name> | hover <name> | sign-in | width <px>
-                  | click-card <issue key> | choose <list name> <option> | board | shot <name> | scroll <bottom|top>
+                  | click-card <issue key> | choose <list name> <option> | board | shot <name> | scroll <bottom|top> | style <css selector>
        examine-foundry shots <dir>
        examine-foundry gate [--file <repo path> <your file>]...
        examine-foundry suite <tag> [--file <repo path> <your file>]...
@@ -1939,6 +1942,12 @@ try {
         await sleep(500);
         await board();
         break;
+      case "style": {
+        const sel = arg();
+        say(`\n> style ${sel}`);
+        await styleOf(sel);
+        break;
+      }
       case "scroll": {
         const to = arg();
         if (to !== "bottom" && to !== "top") fail("scroll takes bottom or top");
@@ -2327,6 +2336,35 @@ async function choose(field, option) {
   });
   if (String(result.value).startsWith("no option")) fail(result.value);
   say(`  ${result.value}`);
+}
+
+// The computed look of up to eight elements that match a CSS selector, as the
+// browser paints them now: the box, the padding, the border, the fill, the ink,
+// the font, the corner radius, and the opaque colour behind each one.
+async function styleOf(sel) {
+  const rows = await inPage((sel) => {
+    let found;
+    try { found = [...document.querySelectorAll(sel)]; } catch (e) { return { error: String(e.message || e) }; }
+    const behind = (el) => {
+      for (let n = el.parentElement; n; n = n.parentElement) {
+        const c = getComputedStyle(n).backgroundColor;
+        if (c && !/rgba\(.*,\s*0\)$/.test(c) && c !== "transparent") return c;
+      }
+      return getComputedStyle(document.documentElement).backgroundColor;
+    };
+    return { total: found.length, rows: found.slice(0, 8).map((el) => {
+      const r = el.getBoundingClientRect(), cs = getComputedStyle(el);
+      const tag = el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + [...el.classList].map((c) => "." + c).join("");
+      const text = (el.innerText || el.value || "").replace(/\s+/g, " ").trim().slice(0, 40);
+      return `${tag} "${text}" x=${Math.round(r.left)} y=${Math.round(r.top)} w=${Math.round(r.width)} h=${Math.round(r.height)}` +
+        ` padding=${cs.padding} border=${cs.borderTopWidth} ${cs.borderTopStyle} ${cs.borderTopColor}` +
+        ` radius=${cs.borderTopLeftRadius} fill=${cs.backgroundColor} ink=${cs.color}` +
+        ` font=${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily.split(",")[0]} display=${cs.display} behind=${behind(el)}`;
+    }) };
+  }, sel);
+  if (rows.error) fail(`the selector ${sel} is not valid: ${rows.error}`);
+  say(`  ${rows.total} element(s) match${rows.total > 8 ? ", the first 8 shown" : ""}`);
+  for (const r of rows.rows) say(`  ${r}`);
 }
 
 // Scroll the page as a person does: real mouse-wheel turns over the middle of
