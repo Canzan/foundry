@@ -87,8 +87,11 @@ jobs:
       # Postgres client: the backup lane runs pg_dump/pg_restore from a
       # postgres:16-alpine container and backup-verify counts rows in-binary,
       # so CI must not install one that would hide a host-client dependency.
+      # Pinned: cargo-deny 0.22 needs rustc 1.95, newer than the pinned
+      # toolchain, and an unpinned install failed silently under `|| true`, so
+      # check-arch reported a missing cargo-deny as a forbidden dependency edge.
       - name: Install cargo-deny
-        run: cargo install --locked cargo-deny || true
+        run: cargo install --locked cargo-deny --version 0.21.0
 
       # The single gate. Seeds .env from .env.example, runs every check in the
       # same order as the local pre-push gate, and builds the foundry binary +
