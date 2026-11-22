@@ -242,7 +242,23 @@ pub struct KeyboardHelp {
     pub selection_instruction: String,
 }
 
-/// The PAGE arm of `GET /keyboard-help` (ui-bare-pages ADR-002) — the framed
+/// The SIGNED-IN page arm of `GET /keyboard-help` (ui-bare-pages
+/// ADR-BARE-PAGES-002): the shortcut list inside the ordinary application
+/// frame, with the rail, the workspace and the way back. It carries the SAME
+/// two row fields as its two siblings, so all three renders come from the one
+/// `partials/keyboard_shortcut_rows.html` owner, plus the nav carrier
+/// `app_shell.html` injects.
+#[derive(Debug, Clone, Template)]
+#[template(path = "keyboard_help_app_page.html")]
+pub struct KeyboardHelpAppPage {
+    pub entries: Vec<ShortcutEntry>,
+    pub selection_instruction: String,
+    /// Assembled by `NavContext::home_for` with the SAME per-request token the
+    /// handler minted, so the rail footer's sign-out form is cookie-matched.
+    pub nav: crate::nav::NavContext,
+}
+
+/// The SIGNED-OUT page arm of `GET /keyboard-help` (ui-bare-pages ADR-002) — the framed
 /// document a top-level navigation lands on. A SIBLING of [`KeyboardHelp`],
 /// carrying the identical two fields, because both arms render the ONE
 /// `partials/keyboard_shortcut_rows.html` row owner: neither arm holds a copy
@@ -1111,10 +1127,6 @@ pub struct IssuePage {
     /// does not hold. Empty when nothing is stored; the region is drawn either
     /// way, with its empty copy.
     pub description: String,
-    /// The stored state slug (`backlog`, `todo`, `in_progress`, `done`) — the
-    /// value the chip below marks, kept beside it so the page can be read for
-    /// the stored value and not only for rendered markup.
-    pub status_slug: String,
     /// The SHIPPED status chip, already rendered by the ONE owner of that
     /// markup (`issues.rs::render_state_chip`) and embedded with `|safe`,
     /// exactly as `base.html` embeds the site footer. One renderer means the

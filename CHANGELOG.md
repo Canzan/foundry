@@ -13,26 +13,30 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   to the pages that had none of its look:
   - The keyboard shortcuts page is drawn like the rest of Foundry. Each key sits on the
     same line as what it does, on a desk screen and on a phone, with the note about
-    choosing a card below the list. The address has not changed, and the shortcut list
-    the `?` overlay shows is the same list from the same place, so the page and the
-    overlay can never offer you two different sets of keys.
+    choosing a card below the list. Opened while you are signed in, it keeps the left
+    nav and the rest of the application around it, so you can go on from it as from any
+    other page; opened with no session, it is the centred card. The address has not
+    changed, and the shortcut list the `?` overlay shows is the same list from the same
+    place, so the page and the overlay can never offer you two different sets of keys.
   - Sign in, Forgot password, Check your email, Claim your workspace, Set your password
     and Choose a new password each show their form in one centred card under the product
     name, instead of running from one edge of the window to the other. On a phone the
     card takes the screen inside the page padding. None of these pages offers a
     navigation rail or a palette control, and what each form does is unchanged.
   - An issue's own page shows the issue: its key as the heading, its title below it, its
-    status in the same chip the board uses, and the description as you wrote it, with
-    your line breaks, whole, and never drawn as markup. An issue nobody has described
-    still has one place for a description, which tells you nothing is written down yet.
-    Delete and the control for attaching a file are drawn like Foundry's own controls;
+    status in the same chip the board uses, now drawn as a chip in both palettes
+    instead of bare text, and the description as you wrote it, with your line breaks,
+    whole, and never drawn as markup. An issue nobody has described still has one place
+    for a description, which tells you nothing is written down yet. Delete is drawn as
+    one of Foundry's own controls, and the button that chooses a file to attach is
+    drawn like the application's quiet controls instead of the browser's own grey one;
     Delete still asks you to confirm.
   - Your browser and your password manager are told what each sign-in and password field
     holds: your email and your current password on sign in; your email and a password
     you are creating on Claim your workspace; and a password you are creating on both
     fields of Set your password and of Choose a new password.
 
-  The stylesheet is re-hashed to `foundry.e770ce20.css`.
+  The stylesheet is re-hashed to `foundry.8a68a324.css`.
 
 - **Teams, Invite a member and Machine tokens live in the left nav.** They sit after
   Board on every app page, and in the folded nav each is an icon that names where it

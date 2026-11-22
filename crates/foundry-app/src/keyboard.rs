@@ -53,7 +53,7 @@ use crate::session::SESSION_KEY_USER_ID;
 use crate::AppState;
 use askama::Template;
 use axum::extract::{Path, Query, State};
-use axum::http::header::{HeaderMap, HeaderValue, LOCATION, VARY};
+use axum::http::header::{HeaderMap, HeaderValue, CACHE_CONTROL, LOCATION, VARY};
 use axum::http::StatusCode;
 use axum::response::{Html, IntoResponse, Response};
 use foundry_core::ProjectKey;
@@ -315,7 +315,7 @@ fn render_search_fragment(matches: &[&foundry_store::IssueRow], key_prefix: &str
 // =========================================================================
 
 /// Which body `GET /keyboard-help` answers. Exactly two, decided ONCE from the
-/// request headers by [`help_variant`] (ui-bare-pages ADR-002).
+/// request headers by [`help_variant`] (ui-bare-pages ADR-BARE-PAGES-002).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum HelpVariant {
     /// The framed page a top-level navigation lands on.
@@ -343,7 +343,11 @@ fn help_variant(headers: &HeaderMap) -> HelpVariant {
     }
 }
 
-pub async fn show_keyboard_help(headers: HeaderMap) -> Response {
+pub async fn show_keyboard_help(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
     // Render the BARE htmx help overlay (US-K02 / US-12) from the
     // `partials/keyboard_help.html` Askama partial via the `KeyboardHelp`
     // view-model. Selector-and-substring-identical to the previous `format!`:
@@ -351,32 +355,125 @@ pub async fn show_keyboard_help(headers: HeaderMap) -> Response {
     // with the `header>h2` heading and one `dt[data-shortcut]`+`dd` pair per
     // shortcut. Stays BARE (no `base.html`). Askama auto-escapes key/label
     // (replacing the manual `html_escape`).
-    let body = match help_variant(&headers) {
-        HelpVariant::Page => crate::views::KeyboardHelpPage {
+    if help_variant(&headers) == HelpVariant::Fragment {
+        let body = crate::views::KeyboardHelp {
             entries: shortcut_entries(),
             selection_instruction: SELECTION_INSTRUCTION.to_string(),
         }
         .render()
-        .expect("keyboard_help_page renders from a fully-resolved, infallible view-model"),
-        HelpVariant::Fragment => crate::views::KeyboardHelp {
-            entries: shortcut_entries(),
-            selection_instruction: SELECTION_INSTRUCTION.to_string(),
-        }
-        .render()
-        .expect("keyboard_help partial renders from a fully-resolved, infallible view-model"),
+        .expect("keyboard_help partial renders from a fully-resolved, infallible view-model");
+        // The fragment body is identical for every client of this arm and
+        // carries no identity, and keyboard.js fetches it on every press, so it
+        // stays KEEPABLE: forbidding its reuse would cost a round trip for
+        // nothing. It still names both dependencies.
+        return with_cache_contract(Html(body).into_response(), Keepable::Yes);
+    }
+    // THE PAGE ARM, and WHICH FRAME it takes follows WHO IS ASKING
+    // (ADR-BARE-PAGES-002, user ruling of 2026-11-21). The frame choice is NOT
+    // an authorization decision: the route stays PUBLIC and refuses nobody, so
+    // the help is still readable from the sign-in page where a stuck operator
+    // asks for it.
+    //
+    // A session alone is not an acting identity. The session cookie outlives
+    // the account: an administrator removes her at four o'clock and her browser
+    // still holds the cookie. The rail would then be assembled from the neutral
+    // fallback and greet her as "there" in "your workspace" — a page that reads
+    // as a defect of her account rather than as the shortcut list she asked
+    // for. So the store must still answer for her before she is given a frame
+    // that names a workspace, and the read is the SHIPPED membership-joined
+    // resolution. A store error takes the same arm as a missing membership:
+    // fail-closed to the public card, which names nobody and refuses nothing.
+    let framed = match signed_in_user(&session).await {
+        Some(user) => match state.store.resolve_active_workspace(user.user_id).await {
+            Ok(Some(_)) => Some(user),
+            Ok(None) => None,
+            Err(err) => {
+                tracing::error!(error = %err, "keyboard help: resolve_active_workspace failed; card frame");
+                None
+            }
+        },
+        None => None,
     };
-    // ONE address, TWO bodies, chosen from a REQUEST header — so every answer
-    // from BOTH arms names that header as what it depends on. A cache told
-    // nothing keys one entry per URL and is then free to hand the framed page
-    // to the overlay's fetch, or the bare fragment to a browser opening the
-    // address. Setting it on the new arm alone leaves the OTHER arm's body —
-    // the one a cache is most likely to be holding — free to answer the wrong
-    // request, and that defect is visible only at the cache and only to the
-    // other reader (ADR-BARE-PAGES-001).
-    let mut response = Html(body).into_response();
+    let Some(user) = framed else {
+        let body = crate::views::KeyboardHelpPage {
+            entries: shortcut_entries(),
+            selection_instruction: SELECTION_INSTRUCTION.to_string(),
+        }
+        .render()
+        .expect("keyboard_help_page renders from a fully-resolved, infallible view-model");
+        return with_cache_contract(Html(body).into_response(), Keepable::No);
+    };
+    // THE FRAME'S INPUTS, assembled exactly as the shipped caller at
+    // `projects.rs::show_create_form` assembles them — one mint, one authority
+    // read, one nav call, and the mint's cookie carried on the answer.
+    //
+    // The CSRF mint is not decoration here: the rail footer's sign-out form
+    // renders `nav.csrf`, and the POST is checked by comparing that value with
+    // the `foundry_csrf` cookie. A frame assembled without the mint, or one
+    // whose Set-Cookie is dropped on the way out, LOOKS right and refuses the
+    // single press on it — from this page alone, while every other page's
+    // sign-out still works.
+    let (csrf, set_cookie) = crate::csrf::ensure_csrf_cookie(&state, &headers);
+    let is_instance_admin = crate::nav::resolve_is_instance_admin(&state, user.user_id).await;
+    // `home_for`, not a section of this page's own: the shortcut list owns no
+    // primary rail member, and `home_for` is the shipped answer for every page
+    // that owns none, so exactly one member stays marked and no new nav rule
+    // appears.
+    let nav = crate::nav::NavContext::home_for(
+        &state,
+        user.user_id,
+        user.workspace_id,
+        is_instance_admin,
+        csrf,
+    )
+    .await;
+    let body = crate::views::KeyboardHelpAppPage {
+        entries: shortcut_entries(),
+        selection_instruction: SELECTION_INSTRUCTION.to_string(),
+        nav,
+    }
+    .render()
+    .expect("keyboard_help_app_page renders from a fully-resolved, infallible view-model");
+    let answer = crate::csrf::response_with_optional_cookie(
+        StatusCode::OK,
+        Html(body).into_response(),
+        set_cookie,
+    );
+    with_cache_contract(answer, Keepable::No)
+}
+
+/// Whether a cache may keep an answer of this route.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Keepable {
+    Yes,
+    No,
+}
+
+/// The cache contract EVERY answer of this route carries, set in ONE place
+/// beside the decisions it describes (ADR-BARE-PAGES-002).
+///
+/// `Vary` names BOTH request facts the answer is chosen from: the declared
+/// destination picks the body, and the cookie picks the frame. A cache told
+/// only one of the two, or neither, may hand the page body to the overlay's
+/// fetch, the bare list to a browser opening the address, or one operator's
+/// framed page — which names her workspace in the rail — to the next reader of
+/// the same address. Every one of those defects is visible only at the cache
+/// and only to the OTHER reader, which is why the header goes on every arm and
+/// not only on the new one.
+///
+/// `no-store` goes on the PAGE arms alone. Naming the cookie is not enough for
+/// them: a private cache keyed on a cookie that has since been CLEARED is free
+/// to show her workspace again through the back button, to her or to whoever
+/// opens the browser next.
+fn with_cache_contract(mut response: Response, keepable: Keepable) -> Response {
     response
         .headers_mut()
-        .insert(VARY, HeaderValue::from_static(SEC_FETCH_DEST_HEADER));
+        .insert(VARY, HeaderValue::from_static("Sec-Fetch-Dest, Cookie"));
+    if keepable == Keepable::No {
+        response
+            .headers_mut()
+            .insert(CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    }
     response
 }
 

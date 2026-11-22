@@ -1,0 +1,26 @@
+{% extends "app_shell.html" %}
+{# ui-bare-pages ADR-BARE-PAGES-002 — the SIGNED-IN page arm of
+   GET /keyboard-help, by the user ruling of 2026-11-21.
+
+   WHY A SECOND TEMPLATE AND NOT A CONDITION INSIDE THE FIRST: a template cannot
+   choose its parent at run time, and the two frames ARE the two parents —
+   app_shell.html for the operator who has somewhere to go back to, card_page.html
+   for the reader who has not. The two frames therefore share one row source
+   instead of one frame learning to be both.
+
+   The first examination refused the card for a signed-in operator: for her it is
+   a page with no rail, no workspace and no way out but the browser's own back
+   button.
+
+   `class="keyboard-help"` with NO role and NO aria-label, exactly as on the
+   card arm: with scripting off this page is the only way to read the list
+   (NFR-4 / ODD-8), and the no-script scenario finds it by that class — while
+   `role="dialog"` on a whole document would tell her she can dismiss a page
+   with nothing behind it. #}
+{% block title %}Keyboard shortcuts{% endblock %}
+{% block app_content %}
+<h1>Keyboard shortcuts</h1>
+<section class="keyboard-help">
+{% include "partials/keyboard_shortcut_rows.html" %}
+</section>
+{% endblock %}

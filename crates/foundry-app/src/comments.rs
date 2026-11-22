@@ -755,7 +755,6 @@ fn render_issue_page(
         project_slug: project_slug.to_string(),
         title: detail.title.clone(),
         description: detail.description_md.clone(),
-        status_slug: detail.state.clone(),
         status_chip: crate::issues::render_state_chip(&detail.state),
         post_url: format!("/team/{team_slug}/project/{project_slug}/issues/{number}/comments"),
         csrf: csrf.to_string(),

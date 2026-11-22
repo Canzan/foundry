@@ -2093,3 +2093,52 @@ input[type="file"] {
   font: inherit;
   max-inline-size: 100%;
 }
+
+/* ── ui-bare-pages — THE STATUS CHIP, AND IT IS A CHIP ────────────────────────
+   `span.state[data-state]` is the one marker that says where her work stands,
+   on the board after a drag and now on the issue's own page. It resolved NO
+   rule anywhere in this file — the first examination read it as bare text
+   beside her title — so the chip was a chip in the markup alone.
+
+   It takes the pairing the keycap already uses: the RECESSED tier on the page
+   or card above it, the ordinary hairline, a corner of its own. The surface is
+   OPAQUE and that is the whole point of naming it here: a translucent tint
+   would leave her eye, and any measurement of the contrast, falling straight
+   through to whatever happens to sit behind — which on the board is a lane and
+   on this page is the page. `--cz-text` on `--cz-bg-2` measures 16.53:1 light
+   and 15.58:1 dark, the same pair the keycaps are held to. */
+.state[data-state] {
+  display: inline-block;
+  padding: 1px 8px;
+  border: 1px solid var(--cz-line);
+  border-radius: 4px;
+  background: var(--cz-bg-2);
+  color: var(--cz-text);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: nowrap;
+}
+
+/* The one control on the issue page the browser draws in its OWN grey, sitting
+   beside her attachments. The input itself takes the page's type above; its
+   BUTTON is a separate box the browser owns, reachable only through this
+   pseudo-element, which is why the earlier `font: inherit` on the input left
+   the button untouched.
+
+   It is the SECONDARY control, bound exactly as `button.secondary` is: no fill
+   of its own on the raised surface, and the BORDER carrying the 1.4.11
+   obligation at `--cz-muted` (5.89:1 light, 6.38:1 dark against the page) —
+   never `--cz-line-strong`, which measures 1.49:1 and is a divider, not a
+   boundary. The global black `button` fill would shout louder here than Upload
+   itself. */
+input[type="file"]::file-selector-button {
+  min-height: 32px;
+  margin-inline-end: 10px;
+  padding: 6px 12px;
+  border: 1px solid var(--cz-muted);
+  border-radius: var(--radius);
+  background: var(--cz-surface);
+  color: var(--cz-text);
+  font: inherit;
+  cursor: pointer;
+}

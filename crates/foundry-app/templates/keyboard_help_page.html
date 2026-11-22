@@ -1,6 +1,7 @@
 {% extends "card_page.html" %}
-{# ui-bare-pages ADR-002 — the PAGE arm of GET /keyboard-help, answered to a
-   client that declares the document destination. It is a full document on the
+{# ui-bare-pages ADR-BARE-PAGES-002 — the SIGNED-OUT page arm of
+   GET /keyboard-help, answered to a client that declares the document
+   destination and whose session the store cannot resolve to an acting user. It is a full document on the
    card frame with a heading of its own; the overlay fragment cannot be that
    document, and including the overlay's dialog container here would put
    `role="dialog"` on a whole page.
