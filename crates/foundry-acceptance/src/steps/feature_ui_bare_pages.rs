@@ -671,8 +671,27 @@ async fn when_she_signs_out_from_that_page(world: &mut FoundryWorld) {
         n = tokens.len()
     );
     let token = tokens[0].clone();
-    let minted = record["mintedCsrf"].as_str().map(str::to_string);
-    let cookie_token = minted.clone().unwrap_or_else(|| token.clone());
+    // SHE ARRIVED WITH NO ANTI-FORGERY COOKIE: the request that fetched this
+    // page carried her session and nothing else, so the page itself has to mint
+    // that cookie and hand it back. An absent mint is therefore the very defect
+    // the frame risks, and the cookie this press sends must be the page's own —
+    // falling back to the form's token would compare the token with itself and
+    // then present a cookie this reading invented, so a page that dropped its
+    // Set-Cookie would still be pressed successfully and stay green.
+    let cookie_token = record["mintedCsrf"]
+        .as_str()
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            panic!(
+                "WHAT: the page she opened signed in writes the token {token:?} into its sign-out \
+             form but hands back no anti-forgery cookie of its own. WHY: she reached this page \
+             with her session alone, so the press is checked against a cookie only this page can \
+             mint; with none set, her browser sends no cookie and the one control on the page is \
+             refused however right the form looks. FIX: assemble this frame through the same \
+             anti-forgery mint the other frames use, and carry its Set-Cookie on the answer. \
+             Answer was:\n{body}"
+            )
+        });
     assert_eq!(
         token, cookie_token,
         "WHAT: the page writes the token {token:?} into its sign-out form while the cookie it \
