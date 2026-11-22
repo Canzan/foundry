@@ -30,6 +30,7 @@
 //!   - `a workspace "…" exists with a member "…" on team "…"`  (feature_board_new_issue)
 //!   - `a project "…" with key prefix "…" exists under "…"`    (feature_board_new_issue)
 
+use crate::steps::feature_canzan_theme::{blend_over, contrast_ratio, parse_colour, Rgb};
 use crate::support::browser_harness;
 use crate::support::harness::{establish_session, get_with_cookie, InProcHarness};
 use crate::support::html_assertions as html;
@@ -257,7 +258,7 @@ async fn reset_link(world: &mut FoundryWorld) -> String {
 
 fn declared_destination(declaring: &str) -> Option<&'static str> {
     match declaring {
-        "as a page it is opening" => Some("document"),
+        "as a page it is opening" | "as a page she is opening" => Some("document"),
         "as a script fetching it" => Some("empty"),
         "as a frame loading it" => Some("iframe"),
         "declaring nothing at all" => None,
@@ -265,38 +266,124 @@ fn declared_destination(declaring: &str) -> Option<&'static str> {
     }
 }
 
+/// WHO IS ASKING, built the way she becomes that reader: a real sign-in for the
+/// session of her own, that same sign-in followed by the removal of her place in
+/// the workspace for the reader the store can no longer answer for, and no
+/// cookie at all for the reader with no session. The removal is written where the
+/// scenario's own workspace was written, so the session outlives the account
+/// exactly as it would when an administrator removes her mid-afternoon.
+async fn cookie_for_reader(world: &mut FoundryWorld, who: &str) -> Option<String> {
+    ensure_harness(world).await;
+    match who {
+        "has no session at all" => None,
+        "has a session of her own" => {
+            let session =
+                establish_session(harness_of(world), http_of(world), MEI_EMAIL, MEI_PASSWORD).await;
+            world.dash_session_cookie = Some(session.clone());
+            Some(session)
+        }
+        "'s account was removed while her session was open" => {
+            let session =
+                establish_session(harness_of(world), http_of(world), MEI_EMAIL, MEI_PASSWORD).await;
+            let pool = harness_of(world).app.state.store.pool();
+            let removed = sqlx::query(
+                "DELETE FROM workspace_memberships WHERE user_id =
+                   (SELECT id FROM users WHERE email_lower = $1)",
+            )
+            .bind(MEI_EMAIL)
+            .execute(pool)
+            .await
+            .expect("remove her place in the workspace while her session is open")
+            .rows_affected();
+            assert!(
+                removed > 0,
+                "WHAT: nothing was removed, so she is still a member and this row would read the \
+                 ordinary signed-in answer under another name. WHY: the reading is about a session \
+                 the store can no longer answer for. FIX: this is a defect of the scenario's own \
+                 setup."
+            );
+            Some(session)
+        }
+        other => panic!("no step knows the reader who {other:?}"),
+    }
+}
+
+/// One answer from GET /keyboard-help, with everything the readings below hold
+/// of: the status, the body, what the answer says it depends on, what it says a
+/// cache may do with it, and any cookie it minted for itself.
 async fn ask_for_the_shortcut_list(
     world: &mut FoundryWorld,
     declaring: &str,
-) -> (u16, String, String) {
+    cookie: Option<&str>,
+) -> serde_json::Value {
     ensure_harness(world).await;
     let base = harness_of(world).base_url();
     let mut request = http_of(world).get(format!("{base}/keyboard-help"));
     if let Some(destination) = declared_destination(declaring) {
         request = request.header("sec-fetch-dest", destination);
     }
+    if let Some(cookie) = cookie {
+        request = request.header(reqwest::header::COOKIE, cookie.to_string());
+    }
     let response = request.send().await.expect("ask for the shortcut list");
     let status = response.status().as_u16();
-    let vary = response
+    let joined = |name: reqwest::header::HeaderName| {
+        response
+            .headers()
+            .get_all(name)
+            .iter()
+            .filter_map(|v| v.to_str().ok())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let vary = joined(reqwest::header::VARY);
+    let caching = joined(reqwest::header::CACHE_CONTROL);
+    let minted_csrf = response
         .headers()
-        .get_all(reqwest::header::VARY)
+        .get_all(reqwest::header::SET_COOKIE)
         .iter()
         .filter_map(|v| v.to_str().ok())
-        .collect::<Vec<_>>()
-        .join(", ");
+        .find(|s| s.starts_with("foundry_csrf="))
+        .and_then(|s| s.strip_prefix("foundry_csrf="))
+        .and_then(|rest| rest.split(';').next())
+        .map(str::to_string);
     let body = response.text().await.unwrap_or_default();
-    (status, body, vary)
+    serde_json::json!({
+        "declaring": declaring,
+        "status": status,
+        "body": body,
+        "vary": vary,
+        "caching": caching,
+        "mintedCsrf": minted_csrf,
+        "cookie": cookie,
+    })
+}
+
+#[given(
+    regex = r"^the operator ?('s account was removed while her session was open|has a session of her own|has no session at all)$"
+)]
+async fn given_the_reader_asking(world: &mut FoundryWorld, who: String) {
+    let cookie = cookie_for_reader(world, &who).await;
+    remember(
+        world,
+        serde_json::json!({ "who": who, "cookie": cookie, "body": "", "status": 0 }),
+    );
 }
 
 #[when(
-    regex = r"^a client asks for the keyboard shortcut list (as a page it is opening|as a script fetching it|as a frame loading it|declaring nothing at all)$"
+    regex = r"^she asks for the keyboard shortcut list (as a page she is opening|as a script fetching it|as a frame loading it|declaring nothing at all)$"
 )]
-async fn when_a_client_asks_for_the_shortcut_list(world: &mut FoundryWorld, declaring: String) {
-    let (status, body, vary) = ask_for_the_shortcut_list(world, &declaring).await;
-    remember(
-        world,
-        serde_json::json!({ "declaring": declaring, "status": status, "body": body, "vary": vary }),
-    );
+async fn when_she_asks_for_the_shortcut_list(world: &mut FoundryWorld, declaring: String) {
+    let before = recalled(world);
+    let cookie = before["cookie"].as_str().map(str::to_string);
+    let mut answer = ask_for_the_shortcut_list(world, &declaring, cookie.as_deref()).await;
+    answer["who"] = before["who"].clone();
+    remember(world, answer);
+}
+
+#[given(regex = r"^she has opened the keyboard shortcut list as a page she is opening$")]
+async fn given_she_has_opened_the_list_as_a_page(world: &mut FoundryWorld) {
+    when_she_asks_for_the_shortcut_list(world, "as a page she is opening".to_string()).await;
 }
 
 /// The shortcuts a body advertises, in the order it writes them: each key read
@@ -332,75 +419,317 @@ fn assert_answered_something(record: &serde_json::Value) {
     );
 }
 
-#[then(regex = r"^it is given (a framed page|the bare list)$")]
-async fn then_it_is_given(world: &mut FoundryWorld, body_shape: String) {
+/// What a body IS, read off the body itself: a whole styled document with the
+/// rest of Foundry around it, a whole styled document with nothing but the card,
+/// or the bare list the overlay writes into a live page.
+struct BodyShape {
+    whole_document: bool,
+    styled: bool,
+    own_heading: bool,
+    rail: bool,
+    marked: Vec<String>,
+    sign_out: bool,
+    names_workspace: bool,
+    dialog: bool,
+    help_section: bool,
+    help_section_announced: bool,
+}
+
+fn body_shape(body: &str) -> BodyShape {
+    let lower = body.to_ascii_lowercase();
+    let doc = html::parse(body);
+    let help = html::select_all(&doc, "section.keyboard-help");
+    BodyShape {
+        whole_document: lower.contains("<html") || lower.contains("<!doctype html"),
+        styled: !html::select_all(&doc, "link[rel='stylesheet'][href^='/static/css/']").is_empty(),
+        own_heading: html::select_all(&doc, "h1").len() == 1,
+        rail: !html::select_all(&doc, ".sidebar, nav#sidebar-nav").is_empty(),
+        marked: html::select_all(&doc, r#".sidebar__nav [aria-current="page"]"#)
+            .iter()
+            .map(|el| one_line(&el.text().collect::<String>()))
+            .collect(),
+        sign_out: !html::select_all(&doc, "form[action='/sign-out'][method='post']").is_empty(),
+        names_workspace: body.contains("Acme") || body.contains("your workspace"),
+        dialog: !html::select_all(
+            &doc,
+            "section.keyboard-help[role='dialog'][aria-label='Keyboard shortcuts']",
+        )
+        .is_empty(),
+        help_section: !help.is_empty(),
+        help_section_announced: help
+            .iter()
+            .any(|el| el.value().attr("role").is_some() || el.value().attr("aria-label").is_some()),
+    }
+}
+
+fn assert_a_page_at_all(record: &serde_json::Value, shape: &BodyShape) {
+    let body = text_at(record, "body");
+    assert!(
+        shape.whole_document && shape.styled && shape.own_heading,
+        "WHAT: the answer to the reader who {:?} is a whole document: {}, draws Foundry's own \
+         stylesheet: {}, and carries exactly one heading of its own: {}. WHY: a browser opening \
+         this address paints the answer as the whole page, so a bare run of keys in \
+         browser-default type is the whole of what she sees. FIX: answer a declared page \
+         destination with a full document on the shared head. Answer was:\n{body}",
+        text_at(record, "who"),
+        shape.whole_document,
+        shape.styled,
+        shape.own_heading
+    );
+}
+
+#[then(regex = r"^she is given the rest of Foundry around the list$")]
+async fn then_she_is_given_the_application_frame(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    assert_answered_something(&record);
+    let body = text_at(&record, "body");
+    let shape = body_shape(&body);
+    assert_a_page_at_all(&record, &shape);
+    assert!(
+        !advertised_shortcuts(&body).is_empty(),
+        "WHAT: the page she opens advertises no shortcut at all. WHY: the list is what she came \
+         for. FIX: the page draws the shipped rows. Answer was:\n{body}"
+    );
+    assert!(
+        shape.rail && shape.sign_out,
+        "WHAT: the page she opens signed in carries the rail: {}, and something to sign out \
+         with: {}. WHY: a page with no rail and no way back is a dead end she has to use the \
+         browser's own button to escape, which is what the first reading of this work refused. \
+         FIX: answer a signed-in navigation with the frame the rest of the application uses. \
+         Answer was:\n{body}",
+        shape.rail,
+        shape.sign_out
+    );
+}
+
+#[then(regex = r"^exactly one place in the rail is marked as where she is, and it is her home$")]
+async fn then_exactly_one_rail_place_is_marked(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let shape = body_shape(&text_at(&record, "body"));
+    assert_eq!(
+        shape.marked.len(),
+        1,
+        "WHAT: the rail marks {n} of its places as where she is: {:?}. WHY: none marked and she \
+         cannot tell where she is; two marked and the rail contradicts itself. FIX: mark exactly \
+         one place, as every other page of the application does.",
+        shape.marked,
+        n = shape.marked.len()
+    );
+    assert!(
+        shape.marked[0].contains("Home"),
+        "WHAT: the rail marks {:?} as where she is. WHY: the shortcut list is not one of the \
+         rail's own destinations, so marking one of them says she is somewhere she is not; the \
+         neutral home is the one place this page may claim. FIX: build the rail from the neutral \
+         home identity.",
+        shape.marked[0]
+    );
+}
+
+#[then(regex = r"^she is given the centred card, with no rail and no workspace named$")]
+async fn then_she_is_given_the_card(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    assert_answered_something(&record);
+    let body = text_at(&record, "body");
+    let shape = body_shape(&body);
+    assert_a_page_at_all(&record, &shape);
+    assert!(
+        !shape.rail && !shape.names_workspace,
+        "WHAT: the answer to the reader who {:?} carries a rail: {}, and names a workspace: {}. \
+         WHY: a reader with no account to resolve must not be greeted by somebody's workspace, \
+         and a frame drawn for an identity the store cannot answer for reads as a defect of her \
+         account rather than as a page she may read. FIX: answer the card to a navigation whose \
+         session resolves to nobody, and refuse nothing. Answer was:\n{body}",
+        text_at(&record, "who"),
+        shape.rail,
+        shape.names_workspace
+    );
+    assert!(
+        !advertised_shortcuts(&body).is_empty(),
+        "WHAT: the card she is given advertises no shortcut at all. WHY: the list is what she \
+         came for, with or without a session. FIX: both frames draw the shipped rows. \
+         Answer was:\n{body}"
+    );
+}
+
+#[then(regex = r"^she is given the bare list$")]
+async fn then_she_is_given_the_bare_list(world: &mut FoundryWorld) {
     let record = recalled(world);
     assert_answered_something(&record);
     let declaring = text_at(&record, "declaring");
     let body = text_at(&record, "body");
-    let lower = body.to_ascii_lowercase();
-    let wrapped = lower.contains("<html") || lower.contains("<!doctype html");
-    let shortcuts = advertised_shortcuts(&body);
-    let doc = html::parse(&body);
-    let styled = !html::select_all(&doc, "link[rel='stylesheet'][href^='/static/css/']").is_empty();
-    let own_heading = !html::select_all(&doc, "h1").is_empty();
-    let dialog = !html::select_all(
-        &doc,
-        "section.keyboard-help[role='dialog'][aria-label='Keyboard shortcuts']",
-    )
-    .is_empty();
+    let shape = body_shape(&body);
     assert!(
-        !shortcuts.is_empty(),
+        !advertised_shortcuts(&body).is_empty(),
         "WHAT: the answer to a client asking {declaring:?} advertises no shortcut at all. \
          WHY: whichever body it is, the shortcut list is what the operator came for. \
          FIX: both bodies carry the shipped rows. Answer was:\n{body}"
     );
-    if body_shape == "a framed page" {
-        assert!(
-            wrapped && styled && own_heading,
-            "WHAT: a client asking {declaring:?} is given a body that is a whole document: \
-             {wrapped}, draws Foundry's own stylesheet: {styled}, and carries its own heading: \
-             {own_heading}. WHY: a browser opening this address paints the answer as the whole \
-             page, so a bare run of keys in browser-default type is the whole of what she sees. \
-             FIX: answer a declared page destination with the framed page that extends the shared \
-             head and the card frame. Answer was:\n{body}"
-        );
-    } else {
-        assert!(
-            !wrapped && dialog,
-            "WHAT: a client asking {declaring:?} is given a body with a document wrapper: \
-             {wrapped}, carrying the labelled dialog the overlay needs: {dialog}. \
-             WHY: this answer is written straight into a live page; a whole document nests a \
-             second head and body inside the page the operator is already on. FIX: answer every \
-             destination but a declared page with the bare list, exactly as today. \
-             Answer was:\n{body}"
-        );
-    }
+    assert!(
+        !shape.whole_document && shape.dialog,
+        "WHAT: a client asking {declaring:?} is given a body with a document wrapper: {}, \
+         carrying the labelled dialog the overlay needs: {}. WHY: this answer is written straight \
+         into a live page; a whole document nests a second head and body inside the page the \
+         operator is already on. FIX: answer every destination but a declared page with the bare \
+         list, exactly as today. Answer was:\n{body}",
+        shape.whole_document,
+        shape.dialog
+    );
 }
 
-#[then(regex = r"^the answer tells a cache it depends on what the client declared$")]
+#[then(regex = r"^the list is still the one a reader with no scripting finds$")]
+async fn then_the_list_is_the_one_no_scripting_finds(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let body = text_at(&record, "body");
+    let shape = body_shape(&body);
+    assert!(
+        shape.help_section,
+        "WHAT: the page she is given carries no shortcut-help section of its own. WHY: with \
+         scripting off there is no overlay, so this page is the ONLY way to read the list, and \
+         the reading that proves it still works finds the list by that section. \
+         FIX: keep the shortcut-help section on both page frames. Answer was:\n{body}"
+    );
+    assert!(
+        !shape.help_section_announced,
+        "WHAT: the shortcut-help section of the page she navigated to is announced as a dialog. \
+         WHY: a whole page announced as a dialog tells her she can dismiss it, and there is \
+         nothing behind it to go back to. FIX: the dialog role and its label belong to the \
+         overlay arm alone. Answer was:\n{body}"
+    );
+}
+
+#[then(regex = r"^the answer tells a cache it depends on what was declared and on who asked$")]
 async fn then_the_answer_names_its_dependency(world: &mut FoundryWorld) {
     let record = recalled(world);
     assert_answered_something(&record);
     let declaring = text_at(&record, "declaring");
-    let vary = text_at(&record, "vary");
+    let vary = text_at(&record, "vary").to_ascii_lowercase();
+    let names_destination = vary.contains("sec-fetch-dest");
+    let names_reader = vary.contains("cookie");
     assert!(
-        vary.to_ascii_lowercase().contains("sec-fetch-dest"),
-        "WHAT: the answer to a client asking {declaring:?} tells a cache it depends on {vary:?}. \
-         WHY: one address answers two bodies, chosen from what the client declared, so a cache \
-         that is not told which declaration the answer depends on is free to hand the page body \
-         to the overlay or the bare list to a browser opening the address — and only the OTHER \
-         reader ever sees that. FIX: name the declared destination as the answer's dependency on \
-         BOTH bodies, beside the one decision that chooses between them."
+        names_destination && names_reader,
+        "WHAT: the answer to a client asking {declaring:?} tells a cache it depends on {vary:?} — \
+         the declared destination: {names_destination}, the asking reader: {names_reader}. \
+         WHY: this one address answers a different body for what the client declared AND a \
+         different frame for who is asking, so a cache told only one of the two, or neither, may \
+         hand the page body to the overlay, the bare list to a browser opening the address, or \
+         one operator's framed page, which names her workspace, to the next reader. Only the \
+         OTHER reader ever sees that. FIX: name BOTH the declared destination and the cookie as \
+         the answer's dependencies, on every arm, beside the one decision that reads them."
+    );
+}
+
+#[then(regex = r"^the answer tells every cache to keep no copy of it$")]
+async fn then_the_answer_forbids_keeping(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    assert_answered_something(&record);
+    let caching = text_at(&record, "caching");
+    assert!(
+        caching.to_ascii_lowercase().contains("no-store"),
+        "WHAT: the page answer to the reader who {:?} tells a cache {caching:?} about keeping it. \
+         WHY: the signed-in frame names her workspace in the rail, so a copy kept on her own \
+         machine can be shown again after she signs out, or to whoever opens the browser next; \
+         naming the cookie alone does not stop a reuse once the cookie is gone. \
+         FIX: forbid storing the page answer of both frames.",
+        text_at(&record, "who")
+    );
+}
+
+#[then(regex = r"^a cache may keep the answer$")]
+async fn then_a_cache_may_keep_the_answer(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    assert_answered_something(&record);
+    let caching = text_at(&record, "caching");
+    assert!(
+        !caching.to_ascii_lowercase().contains("no-store"),
+        "WHAT: the bare-list answer tells a cache {caching:?} about keeping it. WHY: this body is \
+         identical for every client of this arm and carries no identity, and the overlay fetches \
+         it on every press, so forbidding its reuse costs her a round trip for nothing. \
+         FIX: forbid storing the page answers only."
+    );
+}
+
+// ----- signing out from the page she opened signed in ------------------------
+
+#[when(regex = r"^she signs out from that page$")]
+async fn when_she_signs_out_from_that_page(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let body = text_at(&record, "body");
+    let session = text_at(&record, "cookie");
+    let doc = html::parse(&body);
+    let tokens = html::collect_attributes(
+        &body,
+        "form[action='/sign-out'] input[name='_csrf']",
+        "value",
+    );
+    let has_form = !html::select_all(&doc, "form[action='/sign-out'][method='post']").is_empty();
+    assert!(
+        has_form && tokens.len() == 1 && !tokens[0].trim().is_empty(),
+        "WHAT: the page she opened signed in offers a way to sign out: {has_form}, carrying {n} \
+         anti-forgery tokens. WHY: the rail's sign-out is the way she leaves, and a form with no \
+         token is a press that is always refused. FIX: assemble this page's frame with the same \
+         anti-forgery mint every other page's frame uses. Answer was:\n{body}",
+        n = tokens.len()
+    );
+    let token = tokens[0].clone();
+    let minted = record["mintedCsrf"].as_str().map(str::to_string);
+    let cookie_token = minted.clone().unwrap_or_else(|| token.clone());
+    assert_eq!(
+        token, cookie_token,
+        "WHAT: the page writes the token {token:?} into its sign-out form while the cookie it \
+         minted for itself carries {cookie_token:?}. WHY: the press is checked by comparing the \
+         two, so a page whose form and cookie disagree looks right and refuses the only press on \
+         it. FIX: mint the token and write it from the one seam the other frames use."
+    );
+    let base = harness_of(world).base_url();
+    let mut form = HashMap::new();
+    form.insert("_csrf", token.clone());
+    let answer = http_of(world)
+        .post(format!("{base}/sign-out"))
+        .header(
+            reqwest::header::COOKIE,
+            format!("{session}; foundry_csrf={cookie_token}"),
+        )
+        .form(&form)
+        .send()
+        .await
+        .expect("press the sign-out of the page she is looking at");
+    let status = answer.status().as_u16();
+    let after = get_with_cookie(harness_of(world), http_of(world), "/", &session).await;
+    let mut next = record.clone();
+    next["signOutStatus"] = serde_json::Value::from(status);
+    next["afterStatus"] = serde_json::Value::from(after.status.as_u16());
+    next["afterBody"] = serde_json::Value::String(after.body);
+    remember(world, next);
+}
+
+#[then(regex = r"^she is signed out, and her session opens her workspace no more$")]
+async fn then_she_is_signed_out(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let signed_out = record["signOutStatus"].as_u64().unwrap_or(0);
+    assert!(
+        (300..400).contains(&signed_out),
+        "WHAT: pressing sign-out on that page answered {signed_out}. WHY: a refused press leaves \
+         her signed in on a page that offered to sign her out. FIX: the sign-out of this page is \
+         the same form, the same address and the same token check as every other page's."
+    );
+    let after = record["afterStatus"].as_u64().unwrap_or(0);
+    let after_body = text_at(&record, "afterBody");
+    let still_hers = after_body.contains("Acme") && after_body.contains("/sign-out");
+    assert!(
+        (300..400).contains(&after) || !still_hers,
+        "WHAT: after signing out, her old session still answered {after} for her workspace, and \
+         the answer still carries her workspace and a way to sign out: {still_hers}. \
+         WHY: a sign-out that leaves the session usable is not a sign-out. FIX: end the session \
+         itself, not only the cookie on the page she pressed from."
     );
 }
 
 #[when(regex = r"^the shortcut list is asked for both as a page and as a script fetching it$")]
 async fn when_the_list_is_asked_for_both_ways(world: &mut FoundryWorld) {
-    let (page_status, page_body, _) =
-        ask_for_the_shortcut_list(world, "as a page it is opening").await;
-    let (script_status, script_body, _) =
-        ask_for_the_shortcut_list(world, "as a script fetching it").await;
+    let page = ask_for_the_shortcut_list(world, "as a page it is opening", None).await;
+    let script = ask_for_the_shortcut_list(world, "as a script fetching it", None).await;
+    let (page_status, page_body) = (page["status"].clone(), text_at(&page, "body"));
+    let (script_status, script_body) = (script["status"].clone(), text_at(&script, "body"));
     remember(
         world,
         serde_json::json!({
@@ -549,6 +878,97 @@ async fn then_the_page_declares_the_field_intent(
          where a password is being CREATED and the manager offers her an old secret instead of \
          generating and saving a new one. FIX: declare the intent of the flow the field belongs \
          to, and leave every other input alone."
+    );
+}
+
+/// Every page this work touches, as served. The named eight live on four of
+/// them; the rest are here so a token that spread to a field nobody promised is
+/// counted rather than missed — including the issue page, which this work also
+/// edits and which carries a field of its own.
+const TOKEN_COUNT_EXPECTED: usize = 8;
+
+#[when(regex = r"^every page this work touches is served to her$")]
+async fn when_every_touched_page_is_served(world: &mut FoundryWorld) {
+    let mut served: Vec<(String, String)> = Vec::new();
+    for page in [
+        "the sign-in page",
+        "the forgotten-password page",
+        "the claim-your-workspace page",
+        "the invitation page where she sets her password",
+        "the page where she chooses a new password",
+        "the keyboard shortcut list",
+    ] {
+        let address = address_of(world, page).await;
+        let base = harness_of(world).base_url();
+        let answer = http_of(world)
+            .get(format!("{base}{address}"))
+            .header("sec-fetch-dest", "document")
+            .send()
+            .await
+            .expect("serve a page this work touches");
+        let status = answer.status().as_u16();
+        let body = answer.text().await.unwrap_or_default();
+        assert_eq!(
+            status, 200,
+            "WHAT: {page} answered {status}. WHY: a page that did not render cannot be counted, \
+             and the count would then pass for want of a page. FIX: this is a defect of the \
+             scenario's own setup."
+        );
+        served.push((page.to_string(), body));
+    }
+    let number = store_an_issue(world, ISSUE_TITLE, DESCRIPTION_TWO_LINES, "backlog").await;
+    let (status, body) = open_issue_page(world, number).await;
+    assert_eq!(
+        status, 200,
+        "WHAT: her issue's own page answered {status}, so the field it carries is not counted. \
+         FIX: this is a defect of the scenario's own setup."
+    );
+    served.push(("an issue's own page".to_string(), body));
+    let declaring: Vec<serde_json::Value> = served
+        .iter()
+        .flat_map(|(page, body)| {
+            let doc = html::parse(body);
+            html::select_all(&doc, "input[autocomplete]")
+                .iter()
+                .map(|el| {
+                    serde_json::json!({
+                        "page": page,
+                        "name": el.value().attr("name").unwrap_or_default(),
+                        "declares": el.value().attr("autocomplete").unwrap_or_default(),
+                    })
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    remember(
+        world,
+        serde_json::json!({ "pages": served.len(), "declaring": declaring }),
+    );
+}
+
+#[then(regex = r"^exactly eight of their fields are told what they hold, and no other$")]
+async fn then_exactly_eight_fields_are_told(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let declaring = record["declaring"]
+        .as_array()
+        .cloned()
+        .expect("the fields that declare an intent were collected");
+    let pages = record["pages"].as_u64().unwrap_or(0);
+    assert!(
+        pages >= 7,
+        "WHAT: only {pages} pages were served, so the count below would hold over too little. \
+         FIX: this is a defect of the scenario's own setup."
+    );
+    assert_eq!(
+        declaring.len(),
+        TOKEN_COUNT_EXPECTED,
+        "WHAT: across the pages this work touches, {n} fields are told what they hold; the \
+         promise names exactly {TOKEN_COUNT_EXPECTED}. They are: {declaring:?}. WHY: a field \
+         nobody promised that claims to hold a username or a password teaches her manager to \
+         offer, fill or save a secret where none belongs — a search box, a confirmation word or a \
+         file name. FIX: declare the intent on the eight named fields of the four named forms, \
+         and on nothing else.",
+        n = declaring.len()
     );
 }
 
@@ -813,82 +1233,85 @@ async fn when_she_opens_both_pages(world: &mut FoundryWorld) {
 /// only the innermost matches are counted. The shape of that place is then what
 /// the empty page is read for, so the law "the area is always there" is read
 /// without naming anything the page was not already observed to use.
-fn description_area_shape(body: &str, stored: &str) -> (String, usize) {
+/// Each place the page itself MARKS as the description, with the text it holds
+/// and the class of the element her words actually sit in. Read by the marker,
+/// not by matching her text and not by a class string: a wrapper around the line
+/// reads back the same text and would be counted twice, and the empty region
+/// must be found the same way the filled one is or the law "the area is always
+/// there" is read for two different shapes.
+fn description_regions(body: &str) -> Vec<(String, String)> {
     let doc = html::parse(body);
-    let carrying: Vec<_> = html::select_all(&doc, "*")
-        .into_iter()
-        .filter(|element| one_line(&element.text().collect::<String>()) == one_line(stored))
-        .collect();
-    let innermost: Vec<_> = carrying
+    html::select_all(&doc, "[data-issue-description]")
         .iter()
-        .filter(|element| {
-            !carrying.iter().any(|other| {
-                other.id() != element.id() && element.descendants().any(|n| n.id() == other.id())
-            })
-        })
-        .collect();
-    let shape = innermost
-        .last()
-        .map(|element| {
-            format!(
-                "{}|{}",
-                element.value().name(),
-                element.value().attr("class").unwrap_or_default()
-            )
-        })
-        .unwrap_or_default();
-    (shape, innermost.len())
-}
-
-/// Every place on a body of the same SHAPE: the same tag, carrying each of the
-/// classes the filled page's description area carried. Presence rather than an
-/// exact class string, because an empty area that keeps its own class and adds
-/// the shipped empty-state one is the same place, drawn empty.
-fn elements_of_shape(body: &str, shape: &str) -> Vec<String> {
-    let (name, classes) = shape.split_once('|').unwrap_or((shape, ""));
-    let wanted: Vec<&str> = classes.split_whitespace().collect();
-    let doc = html::parse(body);
-    html::select_all(&doc, name)
-        .iter()
-        .filter(|el| {
-            let carried: Vec<&str> = el
-                .value()
-                .attr("class")
-                .unwrap_or_default()
-                .split_whitespace()
+        .map(|region| {
+            let text = one_line(&region.text().collect::<String>());
+            let holders: Vec<_> = region
+                .descendants()
+                .filter_map(scraper::ElementRef::wrap)
+                .filter(|el| one_line(&el.text().collect::<String>()) == text)
                 .collect();
-            wanted.iter().all(|one| carried.contains(one))
+            let mut innermost = holders.iter().filter(|el| {
+                !holders.iter().any(|other| {
+                    other.id() != el.id() && el.descendants().any(|n| n.id() == other.id())
+                })
+            });
+            let class = innermost
+                .next_back()
+                .map(|el| el.value().attr("class").unwrap_or_default().to_string())
+                .unwrap_or_default();
+            (text, class)
         })
-        .map(|el| one_line(&el.text().collect::<String>()))
         .collect()
 }
 
 #[then(regex = r"^both pages hold exactly one place for the description$")]
 async fn then_both_pages_hold_one_description_area(world: &mut FoundryWorld) {
     let record = recalled(world);
-    let filled_body = text_at(&record, "filledBody");
-    let empty_body = text_at(&record, "emptyBody");
-    let (shape, count) = description_area_shape(&filled_body, DESCRIPTION_TWO_LINES);
+    let filled = description_regions(&text_at(&record, "filledBody"));
+    let empty = description_regions(&text_at(&record, "emptyBody"));
+    for (whose, found) in [
+        ("the issue she wrote a description on", &filled),
+        ("the issue with nothing written down", &empty),
+    ] {
+        assert_eq!(
+            found.len(),
+            1,
+            "WHAT: the page of {whose} marks {n} places as the description. WHY: none at all and \
+             she cannot tell an issue nobody has described from a page that forgot to show one; \
+             two and the page contradicts itself about what the issue says. FIX: mark exactly one \
+             description region on the page, drawn whether or not anything is stored.",
+            n = found.len()
+        );
+    }
     assert_eq!(
-        count, 1,
-        "WHAT: the page of the issue she wrote a description on holds {count} places carrying \
-         exactly that text. WHY: none at all and she cannot read her issue; two and the page \
-         contradicts itself about what the issue says. FIX: show the stored description in one \
-         place on the page."
-    );
-    let on_the_empty_page = elements_of_shape(&empty_body, &shape);
-    assert_eq!(
-        on_the_empty_page.len(),
-        1,
-        "WHAT: the issue with nothing written down holds {n} places for a description, while the \
-         issue that has one holds exactly one. WHY: an area that disappears when nothing is stored \
-         leaves her unable to tell an empty issue from a page that forgot to show it. \
-         FIX: draw the description area always, with its own copy when nothing is stored.",
-        n = on_the_empty_page.len()
+        one_line(&filled[0].0),
+        one_line(DESCRIPTION_TWO_LINES),
+        "WHAT: the marked description region of the issue she described holds {:?}. WHY: the \
+         region she is pointed at must be the one holding what she wrote. FIX: show the stored \
+         description inside the marked region.",
+        filled[0].0
     );
     let mut next = record.clone();
-    next["emptyAreaText"] = serde_json::Value::String(on_the_empty_page[0].clone());
+    next["filledClass"] = serde_json::Value::String(filled[0].1.clone());
+    next["emptyClass"] = serde_json::Value::String(empty[0].1.clone());
+    next["emptyAreaText"] = serde_json::Value::String(empty[0].0.clone());
     remember(world, next);
+}
+
+#[then(regex = r"^each place is one the stylesheet can reach$")]
+async fn then_each_description_place_is_styleable(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    for whose in ["filledClass", "emptyClass"] {
+        let class = text_at(&record, whose);
+        assert!(
+            !class.trim().is_empty(),
+            "WHAT: her words sit in an element carrying no class at all ({whose}). WHY: the \
+             region is marked for a reader, but what she wrote is laid out by the stylesheet, \
+             which reaches it by class; a classless element takes the browser's own paragraph and \
+             loses the wrapping and the line breaks this page promises. FIX: give the text of \
+             both the filled and the empty region the same named class the stylesheet styles."
+        );
+    }
 }
 
 #[then(regex = r"^the empty one tells her nothing is written down yet$")]
@@ -1675,5 +2098,245 @@ async fn then_the_file_control_is_in_the_page_type(world: &mut FoundryWorld) {
          it is drawn in {page_font:?}. WHY: a browser's own raw file control is the one thing on \
          the page that does not belong to the application, and it is drawn beside her \
          attachments. FIX: give the upload label and its field the stylesheet's own control type."
+    );
+}
+
+// ----- the status chip and the attach control, in both palettes --------------
+
+/// ONE live reading of the two surfaces this work paints on the issue page: the
+/// status marker and the button inside the attach control. Both are read as the
+/// browser resolves them, together with the surface actually BEHIND each — the
+/// nearest ancestor that paints an opaque colour, which is what a reader's eye
+/// and a contrast measurement both land on. The named colours are resolved from
+/// the stylesheet's own palette through a throwaway probe, so this reading holds
+/// no colour literal of its own and reads the same way in either palette.
+const CHIP_AND_BUTTON_READING: &str = r#"
+const body = document.body;
+const pageBg = getComputedStyle(body).backgroundColor;
+const alphaOf = (colour) => {
+  const match = String(colour).match(/rgba?\(([^)]+)\)/);
+  if (!match) return 1;
+  const parts = match[1].split(',').map((piece) => parseFloat(piece));
+  return parts.length > 3 ? parts[3] : 1;
+};
+const opaqueBehind = (el) => {
+  let walk = el.parentElement;
+  while (walk) {
+    const bg = getComputedStyle(walk).backgroundColor;
+    if (alphaOf(bg) === 1 && bg !== 'rgba(0, 0, 0, 0)') return bg;
+    walk = walk.parentElement;
+  }
+  return pageBg;
+};
+const resolved = (name) => {
+  const probe = document.createElement('span');
+  probe.style.color = 'var(' + name + ')';
+  body.appendChild(probe);
+  const value = getComputedStyle(probe).color;
+  probe.remove();
+  return value;
+};
+const look = (el, pseudo) => {
+  if (!el) return null;
+  const s = pseudo ? getComputedStyle(el, pseudo) : getComputedStyle(el);
+  return {
+    fill: s.backgroundColor,
+    fillAlpha: alphaOf(s.backgroundColor),
+    ink: s.color,
+    inkAlpha: alphaOf(s.color),
+    borderWidth: parseFloat(s.borderTopWidth || '0'),
+    borderColour: s.borderTopColor,
+    radius: parseFloat(s.borderTopLeftRadius || '0'),
+    behind: opaqueBehind(el)
+  };
+};
+const chip = document.querySelector('[data-state]');
+const file = document.querySelector("input[type='file']");
+return {
+  chip: look(chip, null),
+  chipText: chip ? (chip.textContent || '').trim() : null,
+  button: look(file, '::file-selector-button'),
+  pageBg: pageBg,
+  recessed: resolved('--cz-bg-2'),
+  hairline: resolved('--cz-line'),
+  ink: resolved('--cz-text'),
+  surface: resolved('--cz-surface'),
+  muted: resolved('--cz-muted')
+};
+"#;
+
+/// WCAG's floor for ordinary text, and the floor a control's own boundary must
+/// reach against what is behind it. Both are the figures the shipped palette
+/// readings already hold every other surface of the application to.
+const TEXT_FLOOR: f64 = 4.5;
+const BOUNDARY_FLOOR: f64 = 3.0;
+
+fn colour_at(reading: &serde_json::Value, path: &[&str]) -> (Rgb, f64) {
+    let mut cursor = reading;
+    for key in path {
+        cursor = &cursor[*key];
+    }
+    let raw = cursor.as_str().unwrap_or_default();
+    parse_colour(raw).unwrap_or_else(|| {
+        panic!(
+            "the browser resolved {raw:?} for {path:?}, which is not a colour this reading can \
+             measure — a defect of the reading, not of the page"
+        )
+    })
+}
+
+/// The ink as it is actually painted: a translucent glyph colour blended over
+/// the surface it sits on, an opaque one as itself.
+fn painted(ink: (Rgb, f64), over: Rgb) -> Rgb {
+    if ink.1 >= 1.0 {
+        ink.0
+    } else {
+        blend_over(ink.0, over, ink.1)
+    }
+}
+
+#[given(
+    regex = r"^the operator is looking at an issue's own page on a screen that asks for the (light|dark) palette$"
+)]
+async fn given_she_is_looking_at_an_issue_in_a_palette(world: &mut FoundryWorld, palette: String) {
+    let number = store_an_issue(world, ISSUE_TITLE, DESCRIPTION_TWO_LINES, "backlog").await;
+    let browser = if palette == "dark" {
+        let dark = browser_harness::new_dark_session().await;
+        assert!(
+            browser_harness::device_prefers_dark(&dark).await,
+            "WHAT: the screen this row is about does not ask for the dark palette. WHY: it would \
+             then read the light palette twice and call one of the two dark. FIX: this is a defect \
+             of the scenario's own setup."
+        );
+        dark
+    } else {
+        browser_harness::new_session().await
+    };
+    browser_harness::sign_in_through_browser(&browser, harness_of(world), MEI_EMAIL, MEI_PASSWORD)
+        .await;
+    world.browser = Some(browser);
+    open_in_browser(world, &issue_address(number)).await;
+    let reading = read_with(browser_of(world), CHIP_AND_BUTTON_READING).await;
+    remember(
+        world,
+        serde_json::json!({ "palette": palette, "reading": reading }),
+    );
+}
+
+fn palette_reading(world: &FoundryWorld) -> (String, serde_json::Value) {
+    let record = recalled(world);
+    (text_at(&record, "palette"), record["reading"].clone())
+}
+
+#[then(regex = r"^the status is drawn on a surface of its own, with an edge and rounded corners$")]
+async fn then_the_status_is_drawn_on_its_own_surface(world: &mut FoundryWorld) {
+    let (palette, reading) = palette_reading(world);
+    assert!(
+        reading["chip"].is_object(),
+        "WHAT: the issue page draws no status marker at all on the {palette} palette. WHY: with \
+         none drawn there is nothing for this reading to hold of. FIX: show the stored status on \
+         the page. Reading: {reading}"
+    );
+    let fill_alpha = number_at(&reading, &["chip", "fillAlpha"]);
+    let (fill, _) = colour_at(&reading, &["chip", "fill"]);
+    let (recessed, _) = colour_at(&reading, &["recessed"]);
+    let edge = number_at(&reading, &["chip", "borderWidth"]);
+    let (edge_colour, _) = colour_at(&reading, &["chip", "borderColour"]);
+    let (hairline, _) = colour_at(&reading, &["hairline"]);
+    let corner = number_at(&reading, &["chip", "radius"]);
+    assert!(
+        fill_alpha >= 1.0
+            && fill == recessed
+            && edge > 0.0
+            && edge_colour == hairline
+            && corner > 0.0,
+        "WHAT: on the {palette} palette the status is painted on {fill:?} at an opacity of \
+         {fill_alpha}, with a {edge} px {edge_colour:?} edge and a {corner} px corner, while the \
+         application's own resting surface is {recessed:?} and its own hairline is \
+         {hairline:?}. WHY: the status is the one word that says where her work stands, and bare \
+         text with no surface of its own reads as a stray label; a see-through tint is worse than \
+         no surface, because her eye and any measurement of the contrast both fall straight \
+         through it to whatever is behind. FIX: draw the status on the same resting surface and \
+         hairline the keycaps already use, with a corner of its own. Reading: {reading}"
+    );
+}
+
+#[then(regex = r"^the status reads clearly against that surface$")]
+async fn then_the_status_reads_clearly(world: &mut FoundryWorld) {
+    let (palette, reading) = palette_reading(world);
+    let (fill, _) = colour_at(&reading, &["chip", "fill"]);
+    let ink = colour_at(&reading, &["chip", "ink"]);
+    let (wanted_ink, _) = colour_at(&reading, &["ink"]);
+    let ratio = contrast_ratio(painted(ink, fill), fill);
+    let text = reading["chipText"].as_str().unwrap_or_default();
+    assert!(
+        !text.trim().is_empty(),
+        "WHAT: the status marker carries no word at all. WHY: a chip with nothing in it tells her \
+         nothing about where her work stands. FIX: the chip's text is the stored status. \
+         Reading: {reading}"
+    );
+    assert!(
+        ink.0 == wanted_ink && ratio >= TEXT_FLOOR,
+        "WHAT: on the {palette} palette the status word is painted {:?} on {fill:?}, which is \
+         {ratio:.2} to 1, while the application's own text colour is {wanted_ink:?} and its own \
+         floor is {TEXT_FLOOR} to 1. WHY: a status she cannot read at a glance is a status she \
+         goes back to the board to learn, which is the whole reason this page shows it. \
+         FIX: paint the chip's word in the application's own text colour on that surface. \
+         Reading: {reading}",
+        ink.0
+    );
+}
+
+#[then(regex = r"^the button that chooses a file is drawn as one of Foundry's quiet controls$")]
+async fn then_the_file_button_is_a_quiet_control(world: &mut FoundryWorld) {
+    let (palette, reading) = palette_reading(world);
+    assert!(
+        reading["button"].is_object(),
+        "WHAT: the attach control carries no button of its own on the {palette} palette. \
+         WHY: with none resolved there is nothing for this reading to hold of. FIX: keep the \
+         upload control on the page. Reading: {reading}"
+    );
+    let (fill, _) = colour_at(&reading, &["button", "fill"]);
+    let (surface, _) = colour_at(&reading, &["surface"]);
+    let edge = number_at(&reading, &["button", "borderWidth"]);
+    let (edge_colour, _) = colour_at(&reading, &["button", "borderColour"]);
+    let (muted, _) = colour_at(&reading, &["muted"]);
+    assert!(
+        fill == surface && edge > 0.0 && edge_colour == muted,
+        "WHAT: on the {palette} palette the button that chooses a file is filled {fill:?} with a \
+         {edge} px {edge_colour:?} edge, while the application's own raised surface is \
+         {surface:?} and its own quiet boundary is {muted:?}. WHY: beside her own attachments \
+         sits the one control the browser draws in its own grey, and a loud black fill there \
+         would shout louder than Upload itself. FIX: give it the quiet control the rest of the \
+         application already uses: the raised surface, the muted boundary, no fill of its own. \
+         Reading: {reading}"
+    );
+}
+
+#[then(regex = r"^that button's word reads clearly, and its edge is visible against the page$")]
+async fn then_the_file_button_reads_clearly(world: &mut FoundryWorld) {
+    let (palette, reading) = palette_reading(world);
+    let (fill, _) = colour_at(&reading, &["button", "fill"]);
+    let ink = colour_at(&reading, &["button", "ink"]);
+    let (wanted_ink, _) = colour_at(&reading, &["ink"]);
+    let (edge_colour, _) = colour_at(&reading, &["button", "borderColour"]);
+    let (behind, _) = colour_at(&reading, &["button", "behind"]);
+    let word = contrast_ratio(painted(ink, fill), fill);
+    let boundary = contrast_ratio(edge_colour, behind);
+    assert!(
+        ink.0 == wanted_ink && word >= TEXT_FLOOR,
+        "WHAT: on the {palette} palette the button's word is painted {:?} on {fill:?}, which is \
+         {word:.2} to 1, while the application's own text colour is {wanted_ink:?} and its own \
+         floor is {TEXT_FLOOR} to 1. WHY: a control whose word she cannot read is a control she \
+         does not press. FIX: paint it in the application's own text colour. Reading: {reading}",
+        ink.0
+    );
+    assert!(
+        boundary >= BOUNDARY_FLOOR,
+        "WHAT: on the {palette} palette the button's edge is {edge_colour:?} against {behind:?}, \
+         which is {boundary:.2} to 1, under the {BOUNDARY_FLOOR} to 1 every control of the \
+         application outside the left rail reaches. WHY: with no visible edge she cannot tell \
+         where the control is, and a control she cannot find is a file she cannot attach. \
+         FIX: give it the same boundary the other quiet controls carry. Reading: {reading}"
     );
 }

@@ -162,37 +162,6 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <p>P1</p>
 
-<pre><code>A client asks for the keyboard shortcut list four ways: opening it as a page, fetching it as a script, loading it as a frame, and declaring nothing about where the answer goes.
-</code></pre>
-
-<pre><code>Only the client opening a page is given a full styled page carrying the shortcut rows under its own heading; the other three are given the bare labelled list a live page writes into itself, and every one of the four answers tells a cache that it depends on what the client declared.
-</code></pre>
-
-<pre><code>Opening the shortcut list lands the operator on a page that looks like Foundry, the list she opens over her board keeps working, and no cache between her and the application can hand one of them the other&#x27;s body.
-</code></pre>
-
-<h5>Disposition</h5>
-
-<p>Tested</p>
-
-<p>crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: What a client asking for the shortcut list is given</p>
-
-<pre><code>The page arm is framed but advertises its rows in another order, which the row-identity reading catches instead.
-</code></pre>
-
-<h6>Obligations</h6>
-
-
-
-
-
-
-
-
-<h5>Covers</h5>
-
-<p>P1</p>
-
 <pre><code>The same shortcut address is asked for once as a page and once as a script fetching it, and the shortcuts each answer advertises are read out of both.
 </code></pre>
 
@@ -363,7 +332,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 <pre><code>A member opens the page of an issue nobody has described yet, beside the page of one that has a description.
 </code></pre>
 
-<pre><code>The page that has a description holds exactly one place carrying that text; the page of the undescribed issue holds exactly one place of the same shape, and that place carries copy rather than being blank or absent.
+<pre><code>Each page marks exactly one place as the description; the place on the described issue holds that text, the place on the undescribed issue carries copy rather than being blank or absent, and on both pages the element her words sit in carries a class the stylesheet can reach.
 </code></pre>
 
 <pre><code>She can tell an issue nobody has described from a page that failed to show her the description.
@@ -379,6 +348,7 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 </code></pre>
 
 <h6>Obligations</h6>
+
 
 
 <h5>Covers</h5>
@@ -509,6 +479,191 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 <p>cargo xtask check-arch :: asset-reference, asset-hash, colour-token and pre-paint-script layers</p>
 
 <pre><code>A stylesheet rule is wrong in a way no gate parses, because the file has no linter and no CSS parser in the gate.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<pre><code>The operator with a session of her own opens the keyboard shortcut list as a page, and the answer&#x27;s own headers are read with it.
+</code></pre>
+
+<pre><code>She is given the whole of Foundry around the list: a full styled document carrying the rail and something to sign out with, exactly one place in the rail marked as where she is and that place her home, the shortcut section a reader with no scripting finds and nothing announcing the page as a dialog, an answer that names both what the client declared and who asked as what it depends on, and an answer no cache may keep a copy of.
+</code></pre>
+
+<pre><code>Opening the shortcut list leaves her inside Foundry, with the rail she came from and a way back, and no cache can show her page to whoever reads that screen next.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: Signed in, she opens the shortcut list and keeps the rest of Foundry around it</p>
+
+<pre><code>The rail offers a destination that answers an error, because this reading holds the marking and the way out rather than every link&#x27;s answer.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<pre><code>She opens the keyboard shortcut list as a page with a session of her own, and then presses the sign-out of that page.
+</code></pre>
+
+<pre><code>The page carries exactly one anti-forgery token in its sign-out form, that token is the one in the cookie the same answer minted, the press is accepted, and her old session opens her workspace no more.
+</code></pre>
+
+<pre><code>She can leave from the shortcut page itself, instead of finding that the one control on it is always refused.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: She can sign out from the shortcut page she opened signed in</p>
+
+<pre><code>A second press of the same spent token is refused, because this reading follows one sign-out rather than the reuse of its token.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<pre><code>Her session stays open while her place in the workspace is removed, and she then opens the keyboard shortcut list as a page.
+</code></pre>
+
+<pre><code>She is given the centred card: a full styled document with no rail and no workspace named anywhere on it, never a refusal and never a frame greeting a nameless identity, carrying the shortcut rows, and an answer that names both what was declared and who asked and that forbids any cache from keeping it.
+</code></pre>
+
+<pre><code>A reader whose account has gone can still read the shortcut list, and is never shown a workspace that is no longer hers.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: A reader whose account is gone is given the card, not a refusal and not a nameless frame</p>
+
+<pre><code>The card is reached through a redirect rather than answered straight away, because this reading holds the body she ends on.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<pre><code>The same shortcut address is asked for as a script fetching it, as a frame loading it, and declaring nothing at all.
+</code></pre>
+
+<pre><code>Each is given the bare list a live page writes into itself, with its labelled dialog container and no document wrapper, each answer names both the declared destination and the asking reader as what it depends on, and none of them forbids a cache from keeping it.
+</code></pre>
+
+<pre><code>The list she opens over her board keeps working and stays quick, and no cache can hand it a whole page instead.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: A client that is not opening a page is still given the bare list</p>
+
+<pre><code>The overlay&#x27;s own paint changes, because this reading holds the body shape and the rows rather than the look.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+
+
+<h5>Covers</h5>
+
+<p>P4</p>
+
+<pre><code>Every page this work touches is served: the four forms the promise names, the forgotten-password page, the public shortcut list and an issue&#x27;s own page.
+</code></pre>
+
+<pre><code>Exactly eight of their fields are told what they hold, and no other field on any of those pages is told anything at all.
+</code></pre>
+
+<pre><code>Her password manager is offered the eight fields that hold her credentials, and is taught nothing about any other box she types in.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: No field beyond those eight claims to hold her credentials</p>
+
+<pre><code>A page outside this work gains a token, because the count is taken over the pages this work touches.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+<h5>Covers</h5>
+
+<p>P3</p>
+
+<pre><code>A member looks at her issue&#x27;s own page in a real browser, once on a screen that asks for the light palette and once on a screen that asks for the dark one.
+</code></pre>
+
+<pre><code>The status is painted on the application&#x27;s own resting surface, opaque rather than see-through, with a hairline edge and a rounded corner, and its word reaches the ordinary readable contrast against that surface; the button that chooses a file is painted on the application&#x27;s own raised surface with its quiet boundary, its word reaches the same readable contrast, and its edge stays visible against what is behind it. Both hold in each palette.
+</code></pre>
+
+<pre><code>Where her work stands is a chip she can read at a glance, and attaching a file is a control that belongs to Foundry, on a light screen and on a dark one.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: Whichever palette her screen asks for, the status and the attach control are readable</p>
+
+<pre><code>The chip&#x27;s corner is a different size from the keycap&#x27;s, because this reading holds that it has one rather than which one.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<pre><code>With no session at all she opens the keyboard shortcut list as a page, and the answer&#x27;s own headers are read with it.
+</code></pre>
+
+<pre><code>She is given the centred card with no rail and no workspace named, carrying the shortcut rows and the shortcut section a reader with no scripting finds, with nothing announcing the page as a dialog, an answer naming both the declared destination and the asking reader as what it depends on, and no cache allowed to keep it.
+</code></pre>
+
+<pre><code>An operator stuck at the sign-in screen can still open the shortcut list and read it.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: With no session at all the shortcut list is still a page she can read</p>
+
+<pre><code>The card is drawn at a width this reading does not measure, because the painted frame is read by the browser scenarios instead.
 </code></pre>
 
 <h6>Obligations</h6>

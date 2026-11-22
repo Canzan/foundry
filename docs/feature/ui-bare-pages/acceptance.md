@@ -9,41 +9,6 @@
 P1
 
 ```text
-A client asks for the keyboard shortcut list four ways: opening it as a page, fetching it as a script, loading it as a frame, and declaring nothing about where the answer goes.
-```
-
-```text
-Only the client opening a page is given a full styled page carrying the shortcut rows under its own heading; the other three are given the bare labelled list a live page writes into itself, and every one of the four answers tells a cache that it depends on what the client declared.
-```
-
-```text
-Opening the shortcut list lands the operator on a page that looks like Foundry, the list she opens over her board keeps working, and no cache between her and the application can hand one of them the other's body.
-```
-
-##### Disposition
-
-Tested
-
-crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: What a client asking for the shortcut list is given
-
-```text
-The page arm is framed but advertises its rows in another order, which the row-identity reading catches instead.
-```
-
-###### Obligations
-
-
-
-
-
-
-
-
-##### Covers
-
-P1
-
-```text
 The same shortcut address is asked for once as a page and once as a script fetching it, and the shortcuts each answer advertises are read out of both.
 ```
 
@@ -239,7 +204,7 @@ A member opens the page of an issue nobody has described yet, beside the page of
 ```
 
 ```text
-The page that has a description holds exactly one place carrying that text; the page of the undescribed issue holds exactly one place of the same shape, and that place carries copy rather than being blank or absent.
+Each page marks exactly one place as the description; the place on the described issue holds that text, the place on the undescribed issue carries copy rather than being blank or absent, and on both pages the element her words sit in carries a class the stylesheet can reach.
 ```
 
 ```text
@@ -257,6 +222,7 @@ The empty copy is worded differently from the attachment and comment empty state
 ```
 
 ###### Obligations
+
 
 
 ##### Covers
@@ -407,6 +373,219 @@ cargo xtask check\-arch \:\: asset\-reference\, asset\-hash\, colour\-token and 
 
 ```text
 A stylesheet rule is wrong in a way no gate parses, because the file has no linter and no CSS parser in the gate.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P1
+
+```text
+The operator with a session of her own opens the keyboard shortcut list as a page, and the answer's own headers are read with it.
+```
+
+```text
+She is given the whole of Foundry around the list: a full styled document carrying the rail and something to sign out with, exactly one place in the rail marked as where she is and that place her home, the shortcut section a reader with no scripting finds and nothing announcing the page as a dialog, an answer that names both what the client declared and who asked as what it depends on, and an answer no cache may keep a copy of.
+```
+
+```text
+Opening the shortcut list leaves her inside Foundry, with the rail she came from and a way back, and no cache can show her page to whoever reads that screen next.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: Signed in\, she opens the shortcut list and keeps the rest of Foundry around it
+
+```text
+The rail offers a destination that answers an error, because this reading holds the marking and the way out rather than every link's answer.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P1
+
+```text
+She opens the keyboard shortcut list as a page with a session of her own, and then presses the sign-out of that page.
+```
+
+```text
+The page carries exactly one anti-forgery token in its sign-out form, that token is the one in the cookie the same answer minted, the press is accepted, and her old session opens her workspace no more.
+```
+
+```text
+She can leave from the shortcut page itself, instead of finding that the one control on it is always refused.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: She can sign out from the shortcut page she opened signed in
+
+```text
+A second press of the same spent token is refused, because this reading follows one sign-out rather than the reuse of its token.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+```text
+Her session stays open while her place in the workspace is removed, and she then opens the keyboard shortcut list as a page.
+```
+
+```text
+She is given the centred card: a full styled document with no rail and no workspace named anywhere on it, never a refusal and never a frame greeting a nameless identity, carrying the shortcut rows, and an answer that names both what was declared and who asked and that forbids any cache from keeping it.
+```
+
+```text
+A reader whose account has gone can still read the shortcut list, and is never shown a workspace that is no longer hers.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: A reader whose account is gone is given the card\, not a refusal and not a nameless frame
+
+```text
+The card is reached through a redirect rather than answered straight away, because this reading holds the body she ends on.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+```text
+The same shortcut address is asked for as a script fetching it, as a frame loading it, and declaring nothing at all.
+```
+
+```text
+Each is given the bare list a live page writes into itself, with its labelled dialog container and no document wrapper, each answer names both the declared destination and the asking reader as what it depends on, and none of them forbids a cache from keeping it.
+```
+
+```text
+The list she opens over her board keeps working and stays quick, and no cache can hand it a whole page instead.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: A client that is not opening a page is still given the bare list
+
+```text
+The overlay's own paint changes, because this reading holds the body shape and the rows rather than the look.
+```
+
+###### Obligations
+
+
+
+
+
+
+##### Covers
+
+P4
+
+```text
+Every page this work touches is served: the four forms the promise names, the forgotten-password page, the public shortcut list and an issue's own page.
+```
+
+```text
+Exactly eight of their fields are told what they hold, and no other field on any of those pages is told anything at all.
+```
+
+```text
+Her password manager is offered the eight fields that hold her credentials, and is taught nothing about any other box she types in.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: No field beyond those eight claims to hold her credentials
+
+```text
+A page outside this work gains a token, because the count is taken over the pages this work touches.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P3
+
+```text
+A member looks at her issue's own page in a real browser, once on a screen that asks for the light palette and once on a screen that asks for the dark one.
+```
+
+```text
+The status is painted on the application's own resting surface, opaque rather than see-through, with a hairline edge and a rounded corner, and its word reaches the ordinary readable contrast against that surface; the button that chooses a file is painted on the application's own raised surface with its quiet boundary, its word reaches the same readable contrast, and its edge stays visible against what is behind it. Both hold in each palette.
+```
+
+```text
+Where her work stands is a chip she can read at a glance, and attaching a file is a control that belongs to Foundry, on a light screen and on a dark one.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: Whichever palette her screen asks for\, the status and the attach control are readable
+
+```text
+The chip's corner is a different size from the keycap's, because this reading holds that it has one rather than which one.
+```
+
+###### Obligations
+
+
+
+
+##### Covers
+
+P1
+
+```text
+With no session at all she opens the keyboard shortcut list as a page, and the answer's own headers are read with it.
+```
+
+```text
+She is given the centred card with no rail and no workspace named, carrying the shortcut rows and the shortcut section a reader with no scripting finds, with nothing announcing the page as a dialog, an answer naming both the declared destination and the asking reader as what it depends on, and no cache allowed to keep it.
+```
+
+```text
+An operator stuck at the sign-in screen can still open the shortcut list and read it.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-bare\-pages\.feature \:\: With no session at all the shortcut list is still a page she can read
+
+```text
+The card is drawn at a width this reading does not measure, because the painted frame is read by the browser scenarios instead.
 ```
 
 ###### Obligations

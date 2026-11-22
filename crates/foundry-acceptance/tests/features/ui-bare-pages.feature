@@ -12,20 +12,26 @@
 # a device that asks for the dark palette.
 #
 # ---------------------------------------------------------------------------
-# WHY THE SHORTCUT LIST IS ASKED FOR FOUR WAYS
+# WHY THE SHORTCUT LIST IS ASKED FOR IN SO MANY WAYS
 # ---------------------------------------------------------------------------
-# One address answers two bodies, and which one it answers is decided from what
-# the asking client DECLARES about its destination. So the same address is asked
-# for four ways: as a page being opened, as a script fetching, as a frame
-# loading, and declaring nothing at all. Three of those four must still be given
-# the bare list the overlay assigns into the page, which is why serving the
-# framed page to everybody fails here rather than passing.
+# One address answers two kinds of body, and the page body comes in two frames.
+# WHICH BODY follows what the asking client DECLARES about its destination: a
+# client opening a page is given a page, and a script fetching, a frame loading
+# and a client declaring nothing at all are each still given the bare list the
+# overlay writes into the live page. WHICH FRAME follows WHO IS ASKING: the
+# operator with a session keeps the rest of Foundry around the list, and a
+# reader with no session, or with a session whose account is gone, is given the
+# centred card. So the address is read as each of those readers, and the page
+# she opens signed in is read once more by SIGNING OUT from it, because a frame
+# assembled without its anti-forgery token looks right and refuses the one
+# press on it.
 #
-# Every one of those four answers is also read for what it tells a cache it
-# depends on. A cache that is told nothing is free to hand a page body to the
-# overlay, or the bare list to a browser opening the address — and that defect
-# shows up only at the cache, only for the OTHER reader, which is why the header
-# is read on EVERY arm and not only on the new one.
+# Every one of those answers is also read for what it tells a cache. A cache
+# that is told nothing is free to hand a page body to the overlay, the bare list
+# to a browser opening the address, or one operator's framed page — which names
+# her workspace — to the next reader of the same address. That defect shows up
+# only at the cache, only for the OTHER reader, which is why both headers are
+# read on EVERY answer and not only on the new one.
 #
 # ---------------------------------------------------------------------------
 # HOW THE CARD IS READ
@@ -64,22 +70,73 @@ Feature: Every page the operator lands on looks like Foundry and tells her what 
   # ==========================================================================
 
   @real-io @driving_port
-  Scenario Outline: What a client asking for the shortcut list is given
-    # L1. RED-trigger: every client is given the bare list, so a browser opening
-    # the address lands on an unstyled run of keys. The nearest wrong fix —
-    # giving the framed page to everybody — is caught by the three rows below
-    # the first, which must still be given the bare list the overlay assigns
-    # into the live page.
-    When a client asks for the keyboard shortcut list <declaring>
-    Then it is given <body>
-    And the answer tells a cache it depends on what the client declared
+  Scenario: Signed in, she opens the shortcut list and keeps the rest of Foundry around it
+    # L1 L3 L8. RED-trigger: she is given the centred card, which for her is a
+    # page with no rail, no workspace and no way back — exactly what the first
+    # examination refused. The wrong fix this catches is a frame that marks no
+    # place in the rail, or marks two: the marking is read for EXACTLY one, and
+    # for which one.
+    Given the operator has a session of her own
+    When she asks for the keyboard shortcut list as a page she is opening
+    Then she is given the rest of Foundry around the list
+    And exactly one place in the rail is marked as where she is, and it is her home
+    And the list is still the one a reader with no scripting finds
+    And the answer tells a cache it depends on what was declared and on who asked
+    And the answer tells every cache to keep no copy of it
 
-    Examples: the four things a client can declare about where the answer goes
-      | declaring                           | body            |
-      | as a page it is opening             | a framed page   |
-      | as a script fetching it             | the bare list   |
-      | as a frame loading it               | the bare list   |
-      | declaring nothing at all            | the bare list   |
+  @real-io @driving_port
+  Scenario: She can sign out from the shortcut page she opened signed in
+    # L1. RED-trigger: the page she is given carries no rail and so nothing to
+    # sign out with. The wrong fix this catches is a frame assembled without its
+    # anti-forgery mint: the page then LOOKS right and the one press on it is
+    # refused, which no reading of the markup alone would notice.
+    Given the operator has a session of her own
+    And she has opened the keyboard shortcut list as a page she is opening
+    When she signs out from that page
+    Then she is signed out, and her session opens her workspace no more
+
+  @real-io @driving_port
+  Scenario: A reader whose account is gone is given the card, not a refusal and not a nameless frame
+    # L1. RED-trigger: the header set this reading needs is not answered yet.
+    # The wrong fix this catches is a frame drawn for an identity the store can
+    # no longer answer for: it would greet her as "there" in "your workspace",
+    # which is worse than the card and reads as a defect of her account.
+    Given the operator's account was removed while her session was open
+    When she asks for the keyboard shortcut list as a page she is opening
+    Then she is given the centred card, with no rail and no workspace named
+    And the answer tells a cache it depends on what was declared and on who asked
+    And the answer tells every cache to keep no copy of it
+
+  @real-io @driving_port
+  Scenario: With no session at all the shortcut list is still a page she can read
+    # L1 L3 L8. RED-trigger: the header set is not answered yet. The body is
+    # already the card, and that is what this reading holds in place while the
+    # signed-in frame is added beside it.
+    Given the operator has no session at all
+    When she asks for the keyboard shortcut list as a page she is opening
+    Then she is given the centred card, with no rail and no workspace named
+    And the list is still the one a reader with no scripting finds
+    And the answer tells a cache it depends on what was declared and on who asked
+    And the answer tells every cache to keep no copy of it
+
+  @real-io @driving_port
+  Scenario Outline: A client that is not opening a page is still given the bare list
+    # L1 L8. RED-trigger: the answers name only what was declared, not who
+    # asked, so a shared cache may hand one reader's answer to another. The
+    # nearest wrong fix — giving the page body to everybody — is caught here,
+    # because each of these must still be given the body the overlay writes into
+    # the live page, and these answers stay keepable by a cache.
+    Given the operator has no session at all
+    When she asks for the keyboard shortcut list <declaring>
+    Then she is given the bare list
+    And the answer tells a cache it depends on what was declared and on who asked
+    And a cache may keep the answer
+
+    Examples: every way of asking that is not opening a page
+      | declaring                |
+      | as a script fetching it  |
+      | as a frame loading it    |
+      | declaring nothing at all |
 
   @real-io @driving_port
   Scenario: The page and the overlay advertise the same shortcuts
@@ -195,6 +252,16 @@ Feature: Every page the operator lands on looks like Foundry and tells her what 
       | page                        | field     | intent  |
       | the forgotten-password page | her email | nothing |
 
+  @real-io @driving_port
+  Scenario: No field beyond those eight claims to hold her credentials
+    # L4, the count rather than the identities: eight fields are told what they
+    # hold and no ninth is. The wrong fix this catches is a token spreading to a
+    # field nobody promised — a search box told it holds a username, or a
+    # one-time confirmation told it holds a password — which teaches her manager
+    # to offer secrets where none belong.
+    When every page this work touches is served to her
+    Then exactly eight of their fields are told what they hold, and no other
+
   # ==========================================================================
   # An issue's own page reads as the issue
   # ==========================================================================
@@ -227,6 +294,7 @@ Feature: Every page the operator lands on looks like Foundry and tells her what 
     Given an issue with nothing written down, beside one that has a description
     When the operator opens both issues' own pages
     Then both pages hold exactly one place for the description
+    And each place is one the stylesheet can reach
     And the empty one tells her nothing is written down yet
 
   @real-io @driving_port
@@ -261,3 +329,22 @@ Feature: Every page the operator lands on looks like Foundry and tells her what 
     Given the operator is looking at an issue's own page
     Then Delete is drawn as one of Foundry's controls, not as a bare link
     And the control for attaching a file is drawn in Foundry's own type
+
+  @needs-browser @real-io @bare-pages-issue
+  Scenario Outline: Whichever palette her screen asks for, the status and the attach control are readable
+    # L5. RED-trigger: the status is bare text that resolves no surface, no edge
+    # and no corner at all, and the button inside the attach control is the
+    # browser's own. The wrong fixes this catches are a status painted on a
+    # see-through tint, which a reader's eye and a measurement both fall
+    # straight through, and either control's words left too faint to read on the
+    # surface behind them.
+    Given the operator is looking at an issue's own page on a screen that asks for the <palette> palette
+    Then the status is drawn on a surface of its own, with an edge and rounded corners
+    And the status reads clearly against that surface
+    And the button that chooses a file is drawn as one of Foundry's quiet controls
+    And that button's word reads clearly, and its edge is visible against the page
+
+    Examples: the two palettes a screen can ask for
+      | palette |
+      | light   |
+      | dark    |

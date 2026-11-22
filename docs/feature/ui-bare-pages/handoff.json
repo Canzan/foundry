@@ -8,28 +8,6 @@
 "disposition": {
 "kind": "Tested",
 "obligations": [
-"L1/F139",
-"L1/F140",
-"L1/F141",
-"L1/F142",
-"L8/F305",
-"L8/F306",
-"L8/F307"
-],
-"still_passes_if": "F345",
-"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: What a client asking for the shortcut list is given"
-},
-"expected": "F343",
-"stimulus": "F342",
-"user_result": "F344"
-},
-{
-"covers": [
-"P1"
-],
-"disposition": {
-"kind": "Tested",
-"obligations": [
 "L2/F145",
 "L2/F146",
 "L2/F147"
@@ -139,12 +117,13 @@
 "disposition": {
 "kind": "Tested",
 "obligations": [
-"L5/F169"
+"L5/F458",
+"L5/F459"
 ],
 "still_passes_if": "F373",
 "test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: An issue with nothing written down still has one place for it"
 },
-"expected": "F371",
+"expected": "F490",
 "stimulus": "F370",
 "user_result": "F372"
 },
@@ -235,6 +214,128 @@
 "expected": "F391",
 "stimulus": "F390",
 "user_result": "F392"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F481",
+"L3/F452",
+"L8/F464"
+],
+"still_passes_if": "F494",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: Signed in, she opens the shortcut list and keeps the rest of Foundry around it"
+},
+"expected": "F492",
+"stimulus": "F491",
+"user_result": "F493"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F482"
+],
+"still_passes_if": "F498",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: She can sign out from the shortcut page she opened signed in"
+},
+"expected": "F496",
+"stimulus": "F495",
+"user_result": "F497"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F484"
+],
+"still_passes_if": "F502",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: A reader whose account is gone is given the card, not a refusal and not a nameless frame"
+},
+"expected": "F500",
+"stimulus": "F499",
+"user_result": "F501"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F447",
+"L1/F448",
+"L1/F142",
+"L8/F466",
+"L8/F467"
+],
+"still_passes_if": "F506",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: A client that is not opening a page is still given the bare list"
+},
+"expected": "F504",
+"stimulus": "F503",
+"user_result": "F505"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F455"
+],
+"still_passes_if": "F510",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: No field beyond those eight claims to hold her credentials"
+},
+"expected": "F508",
+"stimulus": "F507",
+"user_result": "F509"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F460",
+"L5/F487",
+"L5/F488"
+],
+"still_passes_if": "F514",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: Whichever palette her screen asks for, the status and the attach control are readable"
+},
+"expected": "F512",
+"stimulus": "F511",
+"user_result": "F513"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F483",
+"L3/F451",
+"L8/F465"
+],
+"still_passes_if": "F518",
+"test": "crates/foundry-acceptance/tests/features/ui-bare-pages.feature :: With no session at all the shortcut list is still a page she can read"
+},
+"expected": "F516",
+"stimulus": "F515",
+"user_result": "F517"
 }
 ]
 },
@@ -242,7 +343,7 @@
 "B": 4,
 "C": 3,
 "E": 11,
-"F": 489,
+"F": 518,
 "K": 8,
 "L": 8,
 "N": 3,
@@ -2069,10 +2170,6 @@
 "F339": "On the invite accept page and on the password reset page the manager treats the new password and its confirmation as one new credential: it can fill both fields with the same new password and offers to save that one password, not two.",
 "F340": "Fill-and-match across two fields and the single save offer live in the manager, not on the page, so a capture of the page shows neither. The operator sees nothing wrong until the manager fills the wrong value or saves the confirmation separately.",
 "F341": "A real browser with a password manager on a pending invite and on a reset link, with a capture of both fields after fill and of the save prompt.",
-"F342": "A client asks for the keyboard shortcut list four ways: opening it as a page, fetching it as a script, loading it as a frame, and declaring nothing about where the answer goes.",
-"F343": "Only the client opening a page is given a full styled page carrying the shortcut rows under its own heading; the other three are given the bare labelled list a live page writes into itself, and every one of the four answers tells a cache that it depends on what the client declared.",
-"F344": "Opening the shortcut list lands the operator on a page that looks like Foundry, the list she opens over her board keeps working, and no cache between her and the application can hand one of them the other's body.",
-"F345": "The page arm is framed but advertises its rows in another order, which the row-identity reading catches instead.",
 "F346": "The same shortcut address is asked for once as a page and once as a script fetching it, and the shortcuts each answer advertises are read out of both.",
 "F347": "Both answers advertise exactly the seven shipped shortcuts in the shipped order, and they advertise the identical rows as each other.",
 "F348": "The operator learns one set of keys, whichever way she reads it, and a key she is told about is a key she can press.",
@@ -2099,7 +2196,6 @@
 "F369": "The chip shows the stored state as the stored word rather than a human label, which is the decision of 2026-11-21 and not a defect.",
 "F37": "Autocomplete by flow on the eight named inputs: on signin.html the email takes username and the password takes current-password; on bootstrap_claim.html the email takes username and the password takes new-password, because that form CREATES the first admin's password and current-password there makes a password manager offer a stored secret instead of generating and saving one; on invite_accept.html and reset_password.html the password and its confirmation both take new-password. No other input in the repository gains a token in this Request. Every input keeps its type, name, required flag and order, so each shipped form POST, each hidden token and each server-side validation is untouched. Layers: Adapter only; no carrier and no state.",
 "F370": "A member opens the page of an issue nobody has described yet, beside the page of one that has a description.",
-"F371": "The page that has a description holds exactly one place carrying that text; the page of the undescribed issue holds exactly one place of the same shape, and that place carries copy rather than being blank or absent.",
 "F372": "She can tell an issue nobody has described from a page that failed to show her the description.",
 "F373": "The empty copy is worded differently from the attachment and comment empty states, because the wording itself is not pinned.",
 "F374": "Descriptions of every shape are written as the operator would write them, from a recorded seed and always including nothing at all, something that looks like a script, two lines ended the way a browser ends them, and one unbroken word of four thousand letters; each issue's own page is then opened.",
@@ -2215,8 +2311,37 @@
 "F488": "the file-selector button block names the secondary control it reuses: a --cz-surface background, a --cz-muted border and --cz-text label, with no fill of its own; the button text reaches 4.5 to 1 against that surface with the device preference dark and again with it light, and the border carries the control's own 3 to 1 boundary as every control outside the left nav does",
 "F489": "The states are the project's closed lane set, the description is present or empty, and each control is read once per palette, so the rows exhaust the structural domain; the text domain is carried by the generated property.",
 "F49": "The single source of the advertised rows. Both arms derive from it through one new private builder, so an added row reaches the page and the overlay together; a page with its own hard-coded list is the drift this file's own comment warns about.",
+"F490": "Each page marks exactly one place as the description; the place on the described issue holds that text, the place on the undescribed issue carries copy rather than being blank or absent, and on both pages the element her words sit in carries a class the stylesheet can reach.",
+"F491": "The operator with a session of her own opens the keyboard shortcut list as a page, and the answer's own headers are read with it.",
+"F492": "She is given the whole of Foundry around the list: a full styled document carrying the rail and something to sign out with, exactly one place in the rail marked as where she is and that place her home, the shortcut section a reader with no scripting finds and nothing announcing the page as a dialog, an answer that names both what the client declared and who asked as what it depends on, and an answer no cache may keep a copy of.",
+"F493": "Opening the shortcut list leaves her inside Foundry, with the rail she came from and a way back, and no cache can show her page to whoever reads that screen next.",
+"F494": "The rail offers a destination that answers an error, because this reading holds the marking and the way out rather than every link's answer.",
+"F495": "She opens the keyboard shortcut list as a page with a session of her own, and then presses the sign-out of that page.",
+"F496": "The page carries exactly one anti-forgery token in its sign-out form, that token is the one in the cookie the same answer minted, the press is accepted, and her old session opens her workspace no more.",
+"F497": "She can leave from the shortcut page itself, instead of finding that the one control on it is always refused.",
+"F498": "A second press of the same spent token is refused, because this reading follows one sign-out rather than the reuse of its token.",
+"F499": "Her session stays open while her place in the workspace is removed, and she then opens the keyboard shortcut list as a page.",
 "F50": "The overlay view-model keeps its selector-identical contract and now includes the extracted rows partial; a sibling page view-model carries the same two fields, so neither arm owns a second copy of the row shape.",
+"F500": "She is given the centred card: a full styled document with no rail and no workspace named anywhere on it, never a refusal and never a frame greeting a nameless identity, carrying the shortcut rows, and an answer that names both what was declared and who asked and that forbids any cache from keeping it.",
+"F501": "A reader whose account has gone can still read the shortcut list, and is never shown a workspace that is no longer hers.",
+"F502": "The card is reached through a redirect rather than answered straight away, because this reading holds the body she ends on.",
+"F503": "The same shortcut address is asked for as a script fetching it, as a frame loading it, and declaring nothing at all.",
+"F504": "Each is given the bare list a live page writes into itself, with its labelled dialog container and no document wrapper, each answer names both the declared destination and the asking reader as what it depends on, and none of them forbids a cache from keeping it.",
+"F505": "The list she opens over her board keeps working and stays quick, and no cache can hand it a whole page instead.",
+"F506": "The overlay's own paint changes, because this reading holds the body shape and the rows rather than the look.",
+"F507": "Every page this work touches is served: the four forms the promise names, the forgotten-password page, the public shortcut list and an issue's own page.",
+"F508": "Exactly eight of their fields are told what they hold, and no other field on any of those pages is told anything at all.",
+"F509": "Her password manager is offered the eight fields that hold her credentials, and is taught nothing about any other box she types in.",
 "F51": "Keeps the dialog container with its role and label that the shipped templating read asserts, and includes the rows partial instead of declaring the rows itself.",
+"F510": "A page outside this work gains a token, because the count is taken over the pages this work touches.",
+"F511": "A member looks at her issue's own page in a real browser, once on a screen that asks for the light palette and once on a screen that asks for the dark one.",
+"F512": "The status is painted on the application's own resting surface, opaque rather than see-through, with a hairline edge and a rounded corner, and its word reaches the ordinary readable contrast against that surface; the button that chooses a file is painted on the application's own raised surface with its quiet boundary, its word reaches the same readable contrast, and its edge stays visible against what is behind it. Both hold in each palette.",
+"F513": "Where her work stands is a chip she can read at a glance, and attaching a file is a control that belongs to Foundry, on a light screen and on a dark one.",
+"F514": "The chip's corner is a different size from the keycap's, because this reading holds that it has one rather than which one.",
+"F515": "With no session at all she opens the keyboard shortcut list as a page, and the answer's own headers are read with it.",
+"F516": "She is given the centred card with no rail and no workspace named, carrying the shortcut rows and the shortcut section a reader with no scripting finds, with nothing announcing the page as a dialog, an answer naming both the declared destination and the asking reader as what it depends on, and no cache allowed to keep it.",
+"F517": "An operator stuck at the sign-in screen can still open the shortcut list and read it.",
+"F518": "The card is drawn at a width this reading does not measure, because the painted frame is read by the browser scenarios instead.",
 "F52": "No template today owns the shortcut rows apart from the dialog container that wraps them, and the page arm needs the rows WITHOUT that container: a page is not a dialog. Extracting them gives both arms one row owner; including the whole dialog on the page would put a dialog role on a document.",
 "F54": "No template owns a chrome-less centred frame: the signed-out templates each place their content directly in base.html's content block, and app_shell.html is the rail frame a signed-out page and the public shortcut page may not render. One new frame is what keeps the card, its product name and its width in a single place instead of seven.",
 "F55": "The one owner of the head, the stylesheet link, the pre-paint scripts and the footer. The card page extends it rather than declaring a second head; the only edit here is the stylesheet link taking the new content hash.",
