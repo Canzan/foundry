@@ -1,9 +1,167 @@
 {
+"acceptance": {
+"S1": [
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F126",
+"L1/F127",
+"L1/F128",
+"L1/F129",
+"L1/F130",
+"L1/F131",
+"L1/F132",
+"L1/F278",
+"L1/F279"
+],
+"still_passes_if": "F325",
+"test": "crates/foundry-acceptance/tests/features/ui-page-frame.feature: Every page she opens starts its content at the one frame edge"
+},
+"expected": "F323",
+"stimulus": "F322",
+"user_result": "F324"
+},
+{
+"covers": [
+"P1",
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L7/F163",
+"L7/F164",
+"T1",
+"T2"
+],
+"still_passes_if": "F329",
+"test": "xtask/src/check_arch.rs, run by cargo xtask check-arch: the stylesheet hash, the colour-token seam and the head-script rule"
+},
+"expected": "F327",
+"stimulus": "F326",
+"user_result": "F328"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2/F136",
+"L2/F137",
+"L2/F138",
+"L2/F282",
+"L2/F283",
+"L3/F286",
+"L3/F287",
+"L3/F288",
+"L3/F145",
+"L3/F289",
+"L3/F290"
+],
+"still_passes_if": "F333",
+"test": "crates/foundry-acceptance/tests/features/ui-page-frame.feature: Whatever she has stored, a field stays as wide as its own size and no page scrolls sideways"
+},
+"expected": "F331",
+"stimulus": "F330",
+"user_result": "F332"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "NotTested",
+"owner": "solution-architect",
+"reason": "F337"
+},
+"expected": "F335",
+"stimulus": "F334",
+"user_result": "F336"
+},
+{
+"covers": [
+"P3"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L4/F149",
+"L4/F150",
+"L4/F151"
+],
+"still_passes_if": "F341",
+"test": "crates/foundry-acceptance/tests/features/ui-page-frame.feature: Each page of stacked forms reads as sections, each under its own heading"
+},
+"expected": "F339",
+"stimulus": "F338",
+"user_result": "F340"
+},
+{
+"covers": [
+"P4"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L5/F154",
+"L5/F155"
+],
+"still_passes_if": "F345",
+"test": "crates/foundry-acceptance/tests/features/ui-page-frame.feature: In the issue dialog Delete is the quiet control and Save alone is the main action"
+},
+"expected": "F343",
+"stimulus": "F342",
+"user_result": "F344"
+},
+{
+"covers": [
+"P5"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L6/F158",
+"L6/F293",
+"L6/F159",
+"L6/F160",
+"L6/F294"
+],
+"still_passes_if": "F357",
+"test": "crates/foundry-acceptance/tests/features/ui-page-frame.feature: The board header and the change report each name the project key as a labelled value"
+},
+"expected": "F355",
+"stimulus": "F354",
+"user_result": "F356"
+},
+{
+"covers": [
+"P2"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L2"
+],
+"still_passes_if": "F353",
+"test": "crates/foundry-acceptance/src/steps/feature_ui_page_frame.rs::generated_names"
+},
+"expected": "F351",
+"stimulus": "F350",
+"user_result": "F352"
+}
+]
+},
 "counters": {
 "B": 3,
 "C": 2,
 "E": 13,
-"F": 321,
+"F": 357,
 "K": 7,
 "L": 7,
 "N": 3,
@@ -1508,7 +1666,39 @@
 "F32": "ONE BOX OWNS WHERE A PAGE STARTS. The app shell content box (.app-shell__content) is the single padding box between the window and an app page first content box: 24px block and 32px inline at desk width, 16px below the shipped 480px phone breakpoint. The shipped stylesheet has THREE writers of that one fact, which is the whole of B1: the frame box, the element rule main { padding: 20px } which adds a second box on every page that wraps its content in <main> (Teams, tokens, settings, instance admin, the integrations pages: 292px), and .dash which adds a centred max-width 880px column whose inline start is a function of the WINDOW (Home: 424px). The element rule is SCOPED, not deleted, to body > main, because four out-of-frame pages (email_stop, unsubscribe_confirm, unsubscribe_result, notifications) render <main> as a direct child of body and are out of scope; scoping states the real rule (a page with no frame pads itself, a framed page is padded by the frame) rather than defeating the old one with a padding: 0 override. .dash keeps its class and its colour and type rules, because feature_ui_nav_polish.rs:77 and feature_canzan_theme.rs:950 select on it, and loses its max-width, its auto margins and its padding. .page-card keeps its own padding (a class beats an element rule), so the card pages are unchanged. Carriers: the frame box in the stylesheet app-shell block; no new template, no new Rust type, no new state. Layers. Domain: none. Application: none. Adapter: app_shell.html unchanged, one scoped element rule, one .dash rule set reduced. Infrastructure: none. Observation: the computed inline start and block start of each page first content box, at both viewports.",
 "F320": "In the board header Change report and Integrations appear as two separate, clearly drawn controls with visible separation, not two underlined links running together into one word.",
 "F321": "A resting header does not show her the hover, focus and pressed states or the size of each control's clickable area, so two visually separate labels can still be hard to hit apart, and a narrow phone header may wrap them back together.",
+"F322": "She opens every app page on a desk and on a phone, including the signed page that sits outside the frame, then opens the same pages in a wider window. The destinations the rail offers her are compared with the pages she opened.",
+"F323": "Every framed page starts its content at one shared edge and one shared height, inside exactly one padded box, with nothing running off the side of the window. The page outside the frame keeps the padding of its own. Widening the window leaves every start where it was, and the board's lanes grow with the window. Every destination the rail offers, apart from the shortcut list and the integrations pages this request leaves alone, is one of the pages she opened.",
+"F324": "As she moves between Home, the board, Teams, invites, tokens and settings, the content never jumps sideways, and the board still uses the width of the window.",
+"F325": "A fragment painted later inside a page she already opened can carry padding of its own, and a destination the rail does not offer yet is unseen. The reading compares the pages it opens with the destinations the rail offers now.",
+"F326": "The architecture check reads the shipped stylesheet name, the colour tokens in that stylesheet, and the scripts in the document head.",
+"F327": "The stylesheet file name matches its own bytes, colour values stay in the token seam, and a head script that touches the browser store before paint stays blocking while every other head script of that shell stays deferred.",
+"F328": "After this change a refresh still loads the colours and the scripts the way the running app already does.",
+"F329": "The check accepts a frame whose left edge or field width is wrong, because it never reads the painted layout. Those readings are the page scenarios.",
 "F33": "THE FRAME SETS NO MAXIMUM CONTENT WIDTH. Promise P1 asks for the same width on every page, and the frame content box gives exactly that: the window minus the rail minus its own inline padding, identical on every page. A max-inline-size on the frame was rejected twice over: centred it reintroduces a window-dependent left edge, which is the Home defect being removed, and left-aligned it still narrows the BOARD, whose lanes need the window. Readable line length is therefore a FIELD decision (P2) and a SECTION decision (P3), not a frame decision. Layers: Adapter only.",
+"F330": "She stores names of every shape, including an unbroken project name of 256 letters, a workspace name of 24 wide letters, a one-letter name, a team name of 64 letters and an email of 254 letters. She opens the forms and both dialogs in each palette, and she opens the lane-delete dialog and the sign-in card.",
+"F331": "Each field inside the frame stays within the cap for its own size, and no page scrolls sideways. In both dialogs the title is as wide as the description under it and as wide as the dialog. The password field keeps the width of the card. Lists, number fields, file controls and the password are drawn with the surface, the hairline and the type around them, and a list keeps its arrow. A page that overflows names the seed and the shortest run that still overflows.",
+"F332": "Fields are sized to what they hold, the dialogs stay level, and every list, number and file control looks like the rest of Foundry in either palette.",
+"F333": "The room field and the channel list of a Matrix route are absent from the pages this runtime opens, so a wrong drawing of those two is unseen here. Delete's word contrast is skipped when its ink or fill resolves no colour.",
+"F334": "She opens a new Matrix route and looks for the room field and the channel list.",
+"F335": "The room field and the channel list are drawn as the same family as every other text field and list.",
+"F336": "The room field and the channel list match the other fields.",
+"F337": "The public route hides the room field and the channel list until a Matrix connection exists. This design's verification runtime does not provide one, and adding a connection would invent a fixture the closed design did not declare.",
+"F338": "She opens Teams, the instance dashboard and her account settings, then renames a project and a workspace, once with a name each accepts and once with a name each refuses.",
+"F339": "Each form sits in a section with one heading and its own action. The rename rows carry no bullet and no indent of the browser's own, and a project row can still be told from its workspace by a hairline or a different ground. The grouped choices are drawn as Foundry's own groups, and the content edge stays where the frame put it. An accepted name replaces that row, and a refused name is answered inside the row that refused it.",
+"F340": "She reads each form section by its heading, and a rename either shows the new name in place or the reason it was refused, without the page jumping.",
+"F341": "The heading's exact words can change. The reading checks that a section holds one heading and its own action, and it does not pin the heading's copy.",
+"F342": "She opens the issue dialog in each palette and presses Delete.",
+"F343": "Delete is painted with the surface and the muted hairline, Save with the primary fill, and both stay readable against the dialog. Pressing Delete asks her to confirm before the issue is deleted.",
+"F344": "Delete reads as the secondary control, and pressing it still asks her to confirm.",
+"F345": "The confirmation is recognised by the word delete somewhere in the dialog, so a sentence that mentions delete without asking her to confirm would still pass. A control in that dialog other than Delete and Save can stay unstyled.",
+"F350": "She stores names drawn from a recorded seed, always including the named extremes, and every page that shows those names is opened.",
+"F351": "For any stored value within its own bound, the field stays within the cap that applies where it sits and the page gains no horizontal overflow. A failing case prints the seed and shrinks toward the shortest overflowing run.",
+"F352": "A name of any shape she is allowed to store stays inside its field, and the page does not scroll sideways.",
+"F353": "The sample is finite, so a name shape outside the seed and the named extremes can still overflow. The seed and the shrink are printed when a sampled case fails.",
+"F354": "She opens the board and its change report, opens the board as a teammate who may not manage it, deletes the issue on her open board from somewhere else, and presses slash.",
+"F355": "Both headers show the key as a labelled value. Change report and Integrations are separate quiet controls with a gap and no underline, and the report address is the board's own report. A reader sees the key and only Change report. The card that was deleted elsewhere leaves her open board, and the column that held it stays that column. Slash opens the search panel in its own block beside New issue.",
+"F356": "The board header reads as one tidy row. A card deleted somewhere else leaves the board she already has open, and slash still opens the search panel beside New issue.",
+"F357": "The key label is accepted when its words appear anywhere in the header text, so a label repeated in another sentence of that header would still pass. The card leaving is accepted when that card is gone and the column that held it is still the column she had open, so some other script that removes only that card would still pass. A new card appearing is not read.",
 "F36": "A STACKED FORM BECOMES A SECTION WITH A HEADING AND ITS OWN ACTION. One .page-section block carries the rhythm the dashboard already uses (the retired .dash__section margin), a heading and its fields, and holds the submit button INSIDE the section it belongs to. Teams gains two sections, Create a team and Default team for new members, which is what stops the Save button reading as orphaned at the foot of the page. Settings wraps its rows and its Project emails include as sections; the fieldset and legend in integrations/project_emails.html and integrations/route_form.html STAY, because a checkbox or radio group is exactly what a fieldset is for, and they are styled instead: no UA border, the legend drawn as the section sub-heading, the choices in a spaced column. Instance admin keeps every htmx marker and every outer element kind of its rename rows (li[data-project-row], div[data-workspace-head]) because form-errors.js and the hx-swap outerHTML targets resolve them; the nested bullet lists lose their markers and their UA indent through list-style: none and padding-inline-start: 0, and the hierarchy is carried by the workspace heading plus a hairline on the nested row group. NO inline padding is added to a page first content box, or B1 would be undone one section at a time. Layers: Adapter only. Observation: the served section structure, one heading per section with its submit inside it, and the computed inline start of the first content box.",
 "F37": "D1: DELETE IS THE SECONDARY CONTROL, NOT A GHOST. .modal-delete resolves NO rule today, so it inherits the global button fill --cz-black and reads as the dialog main action beside Save. It takes the shipped button.secondary pairing exactly: --cz-surface fill, --cz-muted border, --cz-text label. A borderless text or ghost control was REJECTED: ADR-NAV-POLISH-007 and ADR-BARE-PAGES-002 hold every control to an identifiable boundary at 3:1, and a quiet control with no fill and no border has no boundary to measure. Save stays the only --cz-black fill in the dialog, so the primary tier is unambiguous. The control keeps its type=button, its position outside the form, its data-action, its hx-get to the confirm fragment and its 24px target, so she is still asked to confirm. Layers: Adapter only. Observation: the computed fill and border of Delete against those of Save, in both palettes, and the confirm fragment it still fetches.",
 "F39": "ONE CONTENT-HASH MIGRATION. The served stylesheet is the only file whose NAME changes: its bytes change, so the shipped asset-hash rule requires the name to carry the sha256 prefix of the new bytes, and the rename travels in the same commit to its three readers, the link in templates/base.html:6, the row and the sha256 in static/VENDOR.md:33 and :68, and the three cache-policy assertions in crates/foundry-app/src/lib.rs:344, :361 and :380. check-arch R1 refuses a /static reference that does not resolve and R2 refuses a content-hashed name that is not its own hash, so a half-done rename is caught by the gate and not by review.",

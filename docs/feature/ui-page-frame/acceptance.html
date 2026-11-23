@@ -156,7 +156,234 @@ dl.t-detail dd{margin:0;color:var(--ink)}
 
 <h2>Slices</h2>
 
-<p>None.</p>
+<h3>S1</h3>
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<pre><code>She opens every app page on a desk and on a phone, including the signed page that sits outside the frame, then opens the same pages in a wider window. The destinations the rail offers her are compared with the pages she opened.
+</code></pre>
+
+<pre><code>Every framed page starts its content at one shared edge and one shared height, inside exactly one padded box, with nothing running off the side of the window. The page outside the frame keeps the padding of its own. Widening the window leaves every start where it was, and the board&#x27;s lanes grow with the window. Every destination the rail offers, apart from the shortcut list and the integrations pages this request leaves alone, is one of the pages she opened.
+</code></pre>
+
+<pre><code>As she moves between Home, the board, Teams, invites, tokens and settings, the content never jumps sideways, and the board still uses the width of the window.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-page-frame.feature: Every page she opens starts its content at the one frame edge</p>
+
+<pre><code>A fragment painted later inside a page she already opened can carry padding of its own, and a destination the rail does not offer yet is unseen. The reading compares the pages it opens with the destinations the rail offers now.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+
+
+
+
+
+
+<h5>Covers</h5>
+
+<p>P1</p>
+
+<p>P2</p>
+
+<pre><code>The architecture check reads the shipped stylesheet name, the colour tokens in that stylesheet, and the scripts in the document head.
+</code></pre>
+
+<pre><code>The stylesheet file name matches its own bytes, colour values stay in the token seam, and a head script that touches the browser store before paint stays blocking while every other head script of that shell stays deferred.
+</code></pre>
+
+<pre><code>After this change a refresh still loads the colours and the scripts the way the running app already does.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>xtask/src/check_arch.rs, run by cargo xtask check-arch: the stylesheet hash, the colour-token seam and the head-script rule</p>
+
+<pre><code>The check accepts a frame whose left edge or field width is wrong, because it never reads the painted layout. Those readings are the page scenarios.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+
+<h5>Covers</h5>
+
+<p>P2</p>
+
+<pre><code>She stores names of every shape, including an unbroken project name of 256 letters, a workspace name of 24 wide letters, a one-letter name, a team name of 64 letters and an email of 254 letters. She opens the forms and both dialogs in each palette, and she opens the lane-delete dialog and the sign-in card.
+</code></pre>
+
+<pre><code>Each field inside the frame stays within the cap for its own size, and no page scrolls sideways. In both dialogs the title is as wide as the description under it and as wide as the dialog. The password field keeps the width of the card. Lists, number fields, file controls and the password are drawn with the surface, the hairline and the type around them, and a list keeps its arrow. A page that overflows names the seed and the shortest run that still overflows.
+</code></pre>
+
+<pre><code>Fields are sized to what they hold, the dialogs stay level, and every list, number and file control looks like the rest of Foundry in either palette.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-page-frame.feature: Whatever she has stored, a field stays as wide as its own size and no page scrolls sideways</p>
+
+<pre><code>The room field and the channel list of a Matrix route are absent from the pages this runtime opens, so a wrong drawing of those two is unseen here. Delete&#x27;s word contrast is skipped when its ink or fill resolves no colour.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+
+
+
+
+
+
+
+
+<h5>Covers</h5>
+
+<p>P2</p>
+
+<pre><code>She opens a new Matrix route and looks for the room field and the channel list.
+</code></pre>
+
+<pre><code>The room field and the channel list are drawn as the same family as every other text field and list.
+</code></pre>
+
+<pre><code>The room field and the channel list match the other fields.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>NotTested</p>
+
+<pre><code>The public route hides the room field and the channel list until a Matrix connection exists. This design&#x27;s verification runtime does not provide one, and adding a connection would invent a fixture the closed design did not declare.
+</code></pre>
+
+<p>solution-architect</p>
+
+<h5>Covers</h5>
+
+<p>P3</p>
+
+<pre><code>She opens Teams, the instance dashboard and her account settings, then renames a project and a workspace, once with a name each accepts and once with a name each refuses.
+</code></pre>
+
+<pre><code>Each form sits in a section with one heading and its own action. The rename rows carry no bullet and no indent of the browser&#x27;s own, and a project row can still be told from its workspace by a hairline or a different ground. The grouped choices are drawn as Foundry&#x27;s own groups, and the content edge stays where the frame put it. An accepted name replaces that row, and a refused name is answered inside the row that refused it.
+</code></pre>
+
+<pre><code>She reads each form section by its heading, and a rename either shows the new name in place or the reason it was refused, without the page jumping.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-page-frame.feature: Each page of stacked forms reads as sections, each under its own heading</p>
+
+<pre><code>The heading&#x27;s exact words can change. The reading checks that a section holds one heading and its own action, and it does not pin the heading&#x27;s copy.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+<h5>Covers</h5>
+
+<p>P4</p>
+
+<pre><code>She opens the issue dialog in each palette and presses Delete.
+</code></pre>
+
+<pre><code>Delete is painted with the surface and the muted hairline, Save with the primary fill, and both stay readable against the dialog. Pressing Delete asks her to confirm before the issue is deleted.
+</code></pre>
+
+<pre><code>Delete reads as the secondary control, and pressing it still asks her to confirm.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-page-frame.feature: In the issue dialog Delete is the quiet control and Save alone is the main action</p>
+
+<pre><code>The confirmation is recognised by the word delete somewhere in the dialog, so a sentence that mentions delete without asking her to confirm would still pass. A control in that dialog other than Delete and Save can stay unstyled.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+<h5>Covers</h5>
+
+<p>P5</p>
+
+<pre><code>She opens the board and its change report, opens the board as a teammate who may not manage it, deletes the issue on her open board from somewhere else, and presses slash.
+</code></pre>
+
+<pre><code>Both headers show the key as a labelled value. Change report and Integrations are separate quiet controls with a gap and no underline, and the report address is the board&#x27;s own report. A reader sees the key and only Change report. The card that was deleted elsewhere leaves her open board, and the column that held it stays that column. Slash opens the search panel in its own block beside New issue.
+</code></pre>
+
+<pre><code>The board header reads as one tidy row. A card deleted somewhere else leaves the board she already has open, and slash still opens the search panel beside New issue.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/tests/features/ui-page-frame.feature: The board header and the change report each name the project key as a labelled value</p>
+
+<pre><code>The key label is accepted when its words appear anywhere in the header text, so a label repeated in another sentence of that header would still pass. The card leaving is accepted when that card is gone and the column that held it is still the column she had open, so some other script that removes only that card would still pass. A new card appearing is not read.
+</code></pre>
+
+<h6>Obligations</h6>
+
+
+
+
+
+
+<h5>Covers</h5>
+
+<p>P2</p>
+
+<pre><code>She stores names drawn from a recorded seed, always including the named extremes, and every page that shows those names is opened.
+</code></pre>
+
+<pre><code>For any stored value within its own bound, the field stays within the cap that applies where it sits and the page gains no horizontal overflow. A failing case prints the seed and shrinks toward the shortest overflowing run.
+</code></pre>
+
+<pre><code>A name of any shape she is allowed to store stays inside its field, and the page does not scroll sideways.
+</code></pre>
+
+<h5>Disposition</h5>
+
+<p>Tested</p>
+
+<p>crates/foundry-acceptance/src/steps/feature_ui_page_frame.rs::generated_names</p>
+
+<pre><code>The sample is finite, so a name shape outside the seed and the named extremes can still overflow. The seed and the shrink are printed when a sampled case fails.
+</code></pre>
+
+<h6>Obligations</h6>
+
 
 <h2>Expectations</h2>
 
