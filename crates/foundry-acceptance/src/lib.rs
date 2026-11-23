@@ -69,6 +69,7 @@ pub mod steps {
     pub mod feature_token_management_api;
     pub mod feature_ui_bare_pages;
     pub mod feature_ui_nav_polish;
+    pub mod feature_ui_page_frame;
     pub mod feature_web_provisioning_flow;
     pub mod handler_instrumentation;
     pub mod keyboard_fragments_templating;

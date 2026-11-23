@@ -817,12 +817,20 @@ fn assert_board_shows_key(body: &str, key: &str) {
     );
 }
 
-/// Text of the board header's key, from `Key prefix: AUTH`.
+/// The board header's key, taken from the ELEMENT THAT CARRIES IT.
+///
+/// It used to be scraped as the run of text after `Key prefix:`, up to the next
+/// angle bracket. The header now draws the key as a labelled value — the label
+/// in its own element and the key in its own element beside it — so that scrape
+/// reads the empty string between the label and the value, and would report
+/// "the board shows no project key" on a board that shows it perfectly. The
+/// reading moves to the property itself: the attribute the header carries,
+/// which the board and the change report both expose.
 fn board_key(body: &str) -> Option<String> {
-    let marker = "Key prefix:";
+    let marker = "data-key-prefix=\"";
     let start = body.find(marker)? + marker.len();
     let rest = &body[start..];
-    let end = rest.find('<')?;
+    let end = rest.find('"')?;
     Some(rest[..end].trim().to_string())
 }
 
