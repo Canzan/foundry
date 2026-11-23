@@ -1,0 +1,1 @@
+No workflows on this instance are available in MCP, so there is nothing to report here. Ask the user to enable MCP access for a workflow in Settings, under Instance-level MCP.

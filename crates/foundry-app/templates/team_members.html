@@ -9,7 +9,7 @@
   <form method="post" action="/team/{{ team_slug }}/rename" class="team-members__rename">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     {% if let Some(error) = rename_error %}<p class="error">{{ error }}</p>{% endif %}
-    <label>Team name <input type="text" name="name" value="{{ rename_typed }}"></label>
+    <label>Team name <input class="field--name" type="text" name="name" value="{{ rename_typed }}"></label>
     <button type="submit">Rename</button>
   </form>
   {% endif %}
@@ -26,7 +26,7 @@
       <form method="post" action="/team/{{ team_slug }}/project/{{ p.slug }}/rename">
         <input type="hidden" name="_csrf" value="{{ csrf }}">
         {% if let Some(error) = p.error %}<p class="error">{{ error }}</p>{% endif %}
-        <label>Project name <input type="text" name="name" value="{{ p.typed }}" aria-label="Project name {{ p.name }}"></label>
+        <label>Project name <input class="field--name" type="text" name="name" value="{{ p.typed }}" aria-label="Project name {{ p.name }}"></label>
         <button type="submit">Rename</button>
       </form>
       <a href="/team/{{ team_slug }}/project/{{ p.slug }}/delete">Delete project</a>
@@ -60,6 +60,7 @@
     {% endfor %}
   </ul>
   {% if can_manage %}
+  <section class="page-section">
   <h2>Add a member</h2>
   {% if let Some(nobody) = nobody_to_add %}
   <p class="team-members__empty">{{ nobody }}</p>
@@ -67,7 +68,7 @@
   <form method="post" action="/team/{{ team_slug }}/members">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
     <label>Person
-      <select name="user_id">
+      <select class="field--name" name="user_id">
         {% for c in candidates %}
         <option value="{{ c.user_id }}">{{ c.name }} — {{ c.email }}</option>
         {% endfor %}
@@ -76,6 +77,7 @@
     <button type="submit">Add</button>
   </form>
   {% endif %}
+  </section>
   {% endif %}
 </main>
 {% endblock %}

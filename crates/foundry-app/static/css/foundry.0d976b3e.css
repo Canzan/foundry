@@ -281,7 +281,9 @@ a {
   outline-offset: 2px;
 }
 
-main {
+/* A page with no frame pads itself. A framed page is padded by the frame,
+   so this rule stays only on the pages that put main directly under body. */
+body > main {
   padding: 20px;
 }
 
@@ -331,7 +333,13 @@ label {
 input[type="text"],
 input[type="email"],
 input[type="password"],
+input[type="number"],
+select,
 textarea {
+  /* Physical width, not inline-size. On a form control in this browser,
+     inline-size: 100% paints two pixels inside the box, which moves the
+     sign-in field off the card it has to fill. The cap below is still
+     max-inline-size. */
   width: 100%;
   min-height: 32px;
   padding: 6px 10px;
@@ -340,6 +348,123 @@ textarea {
   background: var(--cz-surface);
   color: var(--cz-text);
   font: inherit;
+}
+
+/* A description is a paragraph, so it keeps the full box. The three size
+   classes apply wherever they are named. An unclassed field takes the name
+   cap only inside the frame; a dialog and a card page keep the full box,
+   because a cap there stops a title short of its description or narrows a
+   card the previous work left alone. The list keeps the arrow the platform
+   draws: appearance is left alone, since a drawn chevron would be an asset
+   or a colour below the token seam. */
+textarea {
+  max-inline-size: none;
+}
+
+.app-shell__content :is(
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  select
+) {
+  /* A value longer than the cap scrolls inside the field. The minimum
+     stays on the frame so a card field outside it keeps the size it has. */
+  min-inline-size: 0;
+}
+
+.app-shell__content :is(
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  select
+):not(.field--short):not(.field--name):not(.field--long) {
+  max-inline-size: 24rem;
+}
+
+.modal-dialog :is(
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  select
+):not(.field--short):not(.field--name):not(.field--long) {
+  max-inline-size: none;
+}
+
+.field--short {
+  max-inline-size: 8rem;
+}
+
+.field--name {
+  max-inline-size: 24rem;
+}
+
+.field--long {
+  max-inline-size: 36rem;
+}
+
+.page-section > h2 {
+  margin: 0 0 0.75rem;
+  font-size: 1.15rem;
+}
+
+fieldset.choice-group {
+  border: 0;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  min-inline-size: 0;
+}
+
+fieldset.choice-group legend {
+  padding: 0;
+  margin-bottom: 0.5rem;
+  color: var(--cz-text);
+  font-family: var(--cz-display);
+  font-weight: 700;
+  font-size: 1rem;
+}
+
+/* Nested rename rows keep their markers and lose the browser's bullets.
+   The hairline is what still tells a project row from its workspace. */
+[data-instance-dashboard] ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+[data-instance-dashboard] [data-project-row] {
+  border-top: 1px solid var(--cz-line);
+  padding-block: 0.65rem;
+}
+
+.project-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  column-gap: 1.25rem;
+  row-gap: 0.25rem;
+  margin: 0 0 0.75rem;
+}
+
+.project-header h1 {
+  margin: 0;
+}
+
+.project-key {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0.45rem 0 0;
+}
+
+.project-key__label {
+  color: var(--cz-muted);
+}
+
+.project-key [data-key-prefix] {
+  font-family: var(--cz-mono);
 }
 
 /* Board columns. */
@@ -353,7 +478,15 @@ textarea {
    button keyboard.js inserts right after it (as a DOM sibling, so there is no
    whitespace between them to space them), then the lanes. */
 .board-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 12px;
+}
+
+.board-actions a.button {
+  text-decoration: none;
 }
 
 button[data-action="new-issue"],
@@ -668,10 +801,10 @@ kbd {
  * The duplicate `font-family` stack 02-01 left here on purpose is RETIRED at
  * 04-01, as that note anticipated: the dashboard now inherits `--cz-body` from
  * `body` like every other surface. One face, named once, applied by role. */
+/* Colour and type only. The centred column was a second owner of the page
+   edge; the frame owns that now. The class stays because the theme and nav
+   lanes select it. */
 .dash {
-  max-width: 880px;
-  margin: 0 auto;
-  padding: 2.5rem 1.5rem;
   color: var(--cz-text);
 }
 
@@ -693,6 +826,9 @@ kbd {
   margin: 0 0 2.25rem;
 }
 
+/* The section rhythm. No inline padding: a section must not move the edge
+   the frame already owns. */
+.page-section,
 .dash__section {
   margin-bottom: 2.5rem;
 }
@@ -954,6 +1090,9 @@ kbd {
   flex: 1 1 auto;
   min-width: 0;
   padding: 24px 32px;
+  /* A stored name at its bound is one word. It wraps inside the frame
+     instead of widening the page. */
+  overflow-wrap: anywhere;
 }
 /* release-version-footer (US-RVF-01, D3) — the running release on every full
    page: small, muted, non-interactive. Colour is `--cz-muted` (5.89:1 light,

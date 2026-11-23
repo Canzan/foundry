@@ -4,12 +4,15 @@
 <main>
 <h1>Notification settings</h1>
 <div id="toast" role="status" aria-live="polite"></div>
+<section class="page-section">
+<h2>Workspaces</h2>
 <p>These are the workspaces you belong to. Muted workspaces send you no invitation emails; security emails such as password resets are always delivered.</p>
 <ul id="settings-rows">
 {%- for row in rows %}
 {% include "partials/settings_row.html" %}
 {%- endfor %}
 </ul>
+</section>
 {% include "integrations/project_emails.html" %}
 </main>
 {% endblock %}

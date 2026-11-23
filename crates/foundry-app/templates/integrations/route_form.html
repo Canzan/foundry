@@ -25,12 +25,12 @@
   {% if typed_room %}
   <p>
     <label for="route-destination">Room</label>
-    <input id="route-destination" type="text" name="destination" placeholder="#room:example.org" value="{% for channel in channels %}{% if channel.chosen %}{{ channel.value }}{% endif %}{% endfor %}" required>
+    <input class="field--long" id="route-destination" type="text" name="destination" placeholder="#room:example.org" value="{% for channel in channels %}{% if channel.chosen %}{{ channel.value }}{% endif %}{% endfor %}" required>
   </p>
   {% else %}
   <p>
     <label for="route-destination">Channel</label>
-    <select id="route-destination" name="destination">
+    <select class="field--name" id="route-destination" name="destination">
       {% for channel in channels %}<option value="{{ channel.value }}"{% if channel.chosen %} selected{% endif %}>{{ channel.label }}</option>{% endfor %}
     </select>
     {% for channel in channels %}<input type="hidden" name="channel_label.{{ channel.value }}" value="{{ channel.label }}">{% endfor %}
@@ -40,17 +40,17 @@
   {% if let Some(audience) = audience %}<p data-audience-notice>{{ audience }}</p>{% endif %}
   {% if let Some(shared) = shared_channel %}<p class="notice" role="alert" data-shared-notice>{{ shared }}</p>{% endif %}
   {% if shared_tick %}<p><label><input type="checkbox" name="shared_confirmed" value="on"{% if shared_confirmed %} checked{% endif %}> This channel is shared with another organisation, and that is intended.</label></p>{% endif %}
-  <fieldset>
+  <fieldset class="choice-group">
     <legend>Events</legend>
     {% for event in events %}<label><input type="checkbox" name="events" value="{{ event.value }}"{% if event.chosen %} checked{% endif %}> {{ event.label }}</label>
     {% endfor %}
   </fieldset>
-  <fieldset data-lane-filter>
+  <fieldset class="choice-group" data-lane-filter>
     <legend>Limit Issue moved to these lanes</legend>
     {% for lane in lanes %}<label><input type="checkbox" name="lanes" value="{{ lane.value }}"{% if lane.chosen %} checked{% endif %}> {{ lane.label }}</label>
     {% endfor %}
   </fieldset>
-  <fieldset>
+  <fieldset class="choice-group">
     <legend>What messages carry</legend>
     {% for level in levels %}<label><input type="radio" name="content_level" value="{{ level.value }}"{% if level.chosen %} checked{% endif %}> {{ level.label }}</label>
     {% endfor %}

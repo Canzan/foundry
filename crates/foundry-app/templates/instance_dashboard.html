@@ -5,7 +5,7 @@
   <h1>Instance dashboard</h1>
   <p><a href="/admin/instance/integrations">Integrations</a></p>
 
-  <section data-workspace-list>
+  <section class="page-section" data-workspace-list>
     <h2>Workspaces</h2>
     {% if workspaces.is_empty() %}
     <p data-workspace-empty>No workspaces yet.</p>
@@ -29,20 +29,24 @@
     {% endif %}
   </section>
 
-  <form method="post" action="/admin/instance/workspaces" data-provision-form>
+  <section class="page-section">
     <h2>Provision a workspace</h2>
-    <input type="hidden" name="_csrf" value="{{ csrf }}">
-    {% if let Some(error) = provision_error %}<p class="error" data-provision-error>{{ error }}</p>{% endif %}
-    <label>Workspace name <input type="text" name="name" value="{{ provision_name }}" required></label>
-    <label>First admin email <input type="email" name="email" value="{{ provision_email }}" required></label>
-    <button type="submit">Provision workspace</button>
-  </form>
+    <form method="post" action="/admin/instance/workspaces" data-provision-form>
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      {% if let Some(error) = provision_error %}<p class="error" data-provision-error>{{ error }}</p>{% endif %}
+      <label>Workspace name <input class="field--name" type="text" name="name" value="{{ provision_name }}" required></label>
+      <label>First admin email <input class="field--long" type="email" name="email" value="{{ provision_email }}" required></label>
+      <button type="submit">Provision workspace</button>
+    </form>
+  </section>
 
-  <form method="post" action="/admin/instance/super-admins" data-grant-form>
+  <section class="page-section">
     <h2>Grant super-admin</h2>
-    <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Operator email <input type="email" name="email" required></label>
-    <button type="submit">Grant super-admin</button>
-  </form>
+    <form method="post" action="/admin/instance/super-admins" data-grant-form>
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label>Operator email <input class="field--long" type="email" name="email" required></label>
+      <button type="submit">Grant super-admin</button>
+    </form>
+  </section>
 </main>
 {% endblock %}

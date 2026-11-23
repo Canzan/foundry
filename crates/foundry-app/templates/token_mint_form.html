@@ -5,12 +5,15 @@
   <h1>Machine tokens</h1>
   {% match error %}{% when Some with (message) %}<p class="error">{{ message }}</p>{% when None %}{% endmatch %}
   {% if mint_enabled %}
-  <form method="post" action="/admin/tokens" data-mint-form>
-    <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Label <input type="text" name="label" required></label>
-    <label>Expiry (days) <input type="number" name="ttl_days" value="90" min="1" max="365"></label>
-    <button type="submit">Issue token</button>
-  </form>
+  <section class="page-section">
+    <h2>Issue a token</h2>
+    <form method="post" action="/admin/tokens" data-mint-form>
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label>Label <input class="field--name" type="text" name="label" required></label>
+      <label>Expiry (days) <input class="field--short" type="number" name="ttl_days" value="90" min="1" max="365"></label>
+      <button type="submit">Issue token</button>
+    </form>
+  </section>
   {% else %}
   <p data-issuing-disabled>Issuing tokens is not enabled on this server.</p>
   {% endif %}

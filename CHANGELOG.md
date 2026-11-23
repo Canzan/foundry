@@ -7,6 +7,19 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+### Changed
+
+- **Every app page starts in the same place, and its forms read as sections.**
+  Moving between Home, the board, Teams, invites, tokens and settings, the
+  content holds one edge and one top spacing. Each stacked form sits under its
+  own heading with its own action, and each field is as wide as what it holds.
+  Lists, number fields and the file control are drawn like Foundry's own. In
+  the issue dialog Delete is the quiet control beside Save, and it still asks
+  you to confirm. The board header and the change report name the project key
+  as a labelled value, and Change report and Integrations are two quiet
+  controls with a gap between them. The stylesheet is re-hashed to
+  `foundry.0d976b3e.css`.
+
 ## [v0.20.0] - 2026-11-22
 
 ### Changed

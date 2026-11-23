@@ -3,7 +3,8 @@
 {# deliberately NO token value field anywhere (NFR-MT-SEC-02). An empty list #}
 {# renders an inviting empty state, not a blank table (US-MT02 scenario 3). #}
 {# `status` is the derived active/revoked/expired marker (admin_tokens.rs). #}
-<section data-token-list>
+<section class="page-section" data-token-list>
+  <h2>Issued tokens</h2>
   {% if tokens.is_empty() %}
   <p data-token-empty>No tokens yet — issue one above.</p>
   {% else %}

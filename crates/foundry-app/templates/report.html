@@ -1,7 +1,7 @@
 {% extends "app_shell.html" %}
 {% block title %}Change report - {{ project_name }}{% endblock %}
 {% block app_content %}
-<header><h1>Change report — {{ project_name }}</h1><p class="key">Key prefix: {{ key_prefix }}</p></header>
+<header class="project-header"><h1>Change report — {{ project_name }}</h1><p class="project-key"><span class="project-key__label">Key prefix</span><span data-key-prefix="{{ key_prefix }}">{{ key_prefix }}</span></p></header>
 <nav class="report-actions"><a class="board-link" href="{{ board_url }}">Back to board</a> <a class="csv-export" href="{{ csv_url }}">Export → CSV</a></nav>
 <section class="change-report" data-change-report>{% if events.is_empty() %}<p class="report-empty">No changes yet.</p>{% else %}<table><thead><tr><th>Issue</th><th>Actor</th><th>Field</th><th>Old</th><th>New</th><th>When</th></tr></thead><tbody>{% for e in events %}<tr class="report-event" data-issue-key="{{ e.issue_key }}" data-change-field="{{ e.field }}"><td class="issue">{{ e.issue_key }}</td><td class="actor">{{ e.actor }}</td><td class="field">{{ e.field }}</td><td class="old">{{ e.old_display }}</td><td class="new">{{ e.new_display }}</td><td class="when">{{ e.when }}</td></tr>{% endfor %}</tbody></table>{% endif %}</section>
 <section class="status-flow" data-status-flow><h2>Status-flow transitions</h2>{% if transitions.is_empty() %}<p class="empty">No status changes yet.</p>{% else %}<ul>{% for t in transitions %}<li class="transition" data-count="{{ t.count }}">{{ t.label }}: {{ t.count }}</li>{% endfor %}</ul>{% endif %}</section>

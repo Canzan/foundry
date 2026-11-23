@@ -16,25 +16,31 @@
   </ul>
   {% endif %}
   {% if let Some(create) = create_form %}
-  <form method="post" action="/teams" class="teams__create">
-    <input type="hidden" name="_csrf" value="{{ csrf }}">
-    {% if let Some(error) = create.error %}<p class="error">{{ error }}</p>{% endif %}
-    <label>Team name <input type="text" name="name" value="{{ create.typed }}"></label>
-    <button type="submit">Create team</button>
-  </form>
+  <section class="page-section">
+    <h2>Create a team</h2>
+    <form method="post" action="/teams" class="teams__create">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      {% if let Some(error) = create.error %}<p class="error">{{ error }}</p>{% endif %}
+      <label>Team name <input class="field--name" type="text" name="name" value="{{ create.typed }}"></label>
+      <button type="submit">Create team</button>
+    </form>
+  </section>
   {% endif %}
   {% if let Some(form) = default_form %}
-  <form method="post" action="/teams/default">
-    <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Default team for new members
-      <select name="team">
-        {% for o in form.options %}
-        <option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.label }}</option>
-        {% endfor %}
-      </select>
-    </label>
-    <button type="submit">Save</button>
-  </form>
+  <section class="page-section">
+    <h2>Default team for new members</h2>
+    <form method="post" action="/teams/default">
+      <input type="hidden" name="_csrf" value="{{ csrf }}">
+      <label>Default team for new members
+        <select class="field--name" name="team">
+          {% for o in form.options %}
+          <option value="{{ o.value }}"{% if o.selected %} selected{% endif %}>{{ o.label }}</option>
+          {% endfor %}
+        </select>
+      </label>
+      <button type="submit">Save</button>
+    </form>
+  </section>
   {% endif %}
 </main>
 {% endblock %}

@@ -30,7 +30,7 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
 | File | Version | Upstream canonical URL | Retrieved (UTC) | sha256 |
 |------|---------|------------------------|-----------------|--------|
 | `vendor/htmx.min.js` | htmx **2.0.4** (pinned latest-stable 2.0.x; step 04-01 migration) | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | 2026-06-04 | `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447` |
-| `css/foundry.8a68a324.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-11-21 | `8a68a3249b34b3d1bbe2f0ca8903a66c77bb9beb38f03065a7e12e0cccb68f07` |
+| `css/foundry.0d976b3e.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-11-23 | `0d976b3e32e6a54073e82919c6a24a4ee471e737c348d103af73310d067dfacd` |
 | `js/theme.js` | hand-authored (this repo) — a two-value PORT of canzan-lift `src/ui/assets/theme.js`, NOT vendored from a release | — (not vendored; authored in-tree) | 2026-08-29 | `95a7ffdd0f97d75332fc988dc3a87d53ea758131eff31de48bde6000043e8813` |
 | `vendor/swagger-ui-5.33.3/swagger-ui-bundle.js` | swagger-ui-dist **5.33.3** (Apache-2.0), `package/swagger-ui-bundle.js` | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `3861ec4cc8e7b9fa9f250280da9350436e418137788282c753b9a2ac5fb7bd2f` |
 | `vendor/swagger-ui-5.33.3/swagger-ui.css` | swagger-ui-dist **5.33.3** (Apache-2.0), `package/swagger-ui.css` | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `1ac324f7dcd27e4b9386b4bd6421271ec147e922a22c05ba24b11515e9aa6321` |
@@ -65,7 +65,7 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   intent is `static/js/keyboard.js` — one app-owned vanilla IIFE, no framework.
   htmx remains the only vendored runtime dependency of the app's pages;
   swagger-ui (below) is loaded by the API page `/docs/api` alone (D12).
-- `foundry.8a68a324.css` is hand-authored and served as-authored (gzip via the
+- `foundry.0d976b3e.css` is hand-authored and served as-authored (gzip via the
   `compression-gzip` tower-http feature handles the wire size); no CSS minifier
   is introduced (DB6). **The `.8a68a324.` segment is the content hash** (first 8
   hex of the file's sha256) per ADR-B03 / assets.md Decision #4 option 4a: the

@@ -3,13 +3,13 @@
 {# the EXPLICIT data-error-target at the slot's current CHILD ("> *"), so the #}
 {# slot survives consecutive refusals (the project-rename precedent's lesson).#}
 {# No maxlength: the 24-scalar rule is server-side (D3).                      #}
-<div data-workspace-head>
+<div class="instance-row" data-workspace-head>
   <span data-workspace-name>{{ name }}</span>
   <form hx-post="/admin/instance/workspaces/{{ workspace_id }}/rename"
         hx-target="closest [data-workspace-head]" hx-swap="outerHTML"
         data-error-target="#workspace-rename-error-{{ workspace_id }} > *">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <label>Rename workspace <input type="text" name="name" value="{{ name }}" required></label>
+    <label>Rename workspace <input class="field--name" type="text" name="name" value="{{ name }}" required></label>
     <div data-error-slot id="workspace-rename-error-{{ workspace_id }}"><span data-error-anchor></span></div>
     <button type="submit">Rename workspace</button>
   </form>
