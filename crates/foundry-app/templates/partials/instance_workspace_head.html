@@ -4,7 +4,8 @@
 {# slot survives consecutive refusals (the project-rename precedent's lesson).#}
 {# No maxlength: the 24-scalar rule is server-side (D3).                      #}
 <div class="instance-row" data-workspace-head>
-  <span data-workspace-name>{{ name }}</span>
+  <section class="page-section">
+  <h3><span data-workspace-name>{{ name }}</span></h3>
   <form hx-post="/admin/instance/workspaces/{{ workspace_id }}/rename"
         hx-target="closest [data-workspace-head]" hx-swap="outerHTML"
         data-error-target="#workspace-rename-error-{{ workspace_id }} > *">
@@ -13,4 +14,5 @@
     <div data-error-slot id="workspace-rename-error-{{ workspace_id }}"><span data-error-anchor></span></div>
     <button type="submit">Rename workspace</button>
   </form>
+  </section>
 </div>

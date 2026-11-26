@@ -287,6 +287,14 @@ body > main {
   padding: 20px;
 }
 
+/* The frame's padding is the gap above the first line. A heading that keeps
+   its own top margin sits lower on the pages that never zeroed it. */
+.app-shell__content > h1,
+.app-shell__content > main > h1:first-child,
+.app-shell__content > header:first-child > h1 {
+  margin-top: 0;
+}
+
 /* Interactive targets >= 24x24px.
  *
  * The FILL is the control's boundary here: `--cz-black` against the page
@@ -408,6 +416,11 @@ textarea {
 .page-section > h2 {
   margin: 0 0 0.75rem;
   font-size: 1.15rem;
+}
+
+.page-section > h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
 }
 
 fieldset.choice-group {
@@ -859,7 +872,9 @@ kbd {
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  /* One track, the width of the frame. Empty tracks of a wider grid leave
+     each card in a narrow column while the frame stays wide. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.85rem;
 }
 
@@ -1664,10 +1679,10 @@ kbd {
    base.html now declares <meta name="viewport" content="width=device-width …">,
    so a phone lays the app out at ~390px instead of the ~980px desktop fallback.
    At that width the fixed 240px sidebar rail leaves the content ~150px, forcing
-   every inner surface (the board's min-width columns, the dashboard's 220px card
+   every inner surface (the board's min-width columns, the dashboard's card
    tracks) to overflow the document horizontally. Below the mobile breakpoint the
    shell STACKS — the rail spans the top, the content takes the full width — and
-   the board scrolls WITHIN its own container instead of widening the page. Guarded
+   the lanes share that width instead of running past the frame. Guarded
    by a max-width query so the desktop layout (> breakpoint) is untouched. */
 @media (max-width: 480px) {
   .app-shell {
@@ -1866,12 +1881,14 @@ kbd {
   .app-shell__content {
     padding: 16px;
   }
-  /* The columns strip scrolls WITHIN its own container; the page never widens. */
+  /* Lanes share the frame. A min-width strip runs past a 390px phone and
+     the board then scrolls sideways while the page itself stays still. */
   .board {
-    overflow-x: auto;
+    min-width: 0;
+    max-width: 100%;
   }
   .column {
-    min-width: 220px;
+    min-width: 0;
   }
   /* Primary controls grow to a ~44px thumb target on a phone. The theme control
      and the nav-collapse control JOIN this list rather than taking a rule of

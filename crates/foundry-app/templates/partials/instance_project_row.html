@@ -8,7 +8,8 @@
 {# swapped-in fragment is the next target). Per-row id disambiguates the      #}
 {# repeated per-row forms document-wide.                                      #}
 <li class="instance-row" data-project-row data-project-id="{{ project_id }}">
-  <span data-project-name>{{ name }}</span> ({{ key_prefix }}) — team {{ team_name }}
+  <section class="page-section">
+  <h3><span data-project-name>{{ name }}</span> ({{ key_prefix }}) — team {{ team_name }}</h3>
   <form hx-post="/admin/instance/projects/{{ project_id }}/rename"
         hx-target="closest [data-project-row]" hx-swap="outerHTML"
         data-error-target="#rename-error-{{ project_id }} > *">
@@ -17,4 +18,5 @@
     <div data-error-slot id="rename-error-{{ project_id }}"><span data-error-anchor></span></div>
     <button type="submit">Rename</button>
   </form>
+  </section>
 </li>

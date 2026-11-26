@@ -69,11 +69,15 @@ Feature: Every app page is framed the same way and its forms read as ordered sec
     # and in a column of its own, and Teams, tokens, settings, the instance
     # dashboard and the change report each add a second padded box, so the six
     # starts disagree with the board's. The reading names each page and the boxes
-    # on its path, so the first failure says WHICH page and WHICH box.
+    # on its path, so the first failure says WHICH page and WHICH box. The
+    # painted top of the first heading is read on its own: subtracting that
+    # heading's margin would report the frame's edge while the line she sees
+    # sits lower on some pages than on others.
     Given she is signed in and reading Foundry on <device>
     When she opens each page of the app in turn
     Then every page starts its content at the one edge the frame owns
     And every page starts its content at the one height the frame owns
+    And the first heading on every page sits at the height the frame owns
     And exactly one padded box stands between the frame and a page's own words
     And nothing on any of those pages runs off the side of her screen
     And the page that is not framed keeps the page padding of its own
@@ -96,6 +100,38 @@ Feature: Every app page is framed the same way and its forms read as ordered sec
     Then every page still starts its content where it did before
     And every page still starts at the one edge the frame owns
     And her board still uses the width of the window
+
+  @needs-browser @real-io @page-frame
+  Scenario Outline: Her board stays on the screen with no sideways scroll
+    # L1. A page can keep the document from scrolling while its lanes run past
+    # the frame and the board strip scrolls on its own. This reading measures
+    # the lanes and that strip, not only the document.
+    Given she is signed in and reading Foundry on <device>
+    When she opens her board
+    Then every lane of her board is fully on the screen
+    And she does not have to scroll the board sideways
+
+    Examples: the two screens she reads her board on
+      | device    |
+      | a desk    |
+      | her phone |
+
+  @needs-browser @real-io @page-frame
+  Scenario Outline: Each project card on Home spans the frame
+    # L1. Home can start at the frame's left edge and still lay each project
+    # card in a narrow track of a wider grid. One card is the only track that
+    # holds anything, so it spans the frame even when empty tracks collapse,
+    # and two cards still sit in narrow tracks. Home holds two projects, and
+    # this reading measures each card against the frame, not the grid.
+    Given a project "Ledger" with key prefix "LDG" exists under "Backend"
+    And she is signed in and reading Foundry on <device>
+    When she opens Home
+    Then each project card spans the width of the frame
+
+    Examples: the two screens she reads Home on
+      | device    |
+      | a desk    |
+      | her phone |
 
   @real-io @driving_port
   Scenario: Every place the rail offers her is a page this reading covers
@@ -164,12 +200,16 @@ Feature: Every app page is framed the same way and its forms read as ordered sec
   Scenario: Each page of stacked forms reads as sections, each under its own heading
     # L4. RED-trigger: the Teams Save sits at the foot of the page under no
     # heading, the instance rename forms sit in indented lists of bullets, and
-    # the settings groups are drawn with the browser's own ridged box. The wrong
-    # fix this catches is a section that pads itself, which would undo the one
-    # frame edge one page at a time — so the content edge is read again here.
+    # the settings groups are drawn with the browser's own ridged box. A section
+    # that holds one heading and several forms still fails: each form needs a
+    # heading no other form shares, which a shared Workspaces heading does not.
+    # The wrong fix this catches is a section that pads itself, which would undo
+    # the one frame edge one page at a time — so the content edge is read again
+    # here.
     Given she is signed in and reading Foundry on a desk
     When she opens Teams, the instance dashboard and her account settings
     Then every form sits in a section holding exactly one heading and its own action
+    And each form sits under a heading that no other form shares
     And the rename rows show no bullet and no indent of the browser's own
     And a project row can still be told from its workspace
     And the grouped choices are drawn as Foundry's own groups

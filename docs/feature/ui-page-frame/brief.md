@@ -138,4 +138,18 @@ None.
 
 #### Slice work
 
-None.
+L
+
+```text
+EXAMINE repair for unmet E2 E3 E4 E7 on the page frame
+```
+
+##### Rework
+
+```text
+1
+```
+
+```text
+EXAMINE unmet: E2 top-gap mismatch; E3 board sideways scroll at 390px; E4 Home cards do not span frame; E7 project rename rows lack own headings
+```

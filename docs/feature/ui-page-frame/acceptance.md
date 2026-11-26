@@ -13,11 +13,11 @@ She opens every app page on a desk and on a phone, including the signed page tha
 ```
 
 ```text
-Every framed page starts its content at one shared edge and one shared height, inside exactly one padded box, with nothing running off the side of the window. The page outside the frame keeps the padding of its own. Widening the window leaves every start where it was, and the board's lanes grow with the window. Every destination the rail offers, apart from the shortcut list and the integrations pages this request leaves alone, is one of the pages she opened.
+Every framed page starts its content at one shared edge and one shared height, inside exactly one padded box, with nothing running off the side of the window. The first heading on every framed page is painted on that same top edge; a heading that keeps a margin of its own sits lower, and the reading names the page. The page outside the frame keeps the padding of its own. Widening the window leaves every start where it was, and the board's lanes grow with the window. Every destination the rail offers, apart from the shortcut list and the integrations pages this request leaves alone, is one of the pages she opened.
 ```
 
 ```text
-As she moves between Home, the board, Teams, invites, tokens and settings, the content never jumps sideways, and the board still uses the width of the window.
+As she moves between Home, the board, Teams, invites, tokens and settings, the content never jumps sideways or down, and the board still uses the width of the window.
 ```
 
 ##### Disposition
@@ -27,7 +27,7 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/ui\-page\-frame\.feature\: Every page she opens starts its content at the one frame edge
 
 ```text
-A fragment painted later inside a page she already opened can carry padding of its own, and a destination the rail does not offer yet is unseen. The reading compares the pages it opens with the destinations the rail offers now.
+A fragment painted later inside a page she already opened can carry padding of its own, and a destination the rail does not offer yet is unseen. A notice above the heading, or a title that wraps, on a landing this session does not make, is unseen. The painted top of the first heading is part of this reading, so a heading that sits lower on one page does not pass.
 ```
 
 ###### Obligations
@@ -149,11 +149,11 @@ She opens Teams, the instance dashboard and her account settings, then renames a
 ```
 
 ```text
-Each form sits in a section with one heading and its own action. The rename rows carry no bullet and no indent of the browser's own, and a project row can still be told from its workspace by a hairline or a different ground. The grouped choices are drawn as Foundry's own groups, and the content edge stays where the frame put it. An accepted name replaces that row, and a refused name is answered inside the row that refused it.
+Each form sits in a section that holds that form alone, with one heading and its own action. A project rename form that shares the Workspaces heading with another form does not. The rename rows carry no bullet and no indent of the browser's own, and a project row can still be told from its workspace by a hairline or a different ground. The grouped choices are drawn as Foundry's own groups, and the content edge stays where the frame put it. An accepted name replaces that row, and a refused name is answered inside the row that refused it.
 ```
 
 ```text
-She reads each form section by its heading, and a rename either shows the new name in place or the reason it was refused, without the page jumping.
+She can tell where one form ends and the next begins, because each form has a heading of its own, and a rename either shows the new name in place or the reason it was refused, without the page jumping.
 ```
 
 ##### Disposition
@@ -163,7 +163,7 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/ui\-page\-frame\.feature\: Each page of stacked forms reads as sections\, each under its own heading
 
 ```text
-The heading's exact words can change. The reading checks that a section holds one heading and its own action, and it does not pin the heading's copy.
+The heading's words can be the same phrase on every form. The reading checks that the section holds that form alone and one heading, and it does not pin the heading's copy.
 ```
 
 ###### Obligations
@@ -258,6 +258,64 @@ crates\/foundry\-acceptance\/src\/steps\/feature\_ui\_page\_frame\.rs\:\:generat
 
 ```text
 The sample is finite, so a name shape outside the seed and the named extremes can still overflow. The seed and the shrink are printed when a sampled case fails.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+```text
+She opens her board on a desk and on a phone and reads every lane against the frame she can see.
+```
+
+```text
+Every lane lies inside the frame, and the board strip is no wider than what she can see, so she does not have to scroll the board sideways. A lane that runs past the frame fails even when the page itself does not scroll.
+```
+
+```text
+On her phone the board stays on the screen, and she can read every lane without scrolling sideways.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-page\-frame\.feature\: Her board stays on the screen with no sideways scroll
+
+```text
+A board with more lanes than the project this session holds can still overflow a wider desk than the two screens this reading opens. This reading is that board, at those two widths.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+```text
+Home holds two projects, Sandbox and Ledger. She opens it on a desk and on a phone and reads each project card against the frame.
+```
+
+```text
+Each project card is as wide as the frame and starts at the frame's own left edge. A card that sits in a narrow track of a wider grid is narrower than the frame, and the reading names it.
+```
+
+```text
+The project cards on Home span the frame instead of sitting in a narrow column.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-page\-frame\.feature\: Each project card on Home spans the frame
+
+```text
+Two cards that share a row only when Home holds a third project, or only on a desk wider than the two screens this reading opens, still each match the frame here. This reading is these two projects, at those two widths.
 ```
 
 ###### Obligations
@@ -533,4 +591,144 @@ None.
 
 ## Examination
 
-None.
+### E1
+
+met
+
+#### Observations
+
+```text
+At a 1280 by 800 window, signed in as Priya, the content starts at the same left edge, x=272. Home main is y=24, width 976. The board header and the change-report header are y=24, width 976. Teams and Machine tokens mains are y=44, width 976. Account settings and instance workspaces mains are y=44, width 961, because a scrollbar narrowed the viewport to 1265. Invites has no main landmark; Send invite starts at x=272. None of these desk pages scroll sideways. At a 390-wide window, height still 800, Home main is x=16, y=141, width 358, and each project card is width 358. Teams and tokens mains are x=16, y=161, width 358. Settings main is x=16, y=161, width 343 on a 375 viewport. The board header is x=16, y=141, width 358. Invites has no main; Send invite starts at x=16. The document does not scroll sideways. On the board a 358px region holds 692px of content, a section reaches x=472, and the In-Progress and Done lane buttons are off-screen. On these phone-width pages the text Machine tokens reaches about x=404, and the primary nav words are 1 by 1 px and not seen. /admin/instance is a 404; the dashboard is /admin/instance/workspaces.
+```
+
+### E2
+
+unmet
+
+#### Observations
+
+```text
+At a 1280 by 800 window, signed in as Priya, the content starts at the same left edge, x=272. Home main is y=24, width 976. The board header and the change-report header are y=24, width 976. Teams and Machine tokens mains are y=44, width 976. Account settings and instance workspaces mains are y=44, width 961, because a scrollbar narrowed the viewport to 1265. Invites has no main landmark; Send invite starts at x=272. None of these desk pages scroll sideways. At a 390-wide window, height still 800, Home main is x=16, y=141, width 358, and each project card is width 358. Teams and tokens mains are x=16, y=161, width 358. Settings main is x=16, y=161, width 343 on a 375 viewport. The board header is x=16, y=141, width 358. Invites has no main; Send invite starts at x=16. The document does not scroll sideways. On the board a 358px region holds 692px of content, a section reaches x=472, and the In-Progress and Done lane buttons are off-screen. On these phone-width pages the text Machine tokens reaches about x=404, and the primary nav words are 1 by 1 px and not seen. /admin/instance is a 404; the dashboard is /admin/instance/workspaces.
+```
+
+product_violation
+
+### E3
+
+unmet
+
+#### Observations
+
+```text
+At a 1280 by 800 window, signed in as Priya, the content starts at the same left edge, x=272. Home main is y=24, width 976. The board header and the change-report header are y=24, width 976. Teams and Machine tokens mains are y=44, width 976. Account settings and instance workspaces mains are y=44, width 961, because a scrollbar narrowed the viewport to 1265. Invites has no main landmark; Send invite starts at x=272. None of these desk pages scroll sideways. At a 390-wide window, height still 800, Home main is x=16, y=141, width 358, and each project card is width 358. Teams and tokens mains are x=16, y=161, width 358. Settings main is x=16, y=161, width 343 on a 375 viewport. The board header is x=16, y=141, width 358. Invites has no main; Send invite starts at x=16. The document does not scroll sideways. On the board a 358px region holds 692px of content, a section reaches x=472, and the In-Progress and Done lane buttons are off-screen. On these phone-width pages the text Machine tokens reaches about x=404, and the primary nav words are 1 by 1 px and not seen. /admin/instance is a 404; the dashboard is /admin/instance/workspaces.
+```
+
+product_violation
+
+### E4
+
+unmet
+
+#### Observations
+
+```text
+At a 1280 by 800 window, signed in as Priya, the content starts at the same left edge, x=272. Home main is y=24, width 976. The board header and the change-report header are y=24, width 976. Teams and Machine tokens mains are y=44, width 976. Account settings and instance workspaces mains are y=44, width 961, because a scrollbar narrowed the viewport to 1265. Invites has no main landmark; Send invite starts at x=272. None of these desk pages scroll sideways. At a 390-wide window, height still 800, Home main is x=16, y=141, width 358, and each project card is width 358. Teams and tokens mains are x=16, y=161, width 358. Settings main is x=16, y=161, width 343 on a 375 viewport. The board header is x=16, y=141, width 358. Invites has no main; Send invite starts at x=16. The document does not scroll sideways. On the board a 358px region holds 692px of content, a section reaches x=472, and the In-Progress and Done lane buttons are off-screen. On these phone-width pages the text Machine tokens reaches about x=404, and the primary nav words are 1 by 1 px and not seen. /admin/instance is a 404; the dashboard is /admin/instance/workspaces.
+```
+
+```text
+Home is not a centred column. At desk, main starts at x=272 and is 976 wide, the same edge and width as Teams, and the project section is 976 wide. The two project cards are 234 wide, at x=272 and x=519, so they leave empty frame to the right. At 390 wide, each card is 358 wide, equal to the Home main. The sign-in page in the same session is a centred card: main x=416 width 448 at desk, and x=16 width 358 at 390. Its email and password fields are 390 wide inside that card at desk.
+```
+
+product_violation
+
+### E5
+
+met
+
+#### Observations
+
+```text
+Name fields on Teams, tokens and the instance renames are 384 wide, not the frame width. The token expiry number is 128 wide and 37 tall, with a 1px solid border rgb(92, 100, 95), a 6px corner, a white fill and Public Sans 15px, the same border, fill and face as the name fields. The Teams default-team list is 384 wide and 33 tall with that same border, corner, fill and face. No file field is on Teams or on account settings. In the issue dialog the title field and the description box are both 430 wide, and the status list is 430 wide with the same border, corner, fill and face.
+```
+
+### E6
+
+met
+
+#### Observations
+
+```text
+Name fields on Teams, tokens and the instance renames are 384 wide, not the frame width. The token expiry number is 128 wide and 37 tall, with a 1px solid border rgb(92, 100, 95), a 6px corner, a white fill and Public Sans 15px, the same border, fill and face as the name fields. The Teams default-team list is 384 wide and 33 tall with that same border, corner, fill and face. No file field is on Teams or on account settings. In the issue dialog the title field and the description box are both 430 wide, and the status list is 430 wide with the same border, corner, fill and face.
+```
+
+### E7
+
+unmet
+
+#### Observations
+
+```text
+Teams shows two headings, each with its form and its button inside that form: Create a team with Create team, and Default team for new members with Save. Instance workspaces shows three sections under Workspaces, Provision a workspace and Grant super-admin, and each of those forms holds its own button. The two project renames are list rows inside the Workspaces section. There is no third- or fourth-level heading. Each row is a list item whose text starts with the project name, with a 1px border and no left indent. Settings groups are fieldsets with no border and with legends Identity Platform and Sandbox in the heading face. One Save sits at the bottom of that settings form.
+```
+
+product_violation
+
+### E8
+
+met
+
+#### Observations
+
+```text
+Teams shows two headings, each with its form and its button inside that form: Create a team with Create team, and Default team for new members with Save. Instance workspaces shows three sections under Workspaces, Provision a workspace and Grant super-admin, and each of those forms holds its own button. The two project renames are list rows inside the Workspaces section. There is no third- or fourth-level heading. Each row is a list item whose text starts with the project name, with a 1px border and no left indent. Settings groups are fieldsets with no border and with legends Identity Platform and Sandbox in the heading face. One Save sits at the bottom of that settings form.
+```
+
+### E9
+
+met
+
+#### Observations
+
+```text
+Teams shows two headings, each with its form and its button inside that form: Create a team with Create team, and Default team for new members with Save. Instance workspaces shows three sections under Workspaces, Provision a workspace and Grant super-admin, and each of those forms holds its own button. The two project renames are list rows inside the Workspaces section. There is no third- or fourth-level heading. Each row is a list item whose text starts with the project name, with a 1px border and no left indent. Settings groups are fieldsets with no border and with legends Identity Platform and Sandbox in the heading face. One Save sits at the bottom of that settings form.
+```
+
+### E10
+
+met
+
+#### Observations
+
+```text
+Opening AUTH-1 puts the focus in Title. Delete is a white button with a muted border. Save is a dark button with white ink. Pressing Delete changes that control to Delete AUTH-1 permanently and does not remove the card. Escape closes the dialog. AUTH-1 is still in Backlog.
+```
+
+### E11
+
+met
+
+#### Observations
+
+```text
+Opening AUTH-1 puts the focus in Title. Delete is a white button with a muted border. Save is a dark button with white ink. Pressing Delete changes that control to Delete AUTH-1 permanently and does not remove the card. Escape closes the dialog. AUTH-1 is still in Backlog.
+```
+
+### E12
+
+met
+
+#### Observations
+
+```text
+The board header reads Identity Platform Key prefix AUTH, and AUTH is its own element in JetBrains Mono. The change report header has its own AUTH element. Change report and Integrations are separate links: at desk, x=272 width 126 height 37 and x=406 width 110 height 37, an 8px gap; at 390 wide, x=16 width 126 height 44 and x=150 width 110 height 44, still separate and both seen. Underline and fill of those two header links were not among the anchors whose paint was read.
+```
+
+### E13
+
+met
+
+#### Observations
+
+```text
+The board header reads Identity Platform Key prefix AUTH, and AUTH is its own element in JetBrains Mono. The change report header has its own AUTH element. Change report and Integrations are separate links: at desk, x=272 width 126 height 37 and x=406 width 110 height 37, an 8px gap; at 390 wide, x=16 width 126 height 44 and x=150 width 110 height 44, still separate and both seen. Underline and fill of those two header links were not among the anchors whose paint was read.
+```

@@ -18,7 +18,7 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   you to confirm. The board header and the change report name the project key
   as a labelled value, and Change report and Integrations are two quiet
   controls with a gap between them. The stylesheet is re-hashed to
-  `foundry.0d976b3e.css`.
+  `foundry.cc56ed0e.css`.
 
 ## [v0.20.0] - 2026-11-22
 

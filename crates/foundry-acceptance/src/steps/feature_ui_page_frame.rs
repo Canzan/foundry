@@ -21,6 +21,11 @@
 //! whole defect. So the reading subtracts the content element's own margins and
 //! counts every other box on the path that contributes padding, border or margin.
 //!
+//! THE PAINTED HEADING IS A DIFFERENT READING. Subtracting the margin makes a
+//! heading that sits lower still report the frame's edge, which is how pages
+//! whose first line is not at the same height can pass. The heading reading
+//! takes the painted top of the first heading and does not subtract that margin.
+//!
 //! ANTI-VACUITY. Every reading is guarded against passing on nothing: a page
 //! with no frame, a form with no field, a dialog that never opened and a control
 //! list that came back empty each fail with what was read instead.
@@ -196,6 +201,16 @@ fn num(value: &serde_json::Value, key: &str) -> f64 {
     value[key].as_f64().unwrap_or(f64::NAN)
 }
 
+fn count_of(value: &serde_json::Value, key: &str) -> u64 {
+    value[key].as_u64().unwrap_or_else(|| {
+        value[key]
+            .as_i64()
+            .and_then(|n| u64::try_from(n).ok())
+            .or_else(|| value[key].as_f64().map(|n| n as u64))
+            .unwrap_or(0)
+    })
+}
+
 fn text(value: &serde_json::Value, key: &str) -> String {
     value[key].as_str().unwrap_or_default().to_string()
 }
@@ -331,6 +346,76 @@ out.extraBoxes = chain.slice(0, Math.max(chain.length - 1, 0)).filter(b =>
   b.padInline > 0 || b.padBlock > 0 || b.marginInline > 0 || b.marginBlock > 0 ||
   b.borderInline > 0 || (b.maxWidth && b.maxWidth !== 'none')
 );
+const headings = Array.from(shell.querySelectorAll('h1, h2, h3')).filter(drawn);
+out.headingFound = headings.length > 0;
+if (headings.length > 0) {
+  const hr = headings[0].getBoundingClientRect();
+  out.headingTop = hr.top;
+  out.headingWords = (headings[0].textContent || '').trim().slice(0, 60);
+}
+return out;
+"#;
+
+/// The lanes of the open board, against the frame she can see without scrolling.
+const LANE_READING: &str = r#"
+function drawn(el) {
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden';
+}
+function px(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+const shell = document.querySelector('.app-shell__content');
+const out = { framed: !!shell, innerWidth: window.innerWidth };
+if (!shell) { return out; }
+const scs = getComputedStyle(shell);
+const sr = shell.getBoundingClientRect();
+out.frameLeft = sr.left + px(scs.paddingLeft);
+out.frameRight = sr.right - px(scs.paddingRight);
+const board = document.querySelector('#board-columns');
+out.boardFound = !!board;
+if (!board) { return out; }
+const lanes = Array.from(board.querySelectorAll('[data-column]')).filter(drawn);
+out.laneCount = lanes.length;
+out.lanes = lanes.map(el => {
+  const r = el.getBoundingClientRect();
+  const heading = el.querySelector('h3');
+  return {
+    label: heading ? (heading.textContent || '').trim().slice(0, 40) : '',
+    left: r.left,
+    right: r.right,
+    width: r.width
+  };
+});
+out.boardScrollWidth = board.scrollWidth;
+out.boardClientWidth = board.clientWidth;
+return out;
+"#;
+
+/// The project cards on Home, against the frame's own content width.
+const CARD_READING: &str = r#"
+function drawn(el) {
+  const r = el.getBoundingClientRect();
+  const cs = getComputedStyle(el);
+  return r.width > 0 && r.height > 0 && cs.display !== 'none' && cs.visibility !== 'hidden';
+}
+function px(v) { const n = parseFloat(v); return isNaN(n) ? 0 : n; }
+const shell = document.querySelector('.app-shell__content');
+const out = { framed: !!shell, path: window.location.pathname };
+if (!shell) { return out; }
+const scs = getComputedStyle(shell);
+const sr = shell.getBoundingClientRect();
+out.frameLeft = sr.left + px(scs.paddingLeft);
+out.frameWidth = sr.width - px(scs.paddingLeft) - px(scs.paddingRight);
+const cards = Array.from(document.querySelectorAll('.card')).filter(drawn);
+out.cardCount = cards.length;
+out.cards = cards.map(el => {
+  const r = el.getBoundingClientRect();
+  return {
+    words: (el.textContent || '').trim().slice(0, 40),
+    left: r.left,
+    width: r.width
+  };
+});
 return out;
 "#;
 
@@ -467,6 +552,14 @@ const forms = Array.from(document.querySelectorAll('form')).filter(f => {
   }
   const submit = f.querySelector('button[type="submit"], button:not([type]), input[type="submit"]');
   const padInline = section ? px(getComputedStyle(section).paddingLeft) : null;
+  function liveForm(node) {
+    const r = node.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && !node.closest('.sidebar')
+      && node.getAttribute('action') !== '/sign-out';
+  }
+  const formsInSection = section
+    ? Array.from(section.querySelectorAll('form')).filter(liveForm).length
+    : 0;
   return {
     action: f.getAttribute('action') || f.getAttribute('hx-post') || '',
     inSection: !!section,
@@ -476,7 +569,8 @@ const forms = Array.from(document.querySelectorAll('form')).filter(f => {
     headingWords: headingWords,
     hasSubmit: !!submit,
     submitInSection: !!(submit && section && section.contains(submit)),
-    sectionPadInline: padInline
+    sectionPadInline: padInline,
+    formsInSection: formsInSection
   };
 });
 const renameLists = Array.from(document.querySelectorAll('ul')).filter(ul =>
@@ -1095,6 +1189,186 @@ async fn then_the_unframed_page_keeps_its_padding(world: &mut FoundryWorld) {
          itself; taking that padding away from everything to give the framed pages one edge leaves \
          this one pressed against the side of the screen. HOW: scope the page rule to the pages \
          outside the frame instead of deleting it."
+    );
+}
+
+#[then(regex = r"^the first heading on every page sits at the height the frame owns$")]
+async fn then_the_first_heading_sits_at_the_frame_height(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let device = text(&record, "device");
+    let pages = page_readings(&record, "first");
+    assert_pages_were_read(&pages);
+    let mut drifted: Vec<String> = Vec::new();
+    for (name, reading) in &pages {
+        if reading["headingFound"].as_bool() != Some(true) {
+            drifted.push(format!(
+                "{name} has no heading inside the frame, so there is no first line to measure"
+            ));
+            continue;
+        }
+        let top = num(reading, "headingTop");
+        let frame = num(reading, "frameBlockStart");
+        if !top.is_finite() || (top - frame).abs() > SLACK_PX {
+            drifted.push(format!(
+                "{name} paints its first heading, {words:?}, at {top:.1} where the frame's own \
+                 top edge is {frame:.1}",
+                words = text(reading, "headingWords")
+            ));
+        }
+    }
+    assert!(
+        drifted.is_empty(),
+        "WHAT: {n} pages do not sit their first heading on the frame's top edge on {device}: \
+         {drifted:?}. WHY: the gap above the first line is the frame's own spacing, and a heading \
+         that keeps a margin of its own sits lower on some pages than on others. HOW: let the \
+         first heading sit on the frame's padding box on every page, and do not judge that gap \
+         after subtracting the heading's margin.",
+        n = drifted.len()
+    );
+}
+
+#[when(regex = r"^she opens her board$")]
+async fn when_she_opens_her_board(world: &mut FoundryWorld) {
+    let device = text(&recalled(world), "device");
+    goto(world, BOARD_PATH).await;
+    wait_until_on(browser_of(world), BOARD_PATH).await;
+    let lanes = read_with(browser_of(world), LANE_READING).await;
+    remember(
+        world,
+        serde_json::json!({ "device": device, "lanes": lanes }),
+    );
+}
+
+fn lanes_of(world: &FoundryWorld) -> serde_json::Value {
+    let record = recalled(world);
+    let lanes = record["lanes"].clone();
+    assert_eq!(
+        lanes["framed"].as_bool(),
+        Some(true),
+        "WHAT: the board answered with no frame. WHY: a lane is on the screen only against the \
+         frame she can see. Reading: {lanes}"
+    );
+    assert_eq!(
+        lanes["boardFound"].as_bool(),
+        Some(true),
+        "WHAT: the board page holds no board. WHY: with no lanes there is nothing that can run \
+         off the screen, and the reading would pass on nothing. Reading: {lanes}"
+    );
+    lanes
+}
+
+#[then(regex = r"^every lane of her board is fully on the screen$")]
+async fn then_every_lane_is_fully_on_the_screen(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let device = text(&record, "device");
+    let reading = lanes_of(world);
+    let lanes = reading["lanes"].as_array().cloned().unwrap_or_default();
+    assert!(
+        lanes.len() >= 2,
+        "WHAT: the board showed {n} lanes on {device}. WHY: a single lane fits a phone, so a \
+         reading of one lane cannot catch lanes that run off the side. HOW: open the board of \
+         the project this session holds, which has more than one lane. Reading: {reading}",
+        n = lanes.len()
+    );
+    let frame_left = num(&reading, "frameLeft");
+    let frame_right = num(&reading, "frameRight");
+    let window = num(&reading, "innerWidth");
+    let mut off: Vec<String> = Vec::new();
+    for lane in &lanes {
+        let left = num(lane, "left");
+        let right = num(lane, "right");
+        let label = text(lane, "label");
+        if left < frame_left - SLACK_PX
+            || right > frame_right + SLACK_PX
+            || left < -SLACK_PX
+            || right > window + SLACK_PX
+        {
+            off.push(format!(
+                "{label:?} runs from {left:.0} to {right:.0} inside a frame of {frame_left:.0} \
+                 to {frame_right:.0} on a {window:.0} screen"
+            ));
+        }
+    }
+    assert!(
+        off.is_empty(),
+        "WHAT: {n} lanes run off the screen on {device}: {off:?}. WHY: a lane she cannot see \
+         without scrolling sideways is a page that does not keep the frame. HOW: let every lane \
+         sit inside the frame she can see.",
+        n = off.len()
+    );
+}
+
+#[then(regex = r"^she does not have to scroll the board sideways$")]
+async fn then_she_does_not_scroll_the_board_sideways(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let device = text(&record, "device");
+    let reading = lanes_of(world);
+    let scroll = num(&reading, "boardScrollWidth");
+    let visible = num(&reading, "boardClientWidth");
+    assert!(
+        scroll.is_finite() && visible.is_finite() && scroll <= visible + SLACK_PX,
+        "WHAT: the board is {scroll:.0} wide inside a strip of {visible:.0} on {device}. WHY: a \
+         strip wider than the screen asks her to scroll sideways to read a lane, even when the \
+         page itself does not. HOW: let the lanes share the frame instead of running past it."
+    );
+}
+
+#[when(regex = r"^she opens Home$")]
+async fn when_she_opens_home(world: &mut FoundryWorld) {
+    let device = text(&recalled(world), "device");
+    goto(world, "/").await;
+    wait_until_on(browser_of(world), "/").await;
+    let home = read_with(browser_of(world), CARD_READING).await;
+    remember(world, serde_json::json!({ "device": device, "home": home }));
+}
+
+#[then(regex = r"^each project card spans the width of the frame$")]
+async fn then_each_project_card_spans_the_frame(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let device = text(&record, "device");
+    let home = record["home"].clone();
+    assert_eq!(
+        home["framed"].as_bool(),
+        Some(true),
+        "WHAT: Home answered with no frame. WHY: a card spans the frame only when the frame is \
+         there to measure. Reading: {home}"
+    );
+    assert_eq!(
+        home["path"].as_str(),
+        Some("/"),
+        "WHAT: the card reading was taken on {path} and not on Home. WHY: the cards that must \
+         span the frame are the ones on Home. Reading: {home}",
+        path = text(&home, "path")
+    );
+    let cards = home["cards"].as_array().cloned().unwrap_or_default();
+    assert!(
+        cards.len() >= 2,
+        "WHAT: Home showed {n} project cards on {device}. WHY: one card fills the only track \
+         that holds it, so it spans the frame whether empty tracks stay or collapse, while two \
+         cards still sit in narrow tracks. HOW: open Home with the two projects this session \
+         holds. Reading: {home}",
+        n = cards.len()
+    );
+    let frame_width = num(&home, "frameWidth");
+    let frame_left = num(&home, "frameLeft");
+    let mut narrow: Vec<String> = Vec::new();
+    for card in &cards {
+        let width = num(card, "width");
+        let left = num(card, "left");
+        if (width - frame_width).abs() > SLACK_PX || (left - frame_left).abs() > SLACK_PX {
+            narrow.push(format!(
+                "{words:?} is {width:.0} wide and starts at {left:.0}, inside a frame {frame_width:.0} \
+                 wide that starts at {frame_left:.0}",
+                words = text(card, "words")
+            ));
+        }
+    }
+    assert!(
+        narrow.is_empty(),
+        "WHAT: {n} project cards do not span the frame on {device}: {narrow:?}. WHY: a card in a \
+         narrow track of a wider grid is the centred column in another shape. HOW: let each \
+         project card be as wide as the frame and start at the frame's own left edge.",
+        n = narrow.len()
     );
 }
 
@@ -2165,6 +2439,49 @@ async fn then_every_form_sits_in_a_section(world: &mut FoundryWorld) {
          a page under no heading belongs to nothing she can see. HOW: give each form a section \
          with one heading and keep its action inside it.",
         n = orphans.len()
+    );
+}
+
+#[then(regex = r"^each form sits under a heading that no other form shares$")]
+async fn then_each_form_has_a_heading_of_its_own(world: &mut FoundryWorld) {
+    let pages = stacked_pages(world);
+    let mut shared: Vec<String> = Vec::new();
+    let mut saw_project_rename = false;
+    for page in &pages {
+        let name = text(page, "name");
+        let forms = page["sections"]["forms"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        for form in forms {
+            let action = text(&form, "action");
+            if action.contains("/projects/") && action.contains("rename") {
+                saw_project_rename = true;
+            }
+            let in_section = form["inSection"].as_bool() == Some(true);
+            let headings = count_of(&form, "headings");
+            let together = count_of(&form, "formsInSection");
+            if !in_section || headings != 1 || together != 1 {
+                shared.push(format!(
+                    "the form {action:?} on {name} shares its place with {together} forms under \
+                     {headings} headings ({words})",
+                    words = text(&form, "headingWords")
+                ));
+            }
+        }
+    }
+    assert!(
+        saw_project_rename,
+        "WHAT: no project rename form was read. WHY: the forms that sit together under one \
+         heading are the rename forms on the instance dashboard, so a reading that never opened \
+         one proves nothing."
+    );
+    assert!(
+        shared.is_empty(),
+        "WHAT: {n} forms do not have a heading of their own: {shared:?}. WHY: a form that shares \
+         its heading with another form does not show her where one form ends and the next begins. \
+         HOW: give each form a section that holds that form alone and exactly one heading.",
+        n = shared.len()
     );
 }
 
