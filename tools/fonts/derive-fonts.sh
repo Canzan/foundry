@@ -135,12 +135,8 @@ echo "SOURCE_DATE_EPOCH: $SOURCE_DATE_EPOCH"
 "$VENV/bin/pip" freeze | grep -Ei '^(fonttools|brotli)==' || true
 python3 --version
 
-derive bricolage-grotesque \
-  'https://raw.githubusercontent.com/ateliertriay/bricolage/84745e5b96261ae5f8c6c856e262fe78d1d6efdd/fonts/variable/BricolageGrotesque%5Bopsz%2Cwdth%2Cwght%5D.ttf' \
-  opsz=24 wdth=100 wght=600:700
-
-derive public-sans \
-  'https://raw.githubusercontent.com/uswds/public-sans/v2.001/fonts/variable/PublicSans%5Bwght%5D.ttf' \
+derive inter \
+  'https://raw.githubusercontent.com/rsms/inter/v4.0/docs/font-files/InterVariable.ttf' \
   wght=400:700
 
 derive jetbrains-mono \
@@ -148,7 +144,6 @@ derive jetbrains-mono \
   wght=400:500
 
 echo "=== licences"
-fetch 'https://raw.githubusercontent.com/ateliertriay/bricolage/84745e5b96261ae5f8c6c856e262fe78d1d6efdd/OFL.txt' "$WORK/OFL-bricolage-grotesque.txt"
-fetch 'https://raw.githubusercontent.com/uswds/public-sans/v2.001/LICENSE.md' "$WORK/OFL-public-sans.txt"
+fetch 'https://raw.githubusercontent.com/rsms/inter/v4.0/LICENSE.txt' "$WORK/OFL-inter.txt"
 fetch 'https://raw.githubusercontent.com/JetBrains/JetBrainsMono/v2.304/OFL.txt' "$WORK/OFL-jetbrains-mono.txt"
-echo "  three OFL-1.1 texts written to $WORK (ship as static/fonts/OFL-<family>.txt — clause 2)"
+echo "  two OFL-1.1 texts written to $WORK (ship as static/fonts/OFL-<family>.txt — clause 2)"

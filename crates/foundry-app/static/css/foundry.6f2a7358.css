@@ -47,16 +47,8 @@
  * silently SYNTHESISED into a smeared faux-bold — display 600/700, body
  * 400–700, mono 400/500 (ADR-001 § Weight discipline). */
 @font-face {
-  font-family: "Bricolage Grotesque";
-  src: url("/static/fonts/bricolage-grotesque.3bd3b180.woff2") format("woff2");
-  font-weight: 600 700;
-  font-style: normal;
-  font-display: swap;
-}
-
-@font-face {
-  font-family: "Public Sans";
-  src: url("/static/fonts/public-sans.a2bd64e2.woff2") format("woff2");
+  font-family: "Inter";
+  src: url("/static/fonts/inter.a4347b88.woff2") format("woff2");
   font-weight: 400 700;
   font-style: normal;
   font-display: swap;
@@ -98,38 +90,20 @@
   --cz-muted: #5c645f;
   --cz-faint: #6e756f;
 
-  /* The one accent, and it INVERTS. `--cz-black` is the maximum-contrast
-     neutral against whatever the page currently is: ink on paper, paper on ink.
-     A literal black in BOTH palettes was measured and rejected — on the dark
-     page (`#0a0c0b`) a `#121614` fill measures 1.07:1, so the control keeps a
-     crisp label while having no visible edge at all, failing 1.4.11's 3:1 for
-     non-text boundaries. Inverting measures 14.70:1 light and 12.66:1 dark.
-
-     THE DARK VALUE IS ALSO canzan-lift's, AND FOR A REASON foundry CANNOT SEE.
-     A plain light grey (`#ced0cf`) passes every check in THIS repo, and fails in
-     canzan-lift: its `canceled` state is a light blue-grey (#a9b6c2), so a
-     neutral accent measures 9.7847 dE00 from it against a 15.1813 floor — a
-     control a hair from reading as a canceled row. #e9f2ee carries a faint cast
-     away from that blue. foundry has no state ramp and would have shipped the
-     grey happily; it takes the value that survives BOTH desks.
-
-     THE VALUE IS canzan-lift's, NOT foundry's own. `#242625` is the DARKEST
-     accent that still satisfies that repo's derived pressed-step contract
-     (8.9274 dE00 darker on the light desk); a literal `#121614` has L* 6.80 and
-     cannot darken more than 5.07 dE00, so it cannot carry a pressed state at
-     all. foundry has no pressed token and would not have discovered this on its
-     own — the two apps share the value so they share one accent, which is the
-     whole point of adopting the contract rather than a colour.
-     It replaces the jade that replaced THREE competing hues (#2452c9, the
-     rail's #5b5bd6/#3a3ad1, the card-key #4f46e5).
+  /* The one accent, and it INVERTS. `--cz-black` is canzan's brand black on
+     paper and the brand white on ink — the Brand Guidelines' "Full colour on
+     light" and "Full colour on dark" pairing, and the same values canzan-lift
+     ships in its `app.css`, so the two apps share one accent. A literal black
+     in BOTH palettes would leave the dark control with no visible edge, so the
+     dark desk inverts to white.
 
      `--cz-on-black` is its paired foreground. It is bound EXPLICITLY rather
      than left as `var(--cz-bg)` — the two happen to be equal today, and a
      later move of the page background would silently drag every control label
      with it. The name says which surface it is legible on. */
-  --cz-black: #242625;
+  --cz-black: #000000;
   --cz-on-black: #ffffff;
-  --cz-black-line: rgba(36, 38, 37, 0.32);
+  --cz-black-line: rgba(0, 0, 0, 0.32);
 
   /* Elevation, and it is NOT one value re-used: a shadow tuned for paper is a
      faint darkening that vanishes entirely on ink, so the dark binding below is
@@ -161,9 +135,9 @@
      `font-display: swap` the fallback is also what paints the first frame.
      `--cz-display` falls back to `--cz-body`'s face first, which is canzan.net's
      own degradation and keeps the headings on a related grotesque. */
-  --cz-display: "Bricolage Grotesque", "Public Sans", system-ui, -apple-system,
-    BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  --cz-body: "Public Sans", system-ui, -apple-system, BlinkMacSystemFont,
+  --cz-display: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  --cz-body: "Inter", system-ui, -apple-system, BlinkMacSystemFont,
     "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   --cz-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
     monospace;
@@ -197,9 +171,9 @@
     --cz-muted: #8d958f;
     --cz-faint: #78807b;
 
-    --cz-black: #e9f2ee;
+    --cz-black: #ffffff;
     --cz-on-black: #0a0c0b;
-    --cz-black-line: rgba(233, 242, 238, 0.34);
+    --cz-black-line: rgba(255, 255, 255, 0.34);
 
     --cz-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.32);
     --cz-scrim: rgba(0, 0, 0, 0.62);
@@ -227,9 +201,9 @@
   --cz-muted: #8d958f;
   --cz-faint: #78807b;
 
-  --cz-black: #e9f2ee;
+  --cz-black: #ffffff;
   --cz-on-black: #0a0c0b;
-  --cz-black-line: rgba(233, 242, 238, 0.34);
+  --cz-black-line: rgba(255, 255, 255, 0.34);
 
   --cz-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.32);
   --cz-scrim: rgba(0, 0, 0, 0.62);

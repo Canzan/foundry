@@ -1293,13 +1293,7 @@ async fn then_the_canzan_display_body_and_mono_typefaces_all_report(world: &mut 
 
 #[then(regex = r"^the project heading is set in the canzan display typeface$")]
 async fn then_the_project_heading_is_set_in_the_canzan_display(world: &mut FoundryWorld) {
-    assert_face_resolves(
-        browser_of(world),
-        "h1",
-        "Bricolage Grotesque",
-        "the project heading",
-    )
-    .await;
+    assert_face_resolves(browser_of(world), "h1", "Inter", "the project heading").await;
 }
 
 #[then(regex = r"^the card titles are set in the canzan body typeface$")]
@@ -1307,7 +1301,7 @@ async fn then_the_card_titles_are_set_in_the_canzan_body(world: &mut FoundryWorl
     assert_face_resolves(
         browser_of(world),
         ".issue-card .title",
-        "Public Sans",
+        "Inter",
         "the issue card titles",
     )
     .await;
@@ -3757,8 +3751,8 @@ async fn assert_every_marker_present(client: &fantoccini::Client, selector: &str
 
 /// The three faces and the role each plays, in the order a reader meets them.
 const CANZAN_FACES: [(&str, &str); 3] = [
-    ("Bricolage Grotesque", "display"),
-    ("Public Sans", "body"),
+    ("Inter", "display"),
+    ("Inter", "body"),
     ("JetBrains Mono", "mono"),
 ];
 
@@ -3976,7 +3970,7 @@ var applied = 0;
   if (!stack) { return; }
   var tail = stack.split(',').filter(function (name) {
     var bare = name.trim().replace(/^["']|["']$/g, '');
-    return bare !== 'Bricolage Grotesque' && bare !== 'Public Sans' && bare !== 'JetBrains Mono';
+    return bare !== 'Inter' && bare !== 'JetBrains Mono';
   }).join(', ');
   if (!tail) { return; }
   root.style.setProperty(token, tail);

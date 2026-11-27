@@ -17,7 +17,7 @@ like tampering.**
 |---|---|---|
 | **Upstream-verbatim** | `vendor/htmx.min.js`, the four `vendor/swagger-ui-5.33.3/*` files | Re-download the pinned release, re-hash, compare. The blob IS the upstream artifact. |
 | **Authored-in-tree** | `css/foundry.<hash>.css`, `js/theme.js`, `js/api-docs.js` | Re-hash and compare with the value recorded in the table. There is no upstream release to re-download. (For the CSS the hash is ALSO the filename; `theme.js` is unhashed, so the table row is the only record.) |
-| **Derived** (NEW, 04-01) | the three `fonts/*.woff2` | Two SEPARATE claims of different strength — see § Derived assets below. The blob is derived from a named upstream and is **not byte-identical to it**; re-hashing against an upstream digest fails BY DESIGN. |
+| **Derived** (NEW, 04-01) | the two `fonts/*.woff2` | Two SEPARATE claims of different strength — see § Derived assets below. The blob is derived from a named upstream and is **not byte-identical to it**; re-hashing against an upstream digest fails BY DESIGN. |
 
 An auditor (or an air-gapped operator) can verify any row's committed bytes with
 `shasum -a 256` against the value recorded here — that claim is unconditional
@@ -30,18 +30,16 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
 | File | Version | Upstream canonical URL | Retrieved (UTC) | sha256 |
 |------|---------|------------------------|-----------------|--------|
 | `vendor/htmx.min.js` | htmx **2.0.4** (pinned latest-stable 2.0.x; step 04-01 migration) | https://unpkg.com/htmx.org@2.0.4/dist/htmx.min.js | 2026-06-04 | `e209dda5c8235479f3166defc7750e1dbcd5a5c1808b7792fc2e6733768fb447` |
-| `css/foundry.6b3eb95e.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-11-26 | `6b3eb95e04a09c2f8babebddc00295d2fb645ff3d85da7afdd1843c6a295fb9b` |
+| `css/foundry.6f2a7358.css` | hand-authored (this repo) | — (not vendored; authored in-tree) | 2026-11-27 | `6f2a7358398009a27826e0c2402fe16aa289c657c95600d53226454904795769` |
 | `js/theme.js` | hand-authored (this repo) — a two-value PORT of canzan-lift `src/ui/assets/theme.js`, NOT vendored from a release | — (not vendored; authored in-tree) | 2026-08-29 | `95a7ffdd0f97d75332fc988dc3a87d53ea758131eff31de48bde6000043e8813` |
 | `vendor/swagger-ui-5.33.3/swagger-ui-bundle.js` | swagger-ui-dist **5.33.3** (Apache-2.0), `package/swagger-ui-bundle.js` | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `3861ec4cc8e7b9fa9f250280da9350436e418137788282c753b9a2ac5fb7bd2f` |
 | `vendor/swagger-ui-5.33.3/swagger-ui.css` | swagger-ui-dist **5.33.3** (Apache-2.0), `package/swagger-ui.css` | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `1ac324f7dcd27e4b9386b4bd6421271ec147e922a22c05ba24b11515e9aa6321` |
 | `vendor/swagger-ui-5.33.3/LICENSE.txt` | licence text, upstream-verbatim — `package/LICENSE` renamed `.txt` (Apache-2.0) | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30` |
 | `vendor/swagger-ui-5.33.3/NOTICE.txt` | NOTICE, upstream-verbatim — `package/NOTICE` renamed `.txt` (Apache-2.0 §4(d)) | https://registry.npmjs.org/swagger-ui-dist/-/swagger-ui-dist-5.33.3.tgz | 2026-10-19 | `0d20d1adef18aee3f40dd258172155521ce702ac445cb5f7b7d60ed32dad2fb2` |
 | `js/api-docs.js` | hand-authored (this repo) — the API page's swagger-ui initializer and its Authorize-dialog plugin (DDD-18, DDD-20) | — (not vendored; authored in-tree) | 2026-10-19 | `0a4c707525e597579df839317c9543b574e1e0e78869791ad5f3f635f8868e75` |
-| `fonts/bricolage-grotesque.3bd3b180.woff2` | **derived** — `ateliertriay/bricolage@84745e5b` | github.com/ateliertriay/bricolage (OFL-1.1) | 2026-08-29 | `3bd3b180978a3c167fe394da73b34a5dca88b1107d8cb426b7e544a924e2a597` |
-| `fonts/public-sans.a2bd64e2.woff2` | **derived** — `uswds/public-sans@v2.001` | github.com/uswds/public-sans (OFL-1.1) | 2026-08-29 | `a2bd64e2c7420ec38a2c794be957e51347858940fd6f652c2fad7212c4caa7a2` |
+| `fonts/inter.a4347b88.woff2` | **derived** — `rsms/inter@v4.0` | github.com/rsms/inter (OFL-1.1) | 2026-11-27 | `a4347b88a58ba09a7d02b67519ec4e250821a4a8af1ef021c82648c8ee3bb0d5` |
 | `fonts/jetbrains-mono.4e194fb3.woff2` | **derived** — `JetBrains/JetBrainsMono@v2.304` | github.com/JetBrains/JetBrainsMono (OFL-1.1) | 2026-08-29 | `4e194fb3b563af1df4eac36952711cd30ad491e2c6122df81a370f6fc5d6266f` |
-| `fonts/OFL-bricolage-grotesque.txt` | licence text, upstream-verbatim | github.com/ateliertriay/bricolage `OFL.txt` | 2026-08-29 | `4b5a7d8f37f5602621c8a8d7358a6a2e71317e6c231c661e15aef0275d3e07ba` |
-| `fonts/OFL-public-sans.txt` | licence text, upstream-verbatim | github.com/uswds/public-sans `LICENSE.md` | 2026-08-29 | `82f0d3cad45f264192db156360b4a710fe7060885f6aa261e6539f13cb9eb0d9` |
+| `fonts/OFL-inter.txt` | licence text, upstream-verbatim | github.com/rsms/inter `LICENSE.txt` | 2026-11-27 | `262481e844521b326f5ecd053e59b98c8b2da78c8ee1bdbb6e8174305e54935a` |
 | `fonts/OFL-jetbrains-mono.txt` | licence text, upstream-verbatim | github.com/JetBrains/JetBrainsMono `OFL.txt` | 2026-08-29 | `30f0c136e3c88e422d0791acd97238870f9054a9729bc34cf2ff0d4ed8cac4ad` |
 
 ## Notes
@@ -65,9 +63,9 @@ hash, re-run the acceptance suite. For a derived asset, re-run the recipe.
   intent is `static/js/keyboard.js` — one app-owned vanilla IIFE, no framework.
   htmx remains the only vendored runtime dependency of the app's pages;
   swagger-ui (below) is loaded by the API page `/docs/api` alone (D12).
-- `foundry.6b3eb95e.css` is hand-authored and served as-authored (gzip via the
+- `foundry.6f2a7358.css` is hand-authored and served as-authored (gzip via the
   `compression-gzip` tower-http feature handles the wire size); no CSS minifier
-  is introduced (DB6). **The `.6b3eb95e.` segment is the content hash** (first 8
+  is introduced (DB6). **The `.6f2a7358.` segment is the content hash** (first 8
   hex of the file's sha256) per ADR-B03 / assets.md Decision #4 option 4a: the
   hash IS the cache key, so the blanket `Cache-Control: ...immutable` on `/static`
   is safe even though the file is hand-edited — an edit changes the hash, changes
@@ -253,7 +251,7 @@ adds or bumps a font (`VENDOR.md:3-4`, assets.md DB6).
 >
 > **Tier 2 — Provenance. Conditional, human-run, best-effort.**
 > Re-deriving from the pinned input reproduces the blob. This answers *"is this
-> really Bricolage Grotesque, and only that?"* Byte-identical re-derivation is
+> really Inter, and only that?"* Byte-identical re-derivation is
 > **expected but NOT guaranteed** across brotli builds, platforms and fonttools
 > patch releases. We do not promise it. Measured below: on the two environments
 > tried, it held completely.
@@ -309,49 +307,23 @@ shipped blob. **Do not remove either flag to reclaim it.**
 instancing and repairs it internally; the outputs are valid woff2. Recorded so
 it is not mistaken for a failure.
 
-### Bricolage Grotesque — display
+### Inter — display and body
 
-1. **Family / licence** — Bricolage Grotesque, **OFL-1.1**, no Reserved Font
-   Name; text shipped at `fonts/OFL-bricolage-grotesque.txt` (clause 2).
-2. **Pinned input** — `ateliertriay/bricolage@84745e5b96261ae5f8c6c856e262fe78d1d6efdd`
-   (2023-07-19). A commit sha, not a tag: the repo is dormant and has **no
-   releases and no tags**. Never a branch, never the `google/fonts` mirror.
-   Path: `fonts/variable/BricolageGrotesque[opsz,wdth,wght].ttf`, 408,496 B.
-3. **Input sha256** — `413e7357809ddd12fd80a96a8a396de0e401638d4acd3cb3e37532f0472ac682`
-4. **Tools** — `fonttools 4.63.0`, `brotli 1.1.0`, `python 3.14.7`,
-   `SOURCE_DATE_EPOCH=1787961600`.
-5. **Command** — `fonttools varLib.instancer <input> opsz=24 wdth=100 wght=600:700 --no-optimize --no-recalc-timestamp -o <instanced>`, then
-   `pyftsubset <instanced> --unicodes="U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD" --layout-features="kern,liga,clig,calt" --output-file=<subset>`, then
-   `pyftsubset <subset> --unicodes="*" --layout-features="*" --flavor=woff2 --output-file=<output>`
-6. **Intermediate sha256 (THE ANCHOR)** — `f2f8d04b0aff66a40f2e3e3c35d3a77e47242948443d9ffba178900f6115fb2e`
-7. **Output sha256** — `3bd3b180978a3c167fe394da73b34a5dca88b1107d8cb426b7e544a924e2a597`,
-   **29,788 B**, committed as `fonts/bricolage-grotesque.3bd3b180.woff2`.
-
-**Measured, so the next reader need not re-derive the question.** ADR-001
-specified `opsz=24` but had only measured `opsz=14`, and required DELIVER to
-re-measure against a **32,768 B ceiling**. The result is **29,788 B — the
-ceiling holds with 2,980 B of headroom, and NO rung of the pre-authorised
-fallback ladder (`opsz=20`, then `opsz=14`) was taken.** The extrapolation held:
-pinning `opsz` removes the same delta data at either value, and Bricolage's
-`opsz` axis carries no size-specific glyph data of consequence.
-
-### Public Sans — body
-
-1. **Family / licence** — Public Sans, **OFL-1.1**, no Reserved Font Name; text
-   at `fonts/OFL-public-sans.txt`.
-2. **Pinned input** — `uswds/public-sans@v2.001` (2022-05-11), path
-   `fonts/variable/PublicSans[wght].ttf`.
-3. **Input sha256** — `d75a7dc1a27eb9e336d5b33f55489d2ecb5621bf694d5c43b2415bce2ca830a8`
+1. **Family / licence** — Inter, **OFL-1.1**, no Reserved Font Name; text
+   shipped at `fonts/OFL-inter.txt` (clause 2). The Brand Guidelines name Inter
+   as the brand's one sans, for both headings and body.
+2. **Pinned input** — `rsms/inter@v4.0` (a release tag), path
+   `docs/font-files/InterVariable.ttf`, 862,936 B.
+3. **Input sha256** — `746431e950fd28d29b0189d708d4a5852a8458edb3184387eadcee9e5e34676c`
 4. **Tools** — as above.
-5. **Command** — as above with axes `wght=400:700`; same subset and flavour
-   commands verbatim.
-6. **Intermediate sha256 (THE ANCHOR)** — `2eea0d13f535597fa3969043a0cf4c1b3130d94c5895895dd23a3dbc9f63b7ec`
-7. **Output sha256** — `a2bd64e2c7420ec38a2c794be957e51347858940fd6f652c2fad7212c4caa7a2`,
-   **20,672 B**, committed as `fonts/public-sans.a2bd64e2.woff2`.
+5. **Command** — `fonttools varLib.instancer <input> wght=400:700 --no-optimize --no-recalc-timestamp -o <instanced>`, then the same subset and flavour commands verbatim.
+6. **Intermediate sha256 (THE ANCHOR)** — `29b4120193b3a98e92c531285cc603194593c919be5d572391d32051bdec1741`
+7. **Output sha256** — `a4347b88a58ba09a7d02b67519ec4e250821a4a8af1ef021c82648c8ee3bb0d5`,
+   **42,232 B**, committed as `fonts/inter.a4347b88.woff2`.
 
-**Roman only.** Upstream ships upright and italic as separate files; foundry has
-exactly one italic rule (`.empty-state`, a muted empty-state string), which
-takes a synthesised oblique. A ~20 KB italic file is not worth one muted line.
+**One face, two registers.** Display and body both resolve to Inter. The brand
+has no second sans, so a separate display file would add bytes without a
+distinct face.
 
 ### JetBrains Mono — mono
 
@@ -370,11 +342,10 @@ takes a synthesised oblique. A ~20 KB italic file is not worth one muted line.
 This is the family whose anchor exposed the IUP non-determinism described above.
 It is the reason `--no-optimize` is in the recipe.
 
-### Standing notes on the three
+### Standing notes on the two
 
-- **Total 76,416 B**, against KPI 7's 150 KB guardrail — 49 % under, with room
-  for a fourth blob later. The naive path (the woff2 files Google serves) was
-  measured at ~210 KB and would have overrun the guardrail by 40 %.
+- **Total 68,188 B**, against KPI 7's 150 KB guardrail — about 55 % under, with
+  room for a third blob later.
 - **No CDN, ever.** `VENDOR.md:4` prohibits an external font host outright
   rather than discouraging it. An air-gapped operator would experience one as
   missing type; the acceptance suite asserts zero cross-origin requests.
@@ -382,13 +353,9 @@ It is the reason `--no-optimize` is in the recipe.
   falls back to the system stack for those glyphs. Safe by construction — the
   `font-display: swap` fallback path is the same one that renders before the
   blobs arrive — but silent, so it is written down.
-- **Weight discipline binds the stylesheet.** Display ships 600:700, body
-  400:700, mono 400:500. A rule requesting a weight outside its range is
+- **Weight discipline binds the stylesheet.** Inter ships 400:700, mono 400:500. A rule requesting a weight outside its range is
   silently SYNTHESISED into a faux-bold. Nothing enforces this yet; ADR-001
   recommends folding a weight-range check into the CSS structural check of
   ADR-CANZAN-THEME-004, where the parser already walks the file.
-- **Standing risk.** Bricolage's pin is a commit sha on a dormant repo with no
-  release process. If that repo disappears the input is unverifiable and only
-  Tier 1 survives. The mitigation if it fires is ADR-001 alternative B (drop the
-  display face and use Public Sans for display, which is canzan.net's own
-  fallback).
+- **Standing risk.** Inter's pin is a release tag on an active upstream. If the
+  tag is ever removed, the input is unverifiable and only Tier 1 survives.
