@@ -1522,3 +1522,18 @@ async fn notices_clean(world: &mut FoundryWorld, room: String) {
 async fn matrix_test(world: &mut FoundryWorld, room: String) {
     eip::when_matrix_test(world, "Lena", &room).await;
 }
+
+#[when(regex = r"^Priya chooses Test connection on the workspace integrations page$")]
+async fn matrix_connection_test(world: &mut FoundryWorld) {
+    eip::when_matrix_connection_test(world, "Priya").await;
+}
+
+#[then(regex = r"^no Matrix room was sent a message$")]
+async fn no_matrix_message(world: &mut FoundryWorld) {
+    eip::then_sends_counted(world, 0);
+}
+
+#[when(regex = r"^Lena chooses New Matrix route on (Identity Platform)'s integrations page$")]
+async fn choose_new_matrix_route(world: &mut FoundryWorld, project: String) {
+    eip::when_choose_new_matrix_route(world, "Lena", &project).await;
+}

@@ -44,6 +44,8 @@ struct ProjectPage {
     /// One line per connected kind, or what to do when none is (W-6, W-7).
     connection_lines: Vec<ConnectionWords>,
     new_route_path: String,
+    /// The same form for a Matrix route.
+    new_matrix_route_path: String,
     /// Send test for a saved Matrix route.
     test_path: String,
     routes: Vec<RouteLine>,
@@ -736,6 +738,7 @@ async fn project_answer(
         project_name,
         connection_lines: project_lines(&shared, viewer),
         new_route_path: format!("{base}/routes/new?kind=slack"),
+        new_matrix_route_path: format!("{base}/routes/new?kind=matrix"),
         test_path: format!("{base}/routes/test"),
         routes: routes
             .iter()

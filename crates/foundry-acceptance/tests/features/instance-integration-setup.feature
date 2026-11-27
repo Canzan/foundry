@@ -85,7 +85,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya reads "This Foundry has no secrets key yet. Foundry needs one to store Slack and Matrix credentials."
     And Priya is offered "Generate secrets key"
     And Priya is offered no way to enter the Slack app
-    And Priya reads "Matrix: needs the secrets key (above). Nothing else is set up for Matrix on this Foundry."
+    And Priya reads "Matrix: off. To turn it on, set up the secrets key above. Then workspace admins connect their own Matrix bot."
 
   @us-iis-01 @kpi-iis-2
   Scenario: With a secrets key the page shows what to paste into Slack
@@ -96,7 +96,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya reads "Slack: not set up. Create the Foundry Slack app in Slack from the manifest below, then enter its credentials."
     And Priya sees the redirect URL "https://foundry.example.org/workspace/integrations/slack/return" and the events URL "https://foundry.example.org/integrations/slack/events"
     And the manifest shown equals the one on the Slack setup page
-    And Priya reads "Matrix: ready. Workspace admins connect their own Matrix bot on their workspace's integrations page."
+    And Priya reads "Matrix: ready. Each workspace admin enters their Matrix server address and bot access token on the workspace's Integrations page."
     And Priya is not offered "Generate secrets key"
 
   @us-iis-01 @kpi-iis-2 @error
@@ -126,7 +126,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     Then Priya reads "Credentials saved here are sealed directly with the instance key. Move to a secrets key to manage it here."
     And Priya is offered "Move to a secrets key"
     And Priya is not offered "Generate secrets key"
-    And Priya reads "Matrix: ready. Workspace admins connect their own Matrix bot on their workspace's integrations page."
+    And Priya reads "Matrix: ready. Each workspace admin enters their Matrix server address and bot access token on the workspace's Integrations page."
 
   # Deliverable A: I-26's restore words, which Deliverable B keeps and appends
   # to; what the page offers beside them is read in US-IIS-07's own scenarios.
@@ -172,7 +172,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
   Scenario: Without a writable data directory the board serves and the page says why
     Given this Foundry starts with no instance key setting and a data directory it cannot write
     When Priya opens the instance integrations page
-    Then Priya reads "Foundry has no instance key and cannot make one (/var/lib/foundry/instance.key cannot be written). An instance operator sets the instance key, or gives Foundry a writable data directory, and restarts Foundry."
+    Then Priya reads "Foundry has no instance key, and it cannot make one because /var/lib/foundry/instance.key cannot be written. To fix this, do one of these, then restart Foundry: set FOUNDRY_INSTANCE_KEY to a generated key, or set FOUNDRY_DATA_DIR to a folder Foundry can write to."
     And Priya is not offered "Generate secrets key"
     And Priya is offered no way to enter the Slack app
     And Canzan Labs' workspace integrations page offers neither Add to Slack nor to connect Matrix
@@ -256,7 +256,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
 
     Examples:
       | setting                                                          | words                                                                                                          |
-      | no instance key setting and a data directory it cannot write    | Foundry has no instance key and cannot make one (/var/lib/foundry/instance.key cannot be written).             |
+      | no instance key setting and a data directory it cannot write    | Foundry has no instance key, and it cannot make one because /var/lib/foundry/instance.key cannot be written. |
       | no instance key setting and an instance key file it cannot read | This Foundry cannot read its instance key file (/var/lib/foundry/instance.key).                                |
       | the legacy FOUNDRY_SECRETS_KEY setting                           | Credentials saved here are sealed directly with the instance key. Move to a secrets key to manage it here.    |
 

@@ -115,7 +115,7 @@ const KEY_REPLACED_FILE: &str = "Instance key: set by the operator. The secrets 
 /// I-25, made by Foundry.
 const KEY_IN_FILE: &str = "Instance key: made by Foundry in {path}. Back up this file apart from the database. Every Foundry server must use the same file. Without it, saved connections must be reconnected.";
 /// I-27.
-const KEY_UNWRITABLE: &str = "Foundry has no instance key and cannot make one ({path} cannot be written). An instance operator sets the instance key, or gives Foundry a writable data directory, and restarts Foundry.";
+const KEY_UNWRITABLE: &str = "Foundry has no instance key, and it cannot make one because {path} cannot be written. To fix this, do one of these, then restart Foundry: set FOUNDRY_INSTANCE_KEY to a generated key, or set FOUNDRY_DATA_DIR to a folder Foundry can write to. To generate a key, run: openssl rand -base64 32 | tr '+/' '-_' | tr -d '='";
 /// I-31.
 const KEY_UNREADABLE: &str = "This Foundry cannot read its instance key file ({path}). Slack and Matrix are paused until it can. An instance operator restores the file from backup, or sets FOUNDRY_INSTANCE_KEY, and restarts Foundry.";
 /// I-2.
@@ -129,7 +129,7 @@ const VALUES_UNOPENABLE: &str = "This Foundry cannot read some saved credentials
 /// I-26 (restore-only in Deliverable A).
 const SECRETS_KEY_UNOPENABLE: &str = "This Foundry cannot open its secrets key: the instance key it was sealed with is missing or different on this server. Until it is restored, saved connections cannot be used. An instance operator restores that instance key, or sets it as the previous instance key, and restarts Foundry.";
 /// I-8.
-const MATRIX_READY: &str = "Matrix: ready. Workspace admins connect their own Matrix bot on their workspace's integrations page.";
+const MATRIX_READY: &str = "Matrix: ready. Each workspace admin enters their Matrix server address and bot access token on the workspace's Integrations page.";
 /// I-5.
 const SLACK_NOT_SET_UP: &str = "Slack: not set up. Create the Foundry Slack app in Slack from the manifest below, then enter its credentials.";
 /// I-29, above I-5's addresses.
@@ -186,8 +186,7 @@ const SAVE_TURNED_BACK: &str = super::NOT_CONNECTED;
 /// How many activity lines the page lists.
 const ACTIVITY_LINES: i64 = 20;
 /// I-9.
-const MATRIX_NEEDS_KEY: &str =
-    "Matrix: needs the secrets key (above). Nothing else is set up for Matrix on this Foundry.";
+const MATRIX_NEEDS_KEY: &str = "Matrix: off. To turn it on, set up the secrets key above. Then workspace admins connect their own Matrix bot.";
 
 /// What the page is judged over.
 #[derive(Debug, Clone, PartialEq, Eq)]

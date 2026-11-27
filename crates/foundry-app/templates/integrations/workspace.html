@@ -21,12 +21,24 @@
   {% if matrix_unavailable %}
   <p data-connection="matrix">{{ matrix_unavailable_words }} <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>
   {% else %}
-  {% if let Some(line) = matrix %}<p data-connection="matrix">{{ line.connected }} <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>{% endif %}
+  {% if let Some(line) = matrix %}<p data-connection="matrix">{{ line.connected }} <a href="{{ matrix_disconnect_path }}">Disconnect Matrix</a></p>
+  <form method="post" action="{{ matrix_test_path }}">
+    <input type="hidden" name="_csrf" value="{{ csrf }}">
+    <p><button type="submit">Test connection</button></p>
+  </form>{% endif %}
   {% endif %}
   {% if matrix_offered %}
   <form method="post" action="{{ matrix_connect_path }}">
     <input type="hidden" name="_csrf" value="{{ csrf }}">
-    <p><label for="matrix-homeserver">Homeserver</label> <input id="matrix-homeserver" type="url" name="homeserver" placeholder="https://matrix.example.org" required></p>
+    <p>Foundry posts to Matrix as a bot account. Do not use your own account.</p>
+    <ol>
+      <li>Create a bot account on your Matrix server, for example <code>@foundry:your-server.example</code>. Use your server's admin tools or registration page.</li>
+      <li>Sign in to Element as the bot account.</li>
+      <li>Open Settings, Help &amp; About, Advanced, and copy the access token.</li>
+      <li>From your own account, invite the bot to each room Foundry will post to. The room must not be end-to-end encrypted.</li>
+      <li>Enter the server's web address and the bot's access token below.</li>
+    </ol>
+    <p><label for="matrix-homeserver">Matrix server address</label> <input id="matrix-homeserver" type="url" name="homeserver" placeholder="https://matrix.example.org" required></p>
     <p><label for="matrix-token">Bot access token</label> <input id="matrix-token" type="password" name="access_token" autocomplete="off" required>{% if let Some(line) = matrix %} <span data-token-saved>{{ line.token_saved }}</span>{% endif %}</p>
     <p><button type="submit">{% if matrix.is_some() %}Replace token{% else %}Connect Matrix{% endif %}</button></p>
   </form>

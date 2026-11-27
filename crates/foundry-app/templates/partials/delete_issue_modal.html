@@ -35,7 +35,11 @@
       <h2>Delete {{ key }}</h2>
       {% if close_href.is_empty() %}<button type="button" class="modal-close" aria-label="Close" data-action="close-modal">&times;</button>{% else %}<a class="modal-close" aria-label="Close" href="{{ close_href }}">&times;</a>{% endif %}
     </header>
-    <form method="post" action="{{ action }}" hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML">
+    {# htmx swaps the popup's result into #modal-root. The page carrier has no
+       #modal-root, so htmx would raise htmx:targetError and cancel the native
+       submit: the page form stays a plain POST (the server redirects to the
+       board). close_href is empty only on the popup, so it selects the attrs. #}
+    <form method="post" action="{{ action }}"{% if close_href.is_empty() %} hx-post="{{ action }}" hx-target="#modal-root" hx-swap="innerHTML"{% endif %}>
       <input type="hidden" name="_csrf" value="{{ csrf }}">
       {% if comment_count == 0 && attachment_count == 0 %}
       <p>Nothing else goes with it. This cannot be undone.</p>

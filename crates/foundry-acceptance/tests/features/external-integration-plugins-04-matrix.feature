@@ -53,12 +53,38 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     And the bot's access token appears nowhere on the workspace integrations page
     And the workspace's integration activity gains the line "21 Oct 2026 · Priya Raman connected Matrix (matrix.canzan.dev)"
 
+  @us-eip-08 @driving_port @contract-shape:bounded-change
+  Scenario: Test connection checks the saved bot and posts nothing
+    Given Priya has connected Canzan Labs to Matrix with the bot's access token
+    When Priya chooses Test connection on the workspace integrations page
+    Then Priya reads "Connection works. Foundry reached https://matrix.canzan.dev and the bot answered as @foundry:canzan.dev. Nothing was posted."
+    And no Matrix room was sent a message
+
+  @us-eip-08 @error @contract-shape:unbounded-preservation
+  Scenario Outline: A saved Matrix connection that fails its test says why and posts nothing
+    Given Priya has connected Canzan Labs to Matrix with the bot's access token
+    And <state>
+    When Priya chooses Test connection on the workspace integrations page
+    Then Priya reads "<message>"
+    And no Matrix room was sent a message
+
+    Examples:
+      | state                                                    | message                                                                                                       |
+      | the operator has logged the bot out of matrix.canzan.dev | The homeserver did not accept the saved bot access token. Replace the token to fix it. Nothing was posted.    |
+      | the homeserver does not answer                           | Foundry could not reach https://matrix.canzan.dev. Nothing was posted.                                        |
+
   @us-eip-08 @error @contract-shape:unbounded-preservation
   Scenario Outline: A Matrix connection that cannot be checked is not saved
     Given the homeserver <state>
     When Priya connects Matrix with https://matrix.canzan.dev and <token>
     Then Priya reads "<message>"
     And Canzan Labs has no Matrix connection
+
+  @us-eip-09 @driving_port @contract-shape:bounded-change
+  Scenario: Lena starts a Matrix route from the project page
+    Given Priya has connected Canzan Labs to Matrix with the bot's access token
+    When Lena chooses New Matrix route on Identity Platform's integrations page
+    Then Lena reads "New Matrix route for Identity Platform"
 
     Examples:
       | state           | token                                  | message                                                               |

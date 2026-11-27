@@ -115,6 +115,7 @@ pub const SLACK_INSTALL: &str = "/workspace/integrations/slack/install";
 pub const SLACK_RETURN: &str = "/workspace/integrations/slack/return";
 pub const SLACK_DISCONNECT: &str = "/workspace/integrations/slack/disconnect";
 pub const MATRIX_CONNECT: &str = "/workspace/integrations/matrix";
+pub const MATRIX_CONNECTION_TEST: &str = "/workspace/integrations/matrix/test";
 /// US-EIP-07 for Matrix (DESIGN Driving Ports; user decision 2026-10-25:
 /// built like Slack's).
 pub const MATRIX_DISCONNECT: &str = "/workspace/integrations/matrix/disconnect";
@@ -5711,6 +5712,25 @@ pub async fn when_connect_matrix(world: &mut FoundryWorld, who: &str, address: &
     hs(world).await;
     world.eip.proxy_before = world.eip.proxy.as_ref().map(FaultProxy::connections);
     let answer = connect_matrix(world, who, address, token).await;
+    world.eip.when_answer = Some(answer);
+}
+
+/// "Priya chooses Test connection on the workspace integrations page": the
+/// saved bot is checked at its homeserver; nothing is posted.
+pub async fn when_matrix_connection_test(world: &mut FoundryWorld, who: &str) {
+    capture_before(world).await;
+    hs(world).await;
+    let answer = post(world, who, MATRIX_CONNECTION_TEST, &[], true).await;
+    world.eip.when_answer = Some(answer);
+}
+
+/// "Lena chooses New Matrix route on Identity Platform's integrations page":
+/// the project page's Matrix link, followed.
+pub async fn when_choose_new_matrix_route(world: &mut FoundryWorld, who: &str, project: &str) {
+    capture_before(world).await;
+    let page = get(world, who, &integrations_path(world, project)).await;
+    let link = tm::link_to(&page, "New Matrix route");
+    let answer = get(world, who, &link).await;
     world.eip.when_answer = Some(answer);
 }
 

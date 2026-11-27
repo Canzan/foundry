@@ -2316,12 +2316,12 @@ input[type="file"]::file-selector-button {
 /* Partner Blue text measures 3.52:1 on the dark page, below 4.5:1. So links stay
    ink on dark, and the blue ring is the only blue there. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) a {
+  :root:not([data-theme="light"]) a:not(.button) {
     color: var(--cz-black);
   }
 }
 
-:root[data-theme="dark"] a {
+:root[data-theme="dark"] a:not(.button) {
   color: var(--cz-black);
 }
 

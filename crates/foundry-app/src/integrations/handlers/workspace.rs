@@ -3,7 +3,7 @@
 
 use super::{
     refusal, render, sign_in, unavailable_words, Caller, CANNOT_REMOVE_ACCESS, DISCONNECT_PATH,
-    LOG_TARGET, MATRIX_CONNECT_PATH, MATRIX_DISCONNECT_PATH, WORKSPACE_PATH,
+    LOG_TARGET, MATRIX_CONNECT_PATH, MATRIX_DISCONNECT_PATH, MATRIX_TEST_PATH, WORKSPACE_PATH,
 };
 use crate::csrf::ensure_csrf_cookie;
 use crate::integrations::no_connection::{ConnectionWords, NoConnectionCause, Viewer};
@@ -47,6 +47,7 @@ struct WorkspacePage {
     /// (DD-2); Disconnect and, with a key, Replace token beside it.
     matrix_unavailable: bool,
     matrix_connect_path: &'static str,
+    matrix_test_path: &'static str,
     matrix_disconnect_path: &'static str,
     csrf: String,
     activity: Vec<String>,
@@ -282,6 +283,7 @@ pub(super) async fn workspace_page(
         matrix_unavailable: matrix_offer == MatrixOffer::Unavailable,
         matrix,
         matrix_connect_path: MATRIX_CONNECT_PATH,
+        matrix_test_path: MATRIX_TEST_PATH,
         matrix_disconnect_path: MATRIX_DISCONNECT_PATH,
         notice: notice.map(str::to_string),
         slack_no_connection,

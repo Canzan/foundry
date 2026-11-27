@@ -405,6 +405,15 @@ pub(crate) async fn require_admin(
     }
 }
 
+/// The workspace's Matrix connection, sealed, for an admin's test of it.
+pub(crate) async fn workspace_matrix_connection(
+    records: &impl IntegrationRecords,
+    principal: &Principal,
+) -> Result<Option<SealedConnection>, IntegrationError> {
+    require_admin(records, principal).await?;
+    usable_connection(records, principal, MATRIX).await
+}
+
 pub(crate) async fn workspace_view(
     records: &impl IntegrationRecords,
     principal: &Principal,

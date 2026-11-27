@@ -105,7 +105,7 @@ pub use instance::{
     show_instance, show_slack_confirm, show_slack_remove, INSTANCE_PATH, MOVE_PATH, REPLACE_PATH,
     SECRETS_KEY_PATH, SLACK_APP_PATH, SLACK_CONFIRM_PATH, SLACK_REMOVE_PATH, START_OVER_PATH,
 };
-pub use matrix_setup::connect_matrix;
+pub use matrix_setup::{connect_matrix, test_matrix};
 pub use routes::{
     create_route, delete_route, edit_route, pause_route, preview_route, resume_route, send_test,
     show_delete_route, show_edit_route, show_new_route, show_project, show_route_history,
@@ -148,6 +148,8 @@ pub const RETURN_PATH: &str = slack::RETURN_PATH;
 pub const DISCONNECT_PATH: &str = "/workspace/integrations/slack/disconnect";
 pub const MATRIX_DISCONNECT_PATH: &str = "/workspace/integrations/matrix/disconnect";
 pub const MATRIX_CONNECT_PATH: &str = "/workspace/integrations/matrix";
+/// Test connection: the saved bot is checked at its homeserver; nothing is posted.
+pub const MATRIX_TEST_PATH: &str = "/workspace/integrations/matrix/test";
 
 /// US-EIP-08: the homeserver answered and refused the bot's token.
 pub const MATRIX_TOKEN_REFUSED: &str =

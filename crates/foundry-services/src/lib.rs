@@ -432,6 +432,16 @@ impl Services {
         integrations::workspace_view(&*self.store, principal).await
     }
 
+    /// external-integration-plugins — the workspace's Matrix connection, for
+    /// an admin's test of it (admins only).
+    pub async fn workspace_matrix_connection(
+        &self,
+        principal: &Principal,
+    ) -> Result<Option<foundry_store::integrations::SealedConnection>, integrations::IntegrationError>
+    {
+        integrations::workspace_matrix_connection(&*self.store, principal).await
+    }
+
     /// external-integration-plugins — the row a new Slack credential is sealed for.
     pub async fn slack_connection_id(
         &self,

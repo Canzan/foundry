@@ -89,6 +89,56 @@ pub async fn connect_matrix(
     workspace_page(&state, &caller, &headers, Some(&notice)).await
 }
 
+/// The Matrix test's words, one per answer of the saved bot's `whoami`.
+/// Nothing is posted by a test.
+const MATRIX_TEST_WORKS: &str = "Connection works. Foundry reached {homeserver} and the bot answered as {user_id}. Nothing was posted.";
+const MATRIX_TEST_TOKEN_REFUSED: &str = "The homeserver did not accept the saved bot access token. Replace the token to fix it. Nothing was posted.";
+const MATRIX_TEST_UNREACHABLE: &str = "Foundry could not reach {homeserver}. Nothing was posted.";
+const MATRIX_TEST_NOT_CONNECTED: &str =
+    "Matrix is not connected on this workspace. Nothing was posted.";
+const MATRIX_TEST_CANNOT_OPEN: &str =
+    "This Foundry cannot open the saved Matrix bot token, so the test did not run. Nothing was posted.";
+
+/// `POST /workspace/integrations/matrix/test` (admins): the saved bot asks
+/// its homeserver who it is, and the page says what came back. Nothing is
+/// posted and nothing is saved.
+pub async fn test_matrix(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let caller = match Caller::admin(&state, &session).await {
+        Ok(caller) => caller,
+        Err(response) => return response,
+    };
+    let notice = matrix_test_notice(&state, &caller).await;
+    workspace_page(&state, &caller, &headers, Some(&notice)).await
+}
+
+async fn matrix_test_notice(state: &AppState, caller: &Caller) -> String {
+    let connection = match caller
+        .services
+        .workspace_matrix_connection(&caller.principal())
+        .await
+    {
+        Ok(Some(connection)) => connection,
+        Ok(None) | Err(_) => return MATRIX_TEST_NOT_CONNECTED.to_string(),
+    };
+    let Some(bot) = state.integrations.current().matrix_bot(&connection) else {
+        return MATRIX_TEST_CANNOT_OPEN.to_string();
+    };
+    let homeserver = connection.external_id.clone();
+    match bot.whoami().await {
+        Ok(user_id) => MATRIX_TEST_WORKS
+            .replace("{homeserver}", &homeserver)
+            .replace("{user_id}", &user_id),
+        Err(ConnectRefusal::TokenRefused) => MATRIX_TEST_TOKEN_REFUSED.to_string(),
+        Err(ConnectRefusal::Address | ConnectRefusal::Unreachable) => {
+            MATRIX_TEST_UNREACHABLE.replace("{homeserver}", &homeserver)
+        }
+    }
+}
+
 /// Check the bot's token at the homeserver, seal it for its row and save
 /// the connection; else the words that say why nothing was saved. When the
 /// seal fence finds a newer sealing key, the integrations are rebuilt and

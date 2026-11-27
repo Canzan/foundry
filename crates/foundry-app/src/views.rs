@@ -1709,6 +1709,53 @@ pub struct InstanceGrantConfirmedFragment {
 mod tests {
     use super::*;
 
+    /// The delete confirm's page carrier (a direct navigation from the issue's
+    /// own page) has no `#modal-root`, so its form must be a plain POST: htmx
+    /// on that page raises `htmx:targetError`, cancels the native submit, and
+    /// nothing is deleted. The popup keeps its htmx form.
+    #[test]
+    fn delete_confirm_page_form_is_a_plain_post_and_the_popup_stays_htmx() {
+        let action = "/team/general/project/sandbox/issues/10/delete";
+        let page = IssueDeleteModalPage {
+            close_href: "/team/general/project/sandbox/issues/10".to_string(),
+            action: action.to_string(),
+            csrf: "csrf-token".to_string(),
+            key: "GEN-10".to_string(),
+            comment_count: 1,
+            attachment_count: 0,
+        }
+        .render()
+        .expect("page renders");
+        assert!(
+            page.contains(&format!(r#"<form method="post" action="{action}">"#)),
+            "the page form posts natively: {page}"
+        );
+        assert!(
+            !page.contains("hx-post"),
+            "the page form is not htmx: {page}"
+        );
+        assert!(
+            !page.contains("hx-target"),
+            "the page form has no target: {page}"
+        );
+
+        let popup = IssueDeleteModal {
+            close_href: String::new(),
+            action: action.to_string(),
+            csrf: "csrf-token".to_string(),
+            key: "GEN-10".to_string(),
+            comment_count: 1,
+            attachment_count: 0,
+        }
+        .render()
+        .expect("popup renders");
+        assert!(
+            popup.contains(&format!(r#"hx-post="{action}""#)),
+            "the popup form stays htmx: {popup}"
+        );
+        assert!(popup.contains(r##"hx-target="#modal-root""##), "{popup}");
+    }
+
     /// The htmx mute/resubscribe fragment must swap exactly the toggled row and
     /// carry an out-of-band toast. A MUTED result renders the row with
     /// `data-status="muted"`, targets `#ws-{id}`, offers the Resubscribe control
