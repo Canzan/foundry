@@ -105,6 +105,17 @@
   --cz-on-black: #ffffff;
   --cz-black-line: rgba(0, 0, 0, 0.32);
 
+  /* The brand's five further colours. Each has one job, stated where it is used:
+     blue is the keyboard ring and link text; red is the error edge; yellow is
+     the warning band, whose text is `--cz-on-brand-yellow`; graphite is the
+     dark dialog surface; silver is the inactive control. */
+  --cz-brand-blue: #0066cc;
+  --cz-brand-yellow: #ffc800;
+  --cz-brand-red: #e5332a;
+  --cz-on-brand-yellow: #000000;
+  --cz-graphite: #1d1d1f;
+  --cz-silver: #86868b;
+
   /* Elevation, and it is NOT one value re-used: a shadow tuned for paper is a
      faint darkening that vanishes entirely on ink, so the dark binding below is
      deliberately DEEPER (0.4/0.32 alpha against 0.04/0.05) and WIDER (12/32px
@@ -174,6 +185,12 @@
     --cz-black: #ffffff;
     --cz-on-black: #0a0c0b;
     --cz-black-line: rgba(255, 255, 255, 0.34);
+    --cz-brand-blue: #0066cc;
+    --cz-brand-yellow: #ffc800;
+    --cz-brand-red: #e5332a;
+    --cz-on-brand-yellow: #000000;
+    --cz-graphite: #1d1d1f;
+    --cz-silver: #86868b;
 
     --cz-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.32);
     --cz-scrim: rgba(0, 0, 0, 0.62);
@@ -204,6 +221,12 @@
   --cz-black: #ffffff;
   --cz-on-black: #0a0c0b;
   --cz-black-line: rgba(255, 255, 255, 0.34);
+  --cz-brand-blue: #0066cc;
+  --cz-brand-yellow: #ffc800;
+  --cz-brand-red: #e5332a;
+  --cz-on-brand-yellow: #000000;
+  --cz-graphite: #1d1d1f;
+  --cz-silver: #86868b;
 
   --cz-shadow: 0 1px 2px rgba(0, 0, 0, 0.4), 0 12px 32px rgba(0, 0, 0, 0.32);
   --cz-scrim: rgba(0, 0, 0, 0.62);
@@ -246,12 +269,13 @@ h3 {
 }
 
 a {
-  color: var(--cz-black);
+  color: var(--cz-brand-blue);
 }
 
-/* Visible focus for keyboard users (a11y). */
+/* Visible focus for keyboard users (a11y). Partner Blue: 5.57:1 on white and 3.52:1 on the
+   dark page, both above the 3:1 a non-text focus indicator needs. */
 :focus-visible {
-  outline: 2px solid var(--cz-black);
+  outline: 2px solid var(--cz-brand-blue);
   outline-offset: 2px;
 }
 
@@ -1043,7 +1067,7 @@ kbd {
 }
 
 .modal-close:focus-visible {
-  outline: 2px solid var(--cz-black);
+  outline: 2px solid var(--cz-brand-blue);
   outline-offset: 2px;
 }
 
@@ -1460,7 +1484,7 @@ kbd {
 }
 .sidebar :focus-visible,
 .sidebar__user :focus-visible {
-  outline: 2px solid var(--cz-black);
+  outline: 2px solid var(--cz-brand-blue);
   outline-offset: 2px;
 }
 
@@ -2106,7 +2130,7 @@ kbd {
 /* A Move item at the board's end is rendered, not omitted (D5) — so it must
    READ as unavailable rather than merely be inert. */
 .lane-menu [role="menuitem"][disabled] {
-  color: var(--cz-faint);
+  color: var(--cz-silver);
   cursor: not-allowed;
 }
 
@@ -2269,4 +2293,45 @@ input[type="file"]::file-selector-button {
   color: var(--cz-text);
   font: inherit;
   cursor: pointer;
+}
+
+/* ── Brand accents: one job per colour (see the token block above) ─────────── */
+
+/* Signal Red marks an error with an edge. Red TEXT measures 4.19:1 on paper, so
+   the words stay ink. */
+.error,
+.danger {
+  padding-inline-start: 0.6rem;
+  border-inline-start: 3px solid var(--cz-brand-red);
+}
+
+/* Beacon Yellow is the warning band, with its paired black text. */
+.warning {
+  padding: 0.6rem 0.9rem;
+  border-radius: var(--radius);
+  background: var(--cz-brand-yellow);
+  color: var(--cz-on-brand-yellow);
+}
+
+/* Partner Blue text measures 3.52:1 on the dark page, below 4.5:1. So links stay
+   ink on dark, and the blue ring is the only blue there. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) a {
+    color: var(--cz-black);
+  }
+}
+
+:root[data-theme="dark"] a {
+  color: var(--cz-black);
+}
+
+/* Graphite is the raised dialog on the dark page. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .modal-dialog {
+    background: var(--cz-graphite);
+  }
+}
+
+:root[data-theme="dark"] .modal-dialog {
+  background: var(--cz-graphite);
 }
