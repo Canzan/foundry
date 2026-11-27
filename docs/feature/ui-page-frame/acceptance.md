@@ -268,15 +268,15 @@ The sample is finite, so a name shape outside the seed and the named extremes ca
 P1
 
 ```text
-She opens her board on a desk and on a phone and reads every lane against the frame she can see.
+She opens her board on a desk and reads every lane against the frame she can see.
 ```
 
 ```text
-Every lane lies inside the frame, and the board strip is no wider than what she can see, so she does not have to scroll the board sideways. A lane that runs past the frame fails even when the page itself does not scroll.
+At desk width every lane lies inside the frame, and the board strip is no wider than what she can see, so she does not have to scroll the board sideways.
 ```
 
 ```text
-On her phone the board stays on the screen, and she can read every lane without scrolling sideways.
+At her desk the board stays on the screen, and she can read every lane without scrolling sideways.
 ```
 
 ##### Disposition
@@ -286,7 +286,7 @@ Tested
 crates\/foundry\-acceptance\/tests\/features\/ui\-page\-frame\.feature\: Her board stays on the screen with no sideways scroll
 
 ```text
-A board with more lanes than the project this session holds can still overflow a wider desk than the two screens this reading opens. This reading is that board, at those two widths.
+A board with more lanes than the project this session holds can still overflow at desk width. This reading checks the shipped board at desk width.
 ```
 
 ###### Obligations
@@ -316,6 +316,35 @@ crates\/foundry\-acceptance\/tests\/features\/ui\-page\-frame\.feature\: Each pr
 
 ```text
 Two cards that share a row only when Home holds a third project, or only on a desk wider than the two screens this reading opens, still each match the frame here. This reading is these two projects, at those two widths.
+```
+
+###### Obligations
+
+
+##### Covers
+
+P1
+
+```text
+She opens her board on her phone and reads the page width and the board lane strip.
+```
+
+```text
+On a phone the board page itself does not run off the side of her screen, while the board strip keeps its own horizontal scroll so lanes scroll inside the board instead of collapsing.
+```
+
+```text
+On her phone the board page stays within the screen width and she can scroll the lanes sideways inside the board strip.
+```
+
+##### Disposition
+
+Tested
+
+crates\/foundry\-acceptance\/tests\/features\/ui\-page\-frame\.feature\: On her phone her board scrolls its lanes inside the board without widening the page
+
+```text
+A mobile board with a single lane would not overflow the strip; a phone width other than 390px or a landscape orientation is not read here.
 ```
 
 ###### Obligations

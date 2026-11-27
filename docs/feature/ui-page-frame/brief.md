@@ -108,6 +108,15 @@ User decision 2026-11-22: the board header keeps the label 'Key prefix', with th
 Confirmed
 
 
+```text
+User decision 2026-11-26: keep pwa-mobile-rendering horizontal scroll inside .board (220px min-width lanes) on a phone (<=480px); ui-page-frame P1 phone no-sideways-scroll applies to the page document only, not .board's internal lane strip.
+```
+
+#### Status
+
+Confirmed
+
+
 ## Journey
 
 None.

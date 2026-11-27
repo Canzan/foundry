@@ -36,6 +36,12 @@ User decision 2026-11-22: the frame sets no maximum content width; every page sh
 User decision 2026-11-22: the board header keeps the label 'Key prefix', with the key as a labelled value beside it.
 ```
 
+#### K8
+
+```text
+User decision 2026-11-26: keep pwa-mobile-rendering horizontal scroll inside .board (220px min-width lanes) on a phone (<=480px); ui-page-frame P1 phone no-sideways-scroll applies to the page document only, not .board's internal lane strip.
+```
+
 ### Reuse
 
 None.
@@ -110,12 +116,12 @@ None.
 
 #### Targets
 
-crates\/foundry\-app\/static\/css\/foundry\.8a68a324\.css
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css
 
 Extend
 
 ```text
-The one owner of the page frame, the field sizes, the control family, the section rhythm, the quiet Delete and the board header row. The file carries the sha256 prefix of its own bytes, so this change renames it again and the old name goes.
+The one owner of the page frame, the field sizes, the control family, the section rhythm, the quiet Delete, the board header row, and the mobile <=480px .board container-scroll rule. The file carries the sha256 prefix of its own bytes, so this change renames it again and the old name goes.
 ```
 
 crates\/foundry\-app\/templates\/base\.html
@@ -267,6 +273,7 @@ scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=ui-n
 scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=ui-bare-pages cargo test -p foundry-acceptance"
 scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=us-07 cargo test -p foundry-acceptance"
 scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=all cargo test -p foundry-acceptance"
+scripts/test-in-lima.sh bash -c "CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=pwa-mobile-rendering cargo test -p foundry-acceptance"
 ```
 
 #### Supports
@@ -288,11 +295,11 @@ Through the real public driving port. A signed-in operator with a workspace-admi
 ```
 
 ```text
-At each viewport, all eight framed pages report the SAME content inline start and the SAME content block start, equal to the frame own padding box (the rail plus 32px inline and 24px block at desk width, 16px on the phone), and no page start moves when the window widens, so Home no longer starts at 424px, Teams, tokens, settings and the instance dashboard no longer at 292px, and the board and invites keep 272px as the one edge. /unsubscribe, outside the frame, still reports its own 20px page padding. No page reports a scrollWidth over its clientWidth in any generated case. Inside the frame, every text field reports an inline size at or below its cap, the token expiry field the short cap, a name field the name cap, an email or Matrix room field the long cap, and none reports the frame width. In a DIALOG the title field reports the dialog content width and EQUALS its description textarea width, in the edit dialog and in the new-issue dialog, because the default cap is scoped to the frame. On the sign-in card page the password field still reports the card content width, unchanged from the shipped build. Every list, number and file control, in the frame and in both dialogs, reports the 1px --cz-muted border, the --cz-surface fill, the shared radius, the inherited face and a 32px minimum height, with its label at 4.5 to 1 or better and its boundary at 3 to 1 or better in BOTH palettes; the list still draws its own arrow. On Teams, the instance dashboard and account settings, every form sits in a section holding exactly one heading and its own submit control, the instance rename rows draw no UA bullet and no UA indent while keeping their markers, the settings groups draw as styled groups and not as raw bordered fieldsets, and no section adds inline padding to the page first content box. In the edit dialog, Save alone resolves the --cz-black fill and Delete resolves the --cz-surface fill with the --cz-muted border in both palettes, and pressing Delete still answers the confirm fragment. The board header AND the change report header each report the key in its own element whose data-key-prefix equals the stored key, under the label Key prefix, with Change report and Integrations on the board each resolving the secondary control, a non-zero gap between their boxes and no underline, the report anchor still carrying its report-link class and its /report href; the live board still refreshes after the change made elsewhere, and the slash key still injects the search panel at the New issue trigger next sibling with its own block box. Both renames still swap their own row and both refusals still land in their own error slot.
+At each viewport, all eight framed pages report the SAME content inline start and the SAME content block start, equal to the frame own padding box (the rail plus 32px inline and 24px block at desk width, 16px on the phone), and no page start moves when the window widens, so Home no longer starts at 424px, Teams, tokens, settings and the instance dashboard no longer at 292px, and the board and invites keep 272px as the one edge. /unsubscribe, outside the frame, still reports its own 20px page padding. No page reports a documentElement scrollWidth over its clientWidth in any generated case; on a phone (<=480px), that no-sideways-scroll rule applies to the page document only, while .board keeps its shipped internal horizontal lane scroll (overflow-x: auto with 220px min-width columns so .board scrollWidth > clientWidth per pwa-mobile-rendering), and at desk width the board still keeps no sideways scroll. Inside the frame, every text field reports an inline size at or below its cap, the token expiry field the short cap, a name field the name cap, an email or Matrix room field the long cap, and none reports the frame width. In a DIALOG the title field reports the dialog content width and EQUALS its description textarea width, in the edit dialog and in the new-issue dialog, because the default cap is scoped to the frame. On the sign-in card page the password field still reports the card content width, unchanged from the shipped build. Every list, number and file control, in the frame and in both dialogs, reports the 1px --cz-muted border, the --cz-surface fill, the shared radius, the inherited face and a 32px minimum height, with its label at 4.5 to 1 or better and its boundary at 3 to 1 or better in BOTH palettes; the list still draws its own arrow. On Teams, the instance dashboard and account settings, every form sits in a section holding exactly one heading and its own submit control, the instance rename rows draw no UA bullet and no UA indent while keeping their markers, the settings groups draw as styled groups and not as raw bordered fieldsets, and no section adds inline padding to the page first content box. In the edit dialog, Save alone resolves the --cz-black fill and Delete resolves the --cz-surface fill with the --cz-muted border in both palettes, and pressing Delete still answers the confirm fragment. The board header AND the change report header each report the key in its own element whose data-key-prefix equals the stored key, under the label Key prefix, with Change report and Integrations on the board each resolving the secondary control, a non-zero gap between their boxes and no underline, the report anchor still carrying its report-link class and its /report href; the live board still refreshes after the change made elsewhere, and the slash key still injects the search panel at the New issue trigger next sibling with its own block box. Both renames still swap their own row and both refusals still land in their own error slot.
 ```
 
 ```text
-The shipped build fails these: Home reports 424px and the main-wrapped pages 292px while the board reports 272px, so the all-pages equality fails and names each page; the Home start changes when the window widens, which the two window widths catch; a team name field reports about 1100px, which the cap reading catches; the default-team list, the expiry number field, the Matrix room field and the two dialog lists report the platform box, which the border, fill and face readings catch; the Teams Save sits in no section, the instance rename forms sit in indented bullet lists and the settings groups draw the raw UA fieldset border, which the section reading catches; Delete resolves the --cz-black fill, which the tier comparison against Save catches; and the two project headers show a text run with no element, while the two board links resolve an underline and no gap, which the attribute and gap readings catch. Each law also fails on its own plausible wrong implementation: deleting the main element rule instead of scoping it is caught by the /unsubscribe padding reading; padding the frame but leaving the centred Home column is caught by the window-width pair on Home alone; capping the frame width is caught by the board lane row, which must still use the window; applying the default cap globally instead of scoping it to the frame is caught twice, by the sign-in card field that would narrow and by the dialog title field that would stop short of its textarea; sizing a field with width instead of max-inline-size is caught by the 256-character unbroken value, which then pushes the document scrollWidth past its clientWidth; giving Delete a borderless quiet look is caught by the 3 to 1 boundary reading on it; moving the New issue trigger into the header row is caught by the search panel box after the slash key; renaming the report-link class or its /report href is caught by the live refresh, which then never arrives; leaving the change report header as the old text run is caught by its own data-key-prefix reading; changing the rename row outer element or its markers is caught by the two renames and their two refusals; naming a colour literal for the new surfaces is caught by check-arch S1; and editing the stylesheet without renaming it is caught by check-arch R2.
+The shipped build fails these: Home reports 424px and the main-wrapped pages 292px while the board reports 272px, so the all-pages equality fails and names each page; the Home start changes when the window widens, which the two window widths catch; a team name field reports about 1100px, which the cap reading catches; the default-team list, the expiry number field, the Matrix room field and the two dialog lists report the platform box, which the border, fill and face readings catch; the Teams Save sits in no section, the instance rename forms sit in indented bullet lists and the settings groups draw the raw UA fieldset border, which the section reading catches; Delete resolves the --cz-black fill, which the tier comparison against Save catches; and the two project headers show a text run with no element, while the two board links resolve an underline and no gap, which the attribute and gap readings catch. Each law also fails on its own plausible wrong implementation: deleting the main element rule instead of scoping it is caught by the /unsubscribe padding reading; padding the frame but leaving the centred Home column is caught by the window-width pair on Home alone; capping the frame width is caught by the board lane row, which must still use the window; collapsing mobile .column min-width to 0 at <=480px is caught by the pwa-mobile-rendering lane (feature_pwa_mobile.rs:492) because .board loses its internal horizontal scroll; letting mobile .board overflow push the page document wider than the viewport is caught by the documentElement scrollWidth <= clientWidth reading at 390x844; applying the default cap globally instead of scoping it to the frame is caught twice, by the sign-in card field that would narrow and by the dialog title field that would stop short of its textarea; sizing a field with width instead of max-inline-size is caught by the 256-character unbroken value, which then pushes the document scrollWidth past its clientWidth; giving Delete a borderless quiet look is caught by the 3 to 1 boundary reading on it; moving the New issue trigger into the header row is caught by the search panel box after the slash key; renaming the report-link class or its /report href is caught by the live refresh, which then never arrives; leaving the change report header as the old text run is caught by its own data-key-prefix reading; changing the rename row outer element or its markers is caught by the two renames and their two refusals; naming a colour literal for the new surfaces is caught by check-arch S1; and editing the stylesheet without renaming it is caught by check-arch R2.
 ```
 
 ##### Promises
@@ -351,6 +358,10 @@ ONE CONTENT-HASH MIGRATION. The served stylesheet is the only file whose NAME ch
 CLAIM-TO-CHECKER, AND WHAT THE MODEL DOES NOT COVER. The one claim with an algebra is B1, because a page content inline start is a SUM over the boxes on the path from the shell to the page first content box, so the defect is invisible per page and only shows across pages and viewports. Quint carries it at docs/feature/ui-page-frame/design/page_frame.qnt. Tools and literal argv: quint 0.33.1 with Java openjdk 27.0.1.1 (Amazon Corretto 27.0.1.1.4), run as quint verify page_frame.qnt --invariant=uniformFrame, and the mutants as quint run page_frame.qnt --invariant=uniformFrameHere --max-samples=400 --max-steps=1 --seed=SEED. THE MODEL COVERS THE SUM ALGEBRA ONLY: it decides whether a declared chain of padding boxes yields one edge for every page at both viewports, and it refutes the three chains that do not. It does NOT read the stylesheet, resolve a selector, evaluate the cascade, or know whether the shipped file matches the chain it was given. THE ONLY CHECK OF THE REAL STYLESHEET IS THE BROWSER ALL-PAGES READING in the oracle: the computed inline start and block start of every framed page at both viewports, plus a reading of /unsubscribe, which is outside the frame and must keep its own page padding when the element rule is scoped. check-arch covers the asset and token-seam rules, never the geometry. TLA+ is not needed: there is no temporal, fairness or concurrency claim anywhere in this Request, every observation is of a settled document. Agda is not needed: no proof over an open domain is claimed. No model for the field sizes, the control family, the sections, the Delete tier or the board header: each names no shared state, no multi-step protocol and no crash window, and each domain is the closed set of named pages, named field kinds or named control kinds the finite laws enumerate. The one broad domain is the stored name or label a field must hold, carried by a generated property over the rendered page rather than by a model.
 ```
 
+```text
+MOBILE BOARD KEEPS INTERNAL LANE SCROLL. Inside @media (max-width: 480px), .board retains overflow-x: auto and .column retains min-width: 220px per the shipped pwa-mobile-rendering contract (feature_pwa_mobile.rs:492). P1 phone no-sideways-scroll applies to the page document (document.documentElement.scrollWidth <= document.documentElement.clientWidth), NOT to .board's internal lane strip (board.scrollWidth > board.clientWidth with overflow-x: auto on a phone <=480px). At desk width, the board keeps no sideways scroll. Layers: Adapter only. Observation: documentElement scrollWidth <= clientWidth on every framed page at 390x844 while .board retains scrollWidth > clientWidth with overflow-x: auto at <=480px.
+```
+
 ##### Constraints
 
 ```text
@@ -383,7 +394,7 @@ The shipped frame already wraps every signed-in app page (44 reads answered by c
 
 button\.secondary
 
-crates\/foundry\-app\/static\/css\/foundry\.8a68a324\.css\:318
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css\:328
 
 Reuse
 
@@ -393,7 +404,7 @@ The shipped quiet control tier, already measured in both palettes by the theme l
 
 file\-selector\-button
 
-crates\/foundry\-app\/static\/css\/foundry\.8a68a324\.css\:2134
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css\:2290
 
 Reuse
 
@@ -403,7 +414,7 @@ The previous Request already drew the file control button with the secondary pai
 
 input
 
-crates\/foundry\-app\/static\/css\/foundry\.8a68a324\.css\:331
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css\:341
 
 Extend
 
@@ -413,7 +424,7 @@ The one owner of a field box, the rule group at this line. select and input[type
 
 main
 
-crates\/foundry\-app\/static\/css\/foundry\.8a68a324\.css\:284
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css\:286
 
 Replace
 
@@ -423,7 +434,7 @@ The second writer of the page geometry fact. Replaced by body > main, which stat
 
 dash
 
-crates\/foundry\-app\/static\/css\/foundry\.8a68a324\.css\:671
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css\:807
 
 Extend
 
@@ -433,7 +444,7 @@ The third writer of the page geometry fact. The class SURVIVES because two shipp
 
 page\-section
 
-crates\/foundry\-app\/static\/css\/foundry\.8a68a324\.css\:697
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css\:416
 
 CreateNew
 
@@ -451,7 +462,7 @@ Extend
 The only shipped reader of the board key, confirmed by a repository-wide search for the literal Key prefix. It scrapes the text up to the next angle bracket, which the labelled value breaks, so it moves to the data-key-prefix attribute. Owned by the acceptance designer and listed as a support.
 ```
 
-foundry\.8a68a324\.css
+foundry\.cc56ed0e\.css
 
 crates\/foundry\-app\/templates\/base\.html\:6
 
@@ -461,7 +472,7 @@ Extend
 The one stylesheet link of the document shell. It takes the new content hash and nothing else in the head moves.
 ```
 
-css\/foundry\.8a68a324\.css
+css\/foundry\.cc56ed0e\.css
 
 crates\/foundry\-app\/static\/VENDOR\.md\:33
 
@@ -625,7 +636,7 @@ The shipped change report header already owns the project name and the key in th
 
 stylesheet
 
-crates\/foundry\-app\/static\/css\/foundry\.8a68a324\.css\:1
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css\:1
 
 Migrated
 
@@ -830,7 +841,7 @@ crates\/foundry\-acceptance\/src\/steps\/feature\_pwa\_mobile\.rs\:433
 UnchangedCompatible
 
 ```text
-It reads box widths against the client width below the 480px breakpoint; the phone frame padding is unchanged at 16px and no new rule leaves the media bound.
+It reads box widths against the client width below the 480px breakpoint and asserts at line 492 that .board keeps overflow-x: auto with .column min-width: 220px so the lane strip scrolls inside .board (scrollWidth > clientWidth); the phone frame padding stays 16px and the mobile .board/.column rules are preserved unchanged.
 ```
 
 acceptance\-lane
@@ -1023,7 +1034,7 @@ It reads the colour of .dash, which is unchanged.
 
 The served stylesheet name
 
-crates\/foundry\-app\/static\/css\/foundry\.8a68a324\.css\:1
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css\:1
 
 Producer
 
@@ -1103,6 +1114,30 @@ Migrated
 
 ```text
 The change report header carries the same idiom, so the key moves into its own data-key-prefix element there too and the one migrated reader resolves both pages.
+```
+
+Mobile board internal lane scroll at \<\=480px
+
+crates\/foundry\-app\/static\/css\/foundry\.cc56ed0e\.css\:1886
+
+Producer
+
+UnchangedCompatible
+
+```text
+Preserves @media (max-width: 480px) .board { overflow-x: auto; } and .column { min-width: 220px; } so lanes scroll inside .board while the page document keeps scrollWidth <= clientWidth.
+```
+
+Mobile board internal lane scroll at \<\=480px
+
+crates\/foundry\-acceptance\/src\/steps\/feature\_pwa\_mobile\.rs\:492
+
+Consumer
+
+UnchangedCompatible
+
+```text
+Asserts at <=480px that .board keeps overflow-x: auto|scroll and scrollWidth > clientWidth so lanes scroll inside .board rather than collapsing to fit.
 ```
 
 ##### Not applicable
@@ -1262,7 +1297,7 @@ heading plus fields plus its own action \-\> one section box with the shared rhy
 ###### L1
 
 ```text
-At each viewport, every signed-in app page first content box starts at the frame own inline start and block start, and no page start is a function of the window width. The chain from the shell to that box holds exactly one padding box. A page OUTSIDE the frame keeps its own page padding.
+At each viewport, every signed-in app page first content box starts at the frame own inline start and block start, and no page start is a function of the window width. The chain from the shell to that box holds exactly one padding box. A page OUTSIDE the frame keeps its own page padding. No framed page overflows the page document horizontally (documentElement scrollWidth <= clientWidth); on a phone (<=480px), .board keeps its shipped internal horizontal lane scroll (overflow-x: auto; .column min-width: 220px), while at desk width the board keeps no sideways scroll.
 ```
 
 Invariant
@@ -1282,7 +1317,7 @@ Home at desk width and at 390 by 844
 ```
 
 ```text
-The board at both viewports
+The board at both viewports (document scrollWidth <= clientWidth at both; at 390 by 844 .board keeps overflow-x: auto and scrollWidth > clientWidth with 220px min-width columns)
 ```
 
 ```text
@@ -1625,6 +1660,18 @@ Boundary: the shipped control-boundary law of ADR-NAV-POLISH-007 and ADR-BARE-PA
 
 ```text
 A fill-less and border-less control has no boundary colour to measure at all, so the contrast reading cannot pass; the secondary tier is the quiet control that keeps the boundary.
+```
+
+```text
+On a phone (<=480px), .board must satisfy board.scrollWidth <= board.clientWidth by collapsing .column min-width to 0.
+```
+
+```text
+Cross-feature contract contradiction with shipped pwa-mobile-rendering (feature_pwa_mobile.rs:492) and confirmed user decision 2026-11-26.
+```
+
+```text
+At 390x844, feature_pwa_mobile.rs:492 requires .board scrollWidth > clientWidth with overflow-x: auto (.column min-width: 220px); collapsing .column to min-width: 0 yields scrollWidth 358 <= clientWidth 358 and fails pwa-mobile-rendering.feature:72. Document-level no-sideways-scroll (documentElement.scrollWidth <= clientWidth) and .board internal container scroll are jointly satisfiable.
 ```
 
 ##### Claims

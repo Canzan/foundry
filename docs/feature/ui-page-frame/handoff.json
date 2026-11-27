@@ -9,7 +9,7 @@
 "kind": "Tested",
 "obligations": [
 "L1/F126",
-"L1/F127",
+"L1/F392",
 "L1/F128",
 "L1/F129",
 "L1/F130",
@@ -162,14 +162,14 @@
 "disposition": {
 "kind": "Tested",
 "obligations": [
-"L1/F127"
+"L1/F392"
 ],
-"still_passes_if": "F376",
+"still_passes_if": "F399",
 "test": "crates/foundry-acceptance/tests/features/ui-page-frame.feature: Her board stays on the screen with no sideways scroll"
 },
-"expected": "F374",
-"stimulus": "F373",
-"user_result": "F375"
+"expected": "F397",
+"stimulus": "F396",
+"user_result": "F398"
 },
 {
 "covers": [
@@ -186,6 +186,22 @@
 "expected": "F378",
 "stimulus": "F381",
 "user_result": "F379"
+},
+{
+"covers": [
+"P1"
+],
+"disposition": {
+"kind": "Tested",
+"obligations": [
+"L1/F392"
+],
+"still_passes_if": "F403",
+"test": "crates/foundry-acceptance/tests/features/ui-page-frame.feature: On her phone her board scrolls its lanes inside the board without widening the page"
+},
+"expected": "F401",
+"stimulus": "F400",
+"user_result": "F402"
 }
 ]
 },
@@ -193,8 +209,8 @@
 "B": 3,
 "C": 2,
 "E": 13,
-"F": 382,
-"K": 7,
+"F": 403,
+"K": 8,
 "L": 7,
 "N": 3,
 "P": 5,
@@ -243,6 +259,10 @@
 {
 "id": "K7",
 "text": "F254"
+},
+{
+"id": "K8",
+"text": "F383"
 }
 ]
 },
@@ -250,8 +270,8 @@
 "S1": {
 "oracle": "crates/foundry-acceptance/tests/features/ui-page-frame.feature",
 "public_oracle": {
-"expected": "F260",
-"falsifier": "F261",
+"expected": "F385",
+"falsifier": "F386",
 "promises": [
 "P1",
 "P2",
@@ -322,7 +342,7 @@
 {
 "contract": "The served stylesheet name",
 "decision": "Migrated",
-"locator": "crates/foundry-app/static/css/foundry.8a68a324.css:1",
+"locator": "crates/foundry-app/static/css/foundry.cc56ed0e.css:1",
 "party": "Producer",
 "reason": "F97"
 },
@@ -367,6 +387,20 @@
 "locator": "crates/foundry-app/templates/report.html:4",
 "party": "Producer",
 "reason": "F276"
+},
+{
+"contract": "Mobile board internal lane scroll at <=480px",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-app/static/css/foundry.cc56ed0e.css:1886",
+"party": "Producer",
+"reason": "F389"
+},
+{
+"contract": "Mobile board internal lane scroll at <=480px",
+"decision": "UnchangedCompatible",
+"locator": "crates/foundry-acceptance/src/steps/feature_pwa_mobile.rs:492",
+"party": "Consumer",
+"reason": "F390"
 }
 ],
 "architectural_tests": [
@@ -500,7 +534,8 @@
 "F37",
 "F264",
 "F39",
-"F265"
+"F265",
+"F387"
 ],
 "equality": [
 {
@@ -516,7 +551,7 @@
 {
 "decision": "Migrated",
 "kind": "stylesheet",
-"locator": "crates/foundry-app/static/css/foundry.8a68a324.css:1",
+"locator": "crates/foundry-app/static/css/foundry.cc56ed0e.css:1",
 "reason": "F70"
 },
 {
@@ -637,7 +672,7 @@
 "decision": "UnchangedCompatible",
 "kind": "acceptance-lane",
 "locator": "crates/foundry-acceptance/src/steps/feature_pwa_mobile.rs:433",
-"reason": "F85"
+"reason": "F388"
 },
 {
 "decision": "UnchangedCompatible",
@@ -703,11 +738,11 @@
 "kind": "Invariant",
 "layer": "Adapter",
 "owner": "crates/foundry-app/static/css/foundry.8a68a324.css",
-"statement": "F277",
+"statement": "F391",
 "treatment": {
 "cases": [
 "F126",
-"F127",
+"F392",
 "F128",
 "F129",
 "F130",
@@ -982,6 +1017,11 @@
 "cause": "F173",
 "counterexample": "F174",
 "statement": "F172"
+},
+{
+"cause": "F394",
+"counterexample": "F395",
+"statement": "F393"
 }
 ],
 "reuse": [
@@ -993,37 +1033,37 @@
 },
 {
 "decision": "Reuse",
-"locator": "crates/foundry-app/static/css/foundry.8a68a324.css:318",
+"locator": "crates/foundry-app/static/css/foundry.cc56ed0e.css:328",
 "reason": "F47",
 "symbol": "button.secondary"
 },
 {
 "decision": "Reuse",
-"locator": "crates/foundry-app/static/css/foundry.8a68a324.css:2134",
+"locator": "crates/foundry-app/static/css/foundry.cc56ed0e.css:2290",
 "reason": "F48",
 "symbol": "file-selector-button"
 },
 {
 "decision": "Extend",
-"locator": "crates/foundry-app/static/css/foundry.8a68a324.css:331",
+"locator": "crates/foundry-app/static/css/foundry.cc56ed0e.css:341",
 "reason": "F49",
 "symbol": "input"
 },
 {
 "decision": "Replace",
-"locator": "crates/foundry-app/static/css/foundry.8a68a324.css:284",
+"locator": "crates/foundry-app/static/css/foundry.cc56ed0e.css:286",
 "reason": "F50",
 "symbol": "main"
 },
 {
 "decision": "Extend",
-"locator": "crates/foundry-app/static/css/foundry.8a68a324.css:671",
+"locator": "crates/foundry-app/static/css/foundry.cc56ed0e.css:807",
 "reason": "F266",
 "symbol": "dash"
 },
 {
 "decision": "CreateNew",
-"locator": "crates/foundry-app/static/css/foundry.8a68a324.css:697",
+"locator": "crates/foundry-app/static/css/foundry.cc56ed0e.css:416",
 "reason": "F52",
 "symbol": "page-section"
 },
@@ -1037,13 +1077,13 @@
 "decision": "Extend",
 "locator": "crates/foundry-app/templates/base.html:6",
 "reason": "F54",
-"symbol": "foundry.8a68a324.css"
+"symbol": "foundry.cc56ed0e.css"
 },
 {
 "decision": "Extend",
 "locator": "crates/foundry-app/static/VENDOR.md:33",
 "reason": "F55",
-"symbol": "css/foundry.8a68a324.css"
+"symbol": "css/foundry.cc56ed0e.css"
 },
 {
 "decision": "Extend",
@@ -1256,8 +1296,8 @@
 "targets": [
 {
 "change": "Extend",
-"path": "crates/foundry-app/static/css/foundry.8a68a324.css",
-"reason": "F12"
+"path": "crates/foundry-app/static/css/foundry.cc56ed0e.css",
+"reason": "F384"
 },
 {
 "change": "Extend",
@@ -1353,7 +1393,8 @@
 "scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=ui-nav-polish cargo test -p foundry-acceptance\"",
 "scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=ui-bare-pages cargo test -p foundry-acceptance\"",
 "scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=us-07 cargo test -p foundry-acceptance\"",
-"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=all cargo test -p foundry-acceptance\""
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=all cargo test -p foundry-acceptance\"",
+"scripts/test-in-lima.sh bash -c \"CARGO_BUILD_JOBS=4 FOUNDRY_ACCEPTANCE_TAGS=pwa-mobile-rendering cargo test -p foundry-acceptance\""
 ]
 }
 }
@@ -1575,14 +1616,12 @@
 "F117": "The computed fill, border colour, border width, radius and font family of a control, and its contrast ratio against its resolved ancestor background in both palettes",
 "F118": "Perceived visual weight beyond the measured pair; it reads the tier a control resolves, not how loud it looks",
 "F119": "The served section structure of a page: the sections, one heading per section, and whether each submit control is inside the section holding its fields",
-"F12": "The one owner of the page frame, the field sizes, the control family, the section rhythm, the quiet Delete and the board header row. The file carries the sha256 prefix of its own bytes, so this change renames it again and the old name goes.",
 "F120": "Reading order for assistive technology beyond DOM order",
 "F121": "The board header labelled key: the element carrying data-key-prefix and its text, and the box gap between the two action controls",
 "F122": "Typography of the label",
 "F123": "Two app pages are frame-equal when their first content box inline start and block start agree. Equality is NOT structural: a page may hold any sections, any list or any board, and two pages with different markup are equal here exactly when those two numbers agree.",
 "F124": "Two controls are of the same tier when their computed fill, border colour and border width agree in both palettes. Delete and Save are REQUIRED to be of different tiers; Delete, Change report and Integrations are required to be of the same tier as the shipped button.secondary.",
 "F126": "Home at desk width and at 390 by 844",
-"F127": "The board at both viewports",
 "F128": "Teams at both viewports",
 "F129": "Workspace invites at both viewports",
 "F13": "The stylesheet link takes the new hash. Nothing else in the head moves.",
@@ -1717,8 +1756,6 @@
 "F258": "The change report header takes the same labelled key idiom as the board header: the label Key prefix in its own element and the key in its own element carrying data-key-prefix.",
 "F259": "Through the real public driving port. A signed-in operator with a workspace-admin seat opens, in one browser session, every page of the frame set with a GET: Home at /, her board, the change report of that project, /teams, /workspace/invites, /admin/tokens, /account/settings and /admin/instance, plus a Matrix route form. Each page is read as served markup and in the browser lane, at the harness desk viewport and at the emulated 390 by 844 phone, with the device preference dark and again light. On each page the computed inline start and block start of the page first content box are resolved in the live browser, together with the frame own padding box, and the document scrollWidth is read against its clientWidth. She also opens /unsubscribe, which is OUTSIDE the frame, and its main page padding is read there. On each touched form the computed inline size of every text, email, number, list and file control is read, with a generated stored value at the bound of its own rule (a 64-character team name, a 24-character workspace name, a 256-character unbroken project name, a 254-character email). On her board she presses the slash key and reads the injected search panel box, waits for one live refresh after a change made elsewhere, follows Change report and Integrations, opens the edit dialog from a card to read the computed fill and border of Delete against those of Save, the computed box of the status list and the width of the title field against its description textarea, then presses Delete and reads the confirm fragment; she opens the new-issue dialog and the lane-delete dialog and reads the same field and list geometry there. Signed out, with no session cookie, the sign-in card page is opened and its password field width is read against the card content width. On the instance dashboard she renames a project and a workspace, once accepted and once refused with an over-long name.",
 "F26": "A row class and a sized rename field. The li, its markers, the hx-target, the hx-swap and the error slot id are unchanged, because the rename handler swaps this element by outerHTML.",
-"F260": "At each viewport, all eight framed pages report the SAME content inline start and the SAME content block start, equal to the frame own padding box (the rail plus 32px inline and 24px block at desk width, 16px on the phone), and no page start moves when the window widens, so Home no longer starts at 424px, Teams, tokens, settings and the instance dashboard no longer at 292px, and the board and invites keep 272px as the one edge. /unsubscribe, outside the frame, still reports its own 20px page padding. No page reports a scrollWidth over its clientWidth in any generated case. Inside the frame, every text field reports an inline size at or below its cap, the token expiry field the short cap, a name field the name cap, an email or Matrix room field the long cap, and none reports the frame width. In a DIALOG the title field reports the dialog content width and EQUALS its description textarea width, in the edit dialog and in the new-issue dialog, because the default cap is scoped to the frame. On the sign-in card page the password field still reports the card content width, unchanged from the shipped build. Every list, number and file control, in the frame and in both dialogs, reports the 1px --cz-muted border, the --cz-surface fill, the shared radius, the inherited face and a 32px minimum height, with its label at 4.5 to 1 or better and its boundary at 3 to 1 or better in BOTH palettes; the list still draws its own arrow. On Teams, the instance dashboard and account settings, every form sits in a section holding exactly one heading and its own submit control, the instance rename rows draw no UA bullet and no UA indent while keeping their markers, the settings groups draw as styled groups and not as raw bordered fieldsets, and no section adds inline padding to the page first content box. In the edit dialog, Save alone resolves the --cz-black fill and Delete resolves the --cz-surface fill with the --cz-muted border in both palettes, and pressing Delete still answers the confirm fragment. The board header AND the change report header each report the key in its own element whose data-key-prefix equals the stored key, under the label Key prefix, with Change report and Integrations on the board each resolving the secondary control, a non-zero gap between their boxes and no underline, the report anchor still carrying its report-link class and its /report href; the live board still refreshes after the change made elsewhere, and the slash key still injects the search panel at the New issue trigger next sibling with its own block box. Both renames still swap their own row and both refusals still land in their own error slot.",
-"F261": "The shipped build fails these: Home reports 424px and the main-wrapped pages 292px while the board reports 272px, so the all-pages equality fails and names each page; the Home start changes when the window widens, which the two window widths catch; a team name field reports about 1100px, which the cap reading catches; the default-team list, the expiry number field, the Matrix room field and the two dialog lists report the platform box, which the border, fill and face readings catch; the Teams Save sits in no section, the instance rename forms sit in indented bullet lists and the settings groups draw the raw UA fieldset border, which the section reading catches; Delete resolves the --cz-black fill, which the tier comparison against Save catches; and the two project headers show a text run with no element, while the two board links resolve an underline and no gap, which the attribute and gap readings catch. Each law also fails on its own plausible wrong implementation: deleting the main element rule instead of scoping it is caught by the /unsubscribe padding reading; padding the frame but leaving the centred Home column is caught by the window-width pair on Home alone; capping the frame width is caught by the board lane row, which must still use the window; applying the default cap globally instead of scoping it to the frame is caught twice, by the sign-in card field that would narrow and by the dialog title field that would stop short of its textarea; sizing a field with width instead of max-inline-size is caught by the 256-character unbroken value, which then pushes the document scrollWidth past its clientWidth; giving Delete a borderless quiet look is caught by the 3 to 1 boundary reading on it; moving the New issue trigger into the header row is caught by the search panel box after the slash key; renaming the report-link class or its /report href is caught by the live refresh, which then never arrives; leaving the change report header as the old text run is caught by its own data-key-prefix reading; changing the rename row outer element or its markers is caught by the two renames and their two refusals; naming a colour literal for the new surfaces is caught by check-arch S1; and editing the stylesheet without renaming it is caught by check-arch R2.",
 "F262": "A FIELD IS AS WIDE AS WHAT IT HOLDS, FROM A CLOSED SET OF THREE SIZES, AND THE DEFAULT CAP IS SCOPED TO THE FRAMED FORMS. The shipped rule input[type=text], input[type=email], input[type=password], textarea { width: 100% } is what stretches a team name to about 1100px. Its width becomes inline-size, and a max-inline-size is taken from three size classes: .field--short (about 8rem, a token expiry or a count), .field--name (about 24rem, a team, project or workspace name), .field--long (about 36rem, an email, a URL or a Matrix room id). THE THREE CLASSES WORK WHEREVER THEY ARE NAMED; THE UNCLASSED DEFAULT CAP APPLIES ONLY INSIDE .app-shell__content. That scope is deliberate, because the shipped rule reaches text, email and password inputs in 22 templates, and two families of them are not framed forms. FIRST, the signed-out card pages delivered by ui-bare-pages (signin.html:9, forgot, bootstrap_claim, invite_accept, reset_password) sit in a 28rem .page-card with 1.75rem padding, which leaves about 24.5rem of content, so a 24rem default cap would visibly narrow every one of them; they are out of scope and must not change, so outside the frame a field keeps inline-size: 100% and no cap. SECOND, the dialogs: .modal-dialog is width: min(30rem, 92vw) with 1.5rem padding (foundry.8a68a324.css:864), so a capped title field would stop short while its description textarea ran the full dialog width. A DIALOG FIELD THEREFORE KEEPS inline-size: 100% AND NO CAP, which is exactly what keeps the edit dialog title field level with its textarea and the new-issue dialog title field level with its own; both dialogs are reached by the oracle and by the shipped dialog lanes. textarea keeps the full-width box everywhere, because a description is a paragraph and not a field. The cap is PRESENTATION ONLY and never refuses: the stored bounds stay exactly where they are (team name 64 chars, project name 256, workspace name 24, the token TTL number input min 1 max 365), and a value longer than the cap scrolls inside its own field. Carriers: three size classes plus one frame-scoped default in the stylesheet forms block, named on the input in the template; no new Rust type. Layers: Adapter only. Observation: the computed inline size of each field, inside the frame, inside a dialog and on a card page, and the absence of page-wide horizontal overflow.",
 "F263": "THE LIST, NUMBER AND FILE CONTROLS JOIN THE FOUNDRY CONTROL FAMILY, GLOBALLY, AND THE LIST KEEPS ITS OWN ARROW. select and input[type=number] join the existing text-input rule group, so they take the same min-height 32px, the same 6px/10px padding, the same --cz-muted hairline, the same --cz-surface fill, the same radius and font: inherit. The file control already took that treatment in the previous Request through input[type=file]::file-selector-button, which is the precedent this follows. THE CONTROL FAMILY IS NOT FRAME-SCOPED, ON PURPOSE: a list is drawn by the platform wherever it sits, so every shipped list takes the Foundry box, and that reaches FIVE of them. Three are already named by the promise (the Teams default-team list, the team-member list and the Matrix channel list) and TWO more are in dialogs: the issue edit dialog status list (partials/issue_edit_modal.html:23) and the lane-delete destination list (partials/delete_lane_modal.html:20). Both are a deliberate improvement and neither changes a name, a value or an option order, so the shipped dialog lanes still resolve them. No signed-out card page carries a list, a number or a file input, so the control family leaves those pages untouched as well. appearance: none is DELIBERATELY NOT USED on select: removing the UA arrow obliges this stylesheet to draw a chevron, and a drawn chevron is either an asset or a colour literal below the token seam, which check-arch S1 refuses. So the list keeps the arrow the platform draws and takes the box Foundry draws. The number input keeps its spinner for the same reason. Layers: Adapter only. Observation: the computed border, fill, radius and font family of each control kind, in the frame and in a dialog, and its contrast in both palettes.",
 "F264": "D2: THE BOARD HEADER IS ONE ROW, THE KEY BECOMES A PROPERTY RATHER THAN A SCRAPE, AND THE CHANGE REPORT HEADER TAKES THE SAME IDIOM. The header draws the project name and the key as a labelled value on one row: the label Key prefix, which the user chose on 2026-11-22, in its own muted element, and the key in its OWN element carrying data-key-prefix with the stored key, in the mono face the card key and the issue card key already use. That element is why the shipped reader must migrate: us_07_project_create.rs:821 finds the literal text Key prefix: and takes the characters up to the next <, so ANY element between the label and the value reads as an empty key. The reading moves to the data-key-prefix attribute, which is the property rather than a designation of it. report.html:4 RENDERS THE SAME p.key HEADER AND TAKES THE SAME IDIOM, with the same label and its own data-key-prefix: one key idiom for the two project headers, rather than a deliberate difference the operator would read as two things. The oracle reads the key on both pages, and the migrated reader resolves both. Change report and Integrations become secondary controls in the existing nav.board-actions with a gap, so they are two drawn controls and not two run-together underlined links. THEY KEEP THEIR SHIPPED CLASSES AND HREFS: the secondary classes are ADDED BESIDE report-link and integrations-link, and the report anchor keeps its /report href, because board-live.js:65 selects a.report-link[href] and derives the live board URL by stripping that /report suffix; a renamed class or href would silently turn the live board off. THE NEW ISSUE BUTTON DOES NOT MOVE INTO THAT ROW: keyboard.js inserts the search control and the search panel as trigger.parentNode.insertBefore(node, trigger.nextSibling), so the trigger parent must stay a plain block; a flex row would lay the injected search panel out as a row item. Layers: Adapter only. Observation: the data-key-prefix value on the board and on the change report, the computed presentation and the gap between the two control boxes, the live board still refreshing, and the search panel geometry after the slash key.",
@@ -1735,7 +1772,6 @@
 "F274": "The anchor keeps its report-link class and its /report href; the secondary control classes are added beside them.",
 "F275": "It still finds a.report-link[href] and still strips the /report suffix, so the live board keeps refreshing.",
 "F276": "The change report header carries the same idiom, so the key moves into its own data-key-prefix element there too and the one migrated reader resolves both pages.",
-"F277": "At each viewport, every signed-in app page first content box starts at the frame own inline start and block start, and no page start is a function of the window width. The chain from the shell to that box holds exactly one padding box. A page OUTSIDE the frame keeps its own page padding.",
 "F278": "The change report at both viewports",
 "F279": "/unsubscribe, which is outside the frame: its main keeps its own 20px page padding after the element rule is scoped to body > main",
 "F28": "The release note for this visual pass, naming the new stylesheet hash.",
@@ -1827,16 +1863,33 @@
 "F370": "Each form sits in a section that holds that form alone, with one heading and its own action. A project rename form that shares the Workspaces heading with another form does not. The rename rows carry no bullet and no indent of the browser's own, and a project row can still be told from its workspace by a hairline or a different ground. The grouped choices are drawn as Foundry's own groups, and the content edge stays where the frame put it. An accepted name replaces that row, and a refused name is answered inside the row that refused it.",
 "F371": "She can tell where one form ends and the next begins, because each form has a heading of its own, and a rename either shows the new name in place or the reason it was refused, without the page jumping.",
 "F372": "The heading's words can be the same phrase on every form. The reading checks that the section holds that form alone and one heading, and it does not pin the heading's copy.",
-"F373": "She opens her board on a desk and on a phone and reads every lane against the frame she can see.",
-"F374": "Every lane lies inside the frame, and the board strip is no wider than what she can see, so she does not have to scroll the board sideways. A lane that runs past the frame fails even when the page itself does not scroll.",
-"F375": "On her phone the board stays on the screen, and she can read every lane without scrolling sideways.",
-"F376": "A board with more lanes than the project this session holds can still overflow a wider desk than the two screens this reading opens. This reading is that board, at those two widths.",
 "F378": "Each project card is as wide as the frame and starts at the frame's own left edge. A card that sits in a narrow track of a wider grid is narrower than the frame, and the reading names it.",
 "F379": "The project cards on Home span the frame instead of sitting in a narrow column.",
 "F381": "Home holds two projects, Sandbox and Ledger. She opens it on a desk and on a phone and reads each project card against the frame.",
 "F382": "Two cards that share a row only when Home holds a third project, or only on a desk wider than the two screens this reading opens, still each match the frame here. This reading is these two projects, at those two widths.",
+"F383": "User decision 2026-11-26: keep pwa-mobile-rendering horizontal scroll inside .board (220px min-width lanes) on a phone (<=480px); ui-page-frame P1 phone no-sideways-scroll applies to the page document only, not .board's internal lane strip.",
+"F384": "The one owner of the page frame, the field sizes, the control family, the section rhythm, the quiet Delete, the board header row, and the mobile <=480px .board container-scroll rule. The file carries the sha256 prefix of its own bytes, so this change renames it again and the old name goes.",
+"F385": "At each viewport, all eight framed pages report the SAME content inline start and the SAME content block start, equal to the frame own padding box (the rail plus 32px inline and 24px block at desk width, 16px on the phone), and no page start moves when the window widens, so Home no longer starts at 424px, Teams, tokens, settings and the instance dashboard no longer at 292px, and the board and invites keep 272px as the one edge. /unsubscribe, outside the frame, still reports its own 20px page padding. No page reports a documentElement scrollWidth over its clientWidth in any generated case; on a phone (<=480px), that no-sideways-scroll rule applies to the page document only, while .board keeps its shipped internal horizontal lane scroll (overflow-x: auto with 220px min-width columns so .board scrollWidth > clientWidth per pwa-mobile-rendering), and at desk width the board still keeps no sideways scroll. Inside the frame, every text field reports an inline size at or below its cap, the token expiry field the short cap, a name field the name cap, an email or Matrix room field the long cap, and none reports the frame width. In a DIALOG the title field reports the dialog content width and EQUALS its description textarea width, in the edit dialog and in the new-issue dialog, because the default cap is scoped to the frame. On the sign-in card page the password field still reports the card content width, unchanged from the shipped build. Every list, number and file control, in the frame and in both dialogs, reports the 1px --cz-muted border, the --cz-surface fill, the shared radius, the inherited face and a 32px minimum height, with its label at 4.5 to 1 or better and its boundary at 3 to 1 or better in BOTH palettes; the list still draws its own arrow. On Teams, the instance dashboard and account settings, every form sits in a section holding exactly one heading and its own submit control, the instance rename rows draw no UA bullet and no UA indent while keeping their markers, the settings groups draw as styled groups and not as raw bordered fieldsets, and no section adds inline padding to the page first content box. In the edit dialog, Save alone resolves the --cz-black fill and Delete resolves the --cz-surface fill with the --cz-muted border in both palettes, and pressing Delete still answers the confirm fragment. The board header AND the change report header each report the key in its own element whose data-key-prefix equals the stored key, under the label Key prefix, with Change report and Integrations on the board each resolving the secondary control, a non-zero gap between their boxes and no underline, the report anchor still carrying its report-link class and its /report href; the live board still refreshes after the change made elsewhere, and the slash key still injects the search panel at the New issue trigger next sibling with its own block box. Both renames still swap their own row and both refusals still land in their own error slot.",
+"F386": "The shipped build fails these: Home reports 424px and the main-wrapped pages 292px while the board reports 272px, so the all-pages equality fails and names each page; the Home start changes when the window widens, which the two window widths catch; a team name field reports about 1100px, which the cap reading catches; the default-team list, the expiry number field, the Matrix room field and the two dialog lists report the platform box, which the border, fill and face readings catch; the Teams Save sits in no section, the instance rename forms sit in indented bullet lists and the settings groups draw the raw UA fieldset border, which the section reading catches; Delete resolves the --cz-black fill, which the tier comparison against Save catches; and the two project headers show a text run with no element, while the two board links resolve an underline and no gap, which the attribute and gap readings catch. Each law also fails on its own plausible wrong implementation: deleting the main element rule instead of scoping it is caught by the /unsubscribe padding reading; padding the frame but leaving the centred Home column is caught by the window-width pair on Home alone; capping the frame width is caught by the board lane row, which must still use the window; collapsing mobile .column min-width to 0 at <=480px is caught by the pwa-mobile-rendering lane (feature_pwa_mobile.rs:492) because .board loses its internal horizontal scroll; letting mobile .board overflow push the page document wider than the viewport is caught by the documentElement scrollWidth <= clientWidth reading at 390x844; applying the default cap globally instead of scoping it to the frame is caught twice, by the sign-in card field that would narrow and by the dialog title field that would stop short of its textarea; sizing a field with width instead of max-inline-size is caught by the 256-character unbroken value, which then pushes the document scrollWidth past its clientWidth; giving Delete a borderless quiet look is caught by the 3 to 1 boundary reading on it; moving the New issue trigger into the header row is caught by the search panel box after the slash key; renaming the report-link class or its /report href is caught by the live refresh, which then never arrives; leaving the change report header as the old text run is caught by its own data-key-prefix reading; changing the rename row outer element or its markers is caught by the two renames and their two refusals; naming a colour literal for the new surfaces is caught by check-arch S1; and editing the stylesheet without renaming it is caught by check-arch R2.",
+"F387": "MOBILE BOARD KEEPS INTERNAL LANE SCROLL. Inside @media (max-width: 480px), .board retains overflow-x: auto and .column retains min-width: 220px per the shipped pwa-mobile-rendering contract (feature_pwa_mobile.rs:492). P1 phone no-sideways-scroll applies to the page document (document.documentElement.scrollWidth <= document.documentElement.clientWidth), NOT to .board's internal lane strip (board.scrollWidth > board.clientWidth with overflow-x: auto on a phone <=480px). At desk width, the board keeps no sideways scroll. Layers: Adapter only. Observation: documentElement scrollWidth <= clientWidth on every framed page at 390x844 while .board retains scrollWidth > clientWidth with overflow-x: auto at <=480px.",
+"F388": "It reads box widths against the client width below the 480px breakpoint and asserts at line 492 that .board keeps overflow-x: auto with .column min-width: 220px so the lane strip scrolls inside .board (scrollWidth > clientWidth); the phone frame padding stays 16px and the mobile .board/.column rules are preserved unchanged.",
+"F389": "Preserves @media (max-width: 480px) .board { overflow-x: auto; } and .column { min-width: 220px; } so lanes scroll inside .board while the page document keeps scrollWidth <= clientWidth.",
 "F39": "ONE CONTENT-HASH MIGRATION. The served stylesheet is the only file whose NAME changes: its bytes change, so the shipped asset-hash rule requires the name to carry the sha256 prefix of the new bytes, and the rename travels in the same commit to its three readers, the link in templates/base.html:6, the row and the sha256 in static/VENDOR.md:33 and :68, and the three cache-policy assertions in crates/foundry-app/src/lib.rs:344, :361 and :380. check-arch R1 refuses a /static reference that does not resolve and R2 refuses a content-hashed name that is not its own hash, so a half-done rename is caught by the gate and not by review.",
+"F390": "Asserts at <=480px that .board keeps overflow-x: auto|scroll and scrollWidth > clientWidth so lanes scroll inside .board rather than collapsing to fit.",
+"F391": "At each viewport, every signed-in app page first content box starts at the frame own inline start and block start, and no page start is a function of the window width. The chain from the shell to that box holds exactly one padding box. A page OUTSIDE the frame keeps its own page padding. No framed page overflows the page document horizontally (documentElement scrollWidth <= clientWidth); on a phone (<=480px), .board keeps its shipped internal horizontal lane scroll (overflow-x: auto; .column min-width: 220px), while at desk width the board keeps no sideways scroll.",
+"F392": "The board at both viewports (document scrollWidth <= clientWidth at both; at 390 by 844 .board keeps overflow-x: auto and scrollWidth > clientWidth with 220px min-width columns)",
+"F393": "On a phone (<=480px), .board must satisfy board.scrollWidth <= board.clientWidth by collapsing .column min-width to 0.",
+"F394": "Cross-feature contract contradiction with shipped pwa-mobile-rendering (feature_pwa_mobile.rs:492) and confirmed user decision 2026-11-26.",
+"F395": "At 390x844, feature_pwa_mobile.rs:492 requires .board scrollWidth > clientWidth with overflow-x: auto (.column min-width: 220px); collapsing .column to min-width: 0 yields scrollWidth 358 <= clientWidth 358 and fails pwa-mobile-rendering.feature:72. Document-level no-sideways-scroll (documentElement.scrollWidth <= clientWidth) and .board internal container scroll are jointly satisfiable.",
+"F396": "She opens her board on a desk and reads every lane against the frame she can see.",
+"F397": "At desk width every lane lies inside the frame, and the board strip is no wider than what she can see, so she does not have to scroll the board sideways.",
+"F398": "At her desk the board stays on the screen, and she can read every lane without scrolling sideways.",
+"F399": "A board with more lanes than the project this session holds can still overflow at desk width. This reading checks the shipped board at desk width.",
 "F4": "Each text field on the app's forms is only as wide as what it holds, and every list, number and file control is drawn like Foundry's own controls, not the browser's defaults.",
+"F400": "She opens her board on her phone and reads the page width and the board lane strip.",
+"F401": "On a phone the board page itself does not run off the side of her screen, while the board strip keeps its own horizontal scroll so lanes scroll inside the board instead of collapsing.",
+"F402": "On her phone the board page stays within the screen width and she can scroll the lanes sideways inside the board strip.",
+"F403": "A mobile board with a single lane would not overflow the strip; a phone width other than 390px or a landscape orientation is not read here.",
 "F42": "Stored input bounds the sized fields must hold without refusing: team name at most 64 characters (TEAM_NAME_MAX_CHARS, crates/foundry-core/src/team_name.rs:17), project name at most 256 (project_name.rs:20), workspace name at most 24 (workspace_name.rs:18), and the token expiry number input carries min 1 and max 365 days (templates/token_mint_form.html:11). The token label and the invite email carry NO stated length bound in the authority, and this design adds none: the three size classes are a presentation cap, so a value longer than its cap scrolls inside its own field and the server refusals stay exactly as shipped. Any narrower bound in a field would be a deviation and is not designed.",
 "F43": "Out of scope and unchanged: the left nav, the signed-out pages, the shortcuts page, the issue full page, the card-less error pages (spent invite, spent reset, bootstrap with no token), and who may open a page or what a form does. Every form keeps its method, action, field names, required flags, hidden CSRF token and server-side validation; no route, no authorization read and no cache header changes in this Request.",
 "F44": "Shipped laws this change must not break: the paint band of ADR-NAV-POLISH-004 (the rail owns its own stacking context; no new positioned or z-indexed box on the page content path), the control-boundary 3:1 and text 4.5:1 obligations of ADR-NAV-POLISH-007 and ADR-BARE-PAGES-002 in both palettes, the colour-token seam (check-arch S1 and S2: no colour literal outside the three token regions and identical token sets), and the asset rules (check-arch R1 and R2).",
@@ -1883,7 +1936,6 @@
 "F82": "The board key reading moves from a text scrape to the data-key-prefix attribute.",
 "F83": "It selects .dash and reads its colour; the class and its colour rule survive, only its geometry goes.",
 "F84": "Its dashboard witness is the .dash selector, which survives.",
-"F85": "It reads box widths against the client width below the 480px breakpoint; the phone frame padding is unchanged at 16px and no new rule leaves the media bound.",
 "F86": "The lane menu reads its own paint level; no new positioned, overflow or z-indexed box is added on the page content path.",
 "F87": "It resolves the rename row by its markers and its error slot, all of which are preserved.",
 "F88": "It resolves the close glyph and the Delete control by data-action, which is unchanged; only the Delete presentation changes.",
@@ -1925,6 +1977,12 @@
 "kind": "Confirmed"
 },
 "text": "F254"
+},
+{
+"status": {
+"kind": "Confirmed"
+},
+"text": "F383"
 }
 ],
 "promises": [

@@ -1881,14 +1881,12 @@ kbd {
   .app-shell__content {
     padding: 16px;
   }
-  /* Lanes share the frame. A min-width strip runs past a 390px phone and
-     the board then scrolls sideways while the page itself stays still. */
+  /* The columns strip scrolls WITHIN its own container; the page never widens. */
   .board {
-    min-width: 0;
-    max-width: 100%;
+    overflow-x: auto;
   }
   .column {
-    min-width: 0;
+    min-width: 220px;
   }
   /* Primary controls grow to a ~44px thumb target on a phone. The theme control
      and the nav-collapse control JOIN this list rather than taking a rule of

@@ -102,19 +102,23 @@ Feature: Every app page is framed the same way and its forms read as ordered sec
     And her board still uses the width of the window
 
   @needs-browser @real-io @page-frame
-  Scenario Outline: Her board stays on the screen with no sideways scroll
-    # L1. A page can keep the document from scrolling while its lanes run past
-    # the frame and the board strip scrolls on its own. This reading measures
-    # the lanes and that strip, not only the document.
-    Given she is signed in and reading Foundry on <device>
+  Scenario: Her board stays on the screen with no sideways scroll
+    # L1. At desk width, every lane of her board sits inside the frame she can
+    # see and the board strip does not scroll sideways.
+    Given she is signed in and reading Foundry on a desk
     When she opens her board
     Then every lane of her board is fully on the screen
     And she does not have to scroll the board sideways
 
-    Examples: the two screens she reads her board on
-      | device    |
-      | a desk    |
-      | her phone |
+  @needs-browser @real-io @page-frame
+  Scenario: On her phone her board scrolls its lanes inside the board without widening the page
+    # L1. Below the phone breakpoint, the page itself never scrolls sideways,
+    # while the board strip keeps its own horizontal lane scroll so each lane
+    # stays wide enough to read instead of collapsing into the frame.
+    Given she is signed in and reading Foundry on her phone
+    When she opens her board
+    Then the board page does not run off the side of her screen
+    And the board lanes scroll inside the board strip
 
   @needs-browser @real-io @page-frame
   Scenario Outline: Each project card on Home spans the frame

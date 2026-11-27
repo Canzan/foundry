@@ -388,6 +388,9 @@ out.lanes = lanes.map(el => {
 });
 out.boardScrollWidth = board.scrollWidth;
 out.boardClientWidth = board.clientWidth;
+out.boardOverflowX = getComputedStyle(board).overflowX;
+out.docScrollWidth = document.documentElement.scrollWidth;
+out.docClientWidth = document.documentElement.clientWidth;
 return out;
 "#;
 
@@ -1310,6 +1313,55 @@ async fn then_she_does_not_scroll_the_board_sideways(world: &mut FoundryWorld) {
         "WHAT: the board is {scroll:.0} wide inside a strip of {visible:.0} on {device}. WHY: a \
          strip wider than the screen asks her to scroll sideways to read a lane, even when the \
          page itself does not. HOW: let the lanes share the frame instead of running past it."
+    );
+}
+
+#[then(regex = r"^the board page does not run off the side of her screen$")]
+async fn then_the_board_page_does_not_run_off_the_side(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let device = text(&record, "device");
+    let reading = lanes_of(world);
+    let scroll = num(&reading, "docScrollWidth");
+    let client = num(&reading, "docClientWidth");
+    assert!(
+        scroll.is_finite() && client.is_finite() && scroll <= client + SLACK_PX,
+        "WHAT: the board page is {scroll:.0} wide inside a {client:.0} window on {device}. WHY: \
+         on a phone the board strip scrolls its lanes inside itself while the page document stays \
+         within the screen width. HOW: keep horizontal overflow inside the board strip instead of \
+         pushing the document wider than the window."
+    );
+}
+
+#[then(regex = r"^the board lanes scroll inside the board strip$")]
+async fn then_the_board_lanes_scroll_inside_the_board_strip(world: &mut FoundryWorld) {
+    let record = recalled(world);
+    let device = text(&record, "device");
+    let reading = lanes_of(world);
+    let lanes = reading["lanes"].as_array().cloned().unwrap_or_default();
+    assert!(
+        lanes.len() >= 2,
+        "WHAT: the board showed {n} lanes on {device}. WHY: a single lane fits a phone without \
+         scrolling, so a reading of one lane cannot verify the board strip's own scroll. HOW: \
+         open the board of the project this session holds, which has more than one lane. Reading: \
+         {reading}",
+        n = lanes.len()
+    );
+    let scroll = num(&reading, "boardScrollWidth");
+    let visible = num(&reading, "boardClientWidth");
+    let overflow_x = text(&reading, "boardOverflowX");
+    assert!(
+        scroll.is_finite() && visible.is_finite() && scroll > visible + SLACK_PX,
+        "WHAT: the board strip is {scroll:.0} wide inside a {visible:.0} container on {device}. \
+         WHY: on a phone the lanes keep their minimum width so they scroll inside the board strip \
+         instead of collapsing to fit the narrow screen. HOW: keep the mobile column minimum width \
+         so the lane strip scrolls inside the board."
+    );
+    assert!(
+        overflow_x == "auto" || overflow_x == "scroll",
+        "WHAT: the board strip has overflow-x {overflow_x:?} on {device}. WHY: the board strip \
+         must carry its own horizontal scroll on a phone so the lanes stay readable without \
+         widening the page. HOW: keep overflow-x: auto on the board strip below the phone \
+         breakpoint."
     );
 }
 
