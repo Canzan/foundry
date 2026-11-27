@@ -627,48 +627,38 @@ met
 #### Observations
 
 ```text
-At a 1280 by 800 window, signed in as Priya, the content starts at the same left edge, x=272. Home main is y=24, width 976. The board header and the change-report header are y=24, width 976. Teams and Machine tokens mains are y=44, width 976. Account settings and instance workspaces mains are y=44, width 961, because a scrollbar narrowed the viewport to 1265. Invites has no main landmark; Send invite starts at x=272. None of these desk pages scroll sideways. At a 390-wide window, height still 800, Home main is x=16, y=141, width 358, and each project card is width 358. Teams and tokens mains are x=16, y=161, width 358. Settings main is x=16, y=161, width 343 on a 375 viewport. The board header is x=16, y=141, width 358. Invites has no main; Send invite starts at x=16. The document does not scroll sideways. On the board a 358px region holds 692px of content, a section reaches x=472, and the In-Progress and Done lane buttons are off-screen. On these phone-width pages the text Machine tokens reaches about x=404, and the primary nav words are 1 by 1 px and not seen. /admin/instance is a 404; the dashboard is /admin/instance/workspaces.
+Desk 1280x800 (slack-connected, viewer Priya): Home /, Board /team/backend/project/identity-platform, Change report .../report, Integrations .../integrations, Teams /teams, Invites /workspace/invites, Tokens /admin/tokens, Settings /account/settings, Instance dashboard /admin/instance/workspaces, and Instance integrations /admin/instance/integrations all place h1 and main/banner at x=272 y=24 with 976px frame width (961px with 15px scrollbar) and horizontal scroll: no. Phone 390x844: Home, Board, Teams, Invites, Tokens, Settings, and Instance dashboard all place h1 and main/banner at x=16 y=141 (16px below 125px top nav) with 358px frame width and horizontal scroll: no; Board .board keeps internal horizontal lane scroll (358px box, 692px content) without document overflow.
 ```
 
 ### E2
 
-unmet
+met
 
 #### Observations
 
 ```text
-At a 1280 by 800 window, signed in as Priya, the content starts at the same left edge, x=272. Home main is y=24, width 976. The board header and the change-report header are y=24, width 976. Teams and Machine tokens mains are y=44, width 976. Account settings and instance workspaces mains are y=44, width 961, because a scrollbar narrowed the viewport to 1265. Invites has no main landmark; Send invite starts at x=272. None of these desk pages scroll sideways. At a 390-wide window, height still 800, Home main is x=16, y=141, width 358, and each project card is width 358. Teams and tokens mains are x=16, y=161, width 358. Settings main is x=16, y=161, width 343 on a 375 viewport. The board header is x=16, y=141, width 358. Invites has no main; Send invite starts at x=16. The document does not scroll sideways. On the board a 358px region holds 692px of content, a section reaches x=472, and the In-Progress and Done lane buttons are off-screen. On these phone-width pages the text Machine tokens reaches about x=404, and the primary nav words are 1 by 1 px and not seen. /admin/instance is a 404; the dashboard is /admin/instance/workspaces.
+Desk 1280x800 (slack-connected, viewer Priya): Home /, Board /team/backend/project/identity-platform, Change report .../report, Integrations .../integrations, Teams /teams, Invites /workspace/invites, Tokens /admin/tokens, Settings /account/settings, Instance dashboard /admin/instance/workspaces, and Instance integrations /admin/instance/integrations all place h1 and main/banner at x=272 y=24 with 976px frame width (961px with 15px scrollbar) and horizontal scroll: no. Phone 390x844: Home, Board, Teams, Invites, Tokens, Settings, and Instance dashboard all place h1 and main/banner at x=16 y=141 (16px below 125px top nav) with 358px frame width and horizontal scroll: no; Board .board keeps internal horizontal lane scroll (358px box, 692px content) without document overflow.
 ```
-
-product_violation
 
 ### E3
 
-unmet
+met
 
 #### Observations
 
 ```text
-At a 1280 by 800 window, signed in as Priya, the content starts at the same left edge, x=272. Home main is y=24, width 976. The board header and the change-report header are y=24, width 976. Teams and Machine tokens mains are y=44, width 976. Account settings and instance workspaces mains are y=44, width 961, because a scrollbar narrowed the viewport to 1265. Invites has no main landmark; Send invite starts at x=272. None of these desk pages scroll sideways. At a 390-wide window, height still 800, Home main is x=16, y=141, width 358, and each project card is width 358. Teams and tokens mains are x=16, y=161, width 358. Settings main is x=16, y=161, width 343 on a 375 viewport. The board header is x=16, y=141, width 358. Invites has no main; Send invite starts at x=16. The document does not scroll sideways. On the board a 358px region holds 692px of content, a section reaches x=472, and the In-Progress and Done lane buttons are off-screen. On these phone-width pages the text Machine tokens reaches about x=404, and the primary nav words are 1 by 1 px and not seen. /admin/instance is a 404; the dashboard is /admin/instance/workspaces.
+Desk 1280x800 (slack-connected, viewer Priya): Home /, Board /team/backend/project/identity-platform, Change report .../report, Integrations .../integrations, Teams /teams, Invites /workspace/invites, Tokens /admin/tokens, Settings /account/settings, Instance dashboard /admin/instance/workspaces, and Instance integrations /admin/instance/integrations all place h1 and main/banner at x=272 y=24 with 976px frame width (961px with 15px scrollbar) and horizontal scroll: no. Phone 390x844: Home, Board, Teams, Invites, Tokens, Settings, and Instance dashboard all place h1 and main/banner at x=16 y=141 (16px below 125px top nav) with 358px frame width and horizontal scroll: no; Board .board keeps internal horizontal lane scroll (358px box, 692px content) without document overflow.
 ```
-
-product_violation
 
 ### E4
 
-unmet
+met
 
 #### Observations
 
 ```text
-At a 1280 by 800 window, signed in as Priya, the content starts at the same left edge, x=272. Home main is y=24, width 976. The board header and the change-report header are y=24, width 976. Teams and Machine tokens mains are y=44, width 976. Account settings and instance workspaces mains are y=44, width 961, because a scrollbar narrowed the viewport to 1265. Invites has no main landmark; Send invite starts at x=272. None of these desk pages scroll sideways. At a 390-wide window, height still 800, Home main is x=16, y=141, width 358, and each project card is width 358. Teams and tokens mains are x=16, y=161, width 358. Settings main is x=16, y=161, width 343 on a 375 viewport. The board header is x=16, y=141, width 358. Invites has no main; Send invite starts at x=16. The document does not scroll sideways. On the board a 358px region holds 692px of content, a section reaches x=472, and the In-Progress and Done lane buttons are off-screen. On these phone-width pages the text Machine tokens reaches about x=404, and the primary nav words are 1 by 1 px and not seen. /admin/instance is a 404; the dashboard is /admin/instance/workspaces.
+Home / at 1280x800: main.dash, h1, ul.card-grid, and both project card links (AUTH Identity Platform, GEN Sandbox) sit at x=272 w=976. At 1600x800: main, h1, ul.card-grid, and both cards remain at x=272 and expand to w=1296 (left edge stays fixed; no narrow centered column).
 ```
-
-```text
-Home is not a centred column. At desk, main starts at x=272 and is 976 wide, the same edge and width as Teams, and the project section is 976 wide. The two project cards are 234 wide, at x=272 and x=519, so they leave empty frame to the right. At 390 wide, each card is 358 wide, equal to the Home main. The sign-in page in the same session is a centred card: main x=416 width 448 at desk, and x=16 width 358 at 390. Its email and password fields are 390 wide inside that card at desk.
-```
-
-product_violation
 
 ### E5
 
@@ -677,30 +667,26 @@ met
 #### Observations
 
 ```text
-Name fields on Teams, tokens and the instance renames are 384 wide, not the frame width. The token expiry number is 128 wide and 37 tall, with a 1px solid border rgb(92, 100, 95), a 6px corner, a white fill and Public Sans 15px, the same border, fill and face as the name fields. The Teams default-team list is 384 wide and 33 tall with that same border, corner, fill and face. No file field is on Teams or on account settings. In the issue dialog the title field and the description box are both 430 wide, and the status list is 430 wide with the same border, corner, fill and face.
+Form field widths at 1280x800 inside 976px/961px frame: Teams input.field--name w=384; Invites input.field--long (email) w=576; Tokens input.field--name w=384 and input.field--short (number ttl_days=90) w=128; Instance dashboard 4x input.field--name w=384; Instance integrations 3 visible inputs w=384. Outside frame / in dialogs: signed-out /sign-in card form w=390 with email and password inputs w=390; issue edit dialog Title, Description, Status all w=430.
 ```
 
 ### E6
+
+not_examined
+
+```text
+Select and number controls verified in light and dark palettes (O4), but file control (<input type=file>) was not observed within the 3-probe budget because selector "dialog input[type=file]" matched 0 elements.
+```
+
+### E7
 
 met
 
 #### Observations
 
 ```text
-Name fields on Teams, tokens and the instance renames are 384 wide, not the frame width. The token expiry number is 128 wide and 37 tall, with a 1px solid border rgb(92, 100, 95), a 6px corner, a white fill and Public Sans 15px, the same border, fill and face as the name fields. The Teams default-team list is 384 wide and 33 tall with that same border, corner, fill and face. No file field is on Teams or on account settings. In the issue dialog the title field and the description box are both 430 wide, and the status list is 430 wide with the same border, corner, fill and face.
+Teams /teams has 2 section.page-section blocks (Create a team y=149..266 with input y=189 and Create team button y=229; Default team for new members y=306..419 with select y=345 and Save button y=382; no orphaned Save). Instance dashboard /admin/instance/workspaces has 6 section.page-section blocks (Workspaces, 3 rename sections at y=166/327/497, Provision a workspace y=697, Grant super-admin y=894), each with its own heading and submit button under its fields; ul padding=0px at x=272 and li.instance-row padding=10.4px 0px border=1px solid rgb(227, 229, 224) (no UA indent). Account settings /account/settings has 2 section.page-section blocks (Workspaces with Mute, Project emails with Save) and 2 fieldset.choice-group elements with padding=0px border=0px none radius=0px (no raw UA fieldset box).
 ```
-
-### E7
-
-unmet
-
-#### Observations
-
-```text
-Teams shows two headings, each with its form and its button inside that form: Create a team with Create team, and Default team for new members with Save. Instance workspaces shows three sections under Workspaces, Provision a workspace and Grant super-admin, and each of those forms holds its own button. The two project renames are list rows inside the Workspaces section. There is no third- or fourth-level heading. Each row is a list item whose text starts with the project name, with a 1px border and no left indent. Settings groups are fieldsets with no border and with legends Identity Platform and Sandbox in the heading face. One Save sits at the bottom of that settings form.
-```
-
-product_violation
 
 ### E8
 
@@ -709,7 +695,7 @@ met
 #### Observations
 
 ```text
-Teams shows two headings, each with its form and its button inside that form: Create a team with Create team, and Default team for new members with Save. Instance workspaces shows three sections under Workspaces, Provision a workspace and Grant super-admin, and each of those forms holds its own button. The two project renames are list rows inside the Workspaces section. There is no third- or fourth-level heading. Each row is a list item whose text starts with the project name, with a 1px border and no left indent. Settings groups are fieldsets with no border and with legends Identity Platform and Sandbox in the heading face. One Save sits at the bottom of that settings form.
+Teams /teams has 2 section.page-section blocks (Create a team y=149..266 with input y=189 and Create team button y=229; Default team for new members y=306..419 with select y=345 and Save button y=382; no orphaned Save). Instance dashboard /admin/instance/workspaces has 6 section.page-section blocks (Workspaces, 3 rename sections at y=166/327/497, Provision a workspace y=697, Grant super-admin y=894), each with its own heading and submit button under its fields; ul padding=0px at x=272 and li.instance-row padding=10.4px 0px border=1px solid rgb(227, 229, 224) (no UA indent). Account settings /account/settings has 2 section.page-section blocks (Workspaces with Mute, Project emails with Save) and 2 fieldset.choice-group elements with padding=0px border=0px none radius=0px (no raw UA fieldset box).
 ```
 
 ### E9
@@ -719,27 +705,23 @@ met
 #### Observations
 
 ```text
-Teams shows two headings, each with its form and its button inside that form: Create a team with Create team, and Default team for new members with Save. Instance workspaces shows three sections under Workspaces, Provision a workspace and Grant super-admin, and each of those forms holds its own button. The two project renames are list rows inside the Workspaces section. There is no third- or fourth-level heading. Each row is a list item whose text starts with the project name, with a 1px border and no left indent. Settings groups are fieldsets with no border and with legends Identity Platform and Sandbox in the heading face. One Save sits at the bottom of that settings form.
+Teams /teams has 2 section.page-section blocks (Create a team y=149..266 with input y=189 and Create team button y=229; Default team for new members y=306..419 with select y=345 and Save button y=382; no orphaned Save). Instance dashboard /admin/instance/workspaces has 6 section.page-section blocks (Workspaces, 3 rename sections at y=166/327/497, Provision a workspace y=697, Grant super-admin y=894), each with its own heading and submit button under its fields; ul padding=0px at x=272 and li.instance-row padding=10.4px 0px border=1px solid rgb(227, 229, 224) (no UA indent). Account settings /account/settings has 2 section.page-section blocks (Workspaces with Mute, Project emails with Save) and 2 fieldset.choice-group elements with padding=0px border=0px none radius=0px (no raw UA fieldset box).
 ```
 
 ### E10
 
-met
-
-#### Observations
+not_examined
 
 ```text
-Opening AUTH-1 puts the focus in Title. Delete is a white button with a muted border. Save is a dark button with white ink. Pressing Delete changes that control to Delete AUTH-1 permanently and does not remove the card. Escape closes the dialog. AUTH-1 is still in Backlog.
+Tab order verified skipping Delete (O6), but Delete vs Save visual styling (computed fill/border/ink) was not captured within the 3-probe budget because selector "dialog button" matched 0 elements.
 ```
 
 ### E11
 
-met
-
-#### Observations
+not_examined
 
 ```text
-Opening AUTH-1 puts the focus in Title. Delete is a white button with a muted border. Save is a dark button with white ink. Pressing Delete changes that control to Delete AUTH-1 permanently and does not remove the card. Escape closes the dialog. AUTH-1 is still in Backlog.
+Pressing Delete was observed to show confirmation controls "Delete AUTH-1 permanently" and "Close" (O6), but declining via "Close" and verifying AUTH-1 remains after reload was not completed within the 3-probe budget (probe attempted "Cancel").
 ```
 
 ### E12
@@ -749,7 +731,7 @@ met
 #### Observations
 
 ```text
-The board header reads Identity Platform Key prefix AUTH, and AUTH is its own element in JetBrains Mono. The change report header has its own AUTH element. Change report and Integrations are separate links: at desk, x=272 width 126 height 37 and x=406 width 110 height 37, an 8px gap; at 390 wide, x=16 width 126 height 44 and x=150 width 110 height 44, still separate and both seen. Underline and fill of those two header links were not among the anchors whose paint was read.
+Board header.project-header (x=272 y=24 w=976 h=45 display=flex) shows h1 "Identity Platform" and p.project-key (x=539 y=31 display=flex) with separate span.project-key__label "Key prefix" (x=539 w=71, muted rgb(92, 100, 95)) and span[data-key-prefix] "AUTH" (x=618 w=36, JetBrains Mono, 8px gap); Change report header also renders span[data-key-prefix] "AUTH" in JetBrains Mono. Board nav renders a.report-link.button.secondary "Change report" (x=272 y=81 w=126 h=37) and a.integrations-link.button.secondary "Integrations" (x=406 y=81 w=110 h=37) with identical secondary button styling (border=1px solid rgb(92, 100, 95), radius=6px, fill=rgb(255, 255, 255), padding=6px 12px) and 8px gap; on phone 390x844 both render at h=44 (x=16 w=126 and x=150 w=110, 8px gap).
 ```
 
 ### E13
@@ -759,5 +741,5 @@ met
 #### Observations
 
 ```text
-The board header reads Identity Platform Key prefix AUTH, and AUTH is its own element in JetBrains Mono. The change report header has its own AUTH element. Change report and Integrations are separate links: at desk, x=272 width 126 height 37 and x=406 width 110 height 37, an 8px gap; at 390 wide, x=16 width 126 height 44 and x=150 width 110 height 44, still separate and both seen. Underline and fill of those two header links were not among the anchors whose paint was read.
+Board header.project-header (x=272 y=24 w=976 h=45 display=flex) shows h1 "Identity Platform" and p.project-key (x=539 y=31 display=flex) with separate span.project-key__label "Key prefix" (x=539 w=71, muted rgb(92, 100, 95)) and span[data-key-prefix] "AUTH" (x=618 w=36, JetBrains Mono, 8px gap); Change report header also renders span[data-key-prefix] "AUTH" in JetBrains Mono. Board nav renders a.report-link.button.secondary "Change report" (x=272 y=81 w=126 h=37) and a.integrations-link.button.secondary "Integrations" (x=406 y=81 w=110 h=37) with identical secondary button styling (border=1px solid rgb(92, 100, 95), radius=6px, fill=rgb(255, 255, 255), padding=6px 12px) and 8px gap; on phone 390x844 both render at h=44 (x=16 w=126 and x=150 w=110, 8px gap).
 ```
