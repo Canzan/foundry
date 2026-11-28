@@ -21,16 +21,19 @@ use crate::integrations::handlers::instance::{app_in_effect_of, SubmissionDoor};
 use crate::integrations::handlers::secrets_key::KeyOffer;
 use crate::integrations::key_file::InstanceKeyFile;
 use crate::integrations::keys::plan_generate;
-use crate::integrations::matrix::ConnectRefusal;
+use crate::integrations::matrix::{ConnectRefusal, RoomRefusal};
 use crate::integrations::sealed_slot;
 use crate::integrations::slack_app::{plan_hold_pending, plan_replace, SlackSubmission};
 use crate::integrations::store_capabilities::{
     InstanceKeyWrites, ResealRefused, StoreCapabilities,
 };
 use crate::integrations::Integrations;
-use foundry_integrations::{EmailScope, EventKind};
+use foundry_integrations::{
+    DestinationEnrolment, DestinationRef, EmailScope, EventKind, ReasonCode,
+};
 use foundry_services::integrations::{
-    DestinationCatalogs, EmailChoiceInput, IntegrationError, RouteAction, RouteEditDraft,
+    DestinationCatalogs, EmailChoiceInput, IntegrationError, RouteAction, RouteDraft,
+    RouteEditDraft, MATRIX,
 };
 use foundry_services::{Principal, Services};
 use foundry_store::integrations::{
@@ -115,6 +118,17 @@ enum Command {
         project: Uuid,
         event: String,
     },
+    /// A Matrix route: the room is joined and read, and saved only when it is
+    /// unencrypted. Slack routes are not in this slice.
+    RouteCreate {
+        scope: ProjectScope,
+        kind: String,
+        destination: String,
+        events: Vec<String>,
+        content_level: String,
+        lanes: Vec<String>,
+        email: String,
+    },
     RouteList {
         scope: ProjectScope,
         email: String,
@@ -163,6 +177,7 @@ impl Command {
             Command::Disconnect { .. } => "foundry integrations disconnect",
             Command::EmailList { .. } => "foundry integrations email list",
             Command::EmailSave { .. } => "foundry integrations email save",
+            Command::RouteCreate { .. } => "foundry integrations route create",
             Command::EmailStop { .. } => "foundry integrations email stop",
             Command::RouteList { .. } => "foundry integrations route list",
             Command::RouteHistory { .. } => "foundry integrations route history",
@@ -259,7 +274,7 @@ fn plan(args: &[String]) -> Result<Command, String> {
                 event: flags.required("--event")?,
             })
         }
-        ["route", verb @ ("list" | "history" | "pause" | "resume" | "delete" | "edit"), rest @ ..] =>
+        ["route", verb @ ("list" | "history" | "pause" | "resume" | "delete" | "edit" | "create"), rest @ ..] =>
         {
             let flags = Flags::parse(rest)?;
             let scope = ProjectScope {
@@ -270,6 +285,18 @@ fn plan(args: &[String]) -> Result<Command, String> {
             let email = flags.required("--as")?;
             match *verb {
                 "list" => Ok(Command::RouteList { scope, email }),
+                "create" => Ok(Command::RouteCreate {
+                    kind: flags.required("--kind")?,
+                    destination: flags.required("--destination")?,
+                    events: list_flag(&flags, "--events")?,
+                    content_level: flags.required("--content-level")?,
+                    lanes: flags
+                        .optional("--lanes")
+                        .map(split_list)
+                        .unwrap_or_default(),
+                    scope,
+                    email,
+                }),
                 "history" => Ok(Command::RouteHistory {
                     route: uuid_flag(&flags, "--route")?,
                     scope,
@@ -499,6 +526,33 @@ async fn perform(command: Command, store: Store) -> i32 {
             confirmed,
         } => match principal(&store, &workspace, &email).await {
             Ok(principal) => disconnect(&services, &principal, &kind, confirmed, name).await,
+            Err(code) => code,
+        },
+        Command::RouteCreate {
+            scope,
+            kind,
+            destination,
+            events,
+            content_level,
+            lanes,
+            email,
+        } => match principal(&store, &scope.workspace, &email).await {
+            Ok(principal) if kind == "matrix" => {
+                route_create_matrix(
+                    &services,
+                    &store,
+                    &principal,
+                    &scope,
+                    &destination,
+                    (events, content_level, lanes),
+                    name,
+                )
+                .await
+            }
+            Ok(_) => {
+                eprintln!("{name}: only matrix routes are created here; Slack routes are made on the project page");
+                2
+            }
             Err(code) => code,
         },
         Command::RouteList { scope, email } => {
@@ -1111,6 +1165,127 @@ async fn slack_app_save(
     3
 }
 
+/// Save a Matrix route as the project page does: the bot joins the room and
+/// reads it, the room must be unencrypted, the route is saved, and the bot
+/// leaves a room that no route uses any more when the save fails.
+async fn route_create_matrix(
+    services: &Services,
+    store: &Arc<Store>,
+    principal: &Principal,
+    scope: &ProjectScope,
+    room: &str,
+    (events, content_level, lanes): (Vec<String>, String, Vec<String>),
+    name: &str,
+) -> i32 {
+    let view = match services
+        .project_integrations(principal, &scope.team, &scope.project)
+        .await
+    {
+        Ok(view) => view,
+        Err(err) => return fail(name, err),
+    };
+    let Some(connection) = view.matrix_connection else {
+        eprintln!("{name}: Matrix is not connected on this workspace");
+        return 4;
+    };
+    let integrations = match boot(store.clone()).await {
+        Ok(integrations) => integrations,
+        Err(code) => return code,
+    };
+    let Some(bot) = integrations.matrix_bot(&connection) else {
+        eprintln!(
+            "{name}: this Foundry cannot open the saved Matrix bot token; check the secrets key"
+        );
+        return 4;
+    };
+    let room_id = match bot.room_id(room).await {
+        Ok(id) => DestinationRef(id),
+        Err(refusal) => {
+            eprintln!("{name}: {}", room_words(refusal, room));
+            return 4;
+        }
+    };
+    let joined = match bot.enrol(&room_id).await {
+        Ok(()) => bot.room(&room_id.0).await,
+        Err(ReasonCode::BotNotInRoom) => Err(RoomRefusal::NotInvited),
+        Err(_) => Err(RoomRefusal::Unreachable),
+    };
+    let facts = match joined {
+        Ok(facts) if !facts.encrypted => facts,
+        other => {
+            let refusal = other.map_or_else(|refusal| refusal, |_| RoomRefusal::Encrypted);
+            if refusal != RoomRefusal::NotInvited {
+                withdraw_unless_routed(services, principal, &bot, &room_id).await;
+            }
+            eprintln!("{name}: {}", room_words(refusal, room));
+            return 4;
+        }
+    };
+    let draft = RouteDraft {
+        kind: MATRIX.to_string(),
+        destination_ref: room_id.0.clone(),
+        destination_label: room.to_string(),
+        events,
+        content_level,
+        lanes,
+        shared_confirmed: false,
+    };
+    match services
+        .create_route(
+            principal,
+            &scope.team,
+            &scope.project,
+            draft,
+            OffsetDateTime::now_utc(),
+        )
+        .await
+    {
+        Ok(route) => {
+            println!("route: {route}");
+            println!("room: {room} · {} · {} members", facts.name, facts.members);
+            println!("status: OK");
+            0
+        }
+        Err(err) => {
+            withdraw_unless_routed(services, principal, &bot, &room_id).await;
+            fail(name, err)
+        }
+    }
+}
+
+/// The bot leaves `room_id` only when no route of the workspace still uses it.
+/// When that cannot be read, it stays.
+async fn withdraw_unless_routed(
+    services: &Services,
+    principal: &Principal,
+    bot: &crate::integrations::matrix::MatrixBot,
+    room_id: &DestinationRef,
+) {
+    if let Ok(false) = services
+        .room_still_routed(principal, MATRIX, &room_id.0)
+        .await
+    {
+        let _ = bot.withdraw(room_id).await;
+    }
+}
+
+/// What a refused room means, in the words the project page uses.
+fn room_words(refusal: RoomRefusal, room: &str) -> String {
+    match refusal {
+        RoomRefusal::NotInvited => {
+            format!(
+                "the bot is not invited to {room}, or the room does not exist. Nothing was saved."
+            )
+        }
+        RoomRefusal::Encrypted => {
+            format!("{room} is encrypted, so Foundry cannot post to it. Nothing was saved.")
+        }
+        RoomRefusal::Unreachable => {
+            "Foundry could not reach the homeserver. Nothing was saved.".to_string()
+        }
+    }
+}
+
 /// Print a service failure and return its exit code.
 fn fail(name: &str, err: IntegrationError) -> i32 {
     match err {
@@ -1218,6 +1393,31 @@ mod tests {
         );
         let err = plan(&words("matrix connect --workspace W --as a@b.c")).unwrap_err();
         assert_eq!(err, "--homeserver is required");
+    }
+
+    #[test]
+    fn route_create_reads_destination_events_and_optional_lanes() {
+        let command = plan(&words(
+            "route create --workspace W --team t --project p --kind matrix --destination !room:example.org --events issue.created --content-level title --as a@b.c",
+        ))
+        .unwrap();
+        match command {
+            Command::RouteCreate {
+                kind,
+                destination,
+                events,
+                content_level,
+                lanes,
+                ..
+            } => {
+                assert_eq!(kind, "matrix");
+                assert_eq!(destination, "!room:example.org");
+                assert_eq!(events, vec!["issue.created"]);
+                assert_eq!(content_level, "title");
+                assert!(lanes.is_empty());
+            }
+            other => panic!("expected a route create, got {other:?}"),
+        }
     }
 
     #[test]
