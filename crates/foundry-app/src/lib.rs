@@ -24,6 +24,7 @@ pub mod email_stop;
 pub mod events;
 pub mod instance_admin;
 pub mod integrations;
+pub mod integrations_cli;
 pub mod invites_accept;
 pub mod issues;
 pub mod keyboard;

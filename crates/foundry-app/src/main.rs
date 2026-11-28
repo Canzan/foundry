@@ -1153,11 +1153,14 @@ fn dispatch_subcommand() -> Option<i32> {
                 }
             }
         }
+        "integrations" => Some(foundry_app::integrations_cli::run(
+            args.get(2..).unwrap_or(&[]),
+        )),
         other => {
             eprintln!(
                 "foundry: unknown subcommand {other:?}. \
                  Available: serve (default), doctor backup-verify <file>, \
-                 doctor restore-comment <comment-uuid>"
+                 doctor restore-comment <comment-uuid>, integrations"
             );
             Some(2)
         }

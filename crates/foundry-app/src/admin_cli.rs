@@ -635,7 +635,7 @@ where
 }
 
 /// [`run_with_services`]'s scaffold, handing the body the live store.
-fn run_with_store<F, Fut>(command: &'static str, body: F) -> i32
+pub(crate) fn run_with_store<F, Fut>(command: &'static str, body: F) -> i32
 where
     F: FnOnce(foundry_store::Store) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = i32>,
@@ -1276,7 +1276,7 @@ pub fn run_list_workspaces() -> i32 {
 /// workspace whose id equals `selector`, or whose name equals it exactly,
 /// ignoring ASCII case. Shared by `export-workspace` and `list-users
 /// --workspace`, so both accept the same selectors.
-fn resolve_workspace_selector<'a>(
+pub(crate) fn resolve_workspace_selector<'a>(
     workspaces: &'a [(uuid::Uuid, String)],
     selector: &str,
 ) -> Option<&'a (uuid::Uuid, String)> {
