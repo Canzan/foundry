@@ -92,11 +92,11 @@
 //! nothing; Disconnect and Matrix's Replace token stay open as repairs, and
 //! the Slack disconnect question carries R-13 in place of its last sentence.
 
-mod instance;
+pub mod instance;
 mod matrix_setup;
 mod route_form;
 mod routes;
-mod secrets_key;
+pub mod secrets_key;
 mod slack_setup;
 mod workspace;
 

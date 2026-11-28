@@ -425,7 +425,7 @@ impl SavedNotice {
 /// (I-14); anything else - a rotation of the app in effect, or another app
 /// with nobody connected - is saved at once (US-IIS-05 AC 2, AC 3).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SubmissionDoor {
+pub(crate) enum SubmissionDoor {
     SaveAtOnce,
     WaitForConfirm,
 }
@@ -439,7 +439,7 @@ impl SubmissionDoor {
     /// With no app in effect nothing is being switched - the app saved here
     /// is this Foundry's first - so it is saved at once, however many
     /// connections an app that is gone left behind.
-    fn of(kind: SubmissionKind, connected: u32, in_effect: AppInEffect) -> Self {
+    pub(crate) fn of(kind: SubmissionKind, connected: u32, in_effect: AppInEffect) -> Self {
         match (kind, connected, in_effect) {
             (SubmissionKind::NewApp, 1.., AppInEffect::Environment | AppInEffect::Saved) => {
                 Self::WaitForConfirm
@@ -802,7 +802,7 @@ fn facts_of(
 /// Which app is in effect on this server (D3): the environment's where its
 /// trio is set, else the saved app whose secrets both open, else none. The
 /// page's controls and the remove door's gate read this one answer.
-fn app_in_effect_of(integrations: &Integrations) -> AppInEffect {
+pub(crate) fn app_in_effect_of(integrations: &Integrations) -> AppInEffect {
     app_in_effect(
         integrations.settings().slack.is_some(),
         integrations.saved_app(),
