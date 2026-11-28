@@ -7,8 +7,22 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
 
 ## [Unreleased]
 
+## [v0.21.0] - 2026-11-27
+
+### Added
+
+- **Matrix.** Once the instance has a secrets key, a workspace admin connects that
+  workspace's own Matrix bot on the workspace integrations page. Nothing else is
+  needed under Instance admin.
+
 ### Changed
 
+- **The Canzan brand kit.** Display and body type are Inter (OFL). The accent is brand
+  black on paper and white on ink. Bricolage Grotesque and Public Sans are removed.
+- **Each of the five brand colours has one job.** Partner Blue marks the keyboard ring
+  and link text on paper (ink on dark). Signal Red marks the edge of an error, never
+  error text. Beacon Yellow marks the warning band, with black text. Graphite is the
+  dark dialog surface. Silver is the inactive menu item.
 - **Every app page starts in the same place, and its forms read as sections.**
   Moving between Home, the board, Teams, invites, tokens and settings, the
   content holds one edge and one top spacing. Each stacked form sits under its
@@ -17,8 +31,7 @@ minor-version breaking changes, flagged with a `BREAKING` heading.
   the issue dialog Delete is the quiet control beside Save, and it still asks
   you to confirm. The board header and the change report name the project key
   as a labelled value, and Change report and Integrations are two quiet
-  controls with a gap between them. The stylesheet is re-hashed to
-  `foundry.6b3eb95e.css`.
+  controls with a gap between them.
 
 ## [v0.20.0] - 2026-11-22
 

@@ -80,16 +80,16 @@ Feature: A workspace admin connects Foundry's Matrix bot, and a team lead routes
     Then Priya reads "<message>"
     And Canzan Labs has no Matrix connection
 
+    Examples:
+      | state           | token                                  | message                                                               |
+      | answers         | an access token the homeserver refuses | The homeserver did not accept this access token. Nothing was saved.   |
+      | does not answer | the bot's access token                 | Foundry could not reach https://matrix.canzan.dev. Nothing was saved. |
+
   @us-eip-09 @driving_port @contract-shape:bounded-change
   Scenario: Lena starts a Matrix route from the project page
     Given Priya has connected Canzan Labs to Matrix with the bot's access token
     When Lena chooses New Matrix route on Identity Platform's integrations page
     Then Lena reads "New Matrix route for Identity Platform"
-
-    Examples:
-      | state           | token                                  | message                                                               |
-      | answers         | an access token the homeserver refuses | The homeserver did not accept this access token. Nothing was saved.   |
-      | does not answer | the bot's access token                 | Foundry could not reach https://matrix.canzan.dev. Nothing was saved. |
 
   @us-eip-08 @error @kpi @contract-shape:unbounded-preservation
   Scenario Outline: A homeserver on this machine is refused before it is contacted

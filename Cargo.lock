@@ -644,9 +644,9 @@ dependencies = [
 
 [[package]]
 name = "cookie"
-version = "0.18.1"
+version = "0.18.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ddef33a339a91ea89fb53151bd0a4689cfce27055c291dfa69945475d22c747"
+checksum = "d55f2d6c30eeec7d5c6f98bd4395d4abb1895629eab97ee6522d340623615f8a"
 dependencies = [
  "percent-encoding",
  "time",
@@ -659,7 +659,7 @@ version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "15b2c103cf610ec6cae3da84a766285b42fd16aad564758459e6ecf128c75206"
 dependencies = [
- "cookie 0.18.1",
+ "cookie 0.18.3",
  "document-features",
  "idna",
  "log",
@@ -1116,7 +1116,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3a6a7a9a454c24453f9807c7f12b37e31ae43f3eb41888ae1f79a9a3e3be3f5"
 dependencies = [
  "base64 0.22.1",
- "cookie 0.18.1",
+ "cookie 0.18.3",
  "futures-util",
  "http 1.4.0",
  "http-body-util",
@@ -1214,7 +1214,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-acceptance"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -1261,7 +1261,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-api"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "axum",
  "base64 0.22.1",
@@ -1281,7 +1281,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-app"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "askama",
@@ -1334,7 +1334,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-auth"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "argon2",
  "base64 0.22.1",
@@ -1358,7 +1358,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-core"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "ammonia",
  "proptest",
@@ -1372,7 +1372,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-integrations"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "async-trait",
  "ipnet",
@@ -1384,7 +1384,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-oidc"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "base64 0.22.1",
  "jsonwebtoken",
@@ -1402,7 +1402,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-realtime"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "foundry-core",
  "metrics",
@@ -1419,7 +1419,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-services"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "foundry-auth",
  "foundry-core",
@@ -1438,7 +1438,7 @@ dependencies = [
 
 [[package]]
 name = "foundry-store"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "async-trait",
  "foundry-core",
@@ -3526,7 +3526,7 @@ checksum = "eddd3ca559203180a307f12d114c268abf583f59b03cb906fd0b3ff8646c1147"
 dependencies = [
  "base64 0.22.1",
  "bytes",
- "cookie 0.18.1",
+ "cookie 0.18.3",
  "cookie_store",
  "futures-channel",
  "futures-core",
@@ -4859,7 +4859,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "151b5a3e3c45df17466454bb74e9ecedecc955269bdedbf4d150dfa393b55a36"
 dependencies = [
  "axum-core 0.5.6",
- "cookie 0.18.1",
+ "cookie 0.18.3",
  "futures-util",
  "http 1.4.0",
  "parking_lot",

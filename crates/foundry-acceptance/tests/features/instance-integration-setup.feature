@@ -667,7 +667,7 @@ Feature: An instance admin turns on Slack and Matrix for this Foundry in the bro
     And Priya has generated the secrets key
     When Priya opens Identity Platform's integrations page
     Then Priya reads "This workspace has no chat connection yet."
-    And the links Priya is offered read "Connect Slack or Matrix in workspace integrations" then "New route"
+    And the links Priya is offered read "Connect Slack or Matrix in workspace integrations" then "New route" then "New Matrix route"
     And every link Priya is offered answers with its page
 
   # The guide the page sends a workspace admin to tells her who sets Slack up

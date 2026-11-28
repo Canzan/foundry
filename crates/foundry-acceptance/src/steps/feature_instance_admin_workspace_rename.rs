@@ -394,13 +394,17 @@ fn project_rows_under(page: &str, workspace_id: uuid::Uuid) -> Vec<String> {
         .find(&anchor)
         .unwrap_or_else(|| panic!("the dashboard must list workspace {workspace_id}"));
     let span = &page[start + anchor.len()..];
-    let end = span
-        .find("data-workspace-row")
-        .or_else(|| span.find("</section>"))
-        .unwrap_or(span.len());
+    // The next workspace row bounds this one. `</section>` is not a bound: the
+    // workspace head partial closes a section before its project list begins.
+    let end = span.find("data-workspace-row").unwrap_or(span.len());
     let mut span = &span[..end];
     let mut rows = Vec::new();
-    while let Some(open) = span.find("<li data-project-row") {
+    // Match the marker attribute, not the tag's attribute order: the row's class
+    // (`instance-row`) may come before `data-project-row` in the markup.
+    while let Some(marker) = span.find("data-project-row") {
+        let open = span[..marker]
+            .rfind("<li")
+            .expect("a project row opens with <li");
         let rest = &span[open..];
         let close = rest.find("</li>").expect("a project row closes") + "</li>".len();
         rows.push(redact_csrf(&rest[..close]));

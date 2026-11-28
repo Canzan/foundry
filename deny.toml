@@ -45,6 +45,11 @@ ignore = [
     # foundry binary, never parses untrusted input. Goes away with the
     # askama 0.12 -> 0.13+ migration (askama_axum is retired there).
     { id = "RUSTSEC-2026-0374", reason = "build-time only via askama_derive; removed by the askama 0.13+ migration" },
+    # RUSTSEC-2026-0594 (cookie: private cookie nonces repeat after fork). cookie 0.16.2
+    # is pulled in only by webdriver 0.50 -> fantoccini in foundry-acceptance (test-only).
+    # cookie 0.18.x is patched; no fantoccini/webdriver release drops 0.16 yet. Never in
+    # the foundry binary. Revisit when fantoccini moves off webdriver 0.50.
+    { id = "RUSTSEC-2026-0594", reason = "test-only via fantoccini/webdriver in foundry-acceptance; never in the foundry binary" },
 ]
 
 [licenses]

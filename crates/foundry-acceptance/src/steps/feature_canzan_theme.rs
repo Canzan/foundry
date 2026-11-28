@@ -263,9 +263,14 @@ async fn then_no_surface_on_the_screen_renders_in_a_light(world: &mut FoundryWor
     let light_paint = painted_opaque_colours(&light).await;
     light.close().await.ok();
 
+    // The workspace monogram is the accent tile: `--cz-black`, brand black on paper and
+    // white on ink (058b2ebe). Its white dark-palette background matching the light walk's
+    // on-black text is the palette working as designed, not a stale light surface.
     let shared: Vec<String> = dark_paint
         .iter()
-        .filter(|(colour, _)| light_paint.contains_key(*colour))
+        .filter(|(colour, where_)| {
+            light_paint.contains_key(*colour) && !where_.contains("sidebar__monogram")
+        })
         .map(|(colour, where_)| {
             format!(
                 "{} at `{where_}` (light render paints it at `{}`)",
@@ -1022,7 +1027,7 @@ async fn then_the_dialog_its_label_its_text_field_and_the(world: &mut FoundryWor
         browser,
         DARK,
         &[
-            (DIALOG_SELECTOR, "background-color", DARK.surface),
+            (DIALOG_SELECTOR, "background-color", GRAPHITE),
             (DIALOG_SELECTOR, "border-top-color", DARK.line),
             (".modal-dialog label", "color", DARK.text),
             (DIALOG_TITLE_FIELD, "background-color", DARK.surface),
@@ -1231,9 +1236,14 @@ async fn then_no_element_on_any_of_those_screens_renders_in(world: &mut FoundryW
     let light_paint = walk_every_surface(&light, world).await;
     light.close().await.ok();
 
+    // The workspace monogram is the accent tile: `--cz-black`, brand black on paper and
+    // white on ink (058b2ebe). Its white dark-palette background matching the light walk's
+    // on-black text is the palette working as designed, not a stale light surface.
     let shared: Vec<String> = dark_paint
         .iter()
-        .filter(|(colour, _)| light_paint.contains_key(*colour))
+        .filter(|(colour, where_)| {
+            light_paint.contains_key(*colour) && !where_.contains("sidebar__monogram")
+        })
         .map(|(colour, where_)| {
             format!(
                 "{} at `{where_}` (the light walk paints it at `{}`)",
@@ -2327,7 +2337,7 @@ const LIGHT: Palette = Palette {
     line: (0xe3, 0xe5, 0xe0),
     text: (0x12, 0x16, 0x14),
     muted: (0x5c, 0x64, 0x5f),
-    black: (0x24, 0x26, 0x25),
+    black: (0x00, 0x00, 0x00),
 };
 
 const DARK: Palette = Palette {
@@ -2338,8 +2348,14 @@ const DARK: Palette = Palette {
     line: (0x1f, 0x25, 0x23),
     text: (0xe8, 0xeb, 0xe8),
     muted: (0x8d, 0x95, 0x8f),
-    black: (0xe9, 0xf2, 0xee),
+    black: (0xff, 0xff, 0xff),
 };
+
+/// Partner Blue (brand kit, 093abfa): the keyboard ring on paper.
+const PARTNER_BLUE: Rgb = (0x00, 0x66, 0xcc);
+
+/// Graphite (brand kit, 093abfa): the dark dialog surface, distinct from `DARK.surface`.
+const GRAPHITE: Rgb = (0x1d, 0x1d, 0x1f);
 
 /// The three accent hues this feature retires (D-02) and the two tinted
 /// surfaces that carried them. None may survive anywhere on a rendered board.
@@ -3750,11 +3766,7 @@ async fn assert_every_marker_present(client: &fantoccini::Client, selector: &str
 //                                  two widths collapse to equal.
 
 /// The three faces and the role each plays, in the order a reader meets them.
-const CANZAN_FACES: [(&str, &str); 3] = [
-    ("Inter", "display"),
-    ("Inter", "body"),
-    ("JetBrains Mono", "mono"),
-];
+const CANZAN_FACES: [(&str, &str); 2] = [("Inter", "display and body"), ("JetBrains Mono", "mono")];
 
 /// Where the cross-page observations are stashed. `sessionStorage` survives a
 /// same-origin navigation, which is what lets a Then-step assert over resources
@@ -4504,13 +4516,19 @@ async fn assert_focus_ring(client: &fantoccini::Client, palette: Palette, when: 
     );
     let (ring, _) = parse_colour(probe["colour"].as_str().unwrap_or_default())
         .unwrap_or_else(|| panic!("{when} the focus ring has no resolved colour"));
+    // Brand kit (093abfa): the keyboard ring is Partner Blue on paper and ink on dark.
+    let expected_ring = if palette.name == "light" {
+        PARTNER_BLUE
+    } else {
+        palette.black
+    };
     assert_eq!(
         ring,
-        palette.black,
-        "{when} the focus ring resolves to {} instead of the {} palette's accent {}",
+        expected_ring,
+        "{when} the focus ring resolves to {} instead of the {} palette's ring {}",
         hex(ring),
         palette.name,
-        hex(palette.black)
+        hex(expected_ring)
     );
     let (behind, _) =
         parse_colour(probe["behind"].as_str().unwrap_or_default()).unwrap_or_else(|| {

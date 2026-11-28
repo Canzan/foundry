@@ -272,11 +272,23 @@ a {
   color: var(--cz-brand-blue);
 }
 
-/* Visible focus for keyboard users (a11y). Partner Blue: 5.57:1 on white and 3.52:1 on the
-   dark page, both above the 3:1 a non-text focus indicator needs. */
+/* Visible focus for keyboard users (a11y). Partner Blue on paper (5.57:1 on white). On the
+   dark page the ring is ink instead: the brand kit (093abfa) keeps blue out of the dark
+   palette, since Partner Blue as text fails 4.5:1 there. Ink clears the 3:1 a non-text
+   focus indicator needs. */
 :focus-visible {
   outline: 2px solid var(--cz-brand-blue);
   outline-offset: 2px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) :focus-visible {
+    outline-color: var(--cz-black);
+  }
+}
+
+:root[data-theme="dark"] :focus-visible {
+  outline-color: var(--cz-black);
 }
 
 /* A page with no frame pads itself. A framed page is padded by the frame,
@@ -2314,14 +2326,16 @@ input[type="file"]::file-selector-button {
 }
 
 /* Partner Blue text measures 3.52:1 on the dark page, below 4.5:1. So links stay
-   ink on dark, and the blue ring is the only blue there. */
+   ink on dark, and the blue ring is the only blue there. The `:where()` keeps this
+   rule at the specificity of the bare `a` it replaces, so a component that sets its
+   own colour (the nav items, the card links) keeps it. */
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) a:not(.button) {
+  :where(:root:not([data-theme="light"])) a:where(:not(.button)) {
     color: var(--cz-black);
   }
 }
 
-:root[data-theme="dark"] a:not(.button) {
+:where(:root[data-theme="dark"]) a:where(:not(.button)) {
   color: var(--cz-black);
 }
 
